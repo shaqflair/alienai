@@ -1,13 +1,11 @@
-// src/components/home/HomePage.tsx — POLISHED v9.3
+// src/components/home/HomePage.tsx — POLISHED v9.4
 //
-// Fixes vs v9.2:
-//   ✅ HP-F8: PortfolioHealthApi type updated — reads both `portfolio_health` (legacy)
-//            and `score` (new field from v13 route). apiScore now correctly resolves.
-//   ✅ HP-F9: parts type updated to match shared scorer shape:
-//            { schedule, raid, budget, governance } — old flow/approvals/activity removed.
-//   ✅ HP-F10: Active Projects row in portfolio still reads from data.rag (SSR, stored
-//             RAG rows). This is intentional — it is a separate signal from the live
-//             scorer. The Portfolio Health KPI now always shows the live scorer value.
+// Fixes vs v9.3:
+//   ✅ HP-F11: Active Projects row now shows live scorer health instead of stale
+//             AI-generated RAG rows from project_health table.
+//             - PortfolioHealthApi type updated to include projectScores map
+//             - liveRagMap derived from phData.projectScores overrides ragMap (SSR)
+//             - ProjectRow receives liveRagMap so health bar/% shows live value
 
 "use client";
 
@@ -93,31 +91,23 @@ type RaidPanel = {
   risk_hi?: number; issue_hi?: number;
 };
 
-// HP-F8: Updated to handle both old field name (portfolio_health) and new (score).
-// Also updated parts shape to match shared scorer output.
 type PortfolioHealthApi =
   | { ok: false; error: string; meta?: any }
   | {
       ok: true;
-      // New field name from v13 route
       score: number | null;
-      // Legacy alias — also emitted by v13 route for backward compat
       portfolio_health: number;
       days?: 7 | 14 | 30 | 60 | "all";
       windowDays?: number;
       projectCount: number;
-      // HP-F9: Updated parts shape — { schedule, raid, budget, governance }
-      // Legacy fields (flow, approvals, activity) may also be present as aliases
       parts: {
-        schedule: number | null;
-        raid: number | null;
-        budget: number | null;
-        governance: number | null;
-        // Legacy aliases (optional, may be present from old route versions)
-        flow?: number | null;
-        approvals?: number | null;
-        activity?: number | null;
+        schedule: number | null; raid: number | null;
+        budget: number | null; governance: number | null;
+        flow?: number | null; approvals?: number | null; activity?: number | null;
       };
+      // HP-F11: Live per-project scores from the shared scorer
+      // { [projectId]: { score: number, rag: "G"|"A"|"R" } }
+      projectScores?: Record<string, { score: number; rag: "G" | "A" | "R" }>;
       drivers?: any[];
       meta?: any;
     };
@@ -170,16 +160,16 @@ function hasActiveFilters(f: PortfolioFilters) {
 }
 function searchParamsToFilters(sp: URLSearchParams): PortfolioFilters {
   const q = safeStr(sp.get("q")).trim() || undefined;
-  const projectId = uniqStrings(sp.getAll("projectId").flatMap((x) => x.split(",")));
+  const projectId   = uniqStrings(sp.getAll("projectId").flatMap((x) => x.split(",")));
   const projectCode = uniqStrings([
     ...sp.getAll("projectCode").flatMap((x) => x.split(",")),
     ...sp.getAll("code").flatMap((x) => x.split(",")),
   ]);
   const projectName = uniqStrings(sp.getAll("name").flatMap((x) => x.split(",")));
-  const pm = uniqStrings(sp.getAll("pm").flatMap((x) => x.split(",")));
+  const pm   = uniqStrings(sp.getAll("pm").flatMap((x) => x.split(",")));
   const dept = uniqStrings(sp.getAll("dept").flatMap((x) => x.split(",")));
   const out: PortfolioFilters = {};
-  if (q) out.q = q;
+  if (q)              out.q = q;
   if (projectId.length)   out.projectId = projectId;
   if (projectName.length) out.projectName = projectName;
   if (projectCode.length) out.projectCode = projectCode;
@@ -226,9 +216,7 @@ function appendFiltersToApi(baseUrl: string, f: PortfolioFilters, projectOptions
     (derived.projectManagerId ?? []).forEach((v) => sp.append("pm", v));
     (derived.department ?? []).forEach((v) => sp.append("dept", v));
     return u.pathname + (sp.toString() ? `?${sp.toString()}` : "");
-  } catch {
-    return baseUrl;
-  }
+  } catch { return baseUrl; }
 }
 function appendFiltersToUrl(path: string, f: PortfolioFilters) {
   const sp = filtersToSearchParams(f);
@@ -282,7 +270,7 @@ function notifIcon(n: NotifRow) {
   const t = safeStr(n.type).toLowerCase();
   const sev = severityFromNotif(n);
   if (typeLooksApproval(t)) return <ShieldCheck className="h-4 w-4" />;
-  if (typeLooksAI(t)) return <Sparkles className="h-4 w-4" />;
+  if (typeLooksAI(t))       return <Sparkles className="h-4 w-4" />;
   if (t.includes("overdue")) return <Clock3 className="h-4 w-4" />;
   if (t.includes("success") || t.includes("trophy")) return <Trophy className="h-4 w-4" />;
   if (sev === "high") return <AlertTriangle className="h-4 w-4" />;
@@ -438,11 +426,9 @@ function RejectionModal({
               </div>
             </div>
             <label className="block text-xs font-medium text-gray-600 mb-1.5">Reason (optional)</label>
-            <textarea
-              value={reason} onChange={(e) => setReason(e.target.value)}
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)}
               placeholder="Provide context\u2026" rows={3} autoFocus
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-            />
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" />
             <div className="flex gap-2.5 mt-4">
               <button type="button" onClick={onCancel}
                 className="flex-1 h-9 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">
@@ -561,7 +547,6 @@ function NotificationBell() {
           </span>
         )}
       </button>
-
       <AnimatePresence>
         {open && (
           <>
@@ -725,7 +710,14 @@ function InsightCard({ severity, title, body, href }: {
 
 /* --- Project Row ---------------------------------------------------------- */
 
-function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLetter; health: number }> }) {
+function ProjectRow({
+  p,
+  ragMap,
+}: {
+  p: any;
+  // HP-F11: ragMap now receives the merged live+SSR map
+  ragMap: Map<string, { rag: RagLetter; health: number }>;
+}) {
   const router = useRouter();
   const code = projectCodeLabel(p?.project_code);
   const pid = String(p?.id || "").trim();
@@ -998,9 +990,7 @@ function FilterDrawer({
                     className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400" />
                   {local.q && (
                     <button type="button" onClick={() => setLocal((p) => ({ ...p, q: undefined }))}
-                      className="text-gray-300 hover:text-gray-500">
-                      <X className="h-4 w-4" />
-                    </button>
+                      className="text-gray-300 hover:text-gray-500"><X className="h-4 w-4" /></button>
                   )}
                 </div>
               </div>
@@ -1163,7 +1153,7 @@ export default function HomePage({ data }: { data: HomeData }) {
       if (idSet.size && !idSet.has(pid)) return false;
       if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
       if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
-      if (pmSet.size && !(pmSet.has(pm) || pmSet.has(pmName) || (pm === "" && pmSet.has(pmName)))) return false;
+      if (pmSet.size && !(pmSet.has(pm) || pmSet.has(pmName))) return false;
       if (deptNeedles.length && (!dept || !deptNeedles.some((d) => dept.includes(d)))) return false;
       if (q) {
         const hay = `${title} ${code} ${dept} ${pmName}`.trim();
@@ -1203,6 +1193,7 @@ export default function HomePage({ data }: { data: HomeData }) {
     [activeProjects],
   );
 
+  // SSR RAG map from project_health table (stale AI-generated)
   const ragMap = useMemo(() => {
     const m2 = new Map<string, { rag: RagLetter; health: number }>();
     for (const it of rag || []) {
@@ -1211,9 +1202,36 @@ export default function HomePage({ data }: { data: HomeData }) {
     return m2;
   }, [rag]);
 
+  // HP-F11: Live RAG map from the shared scorer — overrides stale SSR values.
+  // Merges live scores on top of SSR so projects without a live score still show SSR value.
+  const mergedRagMap = useMemo(() => {
+    const merged = new Map(ragMap);
+    if (phData?.ok && phData.projectScores) {
+      for (const [pid, { score, rag: liveRag }] of Object.entries(phData.projectScores)) {
+        merged.set(pid, { rag: liveRag, health: score });
+      }
+    }
+    return merged;
+  }, [ragMap, phData]);
+
   const ragAgg = useMemo(() => calcRagAgg(rag as any, activeProjects as any), [rag, activeProjects]);
 
-  // Effects — resource, wins, insights, fp, due, raid (unchanged from v9.2)
+  // HP-F11: Live RAG counts from mergedRagMap (not stale SSR ragAgg)
+  const liveRagCounts = useMemo(() => {
+    let g = 0, a = 0, r = 0;
+    for (const p of activeProjects as any[]) {
+      const pid = String(p?.id || "").trim();
+      const entry = mergedRagMap.get(pid);
+      if (!entry) continue;
+      if (entry.rag === "G") g++;
+      else if (entry.rag === "A") a++;
+      else if (entry.rag === "R") r++;
+    }
+    return { g, a, r };
+  }, [activeProjects, mergedRagMap]);
+
+  /* ── Effects ── */
+
   useEffect(() => {
     if (!ok) return;
     let c = false;
@@ -1340,8 +1358,6 @@ export default function HomePage({ data }: { data: HomeData }) {
     return () => { c = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
-  // HP-F7 + HP-F8: Fetch live portfolio health score.
-  // Read BOTH `score` (new) and `portfolio_health` (legacy alias) — whichever is set.
   useEffect(() => {
     if (!ok) return;
     let cancelled = false;
@@ -1350,8 +1366,7 @@ export default function HomePage({ data }: { data: HomeData }) {
         try {
           const url = appendFiltersToApi(
             `/api/portfolio/health?days=${numericWindowDays}`,
-            urlFilters,
-            projectOptions,
+            urlFilters, projectOptions,
           );
           const j = await fetchJson<PortfolioHealthApi>(url, { cache: "no-store" });
           if (!cancelled && j?.ok) setPhData(j);
@@ -1380,8 +1395,8 @@ export default function HomePage({ data }: { data: HomeData }) {
     return () => { c = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
-  // HP-F8: Read `score` first (new field), fall back to `portfolio_health` (legacy alias).
-  // Both are now emitted by the v13 route so this is belt-and-braces.
+  /* ── Derived values ── */
+
   const apiScore = phData?.ok
     ? clamp01to100(
         (phData as any).score != null
@@ -1425,8 +1440,8 @@ export default function HomePage({ data }: { data: HomeData }) {
     ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
   const fpRag = fpHasData ? (((fpSummary as any).rag || _fpPortfolioPre?.rag) as RagLetter ?? null) : null;
   const fpCurrency = fpHasData ? (safeStr((fpSummary as any).currency || _fpPortfolioPre?.currency).trim() || "£") : "£";
-
   const _fpPortfolio = _fpPortfolioPre;
+
   const _fpBudgetRaw = fpHasData ? (() => {
     const s = fpSummary as any;
     const p = _fpPortfolio ?? {};
@@ -1544,6 +1559,11 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fpColorKey = !fpHasData ? "blue" : fpRag === "G" ? "green" : fpRag === "A" ? "amber" : "red";
   const allDueItems = dueItems.slice(0, 8);
 
+  // HP-F11: Use live counts if available, fall back to SSR ragAgg
+  const displayRagCounts = phData?.ok
+    ? liveRagCounts
+    : { g: ragAgg.g, a: ragAgg.a, r: ragAgg.r };
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); *, *::before, *::after { box-sizing: border-box; } body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; -webkit-font-smoothing: antialiased; }` }} />
@@ -1641,7 +1661,7 @@ export default function HomePage({ data }: { data: HomeData }) {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KpiCard label="Portfolio Health"
                 value={phScoreForUi == null ? "\u2026" : `${phScoreForUi}%`}
-                sub={ragAgg.scored ? `${ragAgg.g} Green \u00b7 ${ragAgg.a} Amber \u00b7 ${ragAgg.r} Red` : "live portfolio score"}
+                sub={`${displayRagCounts.g} Green \u00b7 ${displayRagCounts.a} Amber \u00b7 ${displayRagCounts.r} Red`}
                 icon={<Activity className="h-5 w-5" />}
                 colorKey={phScoreForUi == null ? "blue" : phColorKey}
                 trendLabel={phDelta != null && phDelta !== 0 ? `${Math.abs(Math.round(phDelta))}` : undefined}
@@ -1732,7 +1752,8 @@ export default function HomePage({ data }: { data: HomeData }) {
             {/* RAG + Projects + Sidebar */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 space-y-4">
-                {ragAgg.scored > 0 && (
+                {/* HP-F11: Uses liveRagCounts when available */}
+                {(phData?.ok ? liveRagCounts.g + liveRagCounts.a + liveRagCounts.r : ragAgg.scored) > 0 && (
                   <m.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
                     className="bg-white rounded-2xl border border-gray-100 px-6 py-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                     <div className="flex items-center justify-between mb-4">
@@ -1744,27 +1765,30 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       {[
-                        { rag: "G" as RagLetter, count: ragAgg.g, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, label: "Green", threshold: "\u2265 85% health", from: "#f0fdf4", border: "#dcfce7" },
-                        { rag: "A" as RagLetter, count: ragAgg.a, icon: <AlertTriangle className="h-4 w-4 text-amber-600" />, label: "Amber", threshold: "70\u201384% health", from: "#fffbeb", border: "#fef3c7" },
-                        { rag: "R" as RagLetter, count: ragAgg.r, icon: <AlertTriangle className="h-4 w-4 text-red-500" />,   label: "Red",   threshold: "< 70% health",   from: "#fef2f2", border: "#fecaca" },
-                      ].map(({ rag: r, count, icon, label, threshold, from, border }) => (
-                        <div key={r} className="rounded-xl p-4 cursor-pointer transition-all hover:brightness-[0.97]"
-                          style={{ background: from, border: `1px solid ${border}` }}
-                          onClick={() => router.push(appendFiltersToUrl(`/insights?rag=${r}&days=${numericWindowDays}`, urlFilters))}>
-                          <div className="flex items-center gap-2 mb-2">
-                            {icon}
-                            <span className="text-xs font-bold uppercase tracking-wider"
-                              style={{ color: r === "G" ? "#15803d" : r === "A" ? "#92400e" : "#991b1b" }}>{label}</span>
+                        { rag: "G" as RagLetter, count: displayRagCounts.g, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, label: "Green", threshold: "\u2265 85% health", from: "#f0fdf4", border: "#dcfce7" },
+                        { rag: "A" as RagLetter, count: displayRagCounts.a, icon: <AlertTriangle className="h-4 w-4 text-amber-600" />, label: "Amber", threshold: "70\u201384% health", from: "#fffbeb", border: "#fef3c7" },
+                        { rag: "R" as RagLetter, count: displayRagCounts.r, icon: <AlertTriangle className="h-4 w-4 text-red-500" />,   label: "Red",   threshold: "< 70% health",   from: "#fef2f2", border: "#fecaca" },
+                      ].map(({ rag: r, count, icon, label, threshold, from, border }) => {
+                        const total = displayRagCounts.g + displayRagCounts.a + displayRagCounts.r;
+                        return (
+                          <div key={r} className="rounded-xl p-4 cursor-pointer transition-all hover:brightness-[0.97]"
+                            style={{ background: from, border: `1px solid ${border}` }}
+                            onClick={() => router.push(appendFiltersToUrl(`/insights?rag=${r}&days=${numericWindowDays}`, urlFilters))}>
+                            <div className="flex items-center gap-2 mb-2">
+                              {icon}
+                              <span className="text-xs font-bold uppercase tracking-wider"
+                                style={{ color: r === "G" ? "#15803d" : r === "A" ? "#92400e" : "#991b1b" }}>{label}</span>
+                            </div>
+                            <div className="text-3xl font-bold leading-none mb-1"
+                              style={{ color: r === "G" ? "#15803d" : r === "A" ? "#b45309" : "#dc2626" }}>{count}</div>
+                            <div className="text-xs mt-0.5" style={{ color: r === "G" ? "#16a34a" : r === "A" ? "#d97706" : "#ef4444", opacity: 0.8 }}>
+                              {total > 0 ? `${Math.round((count / total) * 100)}% of total` : ""}
+                            </div>
+                            <div className="mt-2 text-[10px] font-semibold"
+                              style={{ color: r === "G" ? "#166534" : r === "A" ? "#92400e" : "#991b1b", opacity: 0.7 }}>{threshold}</div>
                           </div>
-                          <div className="text-3xl font-bold leading-none mb-1"
-                            style={{ color: r === "G" ? "#15803d" : r === "A" ? "#b45309" : "#dc2626" }}>{count}</div>
-                          <div className="text-xs mt-0.5" style={{ color: r === "G" ? "#16a34a" : r === "A" ? "#d97706" : "#ef4444", opacity: 0.8 }}>
-                            {ragAgg.scored > 0 ? `${Math.round((count / ragAgg.scored) * 100)}% of total` : ""}
-                          </div>
-                          <div className="mt-2 text-[10px] font-semibold"
-                            style={{ color: r === "G" ? "#166534" : r === "A" ? "#92400e" : "#991b1b", opacity: 0.7 }}>{threshold}</div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </m.div>
                 )}
@@ -1777,9 +1801,10 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </div>
                     <span className="text-xs text-gray-400 pr-12">Health</span>
                   </div>
+                  {/* HP-F11: Pass mergedRagMap so rows show live scorer values */}
                   {sortedProjects.slice(0, 9).map((p: any, i) => (
                     <m.div key={String(p.id || i)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.03 * i }}>
-                      <ProjectRow p={p} ragMap={ragMap} />
+                      <ProjectRow p={p} ragMap={mergedRagMap} />
                     </m.div>
                   ))}
                   {sortedProjects.length === 0 && <div className="py-14 text-center text-gray-400 text-sm">No active projects</div>}

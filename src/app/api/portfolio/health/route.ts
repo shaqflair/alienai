@@ -1,7 +1,6 @@
-// src/app/api/portfolio/health/route.ts — v13
-// Emits both `score` (new) and `portfolio_health` (legacy alias) so the
-// HomePage and any other consumers that read portfolio_health keep working.
-// Parts shape updated to match shared scorer: { schedule, raid, budget, governance }
+// src/app/api/portfolio/health/route.ts — v14
+// Adds perProject scores to response so HomePage can show live per-project health
+// instead of reading stale AI-generated RAG rows from project_health table.
 
 import "server-only";
 
@@ -248,6 +247,15 @@ async function applyProjectFilters(
   return { projectIds: outIds, meta };
 }
 
+/* ─── score → rag helper ─── */
+
+function scoreToRag(score: number | null): "G" | "A" | "R" | null {
+  if (score == null) return null;
+  if (score >= 85) return "G";
+  if (score >= 70) return "A";
+  return "R";
+}
+
 /* ─── handler ─── */
 
 async function handle(req: Request, method: "GET" | "POST") {
@@ -272,7 +280,6 @@ async function handle(req: Request, method: "GET" | "POST") {
       filters = parseFiltersFromBody(body);
     }
 
-    // 1) Resolve org-wide portfolio scope
     const scope = await resolvePortfolioScope(supabase, auth.user.id);
     const scopeMeta = scope.meta ?? {};
     const orgId = scope.organisationId ?? null;
@@ -284,48 +291,35 @@ async function handle(req: Request, method: "GET" | "POST") {
           : [],
     );
 
+    const emptyResponse = {
+      score: null,
+      portfolio_health: 0,
+      projectCount: 0,
+      parts: { schedule: null, raid: null, budget: null, governance: null },
+      // Empty per-project scores
+      projectScores: {} as Record<string, { score: number; rag: "G" | "A" | "R" }>,
+      drivers: [],
+    };
+
     if (!orgId) {
       return jsonOk({
-        // Both field names for compatibility
-        score: null,
-        portfolio_health: 0,
-        projectCount: 0,
-        parts: { schedule: null, raid: null, budget: null, governance: null },
-        drivers: [],
-        meta: {
-          organisationId: null,
-          days: daysParam,
-          windowDays,
-          notes: ["No active organisation resolved."],
-        },
+        ...emptyResponse,
+        meta: { organisationId: null, days: daysParam, windowDays, notes: ["No active organisation resolved."] },
       });
     }
 
-    // 2) Filter to active projects
     const activeNotes: string[] = [];
     const activeIds = await resolveActiveProjectIds(supabase, scopedIdsRaw, orgId, activeNotes);
 
-    // 3) Apply dashboard filters
     const filtered = await applyProjectFilters(supabase, activeIds, filters);
     const finalProjectIds = filtered.projectIds;
 
     if (!finalProjectIds.length) {
       return jsonOk({
-        score: null,
-        portfolio_health: 0,
-        projectCount: 0,
-        parts: { schedule: null, raid: null, budget: null, governance: null },
-        drivers: [],
+        ...emptyResponse,
         meta: {
-          organisationId: orgId,
-          days: daysParam,
-          windowDays,
-          activeFilter: {
-            rawCount: scopedIdsRaw.length,
-            activeCount: activeIds.length,
-            finalCount: 0,
-            notes: activeNotes,
-          },
+          organisationId: orgId, days: daysParam, windowDays,
+          activeFilter: { rawCount: scopedIdsRaw.length, activeCount: activeIds.length, finalCount: 0, notes: activeNotes },
           filters: filtered.meta,
           scope: { ...scopeMeta, scopedIdsRaw, scopedIdsActive: activeIds },
           notes: ["No active projects in scope after filtering."],
@@ -333,29 +327,37 @@ async function handle(req: Request, method: "GET" | "POST") {
       });
     }
 
-    // 4) Compute health using shared scorer
     const health = await computePortfolioHealth(supabase, finalProjectIds, windowDays);
-
     const scoreValue = health.score ?? 0;
+
+    // Build per-project score map for the HomePage to consume.
+    // Shape: { [projectId]: { score: number, rag: "G"|"A"|"R" } }
+    const projectScores: Record<string, { score: number; rag: "G" | "A" | "R" }> = {};
+    for (const [pid, result] of Object.entries(health.perProject)) {
+      if (result.score == null) continue;
+      const rag = scoreToRag(result.score);
+      if (!rag) continue;
+      projectScores[pid] = { score: result.score, rag };
+    }
 
     return jsonOk({
       // New field name
       score: health.score,
-      // Legacy alias — keeps HomePage and any other consumer working without changes
+      // Legacy alias
       portfolio_health: scoreValue,
       projectCount: health.projectCount,
-      // New parts shape: { schedule, raid, budget, governance }
-      // Also emit legacy shape fields so old consumers don't break
       parts: {
         schedule:   health.parts.schedule,
         raid:       health.parts.raid,
         budget:     health.parts.budget,
         governance: health.parts.governance,
         // Legacy aliases
-        flow:       health.parts.budget,      // budget is the closest equivalent to old "flow"
-        approvals:  health.parts.governance,  // governance covers approvals
-        activity:   null,                     // no longer computed separately
+        flow:      health.parts.budget,
+        approvals: health.parts.governance,
+        activity:  null,
       },
+      // Per-project live scores — used by HomePage to replace stale RAG rows
+      projectScores,
       drivers: [],
       meta: {
         organisationId: orgId,
@@ -385,12 +387,5 @@ async function handle(req: Request, method: "GET" | "POST") {
   }
 }
 
-/* ─── exports ─── */
-
-export async function GET(req: Request) {
-  return handle(req, "GET");
-}
-
-export async function POST(req: Request) {
-  return handle(req, "POST");
-}
+export async function GET(req: Request) { return handle(req, "GET"); }
+export async function POST(req: Request) { return handle(req, "POST"); }
