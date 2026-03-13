@@ -226,39 +226,46 @@ async function handle(req: Request, filters: PortfolioFilters) {
     projects = projRows ?? [];
   }
 
-  // 4) Fetch artifacts — try content_json first, fall back to content
-  //    Also try without column restriction in case schema differs
+  // 4) Fetch artifacts — try multiple type values (hyphen vs underscore) and column sets
   let artifacts: any[] = [];
-  const artSelects = [
-    "id, project_id, content_json, content, updated_at",
-    "id, project_id, content_json, updated_at",
-    "id, project_id, content, updated_at",
-    "id, project_id, updated_at",
-  ];
+  const artTypes = ["FINANCIAL_PLAN", "financial_plan", "financial-plan", "financialPlan", "FINANCIAL_PLAN_ARTIFACT", "budget"];
+  const artSel = "id, project_id, content_json, content, updated_at";
+  let matchedType = "";
 
-  for (const sel of artSelects) {
+  for (const artType of artTypes) {
     const { data, error } = await supabase
       .from("artifacts")
-      .select(sel)
+      .select(artSel)
       .in("project_id", projectIds)
-      .eq("type", "financial_plan")
+      .eq("type", artType)
       .order("updated_at", { ascending: false })
       .limit(20000);
 
-    if (!error && Array.isArray(data)) {
+    console.log(`[fps] type="${artType}" count=${data?.length ?? 0} err=${error?.message ?? "none"}`);
+
+    if (!error && Array.isArray(data) && data.length > 0) {
       artifacts = data;
-      console.log(`[fps] artifact select OK with "${sel}", count=${data.length}`);
-      if (data.length > 0) {
-        const sample = data[0];
-        console.log("[fps] sample artifact keys:", Object.keys(sample));
-        const contentRaw = sample.content_json ?? sample.content;
-        console.log("[fps] content_json type:", typeof sample.content_json, "| content type:", typeof sample.content);
-        console.log("[fps] content raw (first 300 chars):", JSON.stringify(contentRaw)?.slice(0, 300));
-      }
+      matchedType = artType;
+      const sample = data[0];
+      console.log("[fps] matched type:", artType, "| artifact keys:", Object.keys(sample));
+      const contentRaw = sample.content_json ?? sample.content;
+      console.log("[fps] content_json type:", typeof sample.content_json, "| content type:", typeof sample.content);
+      console.log("[fps] content raw (first 300 chars):", JSON.stringify(contentRaw)?.slice(0, 300));
       break;
     }
-    console.warn(`[fps] artifact select FAILED with "${sel}":`, error?.message);
-    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
+  }
+
+  // If still empty, do a type-free query to see what types exist for these projects
+  if (artifacts.length === 0) {
+    const { data: typeCheck } = await supabase
+      .from("artifacts")
+      .select("id, type, project_id, updated_at")
+      .in("project_id", projectIds)
+      .order("updated_at", { ascending: false })
+      .limit(50);
+    const types = [...new Set((typeCheck ?? []).map((a: any) => a.type))];
+    console.log(`[fps] NO financial plan found. All artifact types for these projects:`, types);
+    console.log(`[fps] Total artifacts for projects:`, typeCheck?.length ?? 0);
   }
 
   const planByProject = new Map<string, any>();
