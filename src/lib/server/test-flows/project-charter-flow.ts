@@ -1,10 +1,18 @@
 import "server-only";
 
-import { createClient } from "@/utils/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type CharterFlowScenario = "happy_path" | "reject_step_2" | "sla_breach";
+export type Scenario = "happy_path" | "reject_step_2" | "sla_breach";
 
-type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+export type RunProjectCharterFlowInput = {
+  supabase: SupabaseClient;
+  organisationId: string;
+  userId: string;
+  scenario?: Scenario;
+  programmeLeadEmail?: string | null;
+  commercialLeadEmail?: string | null;
+  accountLeadEmail?: string | null;
+};
 
 function asString(value: unknown, fallback = "") {
   return typeof value === "string" ? value : value == null ? fallback : String(value);
@@ -22,43 +30,6 @@ async function getUserIdByEmail(supabase: SupabaseClient, email: string) {
   return data.id as string;
 }
 
-async function getActiveOrganisationId(supabase: SupabaseClient, userId: string) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("active_organisation_id")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error) throw new Error(`Failed to resolve active organisation: ${error.message}`);
-  if (!data?.active_organisation_id) throw new Error("No active organisation found");
-  return data.active_organisation_id as string;
-}
-
-async function assertDevAccess(
-  supabase: SupabaseClient,
-  organisationId: string,
-  userId: string
-) {
-  const allowProdDevTests = process.env.ALLOW_DEV_APPROVAL_TESTS === "true";
-
-  if (process.env.NODE_ENV === "production" && !allowProdDevTests) {
-    throw new Error("Project charter flow test is disabled in production");
-  }
-
-  const { data, error } = await supabase
-    .from("organisation_members")
-    .select("role")
-    .eq("organisation_id", organisationId)
-    .eq("user_id", userId)
-    .is("removed_at", null)
-    .maybeSingle();
-
-  if (error) throw new Error(`Failed to verify organisation role: ${error.message}`);
-  if (!data?.role || !["owner", "admin"].includes(data.role)) {
-    throw new Error("Admin or owner access required");
-  }
-}
-
 async function getOrCreateTestProject(
   supabase: SupabaseClient,
   organisationId: string,
@@ -68,7 +39,7 @@ async function getOrCreateTestProject(
 
   const existing = await supabase
     .from("projects")
-    .select("id,title,project_code,organisation_id,status,lifecycle_status")
+    .select("id,title,project_code,organisation_id")
     .eq("organisation_id", organisationId)
     .eq("project_code", projectCode)
     .is("deleted_at", null)
@@ -93,7 +64,7 @@ async function getOrCreateTestProject(
       lifecycle_status: "active",
       colour: "#00B8DB",
     })
-    .select("id,title,project_code,organisation_id,status,lifecycle_status")
+    .select("id,title,project_code,organisation_id")
     .single();
 
   if (insert.error) {
@@ -114,7 +85,7 @@ async function createProjectCharterArtifact(
     scope: "Phase 1 governance implementation",
     budget: 1200000,
     timeline: "6 months",
-    key_risks: ["Resource availability", "Approval delay", "Commercial sign-off dependency"],
+    key_risks: ["Resource availability", "Approval delay", "Dependency on commercial sign-off"],
   };
 
   const result = await supabase
@@ -123,7 +94,7 @@ async function createProjectCharterArtifact(
       organisation_id: organisationId,
       project_id: projectId,
       artifact_type: "project_charter",
-      title: `Project Charter - AI Governance Pilot - ${new Date().toISOString()}`,
+      title: "Project Charter - AI Governance Pilot",
       status: "draft",
       is_current: true,
       version_no: 1,
@@ -144,6 +115,7 @@ async function createProjectCharterArtifact(
 async function createApprovalChain(
   supabase: SupabaseClient,
   artifactId: string,
+  projectId: string,
   organisationId: string,
   createdBy: string,
   approverIds: {
@@ -156,12 +128,14 @@ async function createApprovalChain(
     .from("approval_chains")
     .insert({
       organisation_id: organisationId,
+      project_id: projectId,
       artifact_id: artifactId,
-      chain_type: "artifact",
+      artifact_type: "project_charter",
+      is_active: true,
       status: "active",
       created_by: createdBy,
     })
-    .select("id,status,artifact_id")
+    .select("id,status,artifact_id,project_id,artifact_type,is_active")
     .single();
 
   if (chain.error) {
@@ -272,7 +246,7 @@ async function createApprovalChain(
     artifact_id: artifactId,
     action: "submitted",
     actor_user_id: createdBy,
-    comment: "Dev test flow submission",
+    comment: "Test flow submission",
   });
 
   return {
@@ -373,8 +347,8 @@ async function approveStep(
     const closeChain = await supabase
       .from("approval_chains")
       .update({
-        status: "completed",
-        completed_at: new Date().toISOString(),
+        status: "approved",
+        is_active: false,
       })
       .eq("artifact_id", artifactId);
 
@@ -454,12 +428,12 @@ async function rejectStep(
   const chainUpdate = await supabase
     .from("approval_chains")
     .update({
-      status: "terminated",
-      completed_at: new Date().toISOString(),
+      status: "rejected",
+      is_active: false,
     })
     .eq("artifact_id", artifactId);
 
-  if (chainUpdate.error) throw new Error(`Chain terminate failed: ${chainUpdate.error.message}`);
+  if (chainUpdate.error) throw new Error(`Chain reject failed: ${chainUpdate.error.message}`);
 
   const artifactUpdate = await supabase
     .from("artifacts")
@@ -519,7 +493,7 @@ async function readFinalState(supabase: SupabaseClient, artifactId: string) {
 
   const chain = await supabase
     .from("approval_chains")
-    .select("id,status,completed_at")
+    .select("id,status,is_active,project_id,artifact_type,created_at")
     .eq("artifact_id", artifactId)
     .maybeSingle();
 
@@ -549,7 +523,7 @@ async function readFinalState(supabase: SupabaseClient, artifactId: string) {
   };
 }
 
-function buildAssertions(state: any, scenario: CharterFlowScenario) {
+function buildAssertions(state: any, scenario: Scenario) {
   const checks: Array<{ name: string; pass: boolean; actual?: unknown }> = [];
 
   checks.push({
@@ -571,9 +545,14 @@ function buildAssertions(state: any, scenario: CharterFlowScenario) {
       actual: state?.artifact?.status,
     });
     checks.push({
-      name: "Chain completed",
-      pass: state?.chain?.status === "completed",
+      name: "Chain approved",
+      pass: state?.chain?.status === "approved",
       actual: state?.chain?.status,
+    });
+    checks.push({
+      name: "Chain inactive after approval",
+      pass: state?.chain?.is_active === false,
+      actual: state?.chain?.is_active,
     });
     checks.push({
       name: "Three steps approved",
@@ -589,9 +568,14 @@ function buildAssertions(state: any, scenario: CharterFlowScenario) {
       actual: state?.artifact?.status,
     });
     checks.push({
-      name: "Chain terminated",
-      pass: state?.chain?.status === "terminated",
+      name: "Chain rejected",
+      pass: state?.chain?.status === "rejected",
       actual: state?.chain?.status,
+    });
+    checks.push({
+      name: "Chain inactive after rejection",
+      pass: state?.chain?.is_active === false,
+      actual: state?.chain?.is_active,
     });
   }
 
@@ -605,57 +589,45 @@ function buildAssertions(state: any, scenario: CharterFlowScenario) {
         sla_status: s.sla_status,
       })),
     });
+    checks.push({
+      name: "Chain remains active during breach scenario",
+      pass: state?.chain?.status === "active" && state?.chain?.is_active === true,
+      actual: {
+        status: state?.chain?.status,
+        is_active: state?.chain?.is_active,
+      },
+    });
   }
 
-  return {
-    passed: checks.every((c) => c.pass),
-    checks,
-  };
+  const passed = checks.every((c) => c.pass);
+
+  return { passed, checks };
 }
 
-export async function runProjectCharterFlowTest(input?: {
-  scenario?: CharterFlowScenario;
-  programmeLeadEmail?: string;
-  commercialLeadEmail?: string;
-  accountLeadEmail?: string;
-}) {
-  const supabase = await createClient();
+export async function runProjectCharterFlow(input: RunProjectCharterFlowInput) {
+  const supabase = input.supabase;
+  const organisationId = asString(input.organisationId).trim();
+  const userId = asString(input.userId).trim();
+  const scenario = (asString(input.scenario, "happy_path") as Scenario) || "happy_path";
 
-  const scenario =
-    (asString(input?.scenario, "happy_path") as CharterFlowScenario) || "happy_path";
-
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-
-  if (authError || !user?.id) {
-    throw new Error(authError?.message || "Unauthorized");
-  }
-
-  const organisationId = await getActiveOrganisationId(supabase, user.id);
-  await assertDevAccess(supabase, organisationId, user.id);
+  if (!organisationId) throw new Error("Missing organisationId");
+  if (!userId) throw new Error("Missing userId");
 
   const programmeLeadEmail =
-    asString(input?.programmeLeadEmail).trim() || "alienaprogrammelead@gmail.com";
+    asString(input.programmeLeadEmail).trim() || "alienaprogrammelead@gmail.com";
   const commercialLeadEmail =
-    asString(input?.commercialLeadEmail).trim() || "paapa501@gmail.com";
+    asString(input.commercialLeadEmail).trim() || "paapa501@gmail.com";
   const accountLeadEmail =
-    asString(input?.accountLeadEmail).trim() || "alex.adupoku@yahoo.com";
+    asString(input.accountLeadEmail).trim() || "alex.adupoku@yahoo.com";
 
   const programmeLeadId = await getUserIdByEmail(supabase, programmeLeadEmail);
   const commercialLeadId = await getUserIdByEmail(supabase, commercialLeadEmail);
   const accountLeadId = await getUserIdByEmail(supabase, accountLeadEmail);
 
-  const project = await getOrCreateTestProject(supabase, organisationId, user.id);
-  const artifact = await createProjectCharterArtifact(
-    supabase,
-    project.id,
-    organisationId,
-    user.id
-  );
+  const project = await getOrCreateTestProject(supabase, organisationId, userId);
+  const artifact = await createProjectCharterArtifact(supabase, project.id, organisationId, userId);
 
-  await createApprovalChain(supabase, artifact.id, organisationId, user.id, {
+  await createApprovalChain(supabase, artifact.id, project.id, organisationId, userId, {
     programmeLeadId,
     commercialLeadId,
     accountLeadId,
@@ -718,14 +690,18 @@ export async function runProjectCharterFlowTest(input?: {
   return {
     ok: true,
     scenario,
-    organisationId,
-    project,
-    artifact_id: artifact.id,
-    approvers: {
+    approver_emails: {
       programmeLeadEmail,
       commercialLeadEmail,
       accountLeadEmail,
     },
+    approver_ids: {
+      programmeLeadId,
+      commercialLeadId,
+      accountLeadId,
+    },
+    project,
+    artifact_id: artifact.id,
     assertions,
     state,
   };
