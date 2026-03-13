@@ -1,15 +1,16 @@
-﻿// src/components/executive/GovernanceIntelligence.tsx — v10
+﻿// src/components/executive/GovernanceIntelligence.tsx — v11
 // ✅ FIX: Hero stats glass card is now collapsible (chevron toggle)
 // ✅ FIX: Active Tracks — no project codes in sub label
 // ✅ FIX: UUID scrubbing — user:<uuid> and bare UUIDs replaced with "a team member" in AI text
+// ✅ ADD: Optional developer Project Charter flow test panel wired into Governance Intelligence
 //
-// FILTER ALIGNMENT (v10):
+// FILTER ALIGNMENT (v11):
 //   ✅ GI-F1: Accepts dashboard filters prop
 //   ✅ GI-F2: Sends backend-compatible filters (code/name/pm/dept) to approvals pending API
 //   ✅ GI-F3: Sends backend-compatible filters (code/name/pm/dept) to governance-brain API
 //   ✅ GI-F4: Keeps org-wide dashboard visibility model; filters narrow the same scoped portfolio
 //
-// ACCESS CONTROL (v10):
+// ACCESS CONTROL (v11):
 //   ✅ All org members see the full dashboard — all project data is visible in tiles and heatmap
 //   ✅ Drill-down "Open" links in the DrillDrawer are locked for non-members
 //   ✅ HeatTile expand/collapse works for everyone (it only shows info already on screen)
@@ -20,11 +21,26 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ShieldCheck, Users, Layers, ArrowUpRight, X, AlertTriangle,
-  CheckCircle2, Brain, Flame, Eye, Activity, Clock, ChevronDown,
-  ChevronUp, FileText, Calendar, Lock,
+  ShieldCheck,
+  Users,
+  Layers,
+  ArrowUpRight,
+  X,
+  AlertTriangle,
+  CheckCircle2,
+  Brain,
+  Flame,
+  Eye,
+  Activity,
+  Clock,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Calendar,
+  Lock,
 } from "lucide-react";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
+import ProjectCharterFlowTestPanel from "@/components/governance/ProjectCharterFlowTestPanel";
 
 type Rag = "R" | "A" | "G";
 type DrawerFilter = "all" | "breached" | "at_risk" | "approver";
@@ -64,7 +80,9 @@ interface AiOutlookState {
   recommended: string | null;
 }
 
-const ss = (x: any): string => (typeof x === "string" ? x : x == null ? "" : String(x));
+const ss = (x: any): string =>
+  typeof x === "string" ? x : x == null ? "" : String(x);
+
 const sn = (x: any): number => {
   const n = Number(x);
   return Number.isFinite(n) ? n : 0;
@@ -107,7 +125,6 @@ function looksLikeUuid(s: any) {
   );
 }
 
-// ✅ UUID scrubbing — removes raw UUIDs and user:<uuid> from AI text
 function scrubUuids(text: string): string {
   if (!text) return text;
   let out = text.replace(
@@ -133,7 +150,11 @@ function normalise(raw: any) {
       ss(raw?.approver_user_id) ||
       ss(raw?.pending_user_id) ||
       "",
-    _stage: ss(raw?.stage_key) || ss(raw?.step_title) || ss(raw?.step_name) || "",
+    _stage:
+      ss(raw?.stage_key) ||
+      ss(raw?.step_title) ||
+      ss(raw?.step_name) ||
+      "",
     _ts: raw?.submitted_at ?? raw?.created_at ?? null,
   };
 }
@@ -150,7 +171,14 @@ function daysWaiting(it: ReturnType<typeof normalise>): number {
 
 function slaState(it: ReturnType<typeof normalise>): "ok" | "warn" | "overdue" {
   const s = it._sla.toLowerCase().trim();
-  if (s === "overdue" || s === "breached" || s === "r" || s === "overdue_undecided") return "overdue";
+  if (
+    s === "overdue" ||
+    s === "breached" ||
+    s === "r" ||
+    s === "overdue_undecided"
+  ) {
+    return "overdue";
+  }
   if (s === "warn" || s === "at_risk" || s === "a") return "warn";
   if (it._ho != null && it._ho > 0) return "overdue";
   return "ok";
@@ -205,7 +233,8 @@ const RAG: Record<
     badgeColor: "#9f1239",
     accent: "#f43f5e",
     accentGlow: "rgba(244,63,94,0.4)",
-    tileBg: "linear-gradient(135deg,rgba(255,241,242,0.92),rgba(255,255,255,0.82))",
+    tileBg:
+      "linear-gradient(135deg,rgba(255,241,242,0.92),rgba(255,255,255,0.82))",
     dayColor: "#e11d48",
     barColor: "#fb7185",
     barGlow: "0 0 8px rgba(244,63,94,0.4)",
@@ -218,7 +247,8 @@ const RAG: Record<
     badgeColor: "#92400e",
     accent: "#f59e0b",
     accentGlow: "rgba(245,158,11,0.35)",
-    tileBg: "linear-gradient(135deg,rgba(255,251,235,0.92),rgba(255,255,255,0.82))",
+    tileBg:
+      "linear-gradient(135deg,rgba(255,251,235,0.92),rgba(255,255,255,0.82))",
     dayColor: "#d97706",
     barColor: "#fbbf24",
   },
@@ -230,13 +260,12 @@ const RAG: Record<
     badgeColor: "#065f46",
     accent: "#10b981",
     accentGlow: "rgba(16,185,129,0.3)",
-    tileBg: "linear-gradient(135deg,rgba(255,255,255,0.96),rgba(248,250,255,0.88))",
+    tileBg:
+      "linear-gradient(135deg,rgba(255,255,255,0.96),rgba(248,250,255,0.88))",
     dayColor: "#374151",
     barColor: "#34d399",
   },
 };
-
-// ─── DRILL-DOWN DRAWER ────────────────────────────────────────────────────────
 
 function DrillDrawer({
   open,
@@ -256,9 +285,12 @@ function DrillDrawer({
   isAdmin: boolean;
 }) {
   const filtered = useMemo(() => {
-    if (filter === "breached") return items.filter((it) => slaState(it) === "overdue");
-    if (filter === "at_risk") return items.filter((it) => slaState(it) === "warn");
-    if (filter === "approver") return items.filter((it) => it._approver === approverLabel);
+    if (filter === "breached")
+      return items.filter((it) => slaState(it) === "overdue");
+    if (filter === "at_risk")
+      return items.filter((it) => slaState(it) === "warn");
+    if (filter === "approver")
+      return items.filter((it) => it._approver === approverLabel);
     return items;
   }, [items, filter, approverLabel]);
 
@@ -272,7 +304,11 @@ function DrillDrawer({
           : "All Pending Approvals";
 
   const accentColor =
-    filter === "breached" ? "#f43f5e" : filter === "at_risk" ? "#f59e0b" : "#6366f1";
+    filter === "breached"
+      ? "#f43f5e"
+      : filter === "at_risk"
+        ? "#f59e0b"
+        : "#6366f1";
 
   function canAccess(it: ReturnType<typeof normalise>): boolean {
     if (isAdmin) return true;
@@ -318,7 +354,8 @@ function DrillDrawer({
               zIndex: 51,
               background:
                 "linear-gradient(160deg,rgba(255,255,255,0.99),rgba(248,250,255,0.98))",
-              boxShadow: "-8px 0 48px rgba(99,102,241,0.12), -1px 0 0 rgba(226,232,240,0.8)",
+              boxShadow:
+                "-8px 0 48px rgba(99,102,241,0.12), -1px 0 0 rgba(226,232,240,0.8)",
               backdropFilter: "blur(32px) saturate(2)",
               display: "flex",
               flexDirection: "column",
@@ -328,7 +365,8 @@ function DrillDrawer({
               style={{
                 padding: "20px 24px",
                 borderBottom: "1px solid rgba(226,232,240,0.6)",
-                background: "linear-gradient(180deg,rgba(255,255,255,0.9),rgba(255,255,255,0.4))",
+                background:
+                  "linear-gradient(180deg,rgba(255,255,255,0.9),rgba(255,255,255,0.4))",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
@@ -362,7 +400,15 @@ function DrillDrawer({
                   >
                     Governance Detail
                   </div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>{title}</div>
+                  <div
+                    style={{
+                      fontSize: 15,
+                      fontWeight: 800,
+                      color: "#0f172a",
+                    }}
+                  >
+                    {title}
+                  </div>
                 </div>
               </div>
               <button
@@ -411,18 +457,38 @@ function DrillDrawer({
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
               {filtered.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "48px 0" }}>
-                  <CheckCircle2 size={32} color="#10b981" style={{ margin: "0 auto 12px" }} />
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "#374151" }}>
+                  <CheckCircle2
+                    size={32}
+                    color="#10b981"
+                    style={{ margin: "0 auto 12px" }}
+                  />
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: "#374151",
+                    }}
+                  >
                     Nothing to show
                   </div>
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                  }}
+                >
                   {filtered.map((it, i) => {
                     const state = slaState(it);
                     const age = daysWaiting(it);
                     const stateColor =
-                      state === "overdue" ? "#e11d48" : state === "warn" ? "#d97706" : "#059669";
+                      state === "overdue"
+                        ? "#e11d48"
+                        : state === "warn"
+                          ? "#d97706"
+                          : "#059669";
                     const stateBg =
                       state === "overdue"
                         ? "rgba(255,241,242,0.9)"
@@ -436,7 +502,11 @@ function DrillDrawer({
                           ? "rgba(252,211,77,0.6)"
                           : "rgba(110,231,183,0.6)";
                     const stateLabel =
-                      state === "overdue" ? "BREACHED" : state === "warn" ? "AT RISK" : "OK";
+                      state === "overdue"
+                        ? "BREACHED"
+                        : state === "warn"
+                          ? "AT RISK"
+                          : "OK";
                     const access = canAccess(it);
                     const href = projectHref(it);
 
@@ -472,7 +542,12 @@ function DrillDrawer({
                                 marginBottom: 3,
                               }}
                             >
-                              {ss(it?.artifact_title || it?.step_title || it?.artifact_type || "Approval")}
+                              {ss(
+                                it?.artifact_title ||
+                                  it?.step_title ||
+                                  it?.artifact_type ||
+                                  "Approval"
+                              )}
                             </div>
                             <div style={{ fontSize: 11, color: "#64748b" }}>
                               {ss(it?.project_title || it?.project_code || "—")}
@@ -496,15 +571,38 @@ function DrillDrawer({
                           </span>
                         </div>
 
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 8,
+                            marginBottom: 12,
+                          }}
+                        >
                           {it._stage && (
-                            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#64748b" }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                                fontSize: 10,
+                                color: "#64748b",
+                              }}
+                            >
                               <FileText size={10} />
                               <span>{it._stage}</span>
                             </div>
                           )}
                           {it._approver && (
-                            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#64748b" }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                                fontSize: 10,
+                                color: "#64748b",
+                              }}
+                            >
                               <Users size={10} />
                               <span
                                 style={{
@@ -532,7 +630,15 @@ function DrillDrawer({
                             <span>{age}d waiting</span>
                           </div>
                           {it._ts && (
-                            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#94a3b8" }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                                fontSize: 10,
+                                color: "#94a3b8",
+                              }}
+                            >
                               <Calendar size={10} />
                               <span>{fmtDate(it._ts)}</span>
                             </div>
@@ -581,7 +687,14 @@ function DrillDrawer({
                         )}
 
                         {it?.due_at && (
-                          <div style={{ marginTop: 8, fontSize: 10, color: stateColor, fontWeight: 600 }}>
+                          <div
+                            style={{
+                              marginTop: 8,
+                              fontSize: 10,
+                              color: stateColor,
+                              fontWeight: 600,
+                            }}
+                          >
                             Due: {fmtDate(it.due_at)}
                           </div>
                         )}
@@ -597,8 +710,6 @@ function DrillDrawer({
     </AnimatePresence>
   );
 }
-
-// ─── HERO STAT ────────────────────────────────────────────────────────────────
 
 function HeroStat({
   label,
@@ -626,7 +737,12 @@ function HeroStat({
       whileHover={onClick ? { y: -2 } : undefined}
       transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
       onClick={onClick}
-      style={{ ...CARD_STYLE, position: "relative", overflow: "hidden", cursor: onClick ? "pointer" : "default" }}
+      style={{
+        ...CARD_STYLE,
+        position: "relative",
+        overflow: "hidden",
+        cursor: onClick ? "pointer" : "default",
+      }}
     >
       <div
         style={{
@@ -697,13 +813,21 @@ function HeroStat({
         >
           {value}
         </div>
-        {sub && <div style={{ fontSize: 11, color: numColor || "#94a3b8", fontWeight: 500 }}>{sub}</div>}
+        {sub && (
+          <div
+            style={{
+              fontSize: 11,
+              color: numColor || "#94a3b8",
+              fontWeight: 500,
+            }}
+          >
+            {sub}
+          </div>
+        )}
       </div>
     </m.div>
   );
 }
-
-// ─── AI OUTLOOK ───────────────────────────────────────────────────────────────
 
 function AiOutlook({
   counts,
@@ -790,11 +914,19 @@ function AiOutlook({
           position: "absolute",
           inset: "0 0 auto 0",
           height: 1,
-          background: "linear-gradient(90deg,transparent,rgba(255,255,255,0.9),transparent)",
+          background:
+            "linear-gradient(90deg,transparent,rgba(255,255,255,0.9),transparent)",
           pointerEvents: "none",
         }}
       />
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 8,
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div
             style={{
@@ -875,14 +1007,14 @@ function AiOutlook({
           text
         )}
         {!aiLoading && rec && rec !== text && (
-          <span style={{ display: "block", marginTop: 4, color: "#64748b" }}>{rec}</span>
+          <span style={{ display: "block", marginTop: 4, color: "#64748b" }}>
+            {rec}
+          </span>
         )}
       </p>
     </div>
   );
 }
-
-// ─── HEAT TILE ────────────────────────────────────────────────────────────────
 
 function HeatTile({
   p,
@@ -907,13 +1039,19 @@ function HeatTile({
     <m.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.38, delay: idx * 0.055, ease: [0.16, 1, 0.3, 1] }}
+      transition={{
+        duration: 0.38,
+        delay: idx * 0.055,
+        ease: [0.16, 1, 0.3, 1],
+      }}
       onClick={onToggle}
       style={{
         position: "relative",
         overflow: "hidden",
         borderRadius: 14,
-        border: expanded ? `1.5px solid ${rc.accent}` : "1px solid rgba(226,232,240,0.7)",
+        border: expanded
+          ? `1.5px solid ${rc.accent}`
+          : "1px solid rgba(226,232,240,0.7)",
         background: rc.tileBg,
         backdropFilter: "blur(14px)",
         cursor: "pointer",
@@ -935,7 +1073,15 @@ function HeatTile({
       />
 
       <div style={{ padding: "14px 14px 14px 22px" }}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8, alignItems: "center" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            flexWrap: "wrap",
+            marginBottom: 8,
+            alignItems: "center",
+          }}
+        >
           <span
             style={{
               display: "inline-flex",
@@ -953,7 +1099,13 @@ function HeatTile({
             }}
           >
             <span
-              style={{ width: 6, height: 6, borderRadius: "50%", background: rc.dot, flexShrink: 0 }}
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: rc.dot,
+                flexShrink: 0,
+              }}
             />
             {rc.label}
           </span>
@@ -1006,7 +1158,14 @@ function HeatTile({
           </span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
+        >
           <div style={{ minWidth: 0, flex: 1 }}>
             <div
               style={{
@@ -1080,9 +1239,19 @@ function HeatTile({
             {p.counts.total} item{p.counts.total !== 1 ? "s" : ""}
           </span>
           <div style={{ display: "flex", gap: 8, fontSize: 9, fontWeight: 700 }}>
-            {p.counts.overdue > 0 && <span style={{ color: "#e11d48" }}>{p.counts.overdue} overdue</span>}
-            {p.counts.warn > 0 && <span style={{ color: "#d97706" }}>{p.counts.warn} at risk</span>}
-            {p.counts.ok > 0 && <span style={{ color: "#059669" }}>{p.counts.ok} ok</span>}
+            {p.counts.overdue > 0 && (
+              <span style={{ color: "#e11d48" }}>
+                {p.counts.overdue} overdue
+              </span>
+            )}
+            {p.counts.warn > 0 && (
+              <span style={{ color: "#d97706" }}>
+                {p.counts.warn} at risk
+              </span>
+            )}
+            {p.counts.ok > 0 && (
+              <span style={{ color: "#059669" }}>{p.counts.ok} ok</span>
+            )}
           </div>
         </div>
 
@@ -1154,7 +1323,11 @@ function HeatTile({
                   const state = slaState(it);
                   const age = daysWaiting(it);
                   const stateColor =
-                    state === "overdue" ? "#e11d48" : state === "warn" ? "#d97706" : "#059669";
+                    state === "overdue"
+                      ? "#e11d48"
+                      : state === "warn"
+                        ? "#d97706"
+                        : "#059669";
                   const stateBg =
                     state === "overdue"
                       ? "rgba(255,241,242,0.85)"
@@ -1181,8 +1354,19 @@ function HeatTile({
                           marginBottom: 6,
                         }}
                       >
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#0f172a" }}>
-                          {ss(it?.artifact_title || it?.step_title || it?.artifact_type || "Approval Step")}
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: "#0f172a",
+                          }}
+                        >
+                          {ss(
+                            it?.artifact_title ||
+                              it?.step_title ||
+                              it?.artifact_type ||
+                              "Approval Step"
+                          )}
                         </span>
                         <span
                           style={{
@@ -1196,7 +1380,15 @@ function HeatTile({
                           {age}d
                         </span>
                       </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontSize: 10, color: "#64748b" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 8,
+                          fontSize: 10,
+                          color: "#64748b",
+                        }}
+                      >
                         {it._stage && <span>📋 {it._stage}</span>}
                         {it._approver && (
                           <span
@@ -1267,8 +1459,6 @@ function HeatTile({
   );
 }
 
-// ─── BOTTLENECK TILE ──────────────────────────────────────────────────────────
-
 function BnTile({
   b,
   maxCount,
@@ -1312,7 +1502,11 @@ function BnTile({
       initial={{ opacity: 0, x: 10 }}
       animate={{ opacity: 1, x: 0 }}
       whileHover={{ y: -1 }}
-      transition={{ duration: 0.35, delay: idx * 0.07, ease: [0.16, 1, 0.3, 1] }}
+      transition={{
+        duration: 0.35,
+        delay: idx * 0.07,
+        ease: [0.16, 1, 0.3, 1],
+      }}
       onClick={onClick}
       style={{
         position: "relative",
@@ -1339,8 +1533,23 @@ function BnTile({
         }}
       />
       <div style={{ position: "relative", padding: "12px 14px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              minWidth: 0,
+              flex: 1,
+            }}
+          >
             <div
               style={{
                 width: 30,
@@ -1356,7 +1565,11 @@ function BnTile({
                 boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
               }}
             >
-              {b.kind === "user" ? <Users size={14} color="#64748b" /> : <Layers size={14} color="#64748b" />}
+              {b.kind === "user" ? (
+                <Users size={14} color="#64748b" />
+              ) : (
+                <Layers size={14} color="#64748b" />
+              )}
             </div>
             <div style={{ minWidth: 0 }}>
               <div
@@ -1371,17 +1584,40 @@ function BnTile({
               >
                 {b.label}
               </div>
-              <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500, marginTop: 2 }}>
-                {b.pending_count} item{b.pending_count !== 1 ? "s" : ""} · {b.projects_affected} project
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "#94a3b8",
+                  fontWeight: 500,
+                  marginTop: 2,
+                }}
+              >
+                {b.pending_count} item{b.pending_count !== 1 ? "s" : ""} ·{" "}
+                {b.projects_affected} project
                 {b.projects_affected !== 1 ? "s" : ""}
               </div>
             </div>
           </div>
           <div style={{ flexShrink: 0, textAlign: "right" }}>
-            <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: s.waitColor }}>
+            <div
+              style={{
+                fontFamily: "'DM Mono',monospace",
+                fontSize: 13,
+                fontWeight: 700,
+                color: s.waitColor,
+              }}
+            >
               {b.avg_wait_days}d
             </div>
-            <div style={{ fontSize: 9, color: "#94a3b8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.1em" }}>
+            <div
+              style={{
+                fontSize: 9,
+                color: "#94a3b8",
+                textTransform: "uppercase",
+                fontWeight: 700,
+                letterSpacing: "0.1em",
+              }}
+            >
               avg wait
             </div>
           </div>
@@ -1453,12 +1689,21 @@ function SectionLabel({
       >
         {text}
       </span>
-      {right && <span style={{ marginLeft: "auto", fontSize: 10, color: "#94a3b8", fontWeight: 500 }}>{right}</span>}
+      {right && (
+        <span
+          style={{
+            marginLeft: "auto",
+            fontSize: 10,
+            color: "#94a3b8",
+            fontWeight: 500,
+          }}
+        >
+          {right}
+        </span>
+      )}
     </div>
   );
 }
-
-// ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 export default function GovernanceIntelligence({
   days = 30,
@@ -1476,12 +1721,18 @@ export default function GovernanceIntelligence({
   const [appResp, setAppResp] = useState<any>(null);
   const [ai, setAi] = useState<AiOutlookState | null>(null);
   const [aiLoading, setAiLoading] = useState(true);
-  const [drawer, setDrawer] = useState<{ open: boolean; filter: DrawerFilter; approverLabel?: string }>({
+  const [drawer, setDrawer] = useState<{
+    open: boolean;
+    filter: DrawerFilter;
+    approverLabel?: string;
+  }>({
     open: false,
     filter: "all",
   });
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [heroCollapsed, setHeroCollapsed] = useState(false);
+
+  const showDevFlowPanel = process.env.NODE_ENV !== "production";
 
   const filterKey = useMemo(
     () =>
@@ -1585,16 +1836,23 @@ export default function GovernanceIntelligence({
   }, [appResp]);
 
   const counts = useMemo(() => {
-    let ok = 0,
-      warn = 0,
-      ov = 0;
+    let ok = 0;
+    let warn = 0;
+    let ov = 0;
+
     for (const it of items) {
       const s = slaState(it);
       if (s === "overdue") ov++;
       else if (s === "warn") warn++;
       else ok++;
     }
-    return { waiting: ok, at_risk: warn, breached: ov, pending: ok + warn + ov };
+
+    return {
+      waiting: ok,
+      at_risk: warn,
+      breached: ov,
+      pending: ok + warn + ov,
+    };
   }, [items]);
 
   const projects: UiProject[] = useMemo(() => {
@@ -1630,7 +1888,9 @@ export default function GovernanceIntelligence({
       else p.counts.ok++;
 
       p.days_waiting = Math.max(p.days_waiting, age);
-      if (!p.approver_label || p.approver_label === "—") p.approver_label = it._approver || "—";
+      if (!p.approver_label || p.approver_label === "—") {
+        p.approver_label = it._approver || "—";
+      }
       if (!p.stage) p.stage = it._stage || null;
     }
 
@@ -1646,14 +1906,21 @@ export default function GovernanceIntelligence({
   const bottlenecks: UiBottleneck[] = useMemo(() => {
     const map = new Map<
       string,
-      { kind: UiBottleneck["kind"]; label: string; ages: number[]; projects: Set<string>; count: number }
+      {
+        kind: UiBottleneck["kind"];
+        label: string;
+        ages: number[];
+        projects: Set<string>;
+        count: number;
+      }
     >();
 
     for (const it of items) {
       const label = it._approver;
       if (!label || label === "—") continue;
 
-      const kind: UiBottleneck["kind"] = it?.approver_type === "user" ? "user" : "unknown";
+      const kind: UiBottleneck["kind"] =
+        it?.approver_type === "user" ? "user" : "unknown";
       const key = `${kind}::${label}`;
       const age = daysWaiting(it);
       const pid = ss(it?.project_id);
@@ -1675,15 +1942,22 @@ export default function GovernanceIntelligence({
         label: x.label,
         pending_count: x.count,
         projects_affected: x.projects.size,
-        avg_wait_days: Math.round((x.ages.reduce((a, n) => a + n, 0) / (x.ages.length || 1)) * 10) / 10,
+        avg_wait_days:
+          Math.round(
+            (x.ages.reduce((a, n) => a + n, 0) / (x.ages.length || 1)) * 10
+          ) / 10,
         max_wait_days: x.ages.length ? Math.max(...x.ages) : 0,
       }))
       .sort((a, b) =>
-        b.pending_count !== a.pending_count ? b.pending_count - a.pending_count : b.max_wait_days - a.max_wait_days
+        b.pending_count !== a.pending_count
+          ? b.pending_count - a.pending_count
+          : b.max_wait_days - a.max_wait_days
       );
   }, [items]);
 
-  const maxBn = bottlenecks.length ? Math.max(...bottlenecks.map((b) => b.pending_count)) : 1;
+  const maxBn = bottlenecks.length
+    ? Math.max(...bottlenecks.map((b) => b.pending_count))
+    : 1;
   const loading = !appResp;
   const error = appResp?.ok === false ? appResp.error : null;
   const showHero = !loading && counts.pending > 0;
@@ -1822,7 +2096,13 @@ export default function GovernanceIntelligence({
                 transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
                 style={{ overflow: "hidden" }}
               >
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16 }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4,1fr)",
+                    gap: 16,
+                  }}
+                >
                   <HeroStat
                     label="Pending Approvals"
                     value={counts.pending}
@@ -1840,7 +2120,11 @@ export default function GovernanceIntelligence({
                     accentGlow="rgba(244,63,94,0.35)"
                     numColor={counts.breached > 0 ? "#e11d48" : undefined}
                     delay={0.06}
-                    onClick={counts.breached > 0 ? () => setDrawer({ open: true, filter: "breached" }) : undefined}
+                    onClick={
+                      counts.breached > 0
+                        ? () => setDrawer({ open: true, filter: "breached" })
+                        : undefined
+                    }
                   />
                   <HeroStat
                     label="At Risk"
@@ -1850,12 +2134,20 @@ export default function GovernanceIntelligence({
                     accentGlow="rgba(245,158,11,0.35)"
                     numColor={counts.at_risk > 0 ? "#d97706" : undefined}
                     delay={0.12}
-                    onClick={counts.at_risk > 0 ? () => setDrawer({ open: true, filter: "at_risk" }) : undefined}
+                    onClick={
+                      counts.at_risk > 0
+                        ? () => setDrawer({ open: true, filter: "at_risk" })
+                        : undefined
+                    }
                   />
                   <HeroStat
                     label="Active Tracks"
                     value={projects.length}
-                    sub={projects.length === 0 ? "No stalled approvals" : `${projects.length} project${projects.length !== 1 ? "s" : ""} tracked`}
+                    sub={
+                      projects.length === 0
+                        ? "No stalled approvals"
+                        : `${projects.length} project${projects.length !== 1 ? "s" : ""} tracked`
+                    }
                     accent="#10b981"
                     accentGlow="rgba(16,185,129,0.35)"
                     numColor="#059669"
@@ -1880,7 +2172,8 @@ export default function GovernanceIntelligence({
             position: "absolute",
             inset: 0,
             borderRadius: 20,
-            background: "linear-gradient(135deg,rgba(255,255,255,0.65) 0%,transparent 52%,rgba(255,255,255,0.12) 100%)",
+            background:
+              "linear-gradient(135deg,rgba(255,255,255,0.65) 0%,transparent 52%,rgba(255,255,255,0.12) 100%)",
             pointerEvents: "none",
           }}
         />
@@ -1903,7 +2196,8 @@ export default function GovernanceIntelligence({
             width: 256,
             height: 256,
             borderRadius: "50%",
-            background: "radial-gradient(ellipse,rgba(99,102,241,0.055) 0%,transparent 65%)",
+            background:
+              "radial-gradient(ellipse,rgba(99,102,241,0.055) 0%,transparent 65%)",
             filter: "blur(2px)",
             pointerEvents: "none",
           }}
@@ -1927,7 +2221,8 @@ export default function GovernanceIntelligence({
                   height: 44,
                   borderRadius: 12,
                   background: "linear-gradient(135deg,#6366f1,#4f46e5)",
-                  boxShadow: "0 4px 16px rgba(99,102,241,0.38),0 1px 0 rgba(255,255,255,0.22) inset",
+                  boxShadow:
+                    "0 4px 16px rgba(99,102,241,0.38),0 1px 0 rgba(255,255,255,0.22) inset",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -1949,7 +2244,15 @@ export default function GovernanceIntelligence({
                 >
                   Governance Intelligence
                 </div>
-                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#0f172a", lineHeight: 1.2 }}>
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 17,
+                    fontWeight: 800,
+                    color: "#0f172a",
+                    lineHeight: 1.2,
+                  }}
+                >
                   Approvals — Portfolio Control
                 </h2>
               </div>
@@ -2008,7 +2311,9 @@ export default function GovernanceIntelligence({
                       borderRadius: "50%",
                       background: pill.dot,
                       flexShrink: 0,
-                      animation: (pill as any).pulse ? "pulse 2s ease-in-out infinite" : undefined,
+                      animation: (pill as any).pulse
+                        ? "pulse 2s ease-in-out infinite"
+                        : undefined,
                     }}
                   />
                   {pill.label}
@@ -2059,7 +2364,11 @@ export default function GovernanceIntelligence({
                 color="#6366f1"
                 glow="rgba(99,102,241,0.5)"
                 text="Portfolio Approval Heatmap"
-                right={!loading && projects.length > 0 ? `${projects.length} stalled — click to expand` : undefined}
+                right={
+                  !loading && projects.length > 0
+                    ? `${projects.length} stalled — click to expand`
+                    : undefined
+                }
               />
               {loading ? (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -2095,7 +2404,15 @@ export default function GovernanceIntelligence({
                   >
                     <CheckCircle2 size={28} color="#10b981" />
                   </div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#374151" }}>No stalled approvals</div>
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "#374151",
+                    }}
+                  >
+                    No stalled approvals
+                  </div>
                   <div
                     style={{
                       fontSize: 11,
@@ -2117,7 +2434,11 @@ export default function GovernanceIntelligence({
                       p={p}
                       idx={i}
                       expanded={expandedProject === p.project_id}
-                      onToggle={() => setExpandedProject((prev) => (prev === p.project_id ? null : p.project_id))}
+                      onToggle={() =>
+                        setExpandedProject((prev) =>
+                          prev === p.project_id ? null : p.project_id
+                        )
+                      }
                       memberProjectIds={memberProjectIds}
                       isAdmin={isAdmin}
                     />
@@ -2152,9 +2473,29 @@ export default function GovernanceIntelligence({
                     textAlign: "center",
                   }}
                 >
-                  <Activity size={24} color="#cbd5e1" style={{ margin: "0 auto 8px" }} />
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "#64748b" }}>No congestion</div>
-                  <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                  <Activity
+                    size={24}
+                    color="#cbd5e1"
+                    style={{ margin: "0 auto 8px" }}
+                  />
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: "#64748b",
+                    }}
+                  >
+                    No congestion
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "#94a3b8",
+                      marginTop: 4,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.1em",
+                    }}
+                  >
                     Approvals flowing freely
                   </div>
                 </m.div>
@@ -2166,7 +2507,13 @@ export default function GovernanceIntelligence({
                       b={b}
                       maxCount={maxBn}
                       idx={i}
-                      onClick={() => setDrawer({ open: true, filter: "approver", approverLabel: b.label })}
+                      onClick={() =>
+                        setDrawer({
+                          open: true,
+                          filter: "approver",
+                          approverLabel: b.label,
+                        })
+                      }
                     />
                   ))}
                 </div>
@@ -2197,6 +2544,12 @@ export default function GovernanceIntelligence({
               >
                 <Eye size={14} /> Control Center <ArrowUpRight size={12} />
               </m.a>
+
+              {showDevFlowPanel && (
+                <div style={{ marginTop: 18 }}>
+                  <ProjectCharterFlowTestPanel />
+                </div>
+              )}
             </div>
           </div>
         </div>
