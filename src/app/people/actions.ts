@@ -24,6 +24,11 @@ function isUuid(x: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(x);
 }
 
+function isAdminOrOwner(role: string) {
+  const r = role.toLowerCase();
+  return r === "admin" || r === "owner";
+}
+
 async function requireUser(supabase: any) {
   const { data: auth, error } = await supabase.auth.getUser();
   if (error) throwDb(error, "auth.getUser");
@@ -46,39 +51,33 @@ async function requireOrgMember(supabase: any, userId: string, organisationId: s
 
 /* =============================================================================
    upsertPerson
-   Creates or updates a person's profile + org membership.
-   Any org member can do this (PMs can add anyone).
-   person_id present = update; absent = create (invite or existing user).
 ============================================================================= */
 
 export async function upsertPerson(formData: FormData) {
   const supabase = await createClient();
   const user     = await requireUser(supabase);
 
-  const organisation_id   = norm(formData.get("organisation_id"));
-  const person_id         = norm(formData.get("person_id")) || null; // null = new person
-  const full_name         = norm(formData.get("full_name"));
-  const job_title         = norm(formData.get("job_title"))    || null;
-  const department        = norm(formData.get("department"))   || null;
-  const employment_type   = norm(formData.get("employment_type")) || "full_time";
-  const cap_raw           = norm(formData.get("default_capacity_days"));
+  const organisation_id       = norm(formData.get("organisation_id"));
+  const person_id             = norm(formData.get("person_id")) || null;
+  const full_name             = norm(formData.get("full_name"));
+  const job_title             = norm(formData.get("job_title"))    || null;
+  const department            = norm(formData.get("department"))   || null;
+  const employment_type       = norm(formData.get("employment_type")) || "full_time";
+  const cap_raw               = norm(formData.get("default_capacity_days"));
   const default_capacity_days = parseFloat(cap_raw) || 5;
-  const rate_card_id      = norm(formData.get("rate_card_id")) || null;
-  const available_from    = norm(formData.get("available_from")) || null;
-  const is_active         = norm(formData.get("is_active")) !== "false";
+  const rate_card_id          = norm(formData.get("rate_card_id")) || null;
+  const available_from        = norm(formData.get("available_from")) || null;
+  const is_active             = norm(formData.get("is_active")) !== "false";
 
-  // Validation
   if (!full_name)         throw new Error("Full name is required");
   if (!organisation_id || !isUuid(organisation_id))
                           throw new Error("Invalid organisation");
   if (default_capacity_days < 0.5 || default_capacity_days > 7)
                           throw new Error("Capacity must be between 0.5 and 7");
 
-  // Verify caller is org member
   await requireOrgMember(supabase, user.id, organisation_id);
 
   if (person_id && isUuid(person_id)) {
-    // ── UPDATE existing profile ─────────────────────────────────────────────
     const patch: Record<string, any> = {
       full_name,
       job_title,
@@ -99,13 +98,6 @@ export async function upsertPerson(formData: FormData) {
     if (updErr) throwDb(updErr, "profiles.update");
 
   } else {
-    // ── CREATE — profile row must already exist (Supabase creates on signup)
-    // If person doesn't have a Supabase account yet, we create a placeholder
-    // profile row linked to the org. In practice, invite flow handles new users.
-    // Here we handle the "add an existing org member's profile details" case.
-    //
-    // For now: look up by full_name within this org — if found, update.
-    // If not found, inform caller to use the invite flow.
     const { data: existing } = await supabase
       .from("profiles")
       .select("user_id")
@@ -127,7 +119,6 @@ export async function upsertPerson(formData: FormData) {
         .eq("user_id", existing.user_id);
       if (error) throwDb(error, "profiles.update_by_name");
 
-      // Ensure org membership
       await supabase
         .from("organisation_members")
         .upsert(
@@ -135,7 +126,6 @@ export async function upsertPerson(formData: FormData) {
           { onConflict: "organisation_id,user_id" }
         );
     } else {
-      // No existing profile — caller should use invite flow
       throw new Error(
         "Person not found. Use the invite flow to add someone who hasn't signed up yet."
       );
@@ -148,21 +138,21 @@ export async function upsertPerson(formData: FormData) {
 
 /* =============================================================================
    togglePersonActive
-   Quick toggle from the people list — no full form needed.
 ============================================================================= */
 
 export async function togglePersonActive(formData: FormData) {
   const supabase = await createClient();
   const user     = await requireUser(supabase);
 
-  const person_id      = norm(formData.get("person_id"));
+  const person_id       = norm(formData.get("person_id"));
   const organisation_id = norm(formData.get("organisation_id"));
-  const is_active      = norm(formData.get("is_active")) === "true";
+  const is_active       = norm(formData.get("is_active")) === "true";
 
-  if (!person_id || !isUuid(person_id))      throw new Error("Invalid person_id");
+  if (!person_id || !isUuid(person_id))             throw new Error("Invalid person_id");
   if (!organisation_id || !isUuid(organisation_id)) throw new Error("Invalid org");
 
-  await requireOrgMember(supabase, user.id, organisation_id);
+  const role = await requireOrgMember(supabase, user.id, organisation_id);
+  if (!isAdminOrOwner(role)) throw new Error("Only org admins can deactivate people");
 
   const { error } = await supabase
     .from("profiles")
@@ -177,8 +167,6 @@ export async function togglePersonActive(formData: FormData) {
 
 /* =============================================================================
    upsertRateCard
-   Create or update a rate card for the org.
-   Only org admins can manage rate cards.
 ============================================================================= */
 
 export async function upsertRateCard(formData: FormData) {
@@ -193,12 +181,12 @@ export async function upsertRateCard(formData: FormData) {
   const notes           = norm(formData.get("notes")) || null;
   const is_active       = norm(formData.get("is_active")) !== "false";
 
-  if (!label)                       throw new Error("Label is required");
+  if (!label)                                       throw new Error("Label is required");
   if (!organisation_id || !isUuid(organisation_id)) throw new Error("Invalid org");
-  if (isNaN(rate_per_day) || rate_per_day < 0) throw new Error("Invalid rate");
+  if (isNaN(rate_per_day) || rate_per_day < 0)      throw new Error("Invalid rate");
 
   const role = await requireOrgMember(supabase, user.id, organisation_id);
-  if (role !== "admin") throw new Error("Only org admins can manage rate cards");
+  if (!isAdminOrOwner(role)) throw new Error("Only org admins can manage rate cards");
 
   if (rate_card_id && isUuid(rate_card_id)) {
     const { error } = await supabase
@@ -229,11 +217,11 @@ export async function deleteRateCard(formData: FormData) {
   const rate_card_id    = norm(formData.get("rate_card_id"));
   const organisation_id = norm(formData.get("organisation_id"));
 
-  if (!rate_card_id || !isUuid(rate_card_id)) throw new Error("Invalid rate card");
+  if (!rate_card_id || !isUuid(rate_card_id))       throw new Error("Invalid rate card");
   if (!organisation_id || !isUuid(organisation_id)) throw new Error("Invalid org");
 
   const role = await requireOrgMember(supabase, user.id, organisation_id);
-  if (role !== "admin") throw new Error("Only org admins can delete rate cards");
+  if (!isAdminOrOwner(role)) throw new Error("Only org admins can delete rate cards");
 
   const { error } = await supabase
     .from("rate_cards")
@@ -244,10 +232,9 @@ export async function deleteRateCard(formData: FormData) {
   if (error) throwDb(error, "rate_cards.delete");
   revalidatePath("/people");
 }
+
 /* =============================================================================
    toggleCapacityInclusion
-   Flips include_in_capacity on a profile.
-   Admin-only — prevents self-removal by non-admins.
 ============================================================================= */
 
 export async function toggleCapacityInclusion(formData: FormData) {
@@ -262,7 +249,7 @@ export async function toggleCapacityInclusion(formData: FormData) {
   if (!organisation_id || !isUuid(organisation_id)) throw new Error("Invalid org");
 
   const role = await requireOrgMember(supabase, user.id, organisation_id);
-  if (role !== "admin") throw new Error("Only org admins can change capacity inclusion");
+  if (!isAdminOrOwner(role)) throw new Error("Only org admins can change capacity inclusion");
 
   const { error } = await supabase
     .from("profiles")
