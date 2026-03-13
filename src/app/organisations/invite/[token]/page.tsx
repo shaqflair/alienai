@@ -46,7 +46,7 @@ export default function InviteAcceptPage() {
 
   function goToLogin() {
     const returnTo = encodeURIComponent(`/organisations/invite/${token}`);
-    router.push(`/login?redirectTo=${returnTo}`);
+    router.push(`/login?next=${returnTo}`);   
   }
 
   async function handleAccept() {
