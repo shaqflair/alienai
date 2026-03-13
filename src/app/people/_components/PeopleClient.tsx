@@ -16,7 +16,7 @@ export type PersonRow = {
   employmentType:      string;
   defaultCapacityDays: number;
   isActive:            boolean;
-  includeInCapacity:   boolean;   // ← NEW
+  includeInCapacity:   boolean;
   availableFrom:       string | null;
   rateCardId:          string | null;
   rateCardLabel:       string | null;
@@ -86,10 +86,6 @@ function utilColour(pct: number) {
   return "#94a3b8";
 }
 
-function empLabel(type: string) {
-  return EMPLOYMENT_TYPES.find(e => e.value === type)?.label ?? type;
-}
-
 /* =============================================================================
    SHARED UI
 ============================================================================= */
@@ -147,6 +143,42 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
       onFocus={e => { e.target.style.borderColor = "#00b8db"; }}
       onBlur={e  => { e.target.style.borderColor = "#e2e8f0"; }}
     />
+  );
+}
+
+/* =============================================================================
+   READ-ONLY BANNER
+============================================================================= */
+
+function ReadOnlyBanner() {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: "12px",
+      padding: "12px 16px", borderRadius: "10px",
+      background: "rgba(245,158,11,0.06)",
+      border: "1.5px solid rgba(245,158,11,0.25)",
+      marginBottom: "20px",
+    }}>
+      {/* Icon */}
+      <div style={{
+        width: 32, height: 32, borderRadius: "8px", flexShrink: 0,
+        background: "rgba(245,158,11,0.12)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="11" width="18" height="11" rx="2" stroke="#f59e0b" strokeWidth="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <div style={{ fontSize: "13px", fontWeight: 700, color: "#92400e" }}>
+          View-only access
+        </div>
+        <div style={{ fontSize: "12px", color: "#b45309", marginTop: "1px" }}>
+          You can browse team members but cannot make changes. Contact an organisation admin to edit people or rate cards.
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -225,7 +257,7 @@ function CapacityToggle({
 }
 
 /* =============================================================================
-   EDIT/ADD PERSON MODAL
+   EDIT/ADD PERSON MODAL  (admin only — never rendered for non-admins)
 ============================================================================= */
 
 function PersonModal({
@@ -322,7 +354,7 @@ function PersonModal({
           <button type="button" onClick={onClose} style={{
             background: "none", border: "none", color: "#94a3b8",
             cursor: "pointer", fontSize: "18px", lineHeight: 1, padding: "4px",
-          }}>x</button>
+          }}>✕</button>
         </div>
 
         {/* Form */}
@@ -393,7 +425,7 @@ function PersonModal({
           {/* Capacity */}
           <div>
             <FieldLabel required>
-              Default capacity --{" "}
+              Default capacity —{" "}
               <span style={{ color: "#00b8db", fontFamily: "'DM Mono', monospace" }}>
                 {capacity}d/week
               </span>
@@ -430,7 +462,7 @@ function PersonModal({
               <option value="">No rate card</option>
               {rateCards.filter(r => r.isActive).map(r => (
                 <option key={r.id} value={r.id}>
-                  {r.label} -- {r.currency} {r.ratePerDay.toLocaleString()}/day
+                  {r.label} — {r.currency} {r.ratePerDay.toLocaleString()}/day
                 </option>
               ))}
             </Select>
@@ -546,7 +578,7 @@ function PersonModal({
 }
 
 /* =============================================================================
-   RATE CARD MANAGER (slide-in panel)
+   RATE CARD MANAGER  (admin only)
 ============================================================================= */
 
 function RateCardPanel({
@@ -623,7 +655,7 @@ function RateCardPanel({
           <button type="button" onClick={onClose} style={{
             background: "none", border: "none", color: "#94a3b8",
             cursor: "pointer", fontSize: "18px",
-          }}>x</button>
+          }}>✕</button>
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px" }}>
@@ -656,7 +688,7 @@ function RateCardPanel({
               <button type="button" onClick={() => handleDelete(rc.id)} style={{
                 background: "none", border: "none", color: "#cbd5e1",
                 cursor: "pointer", fontSize: "14px",
-              }}>x</button>
+              }}>✕</button>
             </div>
           ))}
 
@@ -727,7 +759,7 @@ function RateCardPanel({
 }
 
 /* =============================================================================
-   PERSON CARD (list row)
+   PERSON CARD
 ============================================================================= */
 
 function PersonCard({
@@ -790,7 +822,6 @@ function PersonCard({
               padding: "1px 6px", fontWeight: 700,
             }}>Contractor</span>
           )}
-          {/* Capacity inclusion toggle — inline next to name badges */}
           <CapacityToggle
             person={person}
             organisationId={organisationId}
@@ -799,7 +830,7 @@ function PersonCard({
         </div>
 
         <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
-          {[person.jobTitle, person.department].filter(Boolean).join(" · ") || "--"}
+          {[person.jobTitle, person.department].filter(Boolean).join(" · ") || "—"}
         </div>
 
         <div style={{
@@ -859,29 +890,31 @@ function PersonCard({
         </div>
       )}
 
-      {/* Actions */}
-      <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
-        <button type="button" onClick={() => onEdit(person)} style={{
-          padding: "7px 14px", borderRadius: "7px",
-          border: "1.5px solid #e2e8f0", background: "white",
-          color: "#475569", fontSize: "12px", fontWeight: 600,
-          cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
-          transition: "all 0.15s",
-        }}>Edit</button>
+      {/* Actions — admin only */}
+      {isAdmin && (
+        <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+          <button type="button" onClick={() => onEdit(person)} style={{
+            padding: "7px 14px", borderRadius: "7px",
+            border: "1.5px solid #e2e8f0", background: "white",
+            color: "#475569", fontSize: "12px", fontWeight: 600,
+            cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+            transition: "all 0.15s",
+          }}>Edit</button>
 
-        <button type="button" onClick={handleToggle} disabled={isPending} style={{
-          padding: "7px 10px", borderRadius: "7px",
-          border: "1.5px solid",
-          borderColor: person.isActive ? "#fecaca" : "#bbf7d0",
-          background: "white",
-          color: person.isActive ? "#dc2626" : "#059669",
-          fontSize: "11px", fontWeight: 700,
-          cursor: isPending ? "not-allowed" : "pointer",
-          fontFamily: "'DM Sans', sans-serif",
-        }}>
-          {isPending ? "..." : person.isActive ? "Deactivate" : "Activate"}
-        </button>
-      </div>
+          <button type="button" onClick={handleToggle} disabled={isPending} style={{
+            padding: "7px 10px", borderRadius: "7px",
+            border: "1.5px solid",
+            borderColor: person.isActive ? "#fecaca" : "#bbf7d0",
+            background: "white",
+            color: person.isActive ? "#dc2626" : "#059669",
+            fontSize: "11px", fontWeight: 700,
+            cursor: isPending ? "not-allowed" : "pointer",
+            fontFamily: "'DM Sans', sans-serif",
+          }}>
+            {isPending ? "..." : person.isActive ? "Deactivate" : "Activate"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -910,7 +943,7 @@ export default function PeopleClient({
   const [search,        setSearch]        = useState("");
   const [deptFilter,    setDeptFilter]    = useState("");
   const [showInactive,  setShowInactive]  = useState(false);
-  const [capacityOnly,  setCapacityOnly]  = useState(false); // ← NEW filter
+  const [capacityOnly,  setCapacityOnly]  = useState(false);
 
   const departments = Array.from(
     new Set(people.map(p => p.department).filter(Boolean))
@@ -928,9 +961,9 @@ export default function PeopleClient({
     return true;
   });
 
-  const activeCount    = people.filter(p => p.isActive).length;
-  const inactiveCount  = people.filter(p => !p.isActive).length;
-  const capacityCount  = people.filter(p => p.isActive && p.includeInCapacity).length;
+  const activeCount   = people.filter(p => p.isActive).length;
+  const inactiveCount = people.filter(p => !p.isActive).length;
+  const capacityCount = people.filter(p => p.isActive && p.includeInCapacity).length;
 
   return (
     <>
@@ -957,6 +990,9 @@ export default function PeopleClient({
         padding: "36px 28px", maxWidth: "900px", margin: "0 auto",
       }}>
 
+        {/* -- Read-only banner (non-admins only) -- */}
+        {!isAdmin && <ReadOnlyBanner />}
+
         {/* -- Header -- */}
         <div style={{
           display: "flex", alignItems: "flex-start",
@@ -973,8 +1009,10 @@ export default function PeopleClient({
               </span>
             </p>
           </div>
-          <div style={{ display: "flex", gap: "8px" }}>
-            {isAdmin && (
+
+          {/* Header action buttons — admin only */}
+          {isAdmin && (
+            <div style={{ display: "flex", gap: "8px" }}>
               <button type="button" onClick={() => setShowRateCards(true)} style={{
                 padding: "8px 16px", borderRadius: "8px",
                 border: "1.5px solid #e2e8f0", background: "white",
@@ -983,17 +1021,17 @@ export default function PeopleClient({
               }}>
                 [GBP] Rate cards
               </button>
-            )}
-            <button type="button" onClick={() => setEditPerson("new")} style={{
-              padding: "8px 18px", borderRadius: "8px",
-              border: "none", background: "#00b8db", color: "white",
-              fontSize: "13px", fontWeight: 700, cursor: "pointer",
-              fontFamily: "'DM Sans', sans-serif",
-              boxShadow: "0 2px 10px rgba(0,184,219,0.3)",
-            }}>
-              + Add person
-            </button>
-          </div>
+              <button type="button" onClick={() => setEditPerson("new")} style={{
+                padding: "8px 18px", borderRadius: "8px",
+                border: "none", background: "#00b8db", color: "white",
+                fontSize: "13px", fontWeight: 700, cursor: "pointer",
+                fontFamily: "'DM Sans', sans-serif",
+                boxShadow: "0 2px 10px rgba(0,184,219,0.3)",
+              }}>
+                + Add person
+              </button>
+            </div>
+          )}
         </div>
 
         {/* -- Filters -- */}
@@ -1036,7 +1074,6 @@ export default function PeopleClient({
             Show inactive
           </label>
 
-          {/* ← NEW: capacity filter */}
           <label style={{
             display: "flex", alignItems: "center", gap: "6px",
             fontSize: "12px", color: "#059669", fontWeight: 600, cursor: "pointer",
@@ -1056,7 +1093,7 @@ export default function PeopleClient({
               fontSize: "12px", fontWeight: 600, cursor: "pointer",
               fontFamily: "'DM Sans', sans-serif",
             }}>
-              x Clear
+              ✕ Clear
             </button>
           )}
 
@@ -1083,15 +1120,15 @@ export default function PeopleClient({
                 person={p}
                 organisationId={organisationId}
                 isAdmin={isAdmin}
-                onEdit={setEditPerson}
+                onEdit={isAdmin ? setEditPerson : () => {}}
               />
             ))}
           </div>
         )}
       </div>
 
-      {/* -- Modals -- */}
-      {editPerson !== null && (
+      {/* -- Modals (admin only) -- */}
+      {isAdmin && editPerson !== null && (
         <PersonModal
           person={editPerson === "new" ? null : editPerson}
           rateCards={rateCards}
@@ -1102,7 +1139,7 @@ export default function PeopleClient({
         />
       )}
 
-      {showRateCards && (
+      {isAdmin && showRateCards && (
         <RateCardPanel
           rateCards={rateCards}
           organisationId={organisationId}
