@@ -16,7 +16,6 @@ import { ARTIFACT_TYPES, type ArtifactType } from "@/lib/artifact-types";
  */
 const BOARD_MANAGEABLE_TYPES = new Set([
   "PROJECT_CHARTER",
-  "PID",                    // legacy type name — treated as Project Charter
   "PROJECT_CLOSURE_REPORT",
   "SCHEDULE",
 ]);
@@ -31,6 +30,14 @@ function isArtifactType(x: string): x is ArtifactType {
 
 function isBoardManageableType(type: string): boolean {
   return BOARD_MANAGEABLE_TYPES.has(String(type ?? "").trim().toUpperCase());
+}
+
+/**
+ * Converts uppercase type (e.g. "PROJECT_CHARTER") to the lowercase snake_case
+ * value expected by the artifact_type column constraint (e.g. "project_charter").
+ */
+function toArtifactType(raw: string): string {
+  return raw.toLowerCase();
 }
 
 function normStr(x: any) {
@@ -78,7 +85,7 @@ async function loadArtifact(supabase: any, artifactId: string) {
   const { data, error } = await supabase
     .from("artifacts")
     .select(
-      "id,project_id,type,title,content,content_json,version,approval_status,is_locked,created_at,updated_at,parent_artifact_id,root_artifact_id,is_current,is_baseline,revision_reason,revision_type"
+      "id,project_id,type,artifact_type,title,content,content_json,version,approval_status,is_locked,created_at,updated_at,parent_artifact_id,root_artifact_id,is_current,is_baseline,revision_reason,revision_type"
     )
     .eq("id", artifactId)
     .single();
@@ -158,7 +165,7 @@ function canEditArtifactRow(a: any) {
 
 /* =========================
    CREATE
-   Only allowed for: PROJECT_CHARTER, PID, PROJECT_CLOSURE_REPORT, SCHEDULE
+   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
 export async function createArtifact(formData: FormData) {
@@ -201,6 +208,7 @@ export async function createArtifact(formData: FormData) {
         project_id: projectId,
         user_id: user.id,
         type: rawType,
+        artifact_type: toArtifactType(rawType),
         content: content || (existing.content ?? ""),
         content_json: existing.content_json ?? null,
         approval_status: "draft",
@@ -244,6 +252,7 @@ export async function createArtifact(formData: FormData) {
       project_id: projectId,
       user_id: user.id,
       type: rawType,
+      artifact_type: toArtifactType(rawType),
       content,
       content_json: null,
       approval_status: "draft",
@@ -502,6 +511,7 @@ export async function reviseArtifact(formData: FormData) {
       project_id: projectId,
       user_id: user.id,
       type: src.type,
+      artifact_type: src.artifact_type ?? toArtifactType(String(src.type ?? "")),
       content: src.content ?? "",
       content_json: src.content_json ?? null,
       approval_status: "draft",
@@ -567,6 +577,7 @@ export async function restoreArtifactVersion(formData: FormData) {
       project_id: projectId,
       user_id: user.id,
       type,
+      artifact_type: target.artifact_type ?? toArtifactType(type),
       content: target.content ?? "",
       content_json: target.content_json ?? null,
       approval_status: "draft",
@@ -860,7 +871,7 @@ export async function updateArtifactJsonSilent(args: {
 
 /* =========================
    CLONE ARTIFACT
-   Only allowed for: PROJECT_CHARTER, PID, PROJECT_CLOSURE_REPORT, SCHEDULE
+   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
 export async function cloneArtifact(
@@ -895,6 +906,7 @@ export async function cloneArtifact(
         project_id: projectRef,
         user_id: user.id,
         type: src.type,
+        artifact_type: src.artifact_type ?? toArtifactType(String(src.type ?? "")),
         content: src.content ?? "",
         content_json: src.content_json ?? null,
         approval_status: "draft",
@@ -922,7 +934,7 @@ export async function cloneArtifact(
 
 /* =========================
    DELETE DRAFT ARTIFACT
-   Only allowed for: PROJECT_CHARTER, PID, PROJECT_CLOSURE_REPORT, SCHEDULE
+   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
 export async function deleteDraftArtifact(args: {
