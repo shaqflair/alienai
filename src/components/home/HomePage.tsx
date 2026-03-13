@@ -1323,6 +1323,27 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   useEffect(() => {
     if (!ok) return;
+    let cancelled = false;
+    setInsightsLoading(true);
+    runIdle(() => {
+      (async () => {
+        try {
+          const url = appendFiltersToApi(`/api/ai/briefing?days=${numericWindowDays}`, urlFilters, projectOptions);
+          const j = await fetchJson<any>(url, { cache: "no-store" });
+          const list = Array.isArray(j?.insights) ? (j.insights as Insight[]) : [];
+          if (!cancelled) setInsights(orderBriefingInsights(list));
+        } catch {
+          if (!cancelled) setInsights([]);
+        } finally {
+          if (!cancelled) setInsightsLoading(false);
+        }
+      })();
+    });
+    return () => { cancelled = true; };
+  }, [ok, numericWindowDays, urlFilters, projectOptions]);
+
+  useEffect(() => {
+    if (!ok) return;
     let c = false;
     runIdle(() => {
       (async () => {
