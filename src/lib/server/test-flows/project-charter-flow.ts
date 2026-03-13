@@ -34,8 +34,14 @@ async function getActiveOrganisationId(supabase: SupabaseClient, userId: string)
   return data.active_organisation_id as string;
 }
 
-async function assertDevAccess(supabase: SupabaseClient, organisationId: string, userId: string) {
-  if (process.env.NODE_ENV === "production") {
+async function assertDevAccess(
+  supabase: SupabaseClient,
+  organisationId: string,
+  userId: string
+) {
+  const allowProdDevTests = process.env.ALLOW_DEV_APPROVAL_TESTS === "true";
+
+  if (process.env.NODE_ENV === "production" && !allowProdDevTests) {
     throw new Error("Project charter flow test is disabled in production");
   }
 
@@ -615,7 +621,8 @@ export async function runProjectCharterFlowTest(input?: {
 }) {
   const supabase = await createClient();
 
-  const scenario = (asString(input?.scenario, "happy_path") as CharterFlowScenario) || "happy_path";
+  const scenario =
+    (asString(input?.scenario, "happy_path") as CharterFlowScenario) || "happy_path";
 
   const {
     data: { user },
@@ -629,7 +636,7 @@ export async function runProjectCharterFlowTest(input?: {
   const organisationId = await getActiveOrganisationId(supabase, user.id);
   await assertDevAccess(supabase, organisationId, user.id);
 
-    const programmeLeadEmail =
+  const programmeLeadEmail =
     asString(input?.programmeLeadEmail).trim() || "alienaprogrammelead@gmail.com";
   const commercialLeadEmail =
     asString(input?.commercialLeadEmail).trim() || "paapa501@gmail.com";
@@ -641,7 +648,12 @@ export async function runProjectCharterFlowTest(input?: {
   const accountLeadId = await getUserIdByEmail(supabase, accountLeadEmail);
 
   const project = await getOrCreateTestProject(supabase, organisationId, user.id);
-  const artifact = await createProjectCharterArtifact(supabase, project.id, organisationId, user.id);
+  const artifact = await createProjectCharterArtifact(
+    supabase,
+    project.id,
+    organisationId,
+    user.id
+  );
 
   await createApprovalChain(supabase, artifact.id, organisationId, user.id, {
     programmeLeadId,
