@@ -152,6 +152,8 @@ type HomeData =
         department?: string | null;
         project_manager?: string | null;
         project_manager_id?: string | null;
+        pm_name?: string | null;
+        pm_user_id?: string | null;
       }[];
       kpis: {
         portfolioHealth: number;
@@ -1415,30 +1417,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   }, [rag]);
 
   const ragAgg = useMemo(() => calcRagAgg(rag as any, activeProjects as any), [rag, activeProjects]);
-
-
-  // DEBUG: log first project keys and financial summary to identify actual field names
-  useEffect(() => {
-    if (!ok) return;
-    const firstProject = (projects as any[])[0];
-    if (firstProject) {
-      console.log("[HomePage DEBUG] First project keys:", Object.keys(firstProject));
-      console.log("[HomePage DEBUG] First project PM fields:", {
-        project_manager: firstProject.project_manager,
-        project_manager_id: firstProject.project_manager_id,
-        pm_name: firstProject.pm_name,
-        pm_user_id: firstProject.pm_user_id,
-        manager: firstProject.manager,
-        owner: firstProject.owner,
-      });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ok]);
-
-  useEffect(() => {
-    if (!fpSummary) return;
-    console.log("[HomePage DEBUG] fpSummary full response:", JSON.stringify(fpSummary, null, 2));
-  }, [fpSummary]);
 
   useEffect(() => {
     if (!ok) return;
