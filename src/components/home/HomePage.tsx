@@ -1263,9 +1263,11 @@ export default function HomePage({ data }: { data: HomeData }) {
   const filtersActive = useMemo(() => hasActiveFilters(urlFilters), [urlFilters]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerOpenViaSearch, setDrawerOpenViaSearch] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const openDrawerFocusSearch = useCallback(() => {
+    setDrawerOpenViaSearch(true);
     setDrawerOpen(true);
     setTimeout(() => { searchInputRef.current?.focus(); }, 200);
   }, []);
@@ -1324,10 +1326,10 @@ export default function HomePage({ data }: { data: HomeData }) {
   const pmOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of (Array.isArray(projects) ? projects : []) as any[]) {
-      const id = safeStr(p?.project_manager_id).trim();
-      const name = safeStr(p?.project_manager).trim();
+      // HomeData uses pm_name / pm_user_id; Projects page uses project_manager / project_manager_id
+      const id   = safeStr(p?.project_manager_id || p?.pm_user_id).trim();
+      const name = safeStr(p?.project_manager || p?.pm_name).trim();
       if (!name) continue;
-      // Use id if available, otherwise fall back to name as the key
       map.set(id || name, name);
     }
     return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
@@ -1605,11 +1607,10 @@ export default function HomePage({ data }: { data: HomeData }) {
   // hasn't resolved yet. Never falls back to the stale SSR kpis.portfolioHealth value.
   const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
   const ragFallback = ragAgg.scored ? ragAgg.avgHealth : null;
-  // When only 1 project: prefer the RAG array direct health (matches project page).
-  // For multi-project: use composite API score.
-  const phScoreForUi = ragAgg.scored === 1 && ragFallback != null
-    ? ragFallback
-    : (apiScore != null && apiScore > 0) ? apiScore : ragFallback;
+  // HP-F7: Always prefer the live API score — it matches the project page calculation.
+  // Only fall back to ragAgg.avgHealth (derived from stored RAG rows) when the API
+  // hasn't resolved yet or returned 0.
+  const phScoreForUi = (apiScore != null && apiScore > 0) ? apiScore : ragFallback;
   const phRag = scoreToRag(phScoreForUi ?? 0);
   const phDelta = phPrevScore != null && phScoreForUi != null ? phScoreForUi - phPrevScore : null;
 
@@ -1647,6 +1648,8 @@ export default function HomePage({ data }: { data: HomeData }) {
       ?? (fpSummary as any).approved_budget
       ?? (fpSummary as any).total_budget
       ?? (fpSummary as any).budget_total
+      ?? (fpSummary as any).budgeted
+      ?? (fpSummary as any).total_budgeted
       ?? (fpSummary as any).budget)
     : undefined;
   const _fpSpentRaw = fpHasData
@@ -1754,10 +1757,10 @@ export default function HomePage({ data }: { data: HomeData }) {
           onCancel={() => setRejectModal(null)}
         />
         <FilterDrawer
-          open={drawerOpen} onClose={() => setDrawerOpen(false)}
+          open={drawerOpen} onClose={() => { setDrawerOpen(false); setDrawerOpenViaSearch(false); }}
           filters={urlFilters}
-          onApply={(next) => { applyFilters(next); setDrawerOpen(false); }}
-          onClear={() => { clearFilters(); setDrawerOpen(false); }}
+          onApply={(next) => { applyFilters(next); setDrawerOpen(false); setDrawerOpenViaSearch(false); }}
+          onClear={() => { clearFilters(); setDrawerOpen(false); setDrawerOpenViaSearch(false); }}
           projectOptions={projectOptions} pmOptions={pmOptions} deptOptions={deptOptions}
           searchInputRef={searchInputRef}
         />
@@ -1795,16 +1798,16 @@ export default function HomePage({ data }: { data: HomeData }) {
 
                 <button type="button" onClick={openDrawerFocusSearch}
                   className={["h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
-                    drawerOpen ? "bg-gray-900 border-gray-900" : "bg-white border-gray-200 hover:bg-gray-50"].join(" ")}
+                    drawerOpenViaSearch ? "bg-gray-900 border-gray-900" : "bg-white border-gray-200 hover:bg-gray-50"].join(" ")}
                   aria-label="Search" title="Search">
-                  <Search className={["h-4 w-4", drawerOpen ? "text-white" : "text-gray-700"].join(" ")} />
+                  <Search className={["h-4 w-4", drawerOpenViaSearch ? "text-white" : "text-gray-700"].join(" ")} />
                 </button>
 
-                <button type="button" onClick={() => setDrawerOpen((v) => !v)}
+                <button type="button" onClick={() => { setDrawerOpenViaSearch(false); setDrawerOpen((v) => !v); }}
                   className={["h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
-                    drawerOpen || filtersActive ? "bg-gray-900 border-gray-900" : "bg-white border-gray-200 hover:bg-gray-50"].join(" ")}
+                    (drawerOpen && !drawerOpenViaSearch) || filtersActive ? "bg-gray-900 border-gray-900" : "bg-white border-gray-200 hover:bg-gray-50"].join(" ")}
                   aria-label="Filter" title="Filter">
-                  <SlidersHorizontal className={["h-4 w-4", drawerOpen || filtersActive ? "text-white" : "text-gray-700"].join(" ")} />
+                  <SlidersHorizontal className={["h-4 w-4", (drawerOpen && !drawerOpenViaSearch) || filtersActive ? "text-white" : "text-gray-700"].join(" ")} />
                 </button>
 
                 <button type="button" onClick={exportProjectsCsv}
