@@ -1,6 +1,7 @@
-// src/app/api/portfolio/health/route.ts — v12
-// Refactored to use shared computePortfolioHealth() from @/lib/server/project-health.
-// Score is now computed identically to the project page — no more hardcoded flowScore.
+// src/app/api/portfolio/health/route.ts — v13
+// Emits both `score` (new) and `portfolio_health` (legacy alias) so the
+// HomePage and any other consumers that read portfolio_health keep working.
+// Parts shape updated to match shared scorer: { schedule, raid, budget, governance }
 
 import "server-only";
 
@@ -64,10 +65,8 @@ function projectCodeLabel(pc: any): string {
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
   if (pc && typeof pc === "object") {
     const v =
-      safeStr(pc.project_code) ||
-      safeStr(pc.code) ||
-      safeStr(pc.value) ||
-      safeStr(pc.id);
+      safeStr(pc.project_code) || safeStr(pc.code) ||
+      safeStr(pc.value) || safeStr(pc.id);
     return v.trim();
   }
   return "";
@@ -209,11 +208,7 @@ async function applyProjectFilters(
 
   for (const sel of selectSets) {
     const { data, error } = await supabase
-      .from("projects")
-      .select(sel)
-      .in("id", scopedProjectIds)
-      .limit(20000);
-
+      .from("projects").select(sel).in("id", scopedProjectIds).limit(20000);
     if (!error && Array.isArray(data)) { rows = data; lastErr = null; break; }
     lastErr = error;
     if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
@@ -291,9 +286,12 @@ async function handle(req: Request, method: "GET" | "POST") {
 
     if (!orgId) {
       return jsonOk({
-        projectCount: 0,
+        // Both field names for compatibility
         score: null,
+        portfolio_health: 0,
+        projectCount: 0,
         parts: { schedule: null, raid: null, budget: null, governance: null },
+        drivers: [],
         meta: {
           organisationId: null,
           days: daysParam,
@@ -313,9 +311,11 @@ async function handle(req: Request, method: "GET" | "POST") {
 
     if (!finalProjectIds.length) {
       return jsonOk({
-        projectCount: 0,
         score: null,
+        portfolio_health: 0,
+        projectCount: 0,
         parts: { schedule: null, raid: null, budget: null, governance: null },
+        drivers: [],
         meta: {
           organisationId: orgId,
           days: daysParam,
@@ -336,10 +336,27 @@ async function handle(req: Request, method: "GET" | "POST") {
     // 4) Compute health using shared scorer
     const health = await computePortfolioHealth(supabase, finalProjectIds, windowDays);
 
+    const scoreValue = health.score ?? 0;
+
     return jsonOk({
-      projectCount: health.projectCount,
+      // New field name
       score: health.score,
-      parts: health.parts,
+      // Legacy alias — keeps HomePage and any other consumer working without changes
+      portfolio_health: scoreValue,
+      projectCount: health.projectCount,
+      // New parts shape: { schedule, raid, budget, governance }
+      // Also emit legacy shape fields so old consumers don't break
+      parts: {
+        schedule:   health.parts.schedule,
+        raid:       health.parts.raid,
+        budget:     health.parts.budget,
+        governance: health.parts.governance,
+        // Legacy aliases
+        flow:       health.parts.budget,      // budget is the closest equivalent to old "flow"
+        approvals:  health.parts.governance,  // governance covers approvals
+        activity:   null,                     // no longer computed separately
+      },
+      drivers: [],
       meta: {
         organisationId: orgId,
         days: daysParam,

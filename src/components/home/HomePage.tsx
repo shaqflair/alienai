@@ -1,33 +1,13 @@
-// src/components/home/HomePage.tsx — POLISHED v9.2
+// src/components/home/HomePage.tsx — POLISHED v9.3
 //
-// Fixes vs v9.1:
-//   ✅ HP-F7: Portfolio Health KPI no longer falls back to kpis.portfolioHealth or
-//            ragAgg.avgHealth. phScoreForUi is null until /api/portfolio/health resolves,
-//            rendering "…" in the meantime. Fetch effect added (deps: ok, numericWindowDays,
-//            urlFilters, projectOptions).
-//   ✅ HP-F5 (revised): openRisksValue no longer falls back to kpis.openRisks at all —
-//            it is null until raidPanel arrives, then always uses raidDueTotal.
-//
-// Fixes vs v9:
-//   ✅ HP-F1: projectId[] filter is now translated to code/name params before API calls.
-//            Backend routes (health, raid, milestones-due, resource-activity, recent-wins,
-//            financial-plan-summary) only accept name/code/pm/dept — selectedprojectId[] UUIDs
-//            are now mapped to projectCode[] + projectName[] via deriveApiFilters().
-//   ✅ HP-F2: Search icon focuses the search <input> inside the already-open drawer rather
-//            than blindly calling setDrawerOpen(true) again (removes silent UX dead-end when
-//            drawer is already open).
-//   ✅ HP-F3: raidDueTotal no longer uses `||` fallback — zero typed counts correctly stays 0.
-//            Was: `(r+i+d+a) || due_total` which silently used RPC total when items truly = 0.
-//   ✅ HP-F4: appendFiltersToApi now calls deriveApiFilters so all 6 API widgets respect
-//            project-selection filters end-to-end.
-//   ✅ HP-F5: openRisksValue derived variable — shows kpis.openRisks only before raidPanel
-//            arrives; once raidPanel is set uses raidDueTotal (which can safely be 0).
-//   ✅ HP-F6: milestonesDueLive initialised as null — renders "…" until the live API
-//            responds, never pre-populates from the stale SSR kpi fallback.
-//
-// UI polish:
-//   ✅ HP-UI1: Search / Filter / Notification bell no longer look "greyed out"
-//             — active styling when drawer open, filters active, or unread present.
+// Fixes vs v9.2:
+//   ✅ HP-F8: PortfolioHealthApi type updated — reads both `portfolio_health` (legacy)
+//            and `score` (new field from v13 route). apiScore now correctly resolves.
+//   ✅ HP-F9: parts type updated to match shared scorer shape:
+//            { schedule, raid, budget, governance } — old flow/approvals/activity removed.
+//   ✅ HP-F10: Active Projects row in portfolio still reads from data.rag (SSR, stored
+//             RAG rows). This is intentional — it is a separate signal from the live
+//             scorer. The Portfolio Health KPI now always shows the live scorer value.
 
 "use client";
 
@@ -35,27 +15,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 import {
-  Bell,
-  Sparkles,
-  AlertTriangle,
-  ShieldCheck,
-  Clock3,
-  Trophy,
-  CheckCircle2,
-  ArrowUpRight,
-  X,
-  CircleDot,
-  ChevronRight,
-  Activity,
-  Layers,
-  RefreshCw,
-  DollarSign,
-  Search,
-  SlidersHorizontal,
-  Download,
-  Settings,
-  Calendar,
-  CheckCheck,
+  Bell, Sparkles, AlertTriangle, ShieldCheck, Clock3, Trophy,
+  CheckCircle2, ArrowUpRight, X, CircleDot, ChevronRight, Activity,
+  Layers, RefreshCw, DollarSign, Search, SlidersHorizontal, Download,
+  Settings, Calendar, CheckCheck,
 } from "lucide-react";
 import ResourceActivityChart, { type ResourceWeek } from "@/components/home/ResourceActivityChart";
 
@@ -63,9 +26,9 @@ import ResourceActivityChart, { type ResourceWeek } from "@/components/home/Reso
 
 type PortfolioFilters = {
   q?: string;
-  projectId?: string[]; // UI pill selection — UUID[]
-  projectName?: string[]; // legacy / derived
-  projectCode?: string[]; // legacy / derived
+  projectId?: string[];
+  projectName?: string[];
+  projectCode?: string[];
   projectManagerId?: string[];
   department?: string[];
 };
@@ -74,52 +37,30 @@ type PortfolioFilters = {
 
 type WindowDays = 7 | 14 | 30 | 60 | "all";
 type NotifRow = {
-  id: string;
-  user_id: string;
-  project_id: string | null;
-  artifact_id: string | null;
-  type: string;
-  title: string;
-  body: string | null;
-  link: string | null;
-  is_read: boolean | null;
-  created_at: string;
-  actor_user_id: string | null;
-  metadata: any;
+  id: string; user_id: string; project_id: string | null; artifact_id: string | null;
+  type: string; title: string; body: string | null; link: string | null;
+  is_read: boolean | null; created_at: string; actor_user_id: string | null; metadata: any;
 };
 type NotifApiResp = { ok: false; error: string } | { ok: true; unreadCount?: number; items: NotifRow[] };
 type BellTab = "all" | "action" | "ai" | "approvals";
 type DueItemType = "artifact" | "milestone" | "work_item" | "raid" | "change";
 type DueDigestItem = {
-  itemType: DueItemType;
-  title: string;
-  dueDate: string | null;
-  status?: string | null;
-  ownerLabel?: string | null;
-  ownerEmail?: string | null;
-  link?: string | null;
-  meta?: any;
+  itemType: DueItemType; title: string; dueDate: string | null;
+  status?: string | null; ownerLabel?: string | null; ownerEmail?: string | null;
+  link?: string | null; meta?: any;
 };
 type ArtifactDueAi = {
-  summary: string;
-  windowDays: number;
+  summary: string; windowDays: number;
   counts: { total: number; milestone: number; work_item: number; raid: number; artifact: number; change: number };
-  dueSoon: DueDigestItem[];
-  recommendedMessage?: string;
+  dueSoon: DueDigestItem[]; recommendedMessage?: string;
 };
 type ArtifactDueResp =
   | { ok: false; error: string; meta?: any }
   | {
-      ok: true;
-      eventType: "artifact_due";
-      scope?: "project" | "org";
-      project_id?: string;
-      project_human_id?: string | null;
-      project_code?: string | null;
-      project_name?: string | null;
-      model?: string;
-      ai: ArtifactDueAi;
-      stats?: any;
+      ok: true; eventType: "artifact_due"; scope?: "project" | "org";
+      project_id?: string; project_human_id?: string | null;
+      project_code?: string | null; project_name?: string | null;
+      model?: string; ai: ArtifactDueAi; stats?: any;
     };
 type Insight = { id: string; severity: "high" | "medium" | "info"; title: string; body: string; href?: string | null };
 type HomeData =
@@ -127,112 +68,79 @@ type HomeData =
   | {
       ok: true;
       user: { id: string; email?: string | null };
-      isExec: boolean;
-      roles: string[];
+      isExec: boolean; roles: string[];
       projects: {
-        id: string;
-        title: string;
-        client_name?: string | null;
-        project_code?: any;
-        status?: string | null;
-        lifecycle_state?: string | null;
-        state?: string | null;
-        phase?: string | null;
-        is_active?: boolean | null;
-        active?: boolean | null;
-        deleted_at?: string | null;
-        deletedAt?: string | null;
-        is_deleted?: boolean | null;
-        deleted?: boolean | null;
-        is_archived?: boolean | null;
-        archived?: boolean | null;
-        archived_at?: string | null;
-        cancelled_at?: string | null;
-        closed_at?: string | null;
-        department?: string | null;
-        project_manager?: string | null;
-        project_manager_id?: string | null;
-        pm_name?: string | null;
-        pm_user_id?: string | null;
+        id: string; title: string; client_name?: string | null; project_code?: any;
+        status?: string | null; lifecycle_state?: string | null; state?: string | null;
+        phase?: string | null; is_active?: boolean | null; active?: boolean | null;
+        deleted_at?: string | null; deletedAt?: string | null; is_deleted?: boolean | null;
+        deleted?: boolean | null; is_archived?: boolean | null; archived?: boolean | null;
+        archived_at?: string | null; cancelled_at?: string | null; closed_at?: string | null;
+        department?: string | null; project_manager?: string | null;
+        project_manager_id?: string | null; pm_name?: string | null; pm_user_id?: string | null;
       }[];
       kpis: {
-        portfolioHealth: number;
-        openRisks: number;
-        highRisks: number;
-        forecastVariance: number;
-        milestonesDue: number;
-        openLessons: number;
+        portfolioHealth: number; openRisks: number; highRisks: number;
+        forecastVariance: number; milestonesDue: number; openLessons: number;
       };
       approvals: { count: number; items: any[] };
       rag: { project_id: string; title: string; rag: "G" | "A" | "R"; health: number }[];
     };
 
 type RaidPanel = {
-  days: number;
-  due_total: number;
-  overdue_total: number;
-  risk_due?: number;
-  issue_due?: number;
-  dependency_due?: number;
-  assumption_due?: number;
-  risk_hi?: number;
-  issue_hi?: number;
+  days: number; due_total: number; overdue_total: number;
+  risk_due?: number; issue_due?: number; dependency_due?: number; assumption_due?: number;
+  risk_hi?: number; issue_hi?: number;
 };
 
+// HP-F8: Updated to handle both old field name (portfolio_health) and new (score).
+// Also updated parts shape to match shared scorer output.
 type PortfolioHealthApi =
   | { ok: false; error: string; meta?: any }
   | {
       ok: true;
+      // New field name from v13 route
+      score: number | null;
+      // Legacy alias — also emitted by v13 route for backward compat
       portfolio_health: number;
-      days: 7 | 14 | 30 | 60 | "all";
+      days?: 7 | 14 | 30 | 60 | "all";
       windowDays?: number;
       projectCount: number;
-      parts: { schedule: number; raid: number; flow: number; approvals: number; activity: number };
-      drivers: any[];
-      schedule?: any;
+      // HP-F9: Updated parts shape — { schedule, raid, budget, governance }
+      // Legacy fields (flow, approvals, activity) may also be present as aliases
+      parts: {
+        schedule: number | null;
+        raid: number | null;
+        budget: number | null;
+        governance: number | null;
+        // Legacy aliases (optional, may be present from old route versions)
+        flow?: number | null;
+        approvals?: number | null;
+        activity?: number | null;
+      };
+      drivers?: any[];
       meta?: any;
     };
 
 type RagLetter = "G" | "A" | "R";
-
 type FinancialPlanSummary =
   | { ok: false; error: string }
   | {
-      ok: true;
-      total_approved_budget?: number | null;
-      total_spent?: number | null;
-      variance_pct?: number | null;
-      pending_exposure_pct?: number | null;
-      rag: "G" | "A" | "R";
-      currency?: string | null;
-      project_ref?: string | null;
-      artifact_id?: string | null;
-      project_count?: number;
+      ok: true; total_approved_budget?: number | null; total_spent?: number | null;
+      variance_pct?: number | null; pending_exposure_pct?: number | null;
+      rag: "G" | "A" | "R"; currency?: string | null;
+      project_ref?: string | null; artifact_id?: string | null; project_count?: number;
     };
-
 type RecentWin = {
-  id: string;
-  title: string;
-  date: string;
-  type: string;
-  project_id: string;
-  project_code: string | null;
-  project_name: string | null;
-  project_colour: string;
-  link: string | null;
+  id: string; title: string; date: string; type: string; project_id: string;
+  project_code: string | null; project_name: string | null; project_colour: string; link: string | null;
 };
-
 type ProjectOption = { id: string; name: string; code: string | null };
 
 /* --- Utils ---------------------------------------------------------------- */
 
-function safeStr(x: any) {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
-}
-function num(x: any, fallback = 0) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : fallback;
-}
+function safeStr(x: any) { return typeof x === "string" ? x : x == null ? "" : String(x); }
+function num(x: any, fallback = 0) { const n = Number(x); return Number.isFinite(n) ? n : fallback; }
 function clamp01to100(x: any) {
   const n = Number(x);
   if (!Number.isFinite(n)) return 0;
@@ -248,27 +156,18 @@ function normalizeWindowDays(v: WindowDays): 7 | 14 | 30 | 60 {
 }
 function uniqStrings(input: any): string[] {
   const arr: string[] = [];
-  const push = (v: any) => {
-    const s = safeStr(v).trim();
-    if (s) arr.push(s);
-  };
+  const push = (v: any) => { const s = safeStr(v).trim(); if (s) arr.push(s); };
   if (Array.isArray(input)) input.forEach(push);
   else if (typeof input === "string") input.split(",").forEach(push);
   else if (input != null) push(input);
   return Array.from(new Set(arr));
 }
-
 function hasActiveFilters(f: PortfolioFilters) {
   return Boolean(
-    (f.q && f.q.trim()) ||
-      f.projectId?.length ||
-      f.projectName?.length ||
-      f.projectCode?.length ||
-      f.projectManagerId?.length ||
-      f.department?.length,
+    (f.q && f.q.trim()) || f.projectId?.length || f.projectName?.length ||
+    f.projectCode?.length || f.projectManagerId?.length || f.department?.length,
   );
 }
-
 function searchParamsToFilters(sp: URLSearchParams): PortfolioFilters {
   const q = safeStr(sp.get("q")).trim() || undefined;
   const projectId = uniqStrings(sp.getAll("projectId").flatMap((x) => x.split(",")));
@@ -281,14 +180,13 @@ function searchParamsToFilters(sp: URLSearchParams): PortfolioFilters {
   const dept = uniqStrings(sp.getAll("dept").flatMap((x) => x.split(",")));
   const out: PortfolioFilters = {};
   if (q) out.q = q;
-  if (projectId.length) out.projectId = projectId;
+  if (projectId.length)   out.projectId = projectId;
   if (projectName.length) out.projectName = projectName;
   if (projectCode.length) out.projectCode = projectCode;
-  if (pm.length) out.projectManagerId = pm;
-  if (dept.length) out.department = dept;
+  if (pm.length)          out.projectManagerId = pm;
+  if (dept.length)        out.department = dept;
   return out;
 }
-
 function filtersToSearchParams(f: PortfolioFilters): URLSearchParams {
   const sp = new URLSearchParams();
   if (f.q?.trim()) sp.set("q", f.q.trim());
@@ -298,12 +196,9 @@ function filtersToSearchParams(f: PortfolioFilters): URLSearchParams {
   (f.department ?? []).forEach((v) => sp.append("dept", v));
   return sp;
 }
-
-// HP-F1: Translate projectId[] to code[] + name[] that backend routes understand.
 function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]): PortfolioFilters {
   const selectedIds = new Set(f.projectId ?? []);
   if (!selectedIds.size) return f;
-
   const optById = new Map(projectOptions.map((p) => [p.id, p]));
   const codes: string[] = [];
   const names: string[] = [];
@@ -313,39 +208,32 @@ function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]):
     if (opt.code) codes.push(opt.code);
     else names.push(opt.name);
   }
-
   return {
     ...f,
     projectCode: uniqStrings([...(f.projectCode ?? []), ...codes]),
     projectName: uniqStrings([...(f.projectName ?? []), ...names]),
   };
 }
-
-// HP-F4: appendFiltersToApi calls deriveApiFilters so all 6 API widgets respect filters
 function appendFiltersToApi(baseUrl: string, f: PortfolioFilters, projectOptions: ProjectOption[] = []): string {
   try {
     const derived = deriveApiFilters(f, projectOptions);
     const origin = typeof window !== "undefined" ? window.location.origin : "http://local/";
     const u = new URL(baseUrl, origin);
     const sp = u.searchParams;
-
     if (derived.q?.trim()) sp.set("q", derived.q.trim());
     (derived.projectCode ?? []).forEach((v) => sp.append("code", v));
     (derived.projectName ?? []).forEach((v) => sp.append("name", v));
     (derived.projectManagerId ?? []).forEach((v) => sp.append("pm", v));
     (derived.department ?? []).forEach((v) => sp.append("dept", v));
-
     return u.pathname + (sp.toString() ? `?${sp.toString()}` : "");
   } catch {
     return baseUrl;
   }
 }
-
 function appendFiltersToUrl(path: string, f: PortfolioFilters) {
   const sp = filtersToSearchParams(f);
   return `${path}${sp.toString() ? `?${sp.toString()}` : ""}`;
 }
-
 function timeAgo(iso: string) {
   const t = new Date(iso).getTime();
   const now = Date.now();
@@ -376,14 +264,9 @@ function typeLooksAI(t: string) {
 function typeLooksAction(t: string) {
   const s = t.toLowerCase();
   return (
-    typeLooksApproval(s) ||
-    typeLooksAI(s) ||
-    s.includes("overdue") ||
-    s.includes("assigned") ||
-    s.includes("risk") ||
-    s.includes("issue") ||
-    s.includes("milestone") ||
-    s.includes("portfolio")
+    typeLooksApproval(s) || typeLooksAI(s) ||
+    s.includes("overdue") || s.includes("assigned") || s.includes("risk") ||
+    s.includes("issue") || s.includes("milestone") || s.includes("portfolio")
   );
 }
 function severityFromNotif(n: NotifRow): "high" | "medium" | "info" | "success" {
@@ -392,8 +275,7 @@ function severityFromNotif(n: NotifRow): "high" | "medium" | "info" | "success" 
   const t = safeStr(n.type).toLowerCase();
   if (t.includes("success") || t.includes("completed") || t.includes("delivered")) return "success";
   if (t.includes("high") || t.includes("critical") || t.includes("breach")) return "high";
-  if (t.includes("warning") || t.includes("overdue") || t.includes("at_risk") || t.includes("risk") || t.includes("issue"))
-    return "medium";
+  if (t.includes("warning") || t.includes("overdue") || t.includes("at_risk") || t.includes("risk") || t.includes("issue")) return "medium";
   return "info";
 }
 function notifIcon(n: NotifRow) {
@@ -423,20 +305,13 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> 
     const r = await fetch(url, init);
     if (!r.ok) return null;
     return (await r.json().catch(() => null)) as T | null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 function scoreToRag(score: number): RagLetter {
   const s = clamp01to100(score);
   if (s >= 85) return "G";
   if (s >= 70) return "A";
   return "R";
-}
-function prevWindowDays(cur: 7 | 14 | 30 | 60): 7 | 14 | 30 | 60 {
-  if (cur === 7) return 14;
-  if (cur === 14) return 30;
-  return 60;
 }
 function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
@@ -471,7 +346,8 @@ function calcRagAgg(
   for (const it of list) {
     const pid = String(it?.project_id || "").trim();
     const letter = String(it?.rag || "").toUpperCase() as RagLetter;
-    if (pid && ["G", "A", "R"].includes(letter)) byPid.set(pid, { rag: letter, health: it?.health != null ? Number(it.health) : NaN });
+    if (pid && ["G", "A", "R"].includes(letter))
+      byPid.set(pid, { rag: letter, health: it?.health != null ? Number(it.health) : NaN });
   }
   let g = 0, a = 0, r = 0, scored = 0;
   const vals: number[] = [];
@@ -488,16 +364,14 @@ function calcRagAgg(
   }
   const avg = vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
   return {
-    avgHealth: clamp01to100(avg),
-    g, a, r, scored,
-    unscored: Math.max(0, proj.length - scored),
-    projectsTotal: proj.length,
+    avgHealth: clamp01to100(avg), g, a, r, scored,
+    unscored: Math.max(0, proj.length - scored), projectsTotal: proj.length,
   };
 }
 function fixInsightHref(x: Insight, days?: WindowDays): string | undefined {
   const title = safeStr(x?.title).toLowerCase();
-  const body = safeStr(x?.body).toLowerCase();
-  const href = safeStr(x?.href).trim();
+  const body  = safeStr(x?.body).toLowerCase();
+  const href  = safeStr(x?.href).trim();
   const isWbs = title.includes("wbs") || body.includes("wbs") || href.includes("/wbs") || href.includes("type=wbs");
   if (isWbs) {
     const sp = new URLSearchParams();
@@ -517,11 +391,11 @@ function ragDotColor(r: RagLetter) {
 }
 function winTypeIcon(type: string): string {
   const t = (type ?? "").toLowerCase();
-  if (t.includes("risk"))                                return "\u26a0";
-  if (t.includes("commercial") || t.includes("budget")) return "\u00a3";
-  if (t.includes("learning") || t.includes("lesson"))   return "\u270e";
-  if (t.includes("change") || t.includes("governance")) return "\u2713";
-  if (t.includes("milestone") || t.includes("delivery"))return "\u2691";
+  if (t.includes("risk"))                                 return "\u26a0";
+  if (t.includes("commercial") || t.includes("budget"))  return "\u00a3";
+  if (t.includes("learning") || t.includes("lesson"))    return "\u270e";
+  if (t.includes("change") || t.includes("governance"))  return "\u2713";
+  if (t.includes("milestone") || t.includes("delivery")) return "\u2691";
   return "\u2605";
 }
 function useDebounced<T>(value: T, delay: number): T {
@@ -606,15 +480,13 @@ function NotificationBell() {
       if (!j?.ok) throw new Error();
       const list = Array.isArray(j.items) ? j.items : [];
       setItems(list);
-      setUnreadCount(
-        Math.max(0,
-          typeof (j as any).unreadCount === "number" ? (j as any).unreadCount : list.filter((x) => x.is_read !== true).length,
-        ),
-      );
+      setUnreadCount(Math.max(0,
+        typeof (j as any).unreadCount === "number"
+          ? (j as any).unreadCount
+          : list.filter((x) => x.is_read !== true).length,
+      ));
     } catch {
-    } finally {
-      fetchingRef.current = false;
-    }
+    } finally { fetchingRef.current = false; }
   }, []);
 
   useEffect(() => {
@@ -630,10 +502,7 @@ function NotificationBell() {
     if (!open) return;
     refresh();
     pollRef.current = setInterval(refresh, 15000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = null;
-    };
+    return () => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; };
   }, [open, refresh]);
 
   const filtered = useMemo(() => items.filter((n) => tabMatch(tab, n)), [items, tab]);
@@ -678,8 +547,7 @@ function NotificationBell() {
 
   return (
     <div className="relative">
-      <button
-        type="button" onClick={() => setOpen((v) => !v)}
+      <button type="button" onClick={() => setOpen((v) => !v)}
         aria-label="Notifications" title="Notifications"
         className={[
           "relative h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
@@ -698,8 +566,7 @@ function NotificationBell() {
         {open && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-            <m.div
-              initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+            <m.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}
               className="absolute right-0 top-full z-50 mt-2 w-[400px] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl"
             >
@@ -785,11 +652,11 @@ const KPI_THEMES: Record<string, {
   bg: string; iconBg: string; iconColor: string; valueColor: string;
   labelColor: string; subColor: string; trendBg: string; trendColor: string;
 }> = {
-  green: { bg: "bg-green-50", iconBg: "bg-green-100", iconColor: "text-green-600", valueColor: "text-green-700", labelColor: "text-green-800", subColor: "text-green-600/80", trendBg: "bg-green-100", trendColor: "text-green-700" },
-  amber: { bg: "bg-amber-50", iconBg: "bg-amber-100", iconColor: "text-amber-600", valueColor: "text-amber-700", labelColor: "text-amber-800", subColor: "text-amber-600/80", trendBg: "bg-amber-100", trendColor: "text-amber-700" },
-  red:   { bg: "bg-red-50",   iconBg: "bg-red-100",   iconColor: "text-red-500",   valueColor: "text-red-600",   labelColor: "text-red-800",   subColor: "text-red-600/80",   trendBg: "bg-red-100",   trendColor: "text-red-600"   },
-  blue:  { bg: "bg-blue-50",  iconBg: "bg-blue-100",  iconColor: "text-blue-600",  valueColor: "text-blue-700",  labelColor: "text-blue-800",  subColor: "text-blue-600/80",  trendBg: "bg-blue-100",  trendColor: "text-blue-700"  },
-  yellow:{ bg: "bg-yellow-50",iconBg: "bg-yellow-100",iconColor: "text-yellow-600",valueColor: "text-yellow-700",labelColor: "text-yellow-800",subColor: "text-yellow-600/80",trendBg: "bg-yellow-100",trendColor: "text-yellow-700"},
+  green:  { bg: "bg-green-50",  iconBg: "bg-green-100",  iconColor: "text-green-600",  valueColor: "text-green-700",  labelColor: "text-green-800",  subColor: "text-green-600/80",  trendBg: "bg-green-100",  trendColor: "text-green-700"  },
+  amber:  { bg: "bg-amber-50",  iconBg: "bg-amber-100",  iconColor: "text-amber-600",  valueColor: "text-amber-700",  labelColor: "text-amber-800",  subColor: "text-amber-600/80",  trendBg: "bg-amber-100",  trendColor: "text-amber-700"  },
+  red:    { bg: "bg-red-50",    iconBg: "bg-red-100",    iconColor: "text-red-500",    valueColor: "text-red-600",    labelColor: "text-red-800",    subColor: "text-red-600/80",    trendBg: "bg-red-100",    trendColor: "text-red-600"    },
+  blue:   { bg: "bg-blue-50",   iconBg: "bg-blue-100",   iconColor: "text-blue-600",   valueColor: "text-blue-700",   labelColor: "text-blue-800",   subColor: "text-blue-600/80",   trendBg: "bg-blue-100",   trendColor: "text-blue-700"   },
+  yellow: { bg: "bg-yellow-50", iconBg: "bg-yellow-100", iconColor: "text-yellow-600", valueColor: "text-yellow-700", labelColor: "text-yellow-800", subColor: "text-yellow-600/80", trendBg: "bg-yellow-100", trendColor: "text-yellow-700" },
 };
 
 function KpiCard({
@@ -862,7 +729,6 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
   const router = useRouter();
   const code = projectCodeLabel(p?.project_code);
   const pid = String(p?.id || "").trim();
-  const routeRef = pid;
   const ragData = ragMap.get(pid);
   const health = ragData ? clamp01to100(ragData.health) : null;
   const rag = ragData?.rag || null;
@@ -870,19 +736,19 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
   const dotColor = rag ? ragDotColor(rag) : "#d1d5db";
   const ragLabel = rag === "G" ? "Green" : rag === "A" ? "Amber" : rag === "R" ? "Red" : "Unscored";
   const ragLogic =
-    rag === "G" ? `Health \u2265 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
-    : rag === "A" ? `Health 70\u201384% (${health}%). Some signals need attention \u2014 review slippage, open risks/issues, or approval queues.`
-    : rag === "R" ? `Health < 70% (${health}%). Significant delivery risk \u2014 prioritise an immediate review and corrective actions.`
+    rag === "G" ? `Health \u2265 85% (${health}%). Delivery signals are strong.`
+    : rag === "A" ? `Health 70\u201384% (${health}%). Some signals need attention.`
+    : rag === "R" ? `Health < 70% (${health}%). Significant delivery risk.`
     : "No health score calculated yet for this project.";
 
   return (
     <div
       role="button" tabIndex={0}
-      onClick={() => { if (routeRef) router.push(`/projects/${encodeURIComponent(routeRef)}`); }}
-      onKeyDown={(e) => e.key === "Enter" && routeRef && router.push(`/projects/${encodeURIComponent(routeRef)}`)}
+      onClick={() => { if (pid) router.push(`/projects/${encodeURIComponent(pid)}`); }}
+      onKeyDown={(e) => e.key === "Enter" && pid && router.push(`/projects/${encodeURIComponent(pid)}`)}
       className="w-full flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 text-left group cursor-pointer"
     >
-      <div className="relative shrink-0 group/rag" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <div className="relative shrink-0 group/rag" onClick={(e) => e.stopPropagation()}>
         <div className="h-3 w-3 rounded-full cursor-help ring-2 ring-transparent group-hover/rag:ring-offset-1"
           style={{ background: dotColor, boxShadow: `0 0 0 2px ${dotColor}22` }} />
         <div className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 z-50 w-64 opacity-0 group-hover/rag:opacity-100 transition-opacity duration-150 rounded-xl bg-white border border-gray-200 p-3 text-left"
@@ -1013,44 +879,28 @@ function LastUpdated({ iso }: { iso: string }) {
 /* --- Filter Drawer -------------------------------------------------------- */
 
 function CheckboxList({
-  label,
-  items,
-  selected,
-  onToggle,
-  emptyText,
+  label, items, selected, onToggle, emptyText,
 }: {
-  label: string;
-  items: { id: string; name: string; sub?: string }[];
-  selected: string[];
-  onToggle: (id: string) => void;
-  emptyText: string;
+  label: string; items: { id: string; name: string; sub?: string }[];
+  selected: string[]; onToggle: (id: string) => void; emptyText: string;
 }) {
   const [search, setSearch] = useState("");
-  const filtered = items.filter((i) =>
-    i.name.toLowerCase().includes(search.toLowerCase()),
-  );
-
+  const filtered = items.filter((i) => i.name.toLowerCase().includes(search.toLowerCase()));
   return (
     <div>
       <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">{label}</div>
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-        {/* Search */}
         <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
           <Search className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder={`Search ${label.toLowerCase()}…`}
-            className="w-full bg-transparent text-xs outline-none placeholder:text-gray-400"
-          />
+            className="w-full bg-transparent text-xs outline-none placeholder:text-gray-400" />
           {search && (
             <button type="button" onClick={() => setSearch("")} className="shrink-0 text-gray-300 hover:text-gray-500">
               <X className="h-3 w-3" />
             </button>
           )}
         </div>
-        {/* List */}
         <div className="max-h-44 overflow-y-auto">
           {items.length === 0 ? (
             <div className="px-3 py-3 text-xs text-gray-400">{emptyText}</div>
@@ -1060,22 +910,11 @@ function CheckboxList({
             filtered.map((item) => {
               const checked = selected.includes(item.id);
               return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onToggle(item.id)}
-                  className={[
-                    "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
-                    checked ? "bg-blue-50/60" : "hover:bg-gray-50",
-                  ].join(" ")}
-                >
-                  {/* Checkbox */}
-                  <div
-                    className={[
-                      "flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-all",
-                      checked ? "border-blue-500 bg-blue-500" : "border-gray-300 bg-white",
-                    ].join(" ")}
-                  >
+                <button key={item.id} type="button" onClick={() => onToggle(item.id)}
+                  className={["flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                    checked ? "bg-blue-50/60" : "hover:bg-gray-50"].join(" ")}>
+                  <div className={["flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-all",
+                    checked ? "border-blue-500 bg-blue-500" : "border-gray-300 bg-white"].join(" ")}>
                     {checked && (
                       <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
                         <path d="M1 3.5l2.5 2.5L8 1" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -1083,9 +922,7 @@ function CheckboxList({
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className={["truncate text-sm", checked ? "font-semibold text-gray-900" : "text-gray-700"].join(" ")}>
-                      {item.name}
-                    </div>
+                    <div className={["truncate text-sm", checked ? "font-semibold text-gray-900" : "text-gray-700"].join(" ")}>{item.name}</div>
                     {item.sub && <div className="truncate text-[11px] text-gray-400">{item.sub}</div>}
                   </div>
                 </button>
@@ -1093,17 +930,11 @@ function CheckboxList({
             })
           )}
         </div>
-        {/* Footer count */}
         {selected.length > 0 && (
           <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2">
             <span className="text-[11px] text-gray-400">{selected.length} selected</span>
-            <button
-              type="button"
-              onClick={() => selected.forEach((id) => onToggle(id))}
-              className="text-[11px] font-semibold text-red-500 hover:text-red-600"
-            >
-              Clear
-            </button>
+            <button type="button" onClick={() => selected.forEach((id) => onToggle(id))}
+              className="text-[11px] font-semibold text-red-500 hover:text-red-600">Clear</button>
           </div>
         )}
       </div>
@@ -1115,11 +946,9 @@ function FilterDrawer({
   open, onClose, filters, onApply, onClear,
   projectOptions, pmOptions, deptOptions, searchInputRef,
 }: {
-  open: boolean; onClose: () => void;
-  filters: PortfolioFilters;
+  open: boolean; onClose: () => void; filters: PortfolioFilters;
   onApply: (next: PortfolioFilters) => void; onClear: () => void;
-  projectOptions: ProjectOption[];
-  pmOptions: { id: string; name: string }[];
+  projectOptions: ProjectOption[]; pmOptions: { id: string; name: string }[];
   deptOptions: { value: string; label: string }[];
   searchInputRef: React.RefObject<HTMLInputElement>;
 }) {
@@ -1136,10 +965,8 @@ function FilterDrawer({
   };
 
   const activeCount =
-    (local.projectId?.length ?? 0) +
-    (local.projectManagerId?.length ?? 0) +
-    (local.department?.length ?? 0) +
-    (local.q?.trim() ? 1 : 0);
+    (local.projectId?.length ?? 0) + (local.projectManagerId?.length ?? 0) +
+    (local.department?.length ?? 0) + (local.q?.trim() ? 1 : 0);
 
   return (
     <AnimatePresence>
@@ -1150,8 +977,6 @@ function FilterDrawer({
           <m.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.18 }}
             className="fixed right-0 top-0 z-[70] flex h-full w-full max-w-[420px] flex-col border-l border-gray-200 bg-white shadow-2xl">
-
-            {/* Header */}
             <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
               <div>
                 <div className="font-semibold text-gray-900">Filters</div>
@@ -1162,21 +987,15 @@ function FilterDrawer({
                 <X className="h-4 w-4 text-gray-600" />
               </button>
             </div>
-
-            {/* Body */}
             <div className="flex-1 space-y-5 overflow-y-auto p-5">
-              {/* Search */}
               <div>
                 <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">Search</div>
                 <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
                   <Search className="h-4 w-4 shrink-0 text-gray-400" />
-                  <input
-                    ref={searchInputRef}
-                    value={local.q ?? ""}
+                  <input ref={searchInputRef} value={local.q ?? ""}
                     onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))}
                     placeholder="Project name, code, PM, department…"
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
-                  />
+                    className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400" />
                   {local.q && (
                     <button type="button" onClick={() => setLocal((p) => ({ ...p, q: undefined }))}
                       className="text-gray-300 hover:text-gray-500">
@@ -1185,37 +1004,19 @@ function FilterDrawer({
                   )}
                 </div>
               </div>
-
-              <CheckboxList
-                label="Projects"
-                items={projectOptions.slice(0, 50).map((p) => ({
-                  id: p.id,
-                  name: p.name,
-                  sub: p.code ?? undefined,
-                }))}
-                selected={local.projectId ?? []}
-                onToggle={(id) => toggle("projectId", id)}
-                emptyText="No projects available"
-              />
-
-              <CheckboxList
-                label="Project Manager"
+              <CheckboxList label="Projects"
+                items={projectOptions.slice(0, 50).map((p) => ({ id: p.id, name: p.name, sub: p.code ?? undefined }))}
+                selected={local.projectId ?? []} onToggle={(id) => toggle("projectId", id)}
+                emptyText="No projects available" />
+              <CheckboxList label="Project Manager"
                 items={pmOptions.map((pm) => ({ id: pm.id, name: pm.name }))}
-                selected={local.projectManagerId ?? []}
-                onToggle={(id) => toggle("projectManagerId", id)}
-                emptyText="No project managers found"
-              />
-
-              <CheckboxList
-                label="Department"
+                selected={local.projectManagerId ?? []} onToggle={(id) => toggle("projectManagerId", id)}
+                emptyText="No project managers found" />
+              <CheckboxList label="Department"
                 items={deptOptions.map((d) => ({ id: d.value, name: d.label }))}
-                selected={local.department ?? []}
-                onToggle={(id) => toggle("department", id)}
-                emptyText="No departments found"
-              />
+                selected={local.department ?? []} onToggle={(id) => toggle("department", id)}
+                emptyText="No departments found" />
             </div>
-
-            {/* Footer */}
             <div className="border-t border-gray-200 bg-gray-50/60 p-4">
               {activeCount > 0 && (
                 <div className="mb-3 flex items-center justify-between">
@@ -1224,9 +1025,7 @@ function FilterDrawer({
                     filter{activeCount !== 1 ? "s" : ""} active
                   </span>
                   <button type="button" onClick={onClear}
-                    className="text-xs font-semibold text-red-500 hover:text-red-600">
-                    Clear all
-                  </button>
+                    className="text-xs font-semibold text-red-500 hover:text-red-600">Clear all</button>
                 </div>
               )}
               <div className="flex gap-2">
@@ -1281,7 +1080,6 @@ export default function HomePage({ data }: { data: HomeData }) {
     },
     [router, pathname],
   );
-
   const clearFilters = useCallback(() => { router.replace(pathname, { scroll: false }); }, [router, pathname]);
 
   const [windowDays, setWindowDays] = useState<WindowDays>(30);
@@ -1293,14 +1091,9 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(true);
   const [approvalItems, setApprovalItems] = useState<any[]>([]);
-  const [approvalsLoading, setApprovalsLoading] = useState(true);
   const [pendingIds, setPendingIds] = useState<Record<string, true>>({});
   const [rejectModal, setRejectModal] = useState<{ taskId: string; title: string } | null>(null);
-
-  // HP-F6: null initial state — renders "…" until the live API responds,
-  // never pre-populates from the stale SSR kpi fallback.
   const [milestonesDueLive, setMilestonesDueLive] = useState<number | null>(null);
-
   const [raidPanel, setRaidPanel] = useState<RaidPanel | null>(null);
   const [raidLoading, setRaidLoading] = useState(false);
   const [dueWindowDays, setDueWindowDays] = useState<7 | 14 | 30>(14);
@@ -1328,7 +1121,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   const pmOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of (Array.isArray(projects) ? projects : []) as any[]) {
-      // Try all known PM name field variants across HomeData and ProjectsPage schemas
       const name = safeStr(
         p?.project_manager || p?.pm_name || p?.manager_name ||
         p?.project_manager_name || p?.manager || p?.pm || p?.owner_name
@@ -1362,11 +1154,11 @@ export default function HomePage({ data }: { data: HomeData }) {
     const pmSet = new Set((f.projectManagerId ?? []).map((s) => String(s).trim()).filter(Boolean));
     const deptNeedles = (f.department ?? []).map((s) => safeStr(s).trim().toLowerCase()).filter(Boolean);
     return rows.filter((p: any) => {
-      const pid = safeStr(p?.id).trim();
-      const title = safeStr(p?.title).toLowerCase();
-      const code = projectCodeLabel(p?.project_code).toLowerCase();
-      const dept = safeStr(p?.department).toLowerCase().trim();
-      const pm = safeStr(p?.project_manager_id).trim();
+      const pid    = safeStr(p?.id).trim();
+      const title  = safeStr(p?.title).toLowerCase();
+      const code   = projectCodeLabel(p?.project_code).toLowerCase();
+      const dept   = safeStr(p?.department).toLowerCase().trim();
+      const pm     = safeStr(p?.project_manager_id).trim();
       const pmName = safeStr(p?.project_manager).toLowerCase().trim();
       if (idSet.size && !idSet.has(pid)) return false;
       if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
@@ -1389,9 +1181,11 @@ export default function HomePage({ data }: { data: HomeData }) {
       if (truthy(p?.is_archived) || truthy(p?.archived)) return false;
       if (p?.archived_at) return false;
       if (p?.is_active === false || p?.active === false) return false;
-      const st = [p?.status, p?.lifecycle_state, p?.state, p?.phase].map((v: any) => String(v ?? "").toLowerCase().trim()).find(Boolean) || "";
+      const st = [p?.status, p?.lifecycle_state, p?.state, p?.phase]
+        .map((v: any) => String(v ?? "").toLowerCase().trim()).find(Boolean) || "";
       if (!st) return true;
-      return !["closed", "cancel", "deleted", "archive", "inactive", "complete", "on_hold", "paused", "suspended"].some((k) => st.includes(k));
+      return !["closed", "cancel", "deleted", "archive", "inactive", "complete", "on_hold", "paused", "suspended"]
+        .some((k) => st.includes(k));
     });
   }, [filteredProjectsClient]);
 
@@ -1400,7 +1194,8 @@ export default function HomePage({ data }: { data: HomeData }) {
       const ac = projectCodeLabel(a?.project_code);
       const bc = projectCodeLabel(b?.project_code);
       const an = Number(ac), bn = Number(bc);
-      const aNum = Number.isFinite(an) && ac !== "", bNum = Number.isFinite(bn) && bc !== "";
+      const aNum = Number.isFinite(an) && ac !== "";
+      const bNum = Number.isFinite(bn) && bc !== "";
       if (aNum && bNum && an !== bn) return an - bn;
       if (ac && bc && ac !== bc) return ac.localeCompare(bc);
       return safeStr(a?.title).toLowerCase().localeCompare(safeStr(b?.title).toLowerCase());
@@ -1418,37 +1213,38 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   const ragAgg = useMemo(() => calcRagAgg(rag as any, activeProjects as any), [rag, activeProjects]);
 
+  // Effects — resource, wins, insights, fp, due, raid (unchanged from v9.2)
   useEffect(() => {
     if (!ok) return;
-    let cancelled = false;
+    let c = false;
     setResourceLoading(true);
     (async () => {
       try {
         const url = appendFiltersToApi(`/api/portfolio/resource-activity?days=${numericWindowDays}`, urlFilters, projectOptions);
         const j = await fetchJson<{ ok: boolean; weeks: ResourceWeek[] }>(url, { cache: "no-store" });
-        if (!cancelled && j?.ok && Array.isArray(j.weeks)) setResourceWeeks(j.weeks);
-      } catch {} finally { if (!cancelled) setResourceLoading(false); }
+        if (!c && j?.ok && Array.isArray(j.weeks)) setResourceWeeks(j.weeks);
+      } catch {} finally { if (!c) setResourceLoading(false); }
     })();
-    return () => { cancelled = true; };
+    return () => { c = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
   useEffect(() => {
     if (!ok) return;
-    let cancelled = false;
+    let c = false;
     setWinsLoading(true);
     (async () => {
       try {
         const url = appendFiltersToApi(`/api/portfolio/recent-wins?days=7&limit=8`, urlFilters, projectOptions);
         const j = await fetchJson<{ ok: boolean; wins: RecentWin[] }>(url, { cache: "no-store" });
-        if (!cancelled && j?.ok && Array.isArray(j.wins)) setRecentWins(j.wins);
-      } catch {} finally { if (!cancelled) setWinsLoading(false); }
+        if (!c && j?.ok && Array.isArray(j.wins)) setRecentWins(j.wins);
+      } catch {} finally { if (!c) setWinsLoading(false); }
     })();
-    return () => { cancelled = true; };
+    return () => { c = true; };
   }, [ok, urlFilters, projectOptions]);
 
   useEffect(() => {
     if (!ok) return;
-    let cancelled = false;
+    let c = false;
     setInsightsLoading(true);
     runIdle(() => {
       (async () => {
@@ -1456,15 +1252,12 @@ export default function HomePage({ data }: { data: HomeData }) {
           const url = appendFiltersToApi(`/api/ai/briefing?days=${numericWindowDays}`, urlFilters, projectOptions);
           const j = await fetchJson<any>(url, { cache: "no-store" });
           const list = Array.isArray(j?.insights) ? (j.insights as Insight[]) : [];
-          if (!cancelled) setInsights(orderBriefingInsights(list));
-        } catch {
-          if (!cancelled) setInsights([]);
-        } finally {
-          if (!cancelled) setInsightsLoading(false);
-        }
+          if (!c) setInsights(orderBriefingInsights(list));
+        } catch { if (!c) setInsights([]); }
+        finally { if (!c) setInsightsLoading(false); }
       })();
     });
-    return () => { cancelled = true; };
+    return () => { c = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
   useEffect(() => {
@@ -1492,14 +1285,8 @@ export default function HomePage({ data }: { data: HomeData }) {
           setDueLoading(true);
           const apiFilters = deriveApiFilters(urlFilters, projectOptions);
           const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            cache: "no-store",
-            body: JSON.stringify({
-              eventType: "artifact_due",
-              windowDays: dueWindowDays,
-              filters: apiFilters,
-            }),
+            method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+            body: JSON.stringify({ eventType: "artifact_due", windowDays: dueWindowDays, filters: apiFilters }),
           });
           if (!j || !j.ok) return;
           const ai = (j as any).ai as ArtifactDueAi;
@@ -1513,31 +1300,19 @@ export default function HomePage({ data }: { data: HomeData }) {
             .slice(0, 20)
             .map((x: any) => ({
               ...x,
-              title:
-                safeStr(x?.title || x?.name || x?.artifact_title || x?.milestone_title).trim() ||
-                "Untitled",
+              title: safeStr(x?.title || x?.name || x?.artifact_title || x?.milestone_title).trim() || "Untitled",
               dueDate: x?.dueDate || x?.due_date || x?.due_at || x?.deadline || null,
-              ownerLabel:
-                x?.ownerLabel || x?.owner_label || x?.owner_name || x?.assignee_name || null,
-              ownerEmail:
-                x?.ownerEmail || x?.owner_email || x?.assignee_email || null,
+              ownerLabel: x?.ownerLabel || x?.owner_label || x?.owner_name || x?.assignee_name || null,
+              ownerEmail: x?.ownerEmail || x?.owner_email || x?.assignee_email || null,
               link: safeStr(x?.link || x?.href || x?.url || x?.project_link).trim() || null,
               meta: {
                 ...x?.meta,
-                project_code:
-                  x?.meta?.project_code || x?.project_code || x?.project_human_id || null,
-                project_name:
-                  x?.meta?.project_name || x?.project_name || x?.project_title || null,
+                project_code: x?.meta?.project_code || x?.project_code || x?.project_human_id || null,
+                project_name: x?.meta?.project_name || x?.project_name || x?.project_title || null,
               },
             }));
-          if (!c) {
-            setDueItems(merged);
-            setDueUpdatedAt(new Date().toISOString());
-          }
-        } catch {
-        } finally {
-          if (!c) setDueLoading(false);
-        }
+          if (!c) { setDueItems(merged); setDueUpdatedAt(new Date().toISOString()); }
+        } catch {} finally { if (!c) setDueLoading(false); }
       })();
     });
     return () => { c = true; };
@@ -1565,7 +1340,8 @@ export default function HomePage({ data }: { data: HomeData }) {
     return () => { c = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
-  // HP-F7: Fetch live portfolio health score — phScoreForUi stays null until this resolves.
+  // HP-F7 + HP-F8: Fetch live portfolio health score.
+  // Read BOTH `score` (new) and `portfolio_health` (legacy alias) — whichever is set.
   useEffect(() => {
     if (!ok) return;
     let cancelled = false;
@@ -1593,32 +1369,29 @@ export default function HomePage({ data }: { data: HomeData }) {
         try {
           const url = appendFiltersToApi(
             `/api/portfolio/milestones-due?days=${numericWindowDays}`,
-            urlFilters,
-            projectOptions,
+            urlFilters, projectOptions,
           );
           const j: any = await fetchJson(url, { cache: "no-store" });
-          if (j?.ok && typeof j?.count === "number" && !c) {
-            setMilestonesDueLive(Math.max(0, j.count));
-          } else if (!c) {
-            setMilestonesDueLive(0);
-          }
-        } catch {
-          if (!c) setMilestonesDueLive(0);
-        }
+          if (j?.ok && typeof j?.count === "number" && !c) setMilestonesDueLive(Math.max(0, j.count));
+          else if (!c) setMilestonesDueLive(0);
+        } catch { if (!c) setMilestonesDueLive(0); }
       })();
     });
     return () => { c = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
-  // HP-F7: Use live API score when available and > 0. Fall back to ragAgg.avgHealth
-  // (derived from per-project RAG data already on the page) if the API returns 0 or
-  // hasn't resolved yet. Never falls back to the stale SSR kpis.portfolioHealth value.
-  const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
+  // HP-F8: Read `score` first (new field), fall back to `portfolio_health` (legacy alias).
+  // Both are now emitted by the v13 route so this is belt-and-braces.
+  const apiScore = phData?.ok
+    ? clamp01to100(
+        (phData as any).score != null
+          ? (phData as any).score
+          : (phData as any).portfolio_health,
+      )
+    : null;
+
   const ragFallback = ragAgg.scored ? ragAgg.avgHealth : null;
-  // HP-F7: Always prefer the live API score — it matches the project page calculation.
-  // Only fall back to ragAgg.avgHealth (derived from stored RAG rows) when the API
-  // hasn't resolved yet or returned 0.
-  const phScoreForUi = (apiScore != null && apiScore > 0) ? apiScore : ragFallback;
+  const phScoreForUi = apiScore != null && apiScore > 0 ? apiScore : ragFallback;
   const phRag = scoreToRag(phScoreForUi ?? 0);
   const phDelta = phPrevScore != null && phScoreForUi != null ? phScoreForUi - phPrevScore : null;
 
@@ -1628,64 +1401,43 @@ export default function HomePage({ data }: { data: HomeData }) {
     return m2;
   }, [approvalItems]);
 
-  // HP-F3: Explicit sum — zero stays 0, no || fallback swallowing it
   const raidDueTotal = useMemo(() => {
     if (!raidPanel) return 0;
     const typedAvailable =
       raidPanel.risk_due != null || raidPanel.issue_due != null ||
       raidPanel.dependency_due != null || raidPanel.assumption_due != null;
     if (typedAvailable) {
-      return num(raidPanel.risk_due) + num(raidPanel.issue_due) + num(raidPanel.dependency_due) + num(raidPanel.assumption_due);
+      return num(raidPanel.risk_due) + num(raidPanel.issue_due) +
+             num(raidPanel.dependency_due) + num(raidPanel.assumption_due);
     }
     return num(raidPanel.due_total);
   }, [raidPanel]);
 
-  // HP-F5 (revised): Show null until raidPanel arrives — no kpis.openRisks fallback.
   const openRisksValue = raidPanel ? raidDueTotal : null;
-
   const raidHighSeverity = num(raidPanel?.risk_hi) + num(raidPanel?.issue_hi);
 
   const fpHasData = fpSummary?.ok === true;
-  // API nests most data in `portfolio` sub-object: { ok, portfolio: { totalBudget, totalActual, ... }, rag, currency }
   const _fpPortfolioPre = fpHasData ? (fpSummary as any).portfolio : null;
   const fpVariancePct = fpHasData
-    ? ((fpSummary as any).variance_pct
-       ?? _fpPortfolioPre?.variance_pct
-       ?? _fpPortfolioPre?.variancePct
-       ?? _fpPortfolioPre?.variance)
+    ? ((fpSummary as any).variance_pct ?? _fpPortfolioPre?.variance_pct ?? _fpPortfolioPre?.variancePct ?? _fpPortfolioPre?.variance)
     : null;
-  const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
-  const fpRag = fpHasData
-    ? (((fpSummary as any).rag || _fpPortfolioPre?.rag) as RagLetter ?? null)
-    : null;
-  const fpCurrency = fpHasData
-    ? (safeStr((fpSummary as any).currency || _fpPortfolioPre?.currency).trim() || "£")
-    : "£";
+  const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct))
+    ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
+  const fpRag = fpHasData ? (((fpSummary as any).rag || _fpPortfolioPre?.rag) as RagLetter ?? null) : null;
+  const fpCurrency = fpHasData ? (safeStr((fpSummary as any).currency || _fpPortfolioPre?.currency).trim() || "£") : "£";
 
-  // Extract budget: API returns data nested in `portfolio` object.
-  // e.g. { ok: true, total_approved_budget: null, portfolio: { totalBudget: 102000, totalActual: 0, ... } }
   const _fpPortfolio = _fpPortfolioPre;
-
   const _fpBudgetRaw = fpHasData ? (() => {
     const s = fpSummary as any;
     const p = _fpPortfolio ?? {};
-    // 1. Nested portfolio object (confirmed from API response)
-    const nested =
-      p.totalBudget ?? p.total_budget ?? p.approvedBudget ?? p.approved_budget ??
-      p.totalApprovedBudget ?? p.budgeted ?? p.budget;
+    const nested = p.totalBudget ?? p.total_budget ?? p.approvedBudget ?? p.approved_budget ?? p.totalApprovedBudget ?? p.budgeted ?? p.budget;
     if (nested != null && Number(nested) > 0) return nested;
-    // 2. Top-level fields
-    const topLevel =
-      s.total_approved_budget ?? s.approved_budget ?? s.total_budget ??
-      s.budget_total ?? s.budgeted ?? s.total_budgeted ?? s.budget ??
-      s.plan_budget ?? s.total_plan_budget ?? s.approved;
+    const topLevel = s.total_approved_budget ?? s.approved_budget ?? s.total_budget ?? s.budget_total ?? s.budgeted ?? s.total_budgeted ?? s.budget ?? s.plan_budget ?? s.total_plan_budget ?? s.approved;
     if (topLevel != null) return topLevel;
-    // 3. Scan all top-level keys
     for (const [k, v] of Object.entries(s)) {
       const kl = k.toLowerCase();
       if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v;
     }
-    // 4. Scan nested portfolio keys
     for (const [k, v] of Object.entries(p)) {
       const kl = k.toLowerCase();
       if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v;
@@ -1696,17 +1448,10 @@ export default function HomePage({ data }: { data: HomeData }) {
   const _fpSpentRaw = fpHasData ? (() => {
     const s = fpSummary as any;
     const p = _fpPortfolio ?? {};
-    // 1. Nested portfolio object
-    const nested =
-      p.totalActual ?? p.total_actual ?? p.totalSpent ?? p.total_spent ??
-      p.actualSpent ?? p.actual_spent ?? p.actuals ?? p.spent;
+    const nested = p.totalActual ?? p.total_actual ?? p.totalSpent ?? p.total_spent ?? p.actualSpent ?? p.actual_spent ?? p.actuals ?? p.spent;
     if (nested != null) return nested;
-    // 2. Top-level fields
-    const topLevel =
-      s.total_spent ?? s.actual_spent ?? s.spent_total ?? s.total_actual ??
-      s.actual ?? s.spent ?? s.total_actuals ?? s.actuals_total;
+    const topLevel = s.total_spent ?? s.actual_spent ?? s.spent_total ?? s.total_actual ?? s.actual ?? s.spent ?? s.total_actuals ?? s.actuals_total;
     if (topLevel != null) return topLevel;
-    // 3. Scan portfolio keys
     for (const [k, v] of Object.entries(p)) {
       const kl = k.toLowerCase();
       if ((kl.includes("spent") || kl.includes("actual")) && Number.isFinite(Number(v)) && Number(v) >= 0) return v;
@@ -1722,23 +1467,19 @@ export default function HomePage({ data }: { data: HomeData }) {
     const prefix = currency.length === 1 ? currency : "";
     const suffix = currency.length > 1 ? ` ${currency}` : "";
     if (abs >= 1_000_000) return `${prefix}${(n / 1_000_000).toFixed(1)}M${suffix}`;
-    if (abs >= 1_000) return `${prefix}${(n / 1_000).toFixed(0)}k${suffix}`;
+    if (abs >= 1_000)     return `${prefix}${(n / 1_000).toFixed(0)}k${suffix}`;
     return `${prefix}${n.toFixed(0)}${suffix}`;
   }
 
-  const fpValueLabel = fpTotalBudget != null
-    ? formatBudget(fpTotalBudget, fpCurrency)
-    : fpLoading ? "…" : "—";
-
+  const fpValueLabel = fpTotalBudget != null ? formatBudget(fpTotalBudget, fpCurrency) : fpLoading ? "…" : "—";
   const fpSubLabel = fpHasData
     ? fpTotalSpent != null
       ? `${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` · ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}`
       : `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "watch" : "over"}`
     : "total portfolio budget";
-
   const fpTrendLabel = fpVarianceNum != null && fpVarianceNum !== 0
-    ? `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`
-    : undefined;
+    ? `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%` : undefined;
+
   const firstProjectRef = useMemo(() => {
     const fp = fpSummary?.ok ? (fpSummary as any).project_ref : null;
     if (fp) return fp;
@@ -1836,7 +1577,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                   </span>
                 </div>
               </div>
-
               <div className="flex items-center gap-2">
                 <div className="hidden sm:flex items-center gap-1 p-1 rounded-xl bg-gray-100">
                   {([7, 14, 30, 60] as const).map((d) => (
@@ -1847,33 +1587,26 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </button>
                   ))}
                 </div>
-
                 {dueUpdatedAt && <LastUpdated iso={dueUpdatedAt} />}
-
                 <div className="h-5 w-px bg-gray-200 mx-1" />
-
                 <button type="button" onClick={openDrawerFocusSearch}
                   className={["h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
                     drawerOpenViaSearch ? "bg-gray-900 border-gray-900" : "bg-white border-gray-200 hover:bg-gray-50"].join(" ")}
                   aria-label="Search" title="Search">
                   <Search className={["h-4 w-4", drawerOpenViaSearch ? "text-white" : "text-gray-700"].join(" ")} />
                 </button>
-
                 <button type="button" onClick={() => { setDrawerOpenViaSearch(false); setDrawerOpen((v) => !v); }}
                   className={["h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
                     (drawerOpen && !drawerOpenViaSearch) || filtersActive ? "bg-gray-900 border-gray-900" : "bg-white border-gray-200 hover:bg-gray-50"].join(" ")}
                   aria-label="Filter" title="Filter">
                   <SlidersHorizontal className={["h-4 w-4", (drawerOpen && !drawerOpenViaSearch) || filtersActive ? "text-white" : "text-gray-700"].join(" ")} />
                 </button>
-
                 <button type="button" onClick={exportProjectsCsv}
                   className="h-9 w-9 rounded-xl border border-gray-200 bg-white flex items-center justify-center hover:bg-gray-50 transition-colors"
                   aria-label="Export" title="Export CSV">
                   <Download className="h-4 w-4 text-gray-700" />
                 </button>
-
                 <NotificationBell />
-
                 <button type="button" onClick={() => router.push("/settings")}
                   className="h-9 w-9 rounded-xl border border-gray-200 bg-white flex items-center justify-center hover:bg-gray-50 transition-colors"
                   aria-label="Settings" title="Settings">
@@ -1904,41 +1637,35 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             )}
 
+            {/* KPI Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* HP-F7: phScoreForUi — null until live /api/portfolio/health resolves */}
-              <KpiCard
-                label="Portfolio Health"
+              <KpiCard label="Portfolio Health"
                 value={phScoreForUi == null ? "\u2026" : `${phScoreForUi}%`}
                 sub={ragAgg.scored ? `${ragAgg.g} Green \u00b7 ${ragAgg.a} Amber \u00b7 ${ragAgg.r} Red` : "live portfolio score"}
                 icon={<Activity className="h-5 w-5" />}
                 colorKey={phScoreForUi == null ? "blue" : phColorKey}
                 trendLabel={phDelta != null && phDelta !== 0 ? `${Math.abs(Math.round(phDelta))}` : undefined}
                 onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))}
-                delay={0}
-              />
-
-              {/* HP-F5: openRisksValue — null while loading, raidDueTotal once panel arrives */}
-              <KpiCard
-                label="Open Risks"
+                delay={0} />
+              <KpiCard label="Open Risks"
                 value={openRisksValue == null ? "\u2026" : `${openRisksValue}`}
                 sub="high priority" icon={<AlertTriangle className="h-5 w-5" />} colorKey="amber"
                 trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity}` : undefined}
-                onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))} delay={0.05} />
-
-              {/* HP-F6: milestonesDueLive — null until live API responds */}
+                onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))}
+                delay={0.05} />
               <KpiCard label="Milestones Due"
                 value={milestonesDueLive == null ? "\u2026" : `${milestonesDueLive}`}
                 sub={`next ${windowDays === "all" ? "60" : windowDays} days`}
                 icon={<Clock3 className="h-5 w-5" />} colorKey="blue"
-                onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))} delay={0.1} />
-
+                onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))}
+                delay={0.1} />
               <KpiCard label="Budget Health" value={fpValueLabel}
-                sub={fpSubLabel}
-                icon={<DollarSign className="h-5 w-5" />} colorKey={fpColorKey}
+                sub={fpSubLabel} icon={<DollarSign className="h-5 w-5" />} colorKey={fpColorKey}
                 trendLabel={fpTrendLabel}
                 onClick={() => router.push("/budget")} delay={0.15} />
             </div>
 
+            {/* Resource + AI Insights */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-start justify-between mb-2">
@@ -1958,7 +1685,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                   loading={resourceLoading && resourceWeeks.length === 0}
                 />
               </div>
-
               <div className="bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="h-9 w-9 rounded-xl bg-purple-100 flex items-center justify-center">
@@ -1986,32 +1712,24 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             </div>
 
-            <div
-              className="rounded-2xl border border-gray-100 bg-white px-6 py-5"
-              style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
-            >
+            {/* Control Center */}
+            <div className="rounded-2xl border border-gray-100 bg-white px-6 py-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-violet-500">
-                    Governance Intelligence
-                  </div>
+                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-violet-500">Governance Intelligence</div>
                   <h3 className="mt-1 text-base font-semibold text-gray-900">Control Center</h3>
                   <p className="mt-1 max-w-2xl text-sm text-gray-500">
                     Open the governance intelligence centre for approvals, control signals, oversight, and delivery decision support.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => router.push("/approvals")}
-                  className="inline-flex items-center gap-2 self-start rounded-2xl border border-violet-200 bg-violet-50 px-5 py-3 text-sm font-semibold text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100"
-                >
-                  <ShieldCheck className="h-4 w-4" />
-                  Control Center
-                  <ArrowUpRight className="h-4 w-4" />
+                <button type="button" onClick={() => router.push("/approvals")}
+                  className="inline-flex items-center gap-2 self-start rounded-2xl border border-violet-200 bg-violet-50 px-5 py-3 text-sm font-semibold text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100">
+                  <ShieldCheck className="h-4 w-4" />Control Center<ArrowUpRight className="h-4 w-4" />
                 </button>
               </div>
             </div>
 
+            {/* RAG + Projects + Sidebar */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 space-y-4">
                 {ragAgg.scored > 0 && (
@@ -2113,11 +1831,8 @@ export default function HomePage({ data }: { data: HomeData }) {
                         <m.div key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}>
                           <MilestoneCard item={it} onClick={() => {
                             const href = safeStr(it?.link).trim();
-                            if (href && !href.includes("/raid") && !href.includes("/risks")) {
-                              router.push(href);
-                            } else {
-                              router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters));
-                            }
+                            if (href && !href.includes("/raid") && !href.includes("/risks")) router.push(href);
+                            else router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters));
                           }} />
                         </m.div>
                       ))
