@@ -12,7 +12,9 @@ type ProjectRow = {
   client_name?: string | null;
   project_code?: any;
   department?: string | null;
-  
+  pm_name?: string | null;
+  pm_user_id?: string | null;
+  project_manager_id?: string | null;
 };
 
 type HomeOk = {
@@ -102,13 +104,16 @@ function mapProjectRow(p: any): ProjectRow {
     client_name: safeStr(p?.client_name).trim() || null,
     project_code: p?.project_code ?? null,
     department: safeStr(p?.department).trim() || null,
+    pm_name: safeStr(p?.pm_name).trim() || null,
+    pm_user_id: safeStr(p?.pm_user_id).trim() || null,
+    project_manager_id: safeStr(p?.project_manager_id).trim() || null,
   };
 }
 
 async function loadActiveProjectsForOrg(supabase: any, orgId: string): Promise<ProjectRow[]> {
   const { data, error } = await supabase
     .from("projects")
-    .select("id,title,client_name,project_code,department,created_at,deleted_at,status")
+    .select("id,title,client_name,project_code,department,pm_name,pm_user_id,project_manager_id,created_at,deleted_at,status")
     .eq("organisation_id", orgId)
     .is("deleted_at", null)
     .neq("status", "closed")
