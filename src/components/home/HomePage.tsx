@@ -1064,7 +1064,7 @@ function FilterDrawer({
                   <input
                     ref={searchInputRef}
                     value={local.q ?? ""} onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))}
-                    placeholder="Project name, code, PM, department\u2026"
+                    placeholder="Project name, code, PM, department…"
                     className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
                   />
                   {local.q ? (
@@ -1118,11 +1118,47 @@ function FilterDrawer({
                 </div>
               </div>
             </div>
-            <div className="p-4 border-t border-gray-200 flex items-center justify-between gap-3">
-              <button onClick={onClear} className="px-3 py-2 text-sm rounded-xl ring-1 ring-gray-200 hover:bg-gray-50" type="button">Clear all</button>
+            <div className="p-4 border-t border-gray-200 bg-gray-50/60">
+              {/* Active filter count */}
+              {(
+                (local.projectId?.length ?? 0) +
+                (local.projectManagerId?.length ?? 0) +
+                (local.department?.length ?? 0) +
+                (local.q?.trim() ? 1 : 0)
+              ) > 0 && (
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-xs text-gray-500">
+                    <span className="font-semibold text-gray-900">
+                      {(local.projectId?.length ?? 0) +
+                        (local.projectManagerId?.length ?? 0) +
+                        (local.department?.length ?? 0) +
+                        (local.q?.trim() ? 1 : 0)}
+                    </span>{" "}filter{((local.projectId?.length ?? 0) + (local.projectManagerId?.length ?? 0) + (local.department?.length ?? 0) + (local.q?.trim() ? 1 : 0)) !== 1 ? "s" : ""} active
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onClear}
+                    className="text-xs font-semibold text-red-500 hover:text-red-600"
+                  >
+                    Clear all
+                  </button>
+                </div>
+              )}
               <div className="flex items-center gap-2">
-                <button onClick={onClose} className="px-3 py-2 text-sm rounded-xl ring-1 ring-gray-200 hover:bg-gray-50" type="button">Cancel</button>
-                <button onClick={() => onApply(local)} className="px-4 py-2 text-sm rounded-xl bg-gray-900 text-white hover:bg-gray-800" type="button">Apply</button>
+                <button
+                  onClick={onClose}
+                  className="flex-1 h-10 rounded-xl border border-gray-300 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => onApply(local)}
+                  className="flex-1 h-10 rounded-xl bg-gray-900 text-sm font-semibold text-white hover:bg-gray-800 transition-colors"
+                  type="button"
+                >
+                  Apply filters
+                </button>
               </div>
             </div>
           </m.div>
@@ -1520,8 +1556,33 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fpHasData = fpSummary?.ok === true;
   const fpVariancePct = fpHasData ? (fpSummary as any).variance_pct : null;
   const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
-  const fpVarianceLabel = fpVarianceNum != null ? (fpVarianceNum === 0 ? "\u00b10%" : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`) : fpLoading ? "\u2026" : "\u2014";
   const fpRag = fpHasData ? ((fpSummary as any).rag as RagLetter) : null;
+  const fpCurrency = fpHasData ? (safeStr((fpSummary as any).currency).trim() || "£") : "£";
+  const fpTotalBudget: number | null = fpHasData ? (num((fpSummary as any).total_approved_budget) || null) : null;
+  const fpTotalSpent: number | null = fpHasData ? (num((fpSummary as any).total_spent) || null) : null;
+
+  function formatBudget(n: number, currency: string): string {
+    const abs = Math.abs(n);
+    const prefix = currency.length === 1 ? currency : "";
+    const suffix = currency.length > 1 ? ` ${currency}` : "";
+    if (abs >= 1_000_000) return `${prefix}${(n / 1_000_000).toFixed(1)}M${suffix}`;
+    if (abs >= 1_000) return `${prefix}${(n / 1_000).toFixed(0)}k${suffix}`;
+    return `${prefix}${n.toFixed(0)}${suffix}`;
+  }
+
+  const fpValueLabel = fpTotalBudget != null
+    ? formatBudget(fpTotalBudget, fpCurrency)
+    : fpLoading ? "…" : "—";
+
+  const fpSubLabel = fpHasData
+    ? fpTotalSpent != null
+      ? `${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` · ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}`
+      : `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "watch" : "over"}`
+    : "total portfolio budget";
+
+  const fpTrendLabel = fpVarianceNum != null && fpVarianceNum !== 0
+    ? `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`
+    : undefined;
   const firstProjectRef = useMemo(() => {
     const fp = fpSummary?.ok ? (fpSummary as any).project_ref : null;
     if (fp) return fp;
@@ -1715,10 +1776,10 @@ export default function HomePage({ data }: { data: HomeData }) {
                 icon={<Clock3 className="h-5 w-5" />} colorKey="blue"
                 onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))} delay={0.1} />
 
-              <KpiCard label="Budget Health" value={fpVarianceLabel}
-                sub={fpHasData ? `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "watch" : "over"}` : "variance"}
+              <KpiCard label="Budget Health" value={fpValueLabel}
+                sub={fpSubLabel}
                 icon={<DollarSign className="h-5 w-5" />} colorKey={fpColorKey}
-                trendLabel={fpVarianceNum != null && fpVarianceNum !== 0 ? fpVarianceLabel : undefined}
+                trendLabel={fpTrendLabel}
                 onClick={() => router.push("/budget")} delay={0.15} />
             </div>
 
