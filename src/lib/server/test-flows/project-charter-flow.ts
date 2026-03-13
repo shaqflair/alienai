@@ -629,12 +629,12 @@ export async function runProjectCharterFlowTest(input?: {
   const organisationId = await getActiveOrganisationId(supabase, user.id);
   await assertDevAccess(supabase, organisationId, user.id);
 
-  const programmeLeadEmail =
-    asString(input?.programmeLeadEmail).trim() || "programmelead@test.com";
+    const programmeLeadEmail =
+    asString(input?.programmeLeadEmail).trim() || "alienaprogrammelead@gmail.com";
   const commercialLeadEmail =
-    asString(input?.commercialLeadEmail).trim() || "commerciallead@test.com";
+    asString(input?.commercialLeadEmail).trim() || "paapa501@gmail.com";
   const accountLeadEmail =
-    asString(input?.accountLeadEmail).trim() || "accountlead@test.com";
+    asString(input?.accountLeadEmail).trim() || "alex.adupoku@yahoo.com";
 
   const programmeLeadId = await getUserIdByEmail(supabase, programmeLeadEmail);
   const commercialLeadId = await getUserIdByEmail(supabase, commercialLeadEmail);
