@@ -5,8 +5,15 @@ import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type Scenario = "happy_path" | "reject_step_2" | "sla_breach";
+
+const BUILD_MARKER = "test-project-charter-flow-live-2026-03-13-v3";
+
+const TEST_PROGRAMME_LEAD_EMAIL = "alienaprogrammelead@gmail.com";
+const TEST_COMMERCIAL_LEAD_EMAIL = "paapa501@gmail.com";
+const TEST_ACCOUNT_LEAD_EMAIL = "alex.adupoku@yahoo.com";
 
 function json(data: unknown, status = 200) {
   const res = NextResponse.json(data, { status });
@@ -581,6 +588,8 @@ function buildAssertions(state: any, scenario: Scenario) {
 
 export async function POST(req: NextRequest) {
   try {
+    console.log("[test-project-charter-flow] BUILD_MARKER", BUILD_MARKER);
+
     const supabase = await createClient();
 
     const body = await req.json().catch(() => ({}));
@@ -606,10 +615,24 @@ export async function POST(req: NextRequest) {
     const organisationId = profile.data?.active_organisation_id;
     if (!organisationId) return fail("No active organisation found", 400);
 
-    // Replace these with real test users in your org.
-    const programmeLeadId = await getUserIdByEmail(supabase, "programmelead@test.com");
-    const commercialLeadId = await getUserIdByEmail(supabase, "commerciallead@test.com");
-    const accountLeadId = await getUserIdByEmail(supabase, "accountlead@test.com");
+    console.log("[test-project-charter-flow] approver emails", {
+      programmeLeadEmail: TEST_PROGRAMME_LEAD_EMAIL,
+      commercialLeadEmail: TEST_COMMERCIAL_LEAD_EMAIL,
+      accountLeadEmail: TEST_ACCOUNT_LEAD_EMAIL,
+      scenario,
+      organisationId,
+      actorUserId: user.id,
+    });
+
+    const programmeLeadId = await getUserIdByEmail(supabase, TEST_PROGRAMME_LEAD_EMAIL);
+    const commercialLeadId = await getUserIdByEmail(supabase, TEST_COMMERCIAL_LEAD_EMAIL);
+    const accountLeadId = await getUserIdByEmail(supabase, TEST_ACCOUNT_LEAD_EMAIL);
+
+    console.log("[test-project-charter-flow] approver ids resolved", {
+      programmeLeadId,
+      commercialLeadId,
+      accountLeadId,
+    });
 
     const project = await getOrCreateTestProject(supabase, organisationId, user.id);
     const artifact = await createProjectCharterArtifact(supabase, project.id, organisationId, user.id);
@@ -676,13 +699,29 @@ export async function POST(req: NextRequest) {
 
     return json({
       ok: true,
+      build_marker: BUILD_MARKER,
       scenario,
+      approver_emails: {
+        programmeLeadEmail: TEST_PROGRAMME_LEAD_EMAIL,
+        commercialLeadEmail: TEST_COMMERCIAL_LEAD_EMAIL,
+        accountLeadEmail: TEST_ACCOUNT_LEAD_EMAIL,
+      },
+      approver_ids: {
+        programmeLeadId,
+        commercialLeadId,
+        accountLeadId,
+      },
       project,
       artifact_id: artifact.id,
       assertions,
       state,
     });
   } catch (error: any) {
+    console.error("[test-project-charter-flow] failed", {
+      build_marker: BUILD_MARKER,
+      error: error?.message ?? String(error),
+    });
+
     return fail("Test flow failed", 500, error?.message ?? String(error));
   }
 }
