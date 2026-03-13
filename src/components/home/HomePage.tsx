@@ -1326,7 +1326,9 @@ export default function HomePage({ data }: { data: HomeData }) {
     for (const p of (Array.isArray(projects) ? projects : []) as any[]) {
       const id = safeStr(p?.project_manager_id).trim();
       const name = safeStr(p?.project_manager).trim();
-      if (id && name) map.set(id, name);
+      if (!name) continue;
+      // Use id if available, otherwise fall back to name as the key
+      map.set(id || name, name);
     }
     return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [projects]);
@@ -1359,7 +1361,7 @@ export default function HomePage({ data }: { data: HomeData }) {
       if (idSet.size && !idSet.has(pid)) return false;
       if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
       if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
-      if (pmSet.size && (!pm || !pmSet.has(pm))) return false;
+      if (pmSet.size && !(pmSet.has(pm) || pmSet.has(pmName) || (pm === "" && pmSet.has(pmName)))) return false;
       if (deptNeedles.length && (!dept || !deptNeedles.some((d) => dept.includes(d)))) return false;
       if (q) {
         const hay = `${title} ${code} ${dept} ${pmName}`.trim();
@@ -1603,7 +1605,11 @@ export default function HomePage({ data }: { data: HomeData }) {
   // hasn't resolved yet. Never falls back to the stale SSR kpis.portfolioHealth value.
   const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
   const ragFallback = ragAgg.scored ? ragAgg.avgHealth : null;
-  const phScoreForUi = (apiScore != null && apiScore > 0) ? apiScore : ragFallback;
+  // When only 1 project: prefer the RAG array direct health (matches project page).
+  // For multi-project: use composite API score.
+  const phScoreForUi = ragAgg.scored === 1 && ragFallback != null
+    ? ragFallback
+    : (apiScore != null && apiScore > 0) ? apiScore : ragFallback;
   const phRag = scoreToRag(phScoreForUi ?? 0);
   const phDelta = phPrevScore != null && phScoreForUi != null ? phScoreForUi - phPrevScore : null;
 
@@ -1636,8 +1642,19 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fpRag = fpHasData ? ((fpSummary as any).rag as RagLetter) : null;
   const fpCurrency = fpHasData ? (safeStr((fpSummary as any).currency).trim() || "£") : "£";
 
-  const _fpBudgetRaw = fpHasData ? (fpSummary as any).total_approved_budget : undefined;
-  const _fpSpentRaw  = fpHasData ? (fpSummary as any).total_spent : undefined;
+  const _fpBudgetRaw = fpHasData
+    ? ((fpSummary as any).total_approved_budget
+      ?? (fpSummary as any).approved_budget
+      ?? (fpSummary as any).total_budget
+      ?? (fpSummary as any).budget_total
+      ?? (fpSummary as any).budget)
+    : undefined;
+  const _fpSpentRaw = fpHasData
+    ? ((fpSummary as any).total_spent
+      ?? (fpSummary as any).actual_spent
+      ?? (fpSummary as any).spent_total
+      ?? (fpSummary as any).total_actual)
+    : undefined;
   const fpTotalBudget: number | null = _fpBudgetRaw != null && Number.isFinite(Number(_fpBudgetRaw)) ? Number(_fpBudgetRaw) : null;
   const fpTotalSpent:  number | null = _fpSpentRaw  != null && Number.isFinite(Number(_fpSpentRaw))  ? Number(_fpSpentRaw)  : null;
 
