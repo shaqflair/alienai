@@ -1,17 +1,7 @@
-﻿// src/app/api/portfolio/financial-plan-summary/route.ts — v7
-// FIX: content_json (not content), cost_lines/budgeted (not costLines/budget),
-//      flat response shape that HomePage expects (rag, variance_pct, total_approved_budget, …)
-//
-// Changes from v6:
-//   ✅ FPS-F7:  SELECT content_json instead of content
-//   ✅ FPS-F8:  Read cost_lines (snake_case) + line.budgeted to match FinancialPlanContent
-//   ✅ FPS-F9:  Use content.total_approved_budget as headline budget figure
-//   ✅ FPS-F10: Return flat fields (rag, variance_pct, total_approved_budget, total_spent,
-//               currency, project_count, project_ref, artifact_id) alongside portfolio/projects
-//   ✅ FPS-F11: Use shared resolvePortfolioScope() helper for org-wide scope reuse
-//   ✅ FPS-F12: Remove duplicated org scope resolution from route body
-//   ✅ FPS-F13: resolvePortfolioScope signature fixed (supabase, userId)
-//   ✅ FPS-F14: raw/projectIds scope contract normalized safely
+﻿// src/app/api/portfolio/financial-plan-summary/route.ts — v8
+// DEBUG: Added console logging to identify why totalBudget = 0
+// FIX:   Broaden content field name scanning (approved_budget, total_approved etc.)
+//        Also scan artifacts table columns more defensively
 //
 import "server-only";
 
@@ -22,313 +12,202 @@ import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export const runtime = "nodejs";
 
-/* ---------------- helpers ---------------- */
-
 function noStoreJson(payload: any, status = 200) {
   const res = NextResponse.json(payload, { status });
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
-
-function safeStr(x: any) {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
-}
-
+function safeStr(x: any) { return typeof x === "string" ? x : x == null ? "" : String(x); }
 function uniqStrings(xs: any): string[] {
   const arr = Array.isArray(xs) ? xs : xs == null ? [] : [xs];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const v of arr) {
-    const s = safeStr(v).trim();
-    if (!s) continue;
-    const k = s.toLowerCase();
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(s);
-  }
+  const out: string[] = []; const seen = new Set<string>();
+  for (const v of arr) { const s = safeStr(v).trim(); if (!s) continue; const k = s.toLowerCase(); if (seen.has(k)) continue; seen.add(k); out.push(s); }
   return out;
 }
-
 function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
-  if (pc && typeof pc === "object") {
-    const v =
-      safeStr(pc.project_code) ||
-      safeStr(pc.code) ||
-      safeStr(pc.value) ||
-      safeStr(pc.id);
-    return v.trim();
-  }
+  if (pc && typeof pc === "object") { const v = safeStr(pc.project_code)||safeStr(pc.code)||safeStr(pc.value)||safeStr(pc.id); return v.trim(); }
   return "";
 }
-
 function safeJson(x: any): any {
   if (!x) return null;
   if (typeof x === "object") return x;
-  try {
-    return JSON.parse(String(x));
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(String(x)); } catch { return null; }
 }
-
-function num(x: any, fallback = 0) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : fallback;
-}
-
+function num(x: any, fallback = 0) { const n = Number(x); return Number.isFinite(n) ? n : fallback; }
 function ragFromVariancePct(pct: number | null): "G" | "A" | "R" {
-  if (pct === null) return "G";
-  if (pct > 5) return "R";
-  if (pct > 0) return "A";
-  return "G";
+  if (pct === null) return "G"; if (pct > 5) return "R"; if (pct > 0) return "A"; return "G";
 }
 
 async function normalizeActiveIds(supabase: any, rawIds: string[]) {
   const failOpen = (reason: string) => ({ ids: rawIds, ok: false, error: reason });
-
   try {
     const r: any = await filterActiveProjectIds(supabase, rawIds);
-
-    if (Array.isArray(r)) {
-      const ids = r.filter(Boolean);
-      if (!ids.length && rawIds.length) {
-        return failOpen("active filter returned 0 ids; failing open");
-      }
-      return { ids, ok: true, error: null as string | null };
-    }
-
+    if (Array.isArray(r)) { const ids = r.filter(Boolean); if (!ids.length && rawIds.length) return failOpen("active filter 0"); return { ids, ok: true, error: null as string | null }; }
     const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
-    if (!ids.length && rawIds.length) {
-      return failOpen("active filter returned 0 ids; failing open");
-    }
-
-    return {
-      ids,
-      ok: !r?.error,
-      error: r?.error ? safeStr(r.error?.message || r.error) : null,
-    };
-  } catch (e: any) {
-    return failOpen(safeStr(e?.message || e || "active filter failed"));
-  }
+    if (!ids.length && rawIds.length) return failOpen("active filter 0");
+    return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
+  } catch (e: any) { return failOpen(safeStr(e?.message || e || "active filter failed")); }
 }
 
-/* ---------------- filters ---------------- */
-
-type PortfolioFilters = {
-  projectName?: string[];
-  projectCode?: string[];
-  projectManagerId?: string[];
-  department?: string[];
-};
-
-function hasAnyFilters(f: PortfolioFilters) {
-  return (
-    (f.projectName && f.projectName.length) ||
-    (f.projectCode && f.projectCode.length) ||
-    (f.projectManagerId && f.projectManagerId.length) ||
-    (f.department && f.department.length)
-  );
-}
-
+type PortfolioFilters = { projectName?: string[]; projectCode?: string[]; projectManagerId?: string[]; department?: string[]; };
+function hasAnyFilters(f: PortfolioFilters) { return (f.projectName && f.projectName.length)||(f.projectCode && f.projectCode.length)||(f.projectManagerId && f.projectManagerId.length)||(f.department && f.department.length); }
 function parseFiltersFromUrl(url: URL): PortfolioFilters {
-  const name = uniqStrings(
-    url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()),
-  );
-  const code = uniqStrings(
-    url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()),
-  );
-  const pm = uniqStrings(
-    url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim()),
-  );
-  const dept = uniqStrings(
-    url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()),
-  );
-
+  const name = uniqStrings(url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()));
+  const code = uniqStrings(url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()));
+  const pm   = uniqStrings(url.searchParams.getAll("pm").flatMap((x)   => x.split(",")).map((s) => s.trim()));
+  const dept = uniqStrings(url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()));
   const out: PortfolioFilters = {};
-  if (name.length) out.projectName = name;
-  if (code.length) out.projectCode = code;
-  if (pm.length) out.projectManagerId = pm;
-  if (dept.length) out.department = dept;
+  if (name.length) out.projectName = name; if (code.length) out.projectCode = code;
+  if (pm.length) out.projectManagerId = pm; if (dept.length) out.department = dept;
   return out;
 }
-
 function parseFiltersFromBody(body: any): PortfolioFilters {
   const f = body?.filters ?? body?.filter ?? body?.where ?? null;
   const out: PortfolioFilters = {};
-
-  const names = uniqStrings(
-    f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name,
-  );
-  const codes = uniqStrings(
-    f?.projectCode ?? f?.projectCodes ?? f?.code ?? f?.project_code,
-  );
-  const pms = uniqStrings(
-    f?.projectManagerId ?? f?.projectManagerIds ?? f?.pm ?? f?.project_manager_id,
-  );
-  const depts = uniqStrings(
-    f?.department ?? f?.departments ?? f?.dept,
-  );
-
-  if (names.length) out.projectName = names;
-  if (codes.length) out.projectCode = codes;
-  if (pms.length) out.projectManagerId = pms;
-  if (depts.length) out.department = depts;
+  const names = uniqStrings(f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name);
+  const codes = uniqStrings(f?.projectCode ?? f?.projectCodes ?? f?.code ?? f?.project_code);
+  const pms   = uniqStrings(f?.projectManagerId ?? f?.projectManagerIds ?? f?.pm ?? f?.project_manager_id);
+  const depts = uniqStrings(f?.department ?? f?.departments ?? f?.dept);
+  if (names.length) out.projectName = names; if (codes.length) out.projectCode = codes;
+  if (pms.length) out.projectManagerId = pms; if (depts.length) out.department = depts;
   return out;
 }
+function looksMissingRelation(err: any) { const msg = String(err?.message||err||"").toLowerCase(); return msg.includes("does not exist")||msg.includes("relation")||msg.includes("42p01"); }
+function looksMissingColumn(err: any) { const msg = String(err?.message||err||"").toLowerCase(); return msg.includes("column")&&msg.includes("does not exist"); }
 
-function looksMissingRelation(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
-}
-
-function looksMissingColumn(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return msg.includes("column") && msg.includes("does not exist");
-}
-
-async function applyProjectFilters(
-  supabase: any,
-  scopedProjectIds: string[],
-  filters: PortfolioFilters,
-) {
+async function applyProjectFilters(supabase: any, scopedProjectIds: string[], filters: PortfolioFilters) {
   const meta: any = { applied: false, filters, notes: [] as string[] };
-
-  if (!scopedProjectIds.length) {
-    return { projectIds: [], meta: { ...meta, applied: true } };
-  }
-  if (!hasAnyFilters(filters)) {
-    return { projectIds: scopedProjectIds, meta };
-  }
-
+  if (!scopedProjectIds.length) return { projectIds: [], meta: { ...meta, applied: true } };
+  if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
   const selectSets = [
     "id, title, project_code, project_manager_id, department, colour, start_date, finish_date, resource_status",
     "id, title, project_code, project_manager_id, colour, start_date, finish_date, resource_status",
     "id, title, project_code, department, colour, start_date, finish_date, resource_status",
     "id, title, project_code, colour, start_date, finish_date, resource_status",
   ];
-
-  let rows: any[] = [];
-  let lastErr: any = null;
-
+  let rows: any[] = []; let lastErr: any = null;
   for (const sel of selectSets) {
-    const { data, error } = await supabase
-      .from("projects")
-      .select(sel)
-      .in("id", scopedProjectIds)
-      .limit(10000);
-
-    if (!error && Array.isArray(data)) {
-      rows = data;
-      lastErr = null;
-      break;
-    }
+    const { data, error } = await supabase.from("projects").select(sel).in("id", scopedProjectIds).limit(10000);
+    if (!error && Array.isArray(data)) { rows = data; lastErr = null; break; }
     lastErr = error;
-    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
+    if (!(looksMissingRelation(error)||looksMissingColumn(error))) break;
   }
-
-  if (!rows.length) {
-    meta.applied = true;
-    meta.notes.push("Could not read projects for filtering; falling back to unfiltered scope.");
-    if (lastErr?.message) meta.notes.push(lastErr.message);
-    return { projectIds: scopedProjectIds, meta };
-  }
-
+  if (!rows.length) { meta.applied = true; meta.notes.push("filter fallback"); if (lastErr?.message) meta.notes.push(lastErr.message); return { projectIds: scopedProjectIds, meta }; }
   const nameNeedles = (filters.projectName ?? []).map((s) => s.toLowerCase());
   const codeNeedles = (filters.projectCode ?? []).map((s) => s.toLowerCase());
   const pmSet = new Set((filters.projectManagerId ?? []).map((s) => s));
   const deptNeedles = (filters.department ?? []).map((s) => s.toLowerCase());
-
   const filtered = rows.filter((p) => {
-    const title = safeStr(p?.title).toLowerCase();
-    const code = projectCodeLabel(p?.project_code).toLowerCase();
-
+    const title = safeStr(p?.title).toLowerCase(); const code = projectCodeLabel(p?.project_code).toLowerCase();
     if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
     if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
-
-    if (pmSet.size) {
-      const pm = safeStr(p?.project_manager_id).trim();
-      if (!pm || !pmSet.has(pm)) return false;
-    }
-
-    if (deptNeedles.length) {
-      const dept = safeStr(p?.department).toLowerCase().trim();
-      if (!dept || !deptNeedles.some((d) => dept.includes(d))) return false;
-    }
-
+    if (pmSet.size) { const pm = safeStr(p?.project_manager_id).trim(); if (!pm||!pmSet.has(pm)) return false; }
+    if (deptNeedles.length) { const dept = safeStr(p?.department).toLowerCase().trim(); if (!dept||!deptNeedles.some((d) => dept.includes(d))) return false; }
     return true;
   });
-
-  const outIds = filtered.map((p) => String(p?.id || "").trim()).filter(Boolean);
-  meta.applied = true;
-  meta.counts = { before: scopedProjectIds.length, after: outIds.length };
+  const outIds = filtered.map((p) => String(p?.id||"").trim()).filter(Boolean);
+  meta.applied = true; meta.counts = { before: scopedProjectIds.length, after: outIds.length };
   return { projectIds: outIds, meta, projectRows: rows };
+}
+
+/* ---- extract budget from any content shape ---- */
+function extractBudgetFromContent(content: any): {
+  totalApprovedBudget: number; totalBudgeted: number;
+  totalForecast: number; totalActual: number; currency: string;
+} {
+  let totalApprovedBudget = 0, totalBudgeted = 0, totalForecast = 0, totalActual = 0;
+  let currency = "GBP";
+
+  if (!content || typeof content !== "object") {
+    return { totalApprovedBudget, totalBudgeted, totalForecast, totalActual, currency };
+  }
+
+  if (content.currency) currency = safeStr(content.currency);
+
+  // ── Approved budget: scan every plausible field name ──
+  const approvedRaw =
+    content.total_approved_budget ??
+    content.totalApprovedBudget ??
+    content.approved_budget ??
+    content.approvedBudget ??
+    content.total_approved ??
+    content.totalApproved ??
+    content.approved ??
+    content.budget_approved ??
+    content.budgetApproved;
+  totalApprovedBudget = num(approvedRaw, 0);
+
+  // ── Cost lines: snake_case and camelCase variants ──
+  const costLines: any[] =
+    Array.isArray(content.cost_lines) ? content.cost_lines :
+    Array.isArray(content.costLines)  ? content.costLines  :
+    Array.isArray(content.lines)      ? content.lines      :
+    Array.isArray(content.items)      ? content.items      : [];
+
+  for (const line of costLines) {
+    const budgeted = num(line?.budgeted ?? line?.budget ?? line?.planned ?? line?.amount, 0);
+    const forecast = num(line?.forecast ?? line?.forecasted ?? line?.projected, 0);
+    const actual   = num(line?.actual   ?? line?.actuals  ?? line?.spent, 0);
+    totalBudgeted += budgeted;
+    totalForecast += forecast;
+    totalActual   += actual;
+  }
+
+  // ── Monthly phasing fallback ──
+  if (costLines.length === 0) {
+    const monthlyData = content.monthly_data ?? content.monthlyData ?? {};
+    try {
+      for (const [, months] of Object.entries(monthlyData) as any) {
+        for (const [, vals] of Object.entries(months as any)) {
+          const v = vals as any;
+          totalBudgeted += num(v?.budget ?? v?.budgeted, 0);
+          totalForecast += num(v?.forecast, 0);
+          totalActual   += num(v?.actual, 0);
+        }
+      }
+    } catch {}
+  }
+
+  // ── If still 0, try top-level totals directly ──
+  if (totalApprovedBudget === 0 && totalBudgeted === 0) {
+    totalApprovedBudget = num(content.total ?? content.total_amount ?? content.amount, 0);
+    totalBudgeted = num(content.budgeted ?? content.budget, 0);
+    totalForecast = num(content.forecast ?? content.total_forecast, 0);
+    totalActual   = num(content.actual   ?? content.total_actual, 0);
+  }
+
+  return { totalApprovedBudget, totalBudgeted, totalForecast, totalActual, currency };
 }
 
 /* ---------------- handler ---------------- */
 
 async function handle(req: Request, filters: PortfolioFilters) {
   const supabase = await createClient();
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) return noStoreJson({ ok: false, error: "Unauthorized" }, 401);
 
-  const {
-    data: { user },
-    error: authErr,
-  } = await supabase.auth.getUser();
-
-  if (authErr || !user) {
-    return noStoreJson({ ok: false, error: "Unauthorized" }, 401);
-  }
-
-  // 1) Shared org-wide dashboard scope
   const scope = await resolvePortfolioScope(supabase, user.id);
   const scopeMeta = scope.meta ?? {};
   const organisationId = scope.organisationId ?? null;
   const scopedProjectIdsRaw = uniqStrings(
-    Array.isArray(scope.rawProjectIds)
-      ? scope.rawProjectIds
-      : Array.isArray(scope.projectIds)
-        ? scope.projectIds
-        : [],
+    Array.isArray(scope.rawProjectIds) ? scope.rawProjectIds :
+    Array.isArray(scope.projectIds)    ? scope.projectIds    : [],
   );
-
   const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
   const scopedProjectIds = active.ids;
 
-  // 2) Apply filters
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, filters);
   const projectIds = filtered.projectIds;
 
   if (!projectIds.length) {
     return noStoreJson({
-      ok: true,
-      total_approved_budget: 0,
-      total_spent: 0,
-      variance_pct: null,
-      rag: "G" as const,
-      project_count: 0,
-      currency: "GBP",
-      project_ref: null,
-      artifact_id: null,
-      portfolio: {
-        totalBudget: 0,
-        totalForecast: 0,
-        totalActual: 0,
-        projectCount: 0,
-        withPlanCount: 0,
-      },
+      ok: true, total_approved_budget: 0, total_spent: 0, variance_pct: null,
+      rag: "G" as const, project_count: 0, currency: "GBP", project_ref: null, artifact_id: null,
+      portfolio: { totalBudget: 0, totalForecast: 0, totalActual: 0, projectCount: 0, withPlanCount: 0 },
       projects: [],
-      meta: {
-        organisationId,
-        scope: {
-          ...scopeMeta,
-          scopedIdsRaw: scopedProjectIdsRaw.length,
-          scopedIdsActive: scopedProjectIds.length,
-          active_filter_ok: active.ok,
-          active_filter_error: active.error,
-        },
-        filters: filtered.meta,
-      },
+      meta: { organisationId, scope: { ...scopeMeta, scopedIdsRaw: scopedProjectIdsRaw.length, scopedIdsActive: scopedProjectIds.length, active_filter_ok: active.ok, active_filter_error: active.error }, filters: filtered.meta },
     });
   }
 
@@ -336,264 +215,167 @@ async function handle(req: Request, filters: PortfolioFilters) {
   let projects: any[] = [];
   if (Array.isArray((filtered as any).projectRows) && (filtered as any).projectRows.length) {
     const allow = new Set(projectIds);
-    projects = (filtered as any).projectRows.filter((p: any) =>
-      allow.has(String(p?.id || "").trim()),
-    );
-    projects.sort((a: any, b: any) =>
-      safeStr(a?.title).localeCompare(safeStr(b?.title)),
-    );
+    projects = (filtered as any).projectRows.filter((p: any) => allow.has(String(p?.id||"").trim()));
+    projects.sort((a: any, b: any) => safeStr(a?.title).localeCompare(safeStr(b?.title)));
   } else {
     const { data: projRows, error: projErr } = await supabase
       .from("projects")
       .select("id, title, project_code, colour, start_date, finish_date, resource_status")
-      .in("id", projectIds)
-      .order("title", { ascending: true });
-
+      .in("id", projectIds).order("title", { ascending: true });
     if (projErr) return noStoreJson({ ok: false, error: projErr.message }, 500);
     projects = projRows ?? [];
   }
 
-  // 4) Fetch latest financial_plan artifact per project
-  const { data: artifacts, error: artErr } = await supabase
-    .from("artifacts")
-    .select("id, project_id, content_json, content, updated_at")
-    .in("project_id", projectIds)
-    .eq("type", "financial_plan")
-    .order("updated_at", { ascending: false })
-    .limit(20000);
+  // 4) Fetch artifacts — try content_json first, fall back to content
+  //    Also try without column restriction in case schema differs
+  let artifacts: any[] = [];
+  const artSelects = [
+    "id, project_id, content_json, content, updated_at",
+    "id, project_id, content_json, updated_at",
+    "id, project_id, content, updated_at",
+    "id, project_id, updated_at",
+  ];
 
-  if (artErr) return noStoreJson({ ok: false, error: artErr.message }, 500);
+  for (const sel of artSelects) {
+    const { data, error } = await supabase
+      .from("artifacts")
+      .select(sel)
+      .in("project_id", projectIds)
+      .eq("type", "financial_plan")
+      .order("updated_at", { ascending: false })
+      .limit(20000);
+
+    if (!error && Array.isArray(data)) {
+      artifacts = data;
+      console.log(`[fps] artifact select OK with "${sel}", count=${data.length}`);
+      if (data.length > 0) {
+        const sample = data[0];
+        console.log("[fps] sample artifact keys:", Object.keys(sample));
+        const contentRaw = sample.content_json ?? sample.content;
+        console.log("[fps] content_json type:", typeof sample.content_json, "| content type:", typeof sample.content);
+        console.log("[fps] content raw (first 300 chars):", JSON.stringify(contentRaw)?.slice(0, 300));
+      }
+      break;
+    }
+    console.warn(`[fps] artifact select FAILED with "${sel}":`, error?.message);
+    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
+  }
 
   const planByProject = new Map<string, any>();
-  for (const artifact of artifacts ?? []) {
-    const pid = String((artifact as any)?.project_id || "").trim();
+  for (const artifact of artifacts) {
+    const pid = String((artifact as any)?.project_id||"").trim();
     if (pid && !planByProject.has(pid)) planByProject.set(pid, artifact);
   }
 
-  // 5) Best-effort role lookup
+  console.log(`[fps] projectIds=${projectIds.length}, artifactsFound=${artifacts.length}, plansMatched=${planByProject.size}`);
+
+  // 5) Role lookup
   let roleByProject = new Map<string, string>();
   try {
     const { data: memberships } = await supabase
-      .from("project_members")
-      .select("project_id, role, is_active, removed_at")
-      .eq("user_id", user.id)
-      .is("removed_at", null)
-      .in("project_id", projectIds)
-      .limit(20000);
-
+      .from("project_members").select("project_id, role, is_active, removed_at")
+      .eq("user_id", user.id).is("removed_at", null).in("project_id", projectIds).limit(20000);
     for (const m of memberships ?? []) {
-      const pid = String((m as any)?.project_id || "").trim();
-      if (pid && !roleByProject.has(pid)) {
-        roleByProject.set(pid, safeStr((m as any)?.role).trim() || "viewer");
-      }
+      const pid = String((m as any)?.project_id||"").trim();
+      if (pid && !roleByProject.has(pid)) roleByProject.set(pid, safeStr((m as any)?.role).trim()||"viewer");
     }
-  } catch {
-    roleByProject = new Map();
-  }
+  } catch { roleByProject = new Map(); }
 
   // 6) Per-project summaries
   const summaries = (projects ?? []).map((project: any) => {
-    const pid = String(project?.id || "").trim();
+    const pid = String(project?.id||"").trim();
     const artifact = planByProject.get(pid);
-    const content = safeJson(artifact?.content_json) ?? safeJson(artifact?.content);
+    const contentRaw = artifact?.content_json ?? artifact?.content;
+    const content = safeJson(contentRaw);
 
-    let totalApprovedBudget = 0;
-    let totalBudgeted = 0;
-    let totalForecast = 0;
-    let totalActual = 0;
-    let currency = "GBP";
+    console.log(`[fps] project=${pid} artifact=${artifact?.id ?? "NONE"} contentNull=${content === null}`);
+    if (content) {
+      console.log(`[fps] project=${pid} content keys:`, Object.keys(content).slice(0, 15));
+    }
+
     let hasFinancialPlan = false;
+    let extracted = { totalApprovedBudget: 0, totalBudgeted: 0, totalForecast: 0, totalActual: 0, currency: "GBP" };
 
     if (content && typeof content === "object") {
       hasFinancialPlan = true;
-
-      totalApprovedBudget = num(
-        content.total_approved_budget ?? content.totalApprovedBudget,
-        0,
-      );
-
-      if (content.currency) currency = safeStr(content.currency);
-
-      const costLines = Array.isArray(content.cost_lines)
-        ? content.cost_lines
-        : Array.isArray(content.costLines)
-          ? content.costLines
-          : [];
-
-      for (const line of costLines) {
-        totalBudgeted += num((line as any)?.budgeted ?? (line as any)?.budget, 0);
-        totalForecast += num((line as any)?.forecast, 0);
-        totalActual += num((line as any)?.actual, 0);
-      }
-
-      if (costLines.length === 0) {
-        const monthlyData = content.monthly_data ?? content.monthlyData ?? {};
-        try {
-          for (const [, months] of Object.entries(monthlyData) as any) {
-            for (const [, vals] of Object.entries(months as any)) {
-              const v = vals as any;
-              totalBudgeted += num(v?.budget, 0);
-              totalForecast += num(v?.forecast, 0);
-              totalActual += num(v?.actual, 0);
-            }
-          }
-        } catch {}
-      }
+      extracted = extractBudgetFromContent(content);
+      console.log(`[fps] project=${pid} extracted:`, extracted);
     }
 
-    const effectiveBudget =
-      totalApprovedBudget > 0 ? totalApprovedBudget : totalBudgeted;
+    const { totalApprovedBudget, totalBudgeted, totalForecast, totalActual, currency } = extracted;
+    const effectiveBudget = totalApprovedBudget > 0 ? totalApprovedBudget : totalBudgeted;
+    const variancePct = effectiveBudget > 0 ? Math.round(((totalForecast - effectiveBudget) / effectiveBudget) * 1000) / 10 : null;
+    const burnPct = effectiveBudget > 0 ? Math.round((totalActual / effectiveBudget) * 100) : 0;
 
-    const variancePct =
-      effectiveBudget > 0
-        ? Math.round(((totalForecast - effectiveBudget) / effectiveBudget) * 1000) /
-          10
-        : null;
-
-    const burnPct =
-      effectiveBudget > 0
-        ? Math.round((totalActual / effectiveBudget) * 100)
-        : 0;
-
-    const monthlyBreakdown: Record<
-      string,
-      { budget: number; forecast: number; actual: number }
-    > = {};
-
+    const monthlyBreakdown: Record<string, { budget: number; forecast: number; actual: number }> = {};
     if (content?.monthly_data) {
       try {
         for (const [, months] of Object.entries(content.monthly_data) as any) {
           for (const [monthKey, vals] of Object.entries(months as any)) {
             const v = vals as any;
-            if (!monthlyBreakdown[monthKey]) {
-              monthlyBreakdown[monthKey] = { budget: 0, forecast: 0, actual: 0 };
-            }
-            monthlyBreakdown[monthKey].budget += num(v?.budget, 0);
+            if (!monthlyBreakdown[monthKey]) monthlyBreakdown[monthKey] = { budget: 0, forecast: 0, actual: 0 };
+            monthlyBreakdown[monthKey].budget   += num(v?.budget, 0);
             monthlyBreakdown[monthKey].forecast += num(v?.forecast, 0);
-            monthlyBreakdown[monthKey].actual += num(v?.actual, 0);
+            monthlyBreakdown[monthKey].actual   += num(v?.actual, 0);
           }
         }
       } catch {}
     }
 
     return {
-      projectId: pid,
-      projectCode: project?.project_code ?? null,
+      projectId: pid, projectCode: project?.project_code ?? null,
       projectCodeLabel: projectCodeLabel(project?.project_code) || null,
-      title: project?.title ?? "Project",
-      colour: project?.colour ?? "#00b8db",
+      title: project?.title ?? "Project", colour: project?.colour ?? "#00b8db",
       status: project?.resource_status ?? "confirmed",
-      startDate: project?.start_date ?? null,
-      finishDate: project?.finish_date ?? null,
+      startDate: project?.start_date ?? null, finishDate: project?.finish_date ?? null,
       role: roleByProject.get(pid) || "viewer",
-      hasFinancialPlan,
-      artifactId: artifact?.id ?? null,
-      lastUpdated: artifact?.updated_at ?? null,
+      hasFinancialPlan, artifactId: artifact?.id ?? null, lastUpdated: artifact?.updated_at ?? null,
       currency,
-      totals: {
-        approvedBudget: totalApprovedBudget,
-        budget: effectiveBudget,
-        forecast: totalForecast,
-        actual: totalActual,
-        variance: totalForecast - effectiveBudget,
-        variancePct,
-        burnPct,
-      },
+      totals: { approvedBudget: totalApprovedBudget, budget: effectiveBudget, forecast: totalForecast, actual: totalActual, variance: totalForecast - effectiveBudget, variancePct, burnPct },
       monthlyBreakdown,
     };
   });
 
-  // 7) Portfolio-level aggregates
+  // 7) Portfolio aggregates
   const withPlan = summaries.filter((p: any) => p.hasFinancialPlan);
-
-  const portTotalApproved = withPlan.reduce(
-    (s: number, p: any) => s + num(p.totals.approvedBudget, 0),
-    0,
-  );
-  const portTotalForecast = withPlan.reduce(
-    (s: number, p: any) => s + num(p.totals.forecast, 0),
-    0,
-  );
-  const portTotalActual = withPlan.reduce(
-    (s: number, p: any) => s + num(p.totals.actual, 0),
-    0,
-  );
-  const portTotalBudget = withPlan.reduce(
-    (s: number, p: any) => s + num(p.totals.budget, 0),
-    0,
-  );
-
-  const effectivePortBudget =
-    portTotalApproved > 0 ? portTotalApproved : portTotalBudget;
-
-  const portfolioVariancePct =
-    effectivePortBudget > 0
-      ? Math.round(((portTotalForecast - effectivePortBudget) / effectivePortBudget) * 1000) /
-        10
-      : null;
-
+  const portTotalApproved = withPlan.reduce((s: number, p: any) => s + num(p.totals.approvedBudget, 0), 0);
+  const portTotalForecast = withPlan.reduce((s: number, p: any) => s + num(p.totals.forecast, 0), 0);
+  const portTotalActual   = withPlan.reduce((s: number, p: any) => s + num(p.totals.actual, 0), 0);
+  const portTotalBudget   = withPlan.reduce((s: number, p: any) => s + num(p.totals.budget, 0), 0);
+  const effectivePortBudget = portTotalApproved > 0 ? portTotalApproved : portTotalBudget;
+  const portfolioVariancePct = effectivePortBudget > 0 ? Math.round(((portTotalForecast - effectivePortBudget) / effectivePortBudget) * 1000) / 10 : null;
   const portfolioRag = ragFromVariancePct(portfolioVariancePct);
-
   const firstPlanProject = withPlan[0];
   const portfolioCurrency = firstPlanProject?.currency ?? "GBP";
 
-  const portfolio = {
-    totalBudget: effectivePortBudget,
-    totalForecast: portTotalForecast,
-    totalActual: portTotalActual,
-    projectCount: summaries.length,
-    withPlanCount: withPlan.length,
-    variancePct: portfolioVariancePct,
-    rag: portfolioRag,
-  };
+  console.log(`[fps] withPlan=${withPlan.length} effectivePortBudget=${effectivePortBudget} rag=${portfolioRag}`);
+
+  const portfolio = { totalBudget: effectivePortBudget, totalForecast: portTotalForecast, totalActual: portTotalActual, projectCount: summaries.length, withPlanCount: withPlan.length, variancePct: portfolioVariancePct, rag: portfolioRag };
 
   return noStoreJson({
     ok: true,
-
     total_approved_budget: effectivePortBudget > 0 ? effectivePortBudget : null,
     total_spent: portTotalActual > 0 ? portTotalActual : null,
-    variance_pct: portfolioVariancePct,
-    pending_exposure_pct: null,
-    rag: portfolioRag,
-    currency: portfolioCurrency,
+    variance_pct: portfolioVariancePct, pending_exposure_pct: null,
+    rag: portfolioRag, currency: portfolioCurrency,
     project_ref: firstPlanProject?.projectId ?? null,
     artifact_id: firstPlanProject?.artifactId ?? null,
     project_count: summaries.length,
-
-    portfolio,
-    projects: summaries,
+    portfolio, projects: summaries,
     meta: {
       organisationId,
-      scope: {
-        ...scopeMeta,
-        scopedIdsRaw: scopedProjectIdsRaw.length,
-        scopedIdsActive: scopedProjectIds.length,
-        active_filter_ok: active.ok,
-        active_filter_error: active.error,
-      },
+      scope: { ...scopeMeta, scopedIdsRaw: scopedProjectIdsRaw.length, scopedIdsActive: scopedProjectIds.length, active_filter_ok: active.ok, active_filter_error: active.error },
       filters: filtered.meta,
     },
   });
 }
 
-/* ---------------- routes ---------------- */
-
 export async function GET(req: Request) {
-  try {
-    const url = new URL(req.url);
-    return await handle(req, parseFiltersFromUrl(url));
-  } catch (e: any) {
-    console.error("[financial-plan-summary][GET]", e);
-    return noStoreJson({ ok: false, error: safeStr(e?.message || e) }, 500);
-  }
+  try { const url = new URL(req.url); return await handle(req, parseFiltersFromUrl(url)); }
+  catch (e: any) { console.error("[fps][GET]", e); return noStoreJson({ ok: false, error: safeStr(e?.message||e) }, 500); }
 }
 
 export async function POST(req: Request) {
-  try {
-    const body = await req.json().catch(() => ({}));
-    return await handle(req, parseFiltersFromBody(body));
-  } catch (e: any) {
-    console.error("[financial-plan-summary][POST]", e);
-    return noStoreJson({ ok: false, error: safeStr(e?.message || e) }, 500);
-  }
+  try { const body = await req.json().catch(() => ({})); return await handle(req, parseFiltersFromBody(body)); }
+  catch (e: any) { console.error("[fps][POST]", e); return noStoreJson({ ok: false, error: safeStr(e?.message||e) }, 500); }
 }

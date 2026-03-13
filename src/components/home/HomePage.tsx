@@ -1326,9 +1326,15 @@ export default function HomePage({ data }: { data: HomeData }) {
   const pmOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of (Array.isArray(projects) ? projects : []) as any[]) {
-      // HomeData uses pm_name / pm_user_id; Projects page uses project_manager / project_manager_id
-      const id   = safeStr(p?.project_manager_id || p?.pm_user_id).trim();
-      const name = safeStr(p?.project_manager || p?.pm_name).trim();
+      // Try all known PM name field variants across HomeData and ProjectsPage schemas
+      const name = safeStr(
+        p?.project_manager || p?.pm_name || p?.manager_name ||
+        p?.project_manager_name || p?.manager || p?.pm || p?.owner_name
+      ).trim();
+      const id = safeStr(
+        p?.project_manager_id || p?.pm_user_id || p?.manager_id ||
+        p?.project_manager_user_id || p?.owner_id
+      ).trim();
       if (!name) continue;
       map.set(id || name, name);
     }
@@ -1409,6 +1415,30 @@ export default function HomePage({ data }: { data: HomeData }) {
   }, [rag]);
 
   const ragAgg = useMemo(() => calcRagAgg(rag as any, activeProjects as any), [rag, activeProjects]);
+
+
+  // DEBUG: log first project keys and financial summary to identify actual field names
+  useEffect(() => {
+    if (!ok) return;
+    const firstProject = (projects as any[])[0];
+    if (firstProject) {
+      console.log("[HomePage DEBUG] First project keys:", Object.keys(firstProject));
+      console.log("[HomePage DEBUG] First project PM fields:", {
+        project_manager: firstProject.project_manager,
+        project_manager_id: firstProject.project_manager_id,
+        pm_name: firstProject.pm_name,
+        pm_user_id: firstProject.pm_user_id,
+        manager: firstProject.manager,
+        owner: firstProject.owner,
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ok]);
+
+  useEffect(() => {
+    if (!fpSummary) return;
+    console.log("[HomePage DEBUG] fpSummary full response:", JSON.stringify(fpSummary, null, 2));
+  }, [fpSummary]);
 
   useEffect(() => {
     if (!ok) return;
@@ -1638,26 +1668,74 @@ export default function HomePage({ data }: { data: HomeData }) {
   const raidHighSeverity = num(raidPanel?.risk_hi) + num(raidPanel?.issue_hi);
 
   const fpHasData = fpSummary?.ok === true;
-  const fpVariancePct = fpHasData ? (fpSummary as any).variance_pct : null;
+  // API nests most data in `portfolio` sub-object: { ok, portfolio: { totalBudget, totalActual, ... }, rag, currency }
+  const _fpPortfolioPre = fpHasData ? (fpSummary as any).portfolio : null;
+  const fpVariancePct = fpHasData
+    ? ((fpSummary as any).variance_pct
+       ?? _fpPortfolioPre?.variance_pct
+       ?? _fpPortfolioPre?.variancePct
+       ?? _fpPortfolioPre?.variance)
+    : null;
   const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
-  const fpRag = fpHasData ? ((fpSummary as any).rag as RagLetter) : null;
-  const fpCurrency = fpHasData ? (safeStr((fpSummary as any).currency).trim() || "£") : "£";
+  const fpRag = fpHasData
+    ? (((fpSummary as any).rag || _fpPortfolioPre?.rag) as RagLetter ?? null)
+    : null;
+  const fpCurrency = fpHasData
+    ? (safeStr((fpSummary as any).currency || _fpPortfolioPre?.currency).trim() || "£")
+    : "£";
 
-  const _fpBudgetRaw = fpHasData
-    ? ((fpSummary as any).total_approved_budget
-      ?? (fpSummary as any).approved_budget
-      ?? (fpSummary as any).total_budget
-      ?? (fpSummary as any).budget_total
-      ?? (fpSummary as any).budgeted
-      ?? (fpSummary as any).total_budgeted
-      ?? (fpSummary as any).budget)
-    : undefined;
-  const _fpSpentRaw = fpHasData
-    ? ((fpSummary as any).total_spent
-      ?? (fpSummary as any).actual_spent
-      ?? (fpSummary as any).spent_total
-      ?? (fpSummary as any).total_actual)
-    : undefined;
+  // Extract budget: API returns data nested in `portfolio` object.
+  // e.g. { ok: true, total_approved_budget: null, portfolio: { totalBudget: 102000, totalActual: 0, ... } }
+  const _fpPortfolio = _fpPortfolioPre;
+
+  const _fpBudgetRaw = fpHasData ? (() => {
+    const s = fpSummary as any;
+    const p = _fpPortfolio ?? {};
+    // 1. Nested portfolio object (confirmed from API response)
+    const nested =
+      p.totalBudget ?? p.total_budget ?? p.approvedBudget ?? p.approved_budget ??
+      p.totalApprovedBudget ?? p.budgeted ?? p.budget;
+    if (nested != null && Number(nested) > 0) return nested;
+    // 2. Top-level fields
+    const topLevel =
+      s.total_approved_budget ?? s.approved_budget ?? s.total_budget ??
+      s.budget_total ?? s.budgeted ?? s.total_budgeted ?? s.budget ??
+      s.plan_budget ?? s.total_plan_budget ?? s.approved;
+    if (topLevel != null) return topLevel;
+    // 3. Scan all top-level keys
+    for (const [k, v] of Object.entries(s)) {
+      const kl = k.toLowerCase();
+      if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v;
+    }
+    // 4. Scan nested portfolio keys
+    for (const [k, v] of Object.entries(p)) {
+      const kl = k.toLowerCase();
+      if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v;
+    }
+    return undefined;
+  })() : undefined;
+
+  const _fpSpentRaw = fpHasData ? (() => {
+    const s = fpSummary as any;
+    const p = _fpPortfolio ?? {};
+    // 1. Nested portfolio object
+    const nested =
+      p.totalActual ?? p.total_actual ?? p.totalSpent ?? p.total_spent ??
+      p.actualSpent ?? p.actual_spent ?? p.actuals ?? p.spent;
+    if (nested != null) return nested;
+    // 2. Top-level fields
+    const topLevel =
+      s.total_spent ?? s.actual_spent ?? s.spent_total ?? s.total_actual ??
+      s.actual ?? s.spent ?? s.total_actuals ?? s.actuals_total;
+    if (topLevel != null) return topLevel;
+    // 3. Scan portfolio keys
+    for (const [k, v] of Object.entries(p)) {
+      const kl = k.toLowerCase();
+      if ((kl.includes("spent") || kl.includes("actual")) && Number.isFinite(Number(v)) && Number(v) >= 0) return v;
+    }
+    return undefined;
+  })() : undefined;
+
   const fpTotalBudget: number | null = _fpBudgetRaw != null && Number.isFinite(Number(_fpBudgetRaw)) ? Number(_fpBudgetRaw) : null;
   const fpTotalSpent:  number | null = _fpSpentRaw  != null && Number.isFinite(Number(_fpSpentRaw))  ? Number(_fpSpentRaw)  : null;
 
