@@ -104,6 +104,232 @@ const labelStyle: React.CSSProperties = {
 };
 
 /* =============================================================================
+   PEOPLE FILTER DROPDOWN  (replaces native <select multiple>)
+   Matches the style of the resource-planner people filter:
+   – pill trigger showing "All people" or "N people"
+   – dropdown with search + checkboxes
+============================================================================= */
+
+function PeopleFilterDropdown({
+  people,
+  selected,
+  onChange,
+}: {
+  people: LivePerson[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open,   setOpen]   = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const filtered = useMemo(
+    () => people.filter(p =>
+      p.fullName.toLowerCase().includes(search.toLowerCase())
+    ),
+    [people, search],
+  );
+
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id]);
+  }
+
+  const label = selected.length === 0
+    ? "All people"
+    : selected.length === 1
+      ? people.find(p => p.personId === selected[0])?.fullName ?? "1 person"
+      : `${selected.length} people`;
+
+  const isFiltered = selected.length > 0;
+
+  return (
+    <div ref={ref} style={{ position: "relative", userSelect: "none" }}>
+      {/* Trigger */}
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        style={{
+          display: "flex", alignItems: "center", gap: "8px",
+          padding: "7px 12px",
+          borderRadius: "8px",
+          border: `1.5px solid ${isFiltered ? "#00b8db" : "#e2e8f0"}`,
+          background: isFiltered ? "rgba(0,184,219,0.07)" : "white",
+          color: isFiltered ? "#00b8db" : "#334155",
+          fontSize: "13px", fontWeight: isFiltered ? 700 : 500,
+          cursor: "pointer", whiteSpace: "nowrap",
+          boxShadow: open ? "0 0 0 3px rgba(0,184,219,0.12)" : "none",
+          transition: "all 0.15s",
+          minWidth: "130px",
+        }}
+      >
+        {/* People icon */}
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+          style={{ flexShrink: 0, opacity: 0.7 }}>
+          <circle cx="6" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.5"/>
+          <path d="M1 13c0-2.76 2.24-4 5-4s5 1.24 5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          <circle cx="12" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
+          <path d="M14.5 13c0-1.93-1.12-3.18-3-3.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+        </svg>
+
+        <span style={{ flex: 1, textAlign: "left" }}>{label}</span>
+
+        {/* Chevron */}
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
+          style={{ flexShrink: 0, opacity: 0.5, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+          <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {/* Dropdown panel */}
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", left: 0,
+          zIndex: 999,
+          background: "white",
+          border: "1.5px solid #e2e8f0",
+          borderRadius: "12px",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)",
+          minWidth: "220px",
+          overflow: "hidden",
+          animation: "dropdownIn 0.12s ease",
+        }}>
+          {/* Search */}
+          <div style={{
+            padding: "10px 10px 8px",
+            borderBottom: "1px solid #f1f5f9",
+          }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: "7px",
+              padding: "7px 10px", borderRadius: "8px",
+              background: "#f8fafc", border: "1.5px solid #e2e8f0",
+            }}>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, opacity: 0.4 }}>
+                <circle cx="6.5" cy="6.5" r="4.5" stroke="#334155" strokeWidth="1.5"/>
+                <path d="M10 10l3.5 3.5" stroke="#334155" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+              <input
+                autoFocus
+                type="text"
+                placeholder="Search people..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{
+                  border: "none", outline: "none", background: "transparent",
+                  fontSize: "12px", color: "#0f172a", width: "100%",
+                }}
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  style={{ background: "none", border: "none", cursor: "pointer",
+                           color: "#94a3b8", fontSize: "13px", padding: 0, lineHeight: 1 }}
+                >✕</button>
+              )}
+            </div>
+          </div>
+
+          {/* Options list */}
+          <div style={{ maxHeight: "220px", overflowY: "auto", padding: "6px 6px" }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: "12px", textAlign: "center", fontSize: "12px", color: "#94a3b8" }}>
+                No match
+              </div>
+            ) : filtered.map(p => {
+              const checked = selected.includes(p.personId);
+              return (
+                <button
+                  key={p.personId}
+                  type="button"
+                  onClick={() => toggle(p.personId)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "10px",
+                    width: "100%", padding: "8px 10px", borderRadius: "8px",
+                    border: "none",
+                    background: checked ? "rgba(0,184,219,0.07)" : "transparent",
+                    cursor: "pointer", textAlign: "left",
+                    transition: "background 0.1s",
+                  }}
+                  onMouseEnter={e => {
+                    if (!checked) (e.currentTarget as HTMLButtonElement).style.background = "#f8fafc";
+                  }}
+                  onMouseLeave={e => {
+                    if (!checked) (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                  }}
+                >
+                  {/* Checkbox */}
+                  <div style={{
+                    width: "16px", height: "16px", borderRadius: "4px", flexShrink: 0,
+                    border: `2px solid ${checked ? "#00b8db" : "#cbd5e1"}`,
+                    background: checked ? "#00b8db" : "white",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "all 0.1s",
+                  }}>
+                    {checked && (
+                      <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                        <path d="M1 3.5l2.5 2.5L8 1" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                  </div>
+
+                  <Avatar name={p.fullName} size={24} />
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: "13px", fontWeight: checked ? 700 : 500,
+                      color: checked ? "#0f172a" : "#334155",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
+                      {p.fullName}
+                    </div>
+                    {(p as any).role && (
+                      <div style={{ fontSize: "10px", color: "#94a3b8" }}>{(p as any).role}</div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Footer */}
+          {selected.length > 0 && (
+            <div style={{
+              padding: "8px 10px",
+              borderTop: "1px solid #f1f5f9",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+                {selected.length} selected
+              </span>
+              <button
+                type="button"
+                onClick={() => { onChange([]); setOpen(false); }}
+                style={{
+                  fontSize: "11px", fontWeight: 700, color: "#64748b",
+                  background: "#f1f5f9", border: "1px solid #e2e8f0",
+                  borderRadius: "6px", padding: "4px 10px", cursor: "pointer",
+                }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =============================================================================
    CONFLICT SCORE RING
 ============================================================================= */
 
@@ -148,7 +374,7 @@ function ConflictRing({ score, delta }: { score: number; delta: number }) {
           {delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : "No change"} vs live
         </div>
         <div style={{ fontSize: "10px", color: "#94a3b8", marginTop: "1px" }}>
-          Lower is better . 0-100
+          Lower is better · 0-100
         </div>
       </div>
     </div>
@@ -250,7 +476,7 @@ function DiffHeatmap({
                 </div>
                 {diff.scenarioCap !== diff.capacityDays && (
                   <div style={{ fontSize: "9px", color: "#f59e0b", fontWeight: 700 }}>
-                    {diff.capacityDays}d {"->"} {diff.scenarioCap}d
+                    {diff.capacityDays}d {"→"} {diff.scenarioCap}d
                   </div>
                 )}
               </div>
@@ -395,7 +621,7 @@ function AddAllocationForm({
         <Row label="Start"><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inputStyle} /></Row>
         <Row label="End"><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={inputStyle} /></Row>
       </TwoCol>
-      <Row label={`Days/week -- ${daysPerWeek}d`}>
+      <Row label={`Days/week — ${daysPerWeek}d`}>
         <DaysPicker value={daysPerWeek} onChange={setDaysPerWeek} max={5} />
       </Row>
     </FormShell>
@@ -442,7 +668,7 @@ function SwapForm({
         <Row label="From week"><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inputStyle} /></Row>
         <Row label="To week"><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={inputStyle} /></Row>
       </TwoCol>
-      <Row label={`Days/week -- ${daysPerWeek}d`}>
+      <Row label={`Days/week — ${daysPerWeek}d`}>
         <DaysPicker value={daysPerWeek} onChange={setDaysPerWeek} max={5} />
       </Row>
     </FormShell>
@@ -472,7 +698,7 @@ function CapacityChangeForm({
         </select>
         {person && <p style={{ fontSize: "11px", color: "#94a3b8", marginTop: 3 }}>Current: {person.capacityDays}d/wk</p>}
       </Row>
-      <Row label={`New capacity -- ${newCap}d/wk`}>
+      <Row label={`New capacity — ${newCap}d/wk`}>
         <DaysPicker value={newCap} onChange={setNewCap} max={7} />
       </Row>
       <TwoCol>
@@ -518,7 +744,7 @@ function ShiftProjectForm({
             ))}
           </div>
         </Row>
-        <Row label={`Weeks -- ${shiftWeeks}w`}>
+        <Row label={`Weeks — ${shiftWeeks}w`}>
           <input type="range" min={1} max={12} value={shiftWeeks}
             onChange={e => setShiftWeeks(Number(e.target.value))}
             style={{ width: "100%", accentColor: "#00b8db" }} />
@@ -584,7 +810,7 @@ function AddProjectForm({
         <Row label="Start"><input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setSuggestions([]); }} style={inputStyle} /></Row>
         <Row label="End"><input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setSuggestions([]); }} style={inputStyle} /></Row>
       </TwoCol>
-      <Row label={`Days/week -- ${daysPerWk}d`}>
+      <Row label={`Days/week — ${daysPerWk}d`}>
         <DaysPicker value={daysPerWk} onChange={v => { setDaysPerWk(v); setSuggestions([]); }} max={5} />
       </Row>
 
@@ -661,12 +887,10 @@ function RemoveAllocationForm({ people, projects, allocations, onAdd, onCancel }
   const [mode,      setMode]      = useState<"remove" | "reduce">("remove");
   const [reduceTo,  setReduceTo]  = useState(2);
 
-  // Find projects this person actually has allocations on
-  const personAllocs  = allocations.filter(a => a.personId === personId);
-  const personProjIds = Array.from(new Set(personAllocs.map(a => a.projectId)));
+  const personAllocs   = allocations.filter(a => a.personId === personId);
+  const personProjIds  = Array.from(new Set(personAllocs.map(a => a.projectId)));
   const personProjects = projects.filter(p => personProjIds.includes(p.projectId));
 
-  // Auto-fill date range from existing allocations when project selected
   function onProjectChange(pid: string) {
     setProjectId(pid);
     const rows = personAllocs.filter(a => a.projectId === pid).map(a => a.weekStart).sort();
@@ -677,15 +901,12 @@ function RemoveAllocationForm({ people, projects, allocations, onAdd, onCancel }
     if (!personId || !projectId || !startDate || !endDate) return;
     onAdd({
       type: "remove_allocation",
-      personId,
-      projectId,
-      startDate,
-      endDate,
+      personId, projectId, startDate, endDate,
       newDaysPerWeek: mode === "reduce" ? reduceTo : undefined,
     });
   }
 
-  const person = people.find(p => p.personId === personId);
+  const person  = people.find(p => p.personId === personId);
   const maxDays = person?.capacityDays ?? 5;
 
   return (
@@ -844,8 +1065,8 @@ export default function ScenarioSimulator({
   const [activeForm,      setActiveForm]      = useState<string | null>(null);
   const [saveMsg,         setSaveMsg]         = useState<string | null>(null);
   const [showAI,          setShowAI]          = useState(false);
-  const [filterPeople,   setFilterPeople]   = useState<string[]>([]);
-  const [filterProjects, setFilterProjects] = useState<string[]>([]);
+  const [filterPeople,    setFilterPeople]    = useState<string[]>([]);
+  const [filterProjects,  setFilterProjects]  = useState<string[]>([]);
   const [isPending,       startTransition]    = useTransition();
   const [localScenarios,  setLocalScenarios]  = useState<Scenario[]>(savedScenarios);
   const router = useRouter();
@@ -898,36 +1119,19 @@ export default function ScenarioSimulator({
 
   const filteredDiffs = useMemo(() => {
     let d = diffs ?? [];
-    if (filterPeople.length)   d = d.filter(x => filterPeople.includes(x.personId));
+    if (filterPeople.length) d = d.filter(x => filterPeople.includes(x.personId));
     return d;
   }, [diffs, filterPeople]);
-
-  // Unique projects in live allocations for filter
-  const liveProjectOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const a of allocations) {
-      const proj = projects.find((p: any) => p.projectId === a.projectId);
-      if (proj) seen.set(proj.projectId, proj.projectTitle ?? proj.projectId);
-    }
-    return Array.from(seen.entries()).map(([id, title]) => ({ id, title }));
-  }, [allocations, projects]);
 
   const liveScore     = liveState?.conflictScore   ?? 0;
   const scenarioScore = scenarioState?.conflictScore ?? 0;
   const scoreDelta    = scenarioScore - liveScore;
 
-  // Sync local list when the server prop updates AFTER a confirmed server action.
-  // useEffect (not during-render) prevents overwriting optimistic deletes mid-flight.
   const pendingDeletes = useRef(new Set<string>());
   useEffect(() => {
-    // Filter out any ids still being deleted so a stale router.refresh()
-    // mid-flight doesn't resurrect them before the server confirms removal.
-    setLocalScenarios(
-      savedScenarios.filter(s => !pendingDeletes.current.has(s.id))
-    );
+    setLocalScenarios(savedScenarios.filter(s => !pendingDeletes.current.has(s.id)));
   }, [savedScenarios]);
 
-  // Whether we're editing an existing saved scenario
   const isEditing = scenarioId !== null;
 
   async function handleSave() {
@@ -942,7 +1146,6 @@ export default function ScenarioSimulator({
         const result = await saveScenario(fd) as any;
         if (result?.id) {
           setScenarioId(result.id);
-          // Optimistically add/update in local list so it appears immediately
           setLocalScenarios(ls => {
             const existing = ls.find(s => s.id === result.id);
             const updated: Scenario = { id: result.id, name: scenarioName, changes };
@@ -968,7 +1171,7 @@ export default function ScenarioSimulator({
   }
 
   function deleteLocalScenario(id: string) {
-    pendingDeletes.current.add(id);              // guard against stale refresh
+    pendingDeletes.current.add(id);
     setLocalScenarios(ls => ls.filter(s => s.id !== id));
     if (scenarioId === id) newScenario();
   }
@@ -984,7 +1187,6 @@ export default function ScenarioSimulator({
     setChanges(cs => cs.filter((_, j) => j !== i));
   }
 
-  // Save button label: reflects whether creating new or updating existing
   function saveLabel() {
     if (saveMsg)    return saveMsg;
     if (isPending)  return "Saving...";
@@ -996,7 +1198,8 @@ export default function ScenarioSimulator({
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
-        @keyframes slideUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes slideUp    { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes dropdownIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
       `}</style>
 
       <div style={{
@@ -1025,7 +1228,7 @@ export default function ScenarioSimulator({
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <input type="date" value={from} onChange={e => setFrom(e.target.value)}
                 style={{ ...inputStyle, width: "130px" }} />
-              <span style={{ color: "#94a3b8", fontSize: "12px" }}>{'->'}</span>
+              <span style={{ color: "#94a3b8", fontSize: "12px" }}>{"→"}</span>
               <input type="date" value={to} onChange={e => setTo(e.target.value)}
                 style={{ ...inputStyle, width: "130px" }} />
 
@@ -1266,8 +1469,6 @@ export default function ScenarioSimulator({
                               {sc.changes.length} change{sc.changes.length !== 1 ? "s" : ""}
                             </div>
                           </div>
-                          {/* FIX: "Editing" is clearer than "Active" -- makes it obvious
-                              that clicking Save will overwrite this scenario */}
                           {scenarioId === sc.id && (
                             <span style={{
                               fontSize: "10px", color: "#00b8db", fontWeight: 700,
@@ -1277,11 +1478,11 @@ export default function ScenarioSimulator({
                           )}
                         </button>
                         <button type="button" onClick={() => {
-                          deleteLocalScenario(sc.id); // instant UI update
+                          deleteLocalScenario(sc.id);
                           startTransition(async () => {
                             await deleteScenario(sc.id);
-                            pendingDeletes.current.delete(sc.id); // server confirmed
-                            router.refresh(); // sync server state
+                            pendingDeletes.current.delete(sc.id);
+                            router.refresh();
                           });
                         }} style={{
                           padding: "6px 8px", borderRadius: "7px", border: "1.5px solid #fecaca",
@@ -1341,36 +1542,30 @@ export default function ScenarioSimulator({
                 </div>
               </div>
 
-              {/* Filter bar */}
+              {/* ── Filter bar — custom dropdown ── */}
               {people.length > 1 && (
-                <div style={{ padding: "10px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 12, alignItems: "center" }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em" }}>Filter people</span>
-                  <select
-                    multiple
-                    value={filterPeople}
-                    onChange={e => {
-                      const selected = Array.from(e.target.selectedOptions).map(o => o.value);
-                      setFilterPeople(selected);
-                    }}
-                    style={{
-                      border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 12,
-                      padding: "4px 8px", color: "#0f172a", background: "#fff",
-                      minWidth: 180, maxWidth: 260,
-                      height: Math.min(people.length, 5) * 28 + "px",
-                    }}
-                  >
-                    {people.map((p: any) => (
-                      <option key={p.personId} value={p.personId}>{p.fullName}</option>
-                    ))}
-                  </select>
+                <div style={{
+                  padding: "10px 20px",
+                  borderBottom: "1px solid #f1f5f9",
+                  display: "flex", gap: "10px", alignItems: "center",
+                }}>
+                  <span style={{
+                    fontSize: "10px", fontWeight: 700, color: "#94a3b8",
+                    textTransform: "uppercase", letterSpacing: "0.07em",
+                    whiteSpace: "nowrap",
+                  }}>
+                    People
+                  </span>
+                  <PeopleFilterDropdown
+                    people={people}
+                    selected={filterPeople}
+                    onChange={setFilterPeople}
+                  />
                   {filterPeople.length > 0 && (
-                    <button onClick={() => setFilterPeople([])} style={{
-                      fontSize: 11, color: "#64748b", background: "#f1f5f9",
-                      border: "1px solid #e2e8f0", borderRadius: 6,
-                      padding: "4px 10px", cursor: "pointer", fontWeight: 600,
-                    }}>Show all</button>
+                    <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+                      Showing {filteredDiffs.length} of {diffs.length}
+                    </span>
                   )}
-                  <span style={{ fontSize: 10, color: "#94a3b8" }}>Hold Ctrl / Cmd to select multiple</span>
                 </div>
               )}
 
