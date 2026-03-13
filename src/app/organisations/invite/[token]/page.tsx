@@ -1,215 +1,173 @@
-﻿// src/app/api/organisation-invites/accept/route.ts
-import "server-only";
+﻿// src/app/organisations/invite/[token]/page.tsx
+"use client";
 
-import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { CheckCircle2, AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+type PageState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "accepting" }
+  | { status: "success"; organisation_id: string; role: string }
+  | { status: "error"; message: string };
 
-function noStoreJson(payload: any, status = 200) {
-  const res = NextResponse.json(payload, { status });
-  res.headers.set("Cache-Control", "no-store, max-age=0");
-  return res;
-}
+export default function InviteAcceptPage() {
+  const params = useParams();
+  const router = useRouter();
+  const token = typeof params?.token === "string" ? params.token : Array.isArray(params?.token) ? params.token[0] : "";
 
-function ok(data: Record<string, any> = {}, status = 200) {
-  return noStoreJson({ ok: true, ...data }, status);
-}
+  const [state, setState] = useState<PageState>({ status: "idle" });
 
-function err(error: string, status = 400, extra?: Record<string, any>) {
-  return noStoreJson({ ok: false, error, ...(extra || {}) }, status);
-}
+  // On mount just show the accept screen — no pre-fetch needed
+  useEffect(() => {
+    if (token) setState({ status: "idle" });
+  }, [token]);
 
-function safeStr(x: unknown) {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
-}
+  async function handleAccept() {
+    if (!token) return;
+    setState({ status: "accepting" });
 
-function safeLower(x: unknown) {
-  return safeStr(x).trim().toLowerCase();
-}
+    try {
+      const res = await fetch("/api/organisation-invites/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+        cache: "no-store",
+      });
 
-function isUuid(x: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    String(x || "").trim()
+      const json = await res.json().catch(() => ({ ok: false, error: "Bad response" }));
+
+      if (!json?.ok) {
+        setState({ status: "error", message: json?.error || "Failed to accept invite" });
+        return;
+      }
+
+      setState({
+        status: "success",
+        organisation_id: json.organisation_id ?? "",
+        role: json.role ?? "member",
+      });
+
+      // Redirect to dashboard after short delay
+      setTimeout(() => router.push("/"), 2000);
+    } catch (e: any) {
+      setState({ status: "error", message: e?.message || "Something went wrong" });
+    }
+  }
+
+  if (!token) {
+    return (
+      <PageShell>
+        <ErrorCard message="Invalid invite link — token is missing." />
+      </PageShell>
+    );
+  }
+
+  return (
+    <PageShell>
+      {state.status === "idle" && (
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+          <div className="mb-6 flex justify-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-50">
+              <ShieldCheck className="h-8 w-8 text-teal-600" />
+            </div>
+          </div>
+          <h1 className="mb-2 text-center text-2xl font-bold text-gray-900">You've been invited</h1>
+          <p className="mb-8 text-center text-sm text-gray-500">
+            Click the button below to accept your invitation and join the organisation.
+          </p>
+          <button
+            type="button"
+            onClick={handleAccept}
+            className="w-full rounded-xl bg-teal-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
+          >
+            Accept invite
+          </button>
+          <p className="mt-4 text-center text-xs text-gray-400">
+            If you didn't expect this invite, you can safely close this page.
+          </p>
+        </div>
+      )}
+
+      {state.status === "accepting" && (
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+          <div className="flex flex-col items-center gap-4 py-4">
+            <Loader2 className="h-10 w-10 animate-spin text-teal-500" />
+            <p className="text-sm font-medium text-gray-600">Accepting your invite…</p>
+          </div>
+        </div>
+      )}
+
+      {state.status === "success" && (
+        <div className="rounded-2xl border border-green-100 bg-white p-8 shadow-sm">
+          <div className="flex flex-col items-center gap-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-green-50">
+              <CheckCircle2 className="h-8 w-8 text-green-600" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900">Invite accepted!</h2>
+            <p className="text-center text-sm text-gray-500">
+              You've joined as a <span className="font-semibold capitalize text-gray-700">{state.role}</span>.
+              Redirecting you to the dashboard…
+            </p>
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Taking you to your dashboard
+            </div>
+          </div>
+        </div>
+      )}
+
+      {state.status === "error" && (
+        <ErrorCard
+          message={state.message}
+          onRetry={() => setState({ status: "idle" })}
+        />
+      )}
+    </PageShell>
   );
 }
 
-function normaliseInviteRole(x: unknown): "admin" | "member" {
-  const r = safeLower(x);
-  return r === "admin" ? "admin" : "member";
+function PageShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
+      {/* Header */}
+      <div className="mb-8 text-center">
+        <div className="mb-2 inline-flex items-center justify-center rounded-xl bg-teal-600 px-4 py-2">
+          <span className="text-base font-bold tracking-tight text-white">Aliena</span>
+        </div>
+        <p className="text-xs text-gray-400">Governance intelligence</p>
+      </div>
+      <div className="w-full max-w-md">{children}</div>
+      <p className="mt-8 text-xs text-gray-400">
+        If you didn't expect this invite, you can safely ignore this page. ·{" "}
+        <a href="https://aliena.co.uk" className="hover:text-gray-600">
+          aliena.co.uk
+        </a>
+      </p>
+    </div>
+  );
 }
 
-export async function POST(req: Request) {
-  try {
-    const sb = await createClient();
-    const { data: auth, error: authErr } = await sb.auth.getUser();
-
-    if (authErr) return err(authErr.message, 401);
-    if (!auth?.user) return err("Not authenticated", 401);
-
-    const userId = safeStr(auth.user.id).trim();
-    const myEmail = safeLower(auth.user.email);
-
-    if (!userId || !isUuid(userId)) return err("Invalid authenticated user", 401);
-    if (!myEmail) return err("User email missing", 400);
-
-    const body = await req.json().catch(() => ({}));
-    const token = safeStr((body as any)?.token).trim();
-
-    if (!token) return err("Missing token", 400);
-
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!url || !serviceKey) {
-      return err("Server misconfigured (missing service role env)", 500);
-    }
-
-    const admin = createAdminClient(url, serviceKey);
-
-    const { data: inv, error: invErr } = await admin
-      .from("organisation_invites")
-      .select(
-        "id, organisation_id, email, role, status, expires_at, accepted_at, accepted_by"
-      )
-      .eq("token", token)
-      .maybeSingle();
-
-    if (invErr) return err(invErr.message, 400);
-    if (!inv) return err("Invite not found", 404);
-
-    const organisationId = safeStr(inv.organisation_id).trim();
-    if (!organisationId || !isUuid(organisationId)) {
-      return err("Invite is linked to an invalid organisation", 400);
-    }
-
-    const invEmail = safeLower(inv.email);
-    if (invEmail && invEmail !== myEmail) {
-      return err("Invite email mismatch", 403);
-    }
-
-    if (inv.expires_at && new Date(inv.expires_at).getTime() < Date.now()) {
-      return err("Invite expired", 400);
-    }
-
-    const role = normaliseInviteRole(inv.role);
-
-    // Idempotent path:
-    // If invite is already accepted, still make sure membership exists and
-    // the user's active org is switched correctly.
-    if (safeLower(inv.status) === "accepted") {
-      const { data: existingMember, error: existingMemberErr } = await admin
-        .from("organisation_members")
-        .select("organisation_id, user_id, role, removed_at")
-        .eq("organisation_id", organisationId)
-        .eq("user_id", userId)
-        .is("removed_at", null)
-        .maybeSingle();
-
-      if (existingMemberErr) return err(existingMemberErr.message, 400);
-
-      if (!existingMember) {
-        const { error: restoreErr } = await admin
-          .from("organisation_members")
-          .upsert(
-            {
-              organisation_id: organisationId,
-              user_id: userId,
-              role,
-              removed_at: null,
-            },
-            { onConflict: "organisation_id,user_id" }
-          );
-
-        if (restoreErr) return err(restoreErr.message, 400);
-      }
-
-      const { error: profileErr } = await admin
-        .from("profiles")
-        .update({ active_organisation_id: organisationId })
-        .eq("user_id", userId);
-
-      if (profileErr) {
-        return err("Invite was accepted, but failed to switch active organisation", 500, {
-          organisation_id: organisationId,
-        });
-      }
-
-      return ok({
-        accepted: true,
-        already_accepted: true,
-        organisation_id: organisationId,
-        role,
-      });
-    }
-
-    if (safeLower(inv.status) !== "pending") {
-      return err(`Invite is ${safeStr(inv.status) || "not usable"}`, 400);
-    }
-
-    // Ensure membership exists before marking the invite as accepted.
-    // This prevents "accepted" invites with no actual org membership.
-    const { error: upErr } = await admin
-      .from("organisation_members")
-      .upsert(
-        {
-          organisation_id: organisationId,
-          user_id: userId,
-          role,
-          removed_at: null,
-        },
-        { onConflict: "organisation_id,user_id" }
-      );
-
-    if (upErr) return err(upErr.message, 400);
-
-    // Set the user's active organisation immediately after membership creation.
-    // This is critical for org-scoped dashboards and portfolio queries.
-    const { error: profileErr } = await admin
-      .from("profiles")
-      .update({ active_organisation_id: organisationId })
-      .eq("user_id", userId);
-
-    if (profileErr) {
-      return err("Membership created, but failed to switch active organisation", 500, {
-        organisation_id: organisationId,
-      });
-    }
-
-    const { data: upd, error: accErr } = await admin
-      .from("organisation_invites")
-      .update({
-        status: "accepted",
-        accepted_at: new Date().toISOString(),
-        accepted_by: userId,
-      })
-      .eq("id", inv.id)
-      .eq("status", "pending")
-      .select("id")
-      .maybeSingle();
-
-    if (accErr) return err(accErr.message, 400);
-
-    // If another request accepted it first, treat it as success as long as
-    // membership and active org were already completed above.
-    if (!upd) {
-      return ok({
-        accepted: true,
-        race_recovered: true,
-        organisation_id: organisationId,
-        role,
-      });
-    }
-
-    return ok({
-      accepted: true,
-      organisation_id: organisationId,
-      role,
-    });
-  } catch (e: any) {
-    return err(e?.message || "Unknown error", 500);
-  }
+function ErrorCard({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="rounded-2xl border border-red-100 bg-white p-8 shadow-sm">
+      <div className="flex flex-col items-center gap-4">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-red-50">
+          <AlertTriangle className="h-8 w-8 text-red-500" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-900">Something went wrong</h2>
+        <p className="text-center text-sm text-gray-500">{message}</p>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-2 rounded-xl border border-gray-200 px-5 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            Try again
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
