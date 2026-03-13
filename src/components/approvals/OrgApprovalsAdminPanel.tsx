@@ -19,6 +19,16 @@ const ARTIFACTS = [
 
 type ArtifactKey = (typeof ARTIFACTS)[number]["key"];
 
+type ApproverCandidate = {
+  user_id: string;
+  email: string | null;
+  full_name: string | null;
+  department: string | null;
+  job_title: string | null;
+  role: string | null;
+  label: string;
+};
+
 function pill(active: boolean) {
   return `px-3 py-1.5 text-sm ${
     active ? "bg-gray-100 font-semibold" : "bg-white hover:bg-gray-50"
@@ -51,7 +61,6 @@ export default function OrgApprovalsAdminPanel({
   const [artifactType, setArtifactType] =
     useState<ArtifactKey>("project_charter");
 
-  // ✅ If orgId becomes available later, keep the artifactType valid (and reset if needed)
   useEffect(() => {
     if (!orgId) return;
     const allowed = new Set<string>(ARTIFACTS.map((a) => a.key));
@@ -156,6 +165,37 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
   const [loading, setLoading] = useState(false);
   const [approvers, setApprovers] = useState<any[]>([]);
 
+  const [candidateQuery, setCandidateQuery] = useState("");
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
+  const [candidates, setCandidates] = useState<ApproverCandidate[]>([]);
+  const [selectedCandidateId, setSelectedCandidateId] = useState("");
+
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [approverRole, setApproverRole] = useState("");
+  const [department, setDepartment] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
+
+  function resetForm() {
+    setCandidateQuery("");
+    setCandidates([]);
+    setSelectedCandidateId("");
+    setSelectedUserId("");
+    setEmail("");
+    setName("");
+    setApproverRole("");
+    setDepartment("");
+  }
+
+  function applyCandidate(candidate: ApproverCandidate) {
+    setSelectedCandidateId(candidate.user_id);
+    setSelectedUserId(candidate.user_id);
+    setEmail(candidate.email ?? "");
+    setName(candidate.full_name ?? "");
+    setDepartment(candidate.department ?? "");
+    setCandidateQuery(candidate.label || candidate.email || "");
+  }
+
   async function load() {
     setErr("");
     setLoading(true);
@@ -163,11 +203,13 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
       const res = await fetch(
         `/api/approvals/approvers?orgId=${encodeURIComponent(orgId)}&q=${encodeURIComponent(
           q
-        )}`
+        )}`,
+        { cache: "no-store" }
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok)
+      if (!res.ok || !json?.ok) {
         throw new Error(json?.error || "Failed to load approvers");
+      }
       setApprovers(json.approvers ?? []);
     } catch (e: any) {
       setErr(String(e?.message || e || "Error"));
@@ -177,53 +219,114 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
     }
   }
 
+  async function loadCandidates(search: string) {
+    const trimmed = search.trim();
+    if (!trimmed) {
+      setCandidates([]);
+      setSelectedCandidateId("");
+      return;
+    }
+
+    setCandidatesLoading(true);
+    try {
+      const res = await fetch(
+        `/api/approvals/approver-candidates?orgId=${encodeURIComponent(
+          orgId
+        )}&q=${encodeURIComponent(trimmed)}`,
+        { cache: "no-store" }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Failed to load organisation members");
+      }
+
+      const items: ApproverCandidate[] = json.candidates ?? [];
+      setCandidates(items);
+
+      setSelectedCandidateId((prev) => {
+        if (prev && items.some((x) => String(x.user_id) === String(prev))) {
+          return prev;
+        }
+        return "";
+      });
+    } catch (e: any) {
+      setErr(String(e?.message || e || "Error"));
+      setCandidates([]);
+      setSelectedCandidateId("");
+    } finally {
+      setCandidatesLoading(false);
+    }
+  }
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, q]);
 
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [approverRole, setApproverRole] = useState("");
-  const [department, setDepartment] = useState("");
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      loadCandidates(candidateQuery);
+    }, 250);
+
+    return () => window.clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidateQuery, orgId]);
 
   async function add() {
+    setErr("");
+
     const payload = {
       orgId,
-      email: email.trim(),
+      user_id: selectedUserId || null,
+      email: email.trim() || null,
       name: name.trim() || null,
       approver_role: approverRole.trim() || null,
       department: department.trim() || null,
     };
-    if (!payload.email) return;
 
-    const res = await fetch("/api/approvals/approvers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok || !json?.ok) return alert(json?.error || "Failed");
+    if (!payload.user_id && !payload.email) {
+      setErr("Select an organisation member or enter an email.");
+      return;
+    }
 
-    setEmail("");
-    setName("");
-    setApproverRole("");
-    setDepartment("");
-    load();
+    try {
+      const res = await fetch("/api/approvals/approvers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Failed");
+      }
+
+      resetForm();
+      await load();
+    } catch (e: any) {
+      setErr(String(e?.message || e || "Error"));
+    }
   }
 
   async function removeById(id: string) {
     const okConfirm = window.confirm("Remove approver for this organisation?");
     if (!okConfirm) return;
 
-    const url = new URL("/api/approvals/approvers", window.location.origin);
-    url.searchParams.set("orgId", orgId);
-    url.searchParams.set("id", id);
+    setErr("");
 
-    const res = await fetch(url.toString(), { method: "DELETE" });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok || !json?.ok) return alert(json?.error || "Failed");
-    load();
+    try {
+      const url = new URL("/api/approvals/approvers", window.location.origin);
+      url.searchParams.set("orgId", orgId);
+      url.searchParams.set("id", id);
+
+      const res = await fetch(url.toString(), { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Failed");
+      }
+      await load();
+    } catch (e: any) {
+      setErr(String(e?.message || e || "Error"));
+    }
   }
 
   return (
@@ -255,18 +358,69 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
           <div className="text-sm font-semibold">Add approver</div>
 
           <div className="grid md:grid-cols-2 gap-2">
+            <label className="text-xs text-gray-600 md:col-span-2">
+              Search organisation members
+              <input
+                className="block border rounded-md px-2 py-1 text-sm w-full"
+                value={candidateQuery}
+                onChange={(e) => {
+                  setCandidateQuery(e.target.value);
+                  setSelectedCandidateId("");
+                  setSelectedUserId("");
+                }}
+                placeholder="Type name or email to pick an existing organisation member"
+              />
+            </label>
+
+            <label className="text-xs text-gray-600 md:col-span-2">
+              Matching organisation members
+              <select
+                className="block border rounded-md px-2 py-1 text-sm w-full"
+                value={selectedCandidateId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setSelectedCandidateId(id);
+                  const found = candidates.find(
+                    (c) => String(c.user_id) === String(id)
+                  );
+                  if (found) applyCandidate(found);
+                }}
+              >
+                <option value="">
+                  {candidatesLoading
+                    ? "Loading members..."
+                    : candidates.length > 0
+                    ? "Select a member"
+                    : candidateQuery.trim()
+                    ? "No matching members"
+                    : "Type above to search members"}
+                </option>
+                {candidates.map((c) => (
+                  <option key={c.user_id} value={c.user_id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <label className="text-xs text-gray-600">
-              Email (required)
+              Email
               <input
                 className="block border rounded-md px-2 py-1 text-sm"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (selectedUserId) {
+                    setSelectedUserId("");
+                    setSelectedCandidateId("");
+                  }
+                }}
                 placeholder="person@company.com"
               />
             </label>
 
             <label className="text-xs text-gray-600">
-              Name (optional)
+              Name
               <input
                 className="block border rounded-md px-2 py-1 text-sm"
                 value={name}
@@ -296,13 +450,28 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
             </label>
           </div>
 
-          <button
-            className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
-            type="button"
-            onClick={add}
-          >
-            Add approver
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
+              type="button"
+              onClick={add}
+            >
+              Add approver
+            </button>
+
+            <button
+              className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
+              type="button"
+              onClick={resetForm}
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="text-[11px] text-gray-500">
+            Pick from organisation members for a linked approver, or type an
+            external email manually.
+          </div>
         </div>
       ) : null}
 
@@ -318,11 +487,18 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
                 <div className="font-medium truncate">
                   {a.label || a.email || a.name || a.id}
                 </div>
+
+                <div className="mt-1 text-xs text-gray-600 truncate">
+                  {a.email ? <span className="mr-2">{a.email}</span> : null}
+                  {a.department ? <span className="mr-2">Dept: {a.department}</span> : null}
+                  {a.approver_role ? <span>Role: {a.approver_role}</span> : null}
+                </div>
+
                 <div className="text-[11px] text-gray-500 truncate">
-                  {a.user_id ? (
-                    <span className="text-emerald-700">Linked user</span>
+                  {a.link_state === "linked" || a.user_id ? (
+                    <span className="text-emerald-700">Linked member</span>
                   ) : (
-                    <span className="text-amber-700">Not linked yet</span>
+                    <span className="text-amber-700">External / not linked</span>
                   )}
                 </div>
               </div>
@@ -391,7 +567,6 @@ function GroupsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, artifactType]);
 
-  // ✅ keep selection valid when group list changes
   useEffect(() => {
     if (!selected) return;
     const exists = (groups ?? []).some((g: any) => String(g?.id) === String(selected));
@@ -529,8 +704,9 @@ function GroupMembersPanel({
       const items = json.approvers ?? [];
       setApprovers(items);
       setApproverId((prev) => {
-        if (prev && items.some((a: any) => String(a.id) === String(prev)))
+        if (prev && items.some((a: any) => String(a.id) === String(prev))) {
           return prev;
+        }
         return items?.[0]?.id ?? "";
       });
     } catch {
