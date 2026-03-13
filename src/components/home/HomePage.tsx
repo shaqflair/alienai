@@ -1010,6 +1010,105 @@ function LastUpdated({ iso }: { iso: string }) {
 
 /* --- Filter Drawer -------------------------------------------------------- */
 
+function CheckboxList({
+  label,
+  items,
+  selected,
+  onToggle,
+  emptyText,
+}: {
+  label: string;
+  items: { id: string; name: string; sub?: string }[];
+  selected: string[];
+  onToggle: (id: string) => void;
+  emptyText: string;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = items.filter((i) =>
+    i.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  return (
+    <div>
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">{label}</div>
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        {/* Search */}
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <Search className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={`Search ${label.toLowerCase()}…`}
+            className="w-full bg-transparent text-xs outline-none placeholder:text-gray-400"
+          />
+          {search && (
+            <button type="button" onClick={() => setSearch("")} className="shrink-0 text-gray-300 hover:text-gray-500">
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+        {/* List */}
+        <div className="max-h-44 overflow-y-auto">
+          {items.length === 0 ? (
+            <div className="px-3 py-3 text-xs text-gray-400">{emptyText}</div>
+          ) : filtered.length === 0 ? (
+            <div className="px-3 py-3 text-xs text-gray-400">No match</div>
+          ) : (
+            filtered.map((item) => {
+              const checked = selected.includes(item.id);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onToggle(item.id)}
+                  className={[
+                    "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                    checked ? "bg-blue-50/60" : "hover:bg-gray-50",
+                  ].join(" ")}
+                >
+                  {/* Checkbox */}
+                  <div
+                    className={[
+                      "flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-all",
+                      checked ? "border-blue-500 bg-blue-500" : "border-gray-300 bg-white",
+                    ].join(" ")}
+                  >
+                    {checked && (
+                      <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                        <path d="M1 3.5l2.5 2.5L8 1" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className={["truncate text-sm", checked ? "font-semibold text-gray-900" : "text-gray-700"].join(" ")}>
+                      {item.name}
+                    </div>
+                    {item.sub && <div className="truncate text-[11px] text-gray-400">{item.sub}</div>}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+        {/* Footer count */}
+        {selected.length > 0 && (
+          <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2">
+            <span className="text-[11px] text-gray-400">{selected.length} selected</span>
+            <button
+              type="button"
+              onClick={() => selected.forEach((id) => onToggle(id))}
+              className="text-[11px] font-semibold text-red-500 hover:text-red-600"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function FilterDrawer({
   open, onClose, filters, onApply, onClear,
   projectOptions, pmOptions, deptOptions, searchInputRef,
@@ -1030,13 +1129,15 @@ function FilterDrawer({
       const arr = (prev[key] as string[] | undefined) ?? [];
       const exists = arr.includes(value);
       const nextArr = exists ? arr.filter((x) => x !== value) : [...arr, value];
-      const next: PortfolioFilters = { ...prev, [key]: nextArr.length ? nextArr : undefined };
-      return next;
+      return { ...prev, [key]: nextArr.length ? nextArr : undefined };
     });
   };
 
-  const pill = (on: boolean) =>
-    on ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50";
+  const activeCount =
+    (local.projectId?.length ?? 0) +
+    (local.projectManagerId?.length ?? 0) +
+    (local.department?.length ?? 0) +
+    (local.q?.trim() ? 1 : 0);
 
   return (
     <AnimatePresence>
@@ -1046,117 +1147,93 @@ function FilterDrawer({
             className="fixed inset-0 z-[60] bg-black/30" onClick={onClose} />
           <m.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.18 }}
-            className="fixed right-0 top-0 z-[70] h-full w-full max-w-[420px] bg-white shadow-2xl border-l border-gray-200 flex flex-col">
-            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+            className="fixed right-0 top-0 z-[70] flex h-full w-full max-w-[420px] flex-col border-l border-gray-200 bg-white shadow-2xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
               <div>
-                <div className="text-sm font-semibold text-gray-900">Filters</div>
-                <div className="text-xs text-gray-500">Filter the organisational view by project and ownership.</div>
+                <div className="font-semibold text-gray-900">Filters</div>
+                <div className="text-xs text-gray-500">Filter portfolio by project and ownership</div>
               </div>
-              <button className="h-9 w-9 rounded-full ring-1 ring-gray-200 hover:bg-gray-50 flex items-center justify-center" onClick={onClose} aria-label="Close">
+              <button className="flex h-9 w-9 items-center justify-center rounded-full ring-1 ring-gray-200 hover:bg-gray-50"
+                onClick={onClose} aria-label="Close">
                 <X className="h-4 w-4 text-gray-600" />
               </button>
             </div>
-            <div className="p-4 space-y-5 overflow-auto">
+
+            {/* Body */}
+            <div className="flex-1 space-y-5 overflow-y-auto p-5">
+              {/* Search */}
               <div>
-                <div className="text-xs font-semibold text-gray-700 mb-2">Search</div>
-                <div className="flex items-center gap-2 rounded-xl bg-gray-50 ring-1 ring-gray-200 px-3 py-2">
-                  <Search className="h-4 w-4 text-gray-500" />
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">Search</div>
+                <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
+                  <Search className="h-4 w-4 shrink-0 text-gray-400" />
                   <input
                     ref={searchInputRef}
-                    value={local.q ?? ""} onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))}
+                    value={local.q ?? ""}
+                    onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))}
                     placeholder="Project name, code, PM, department…"
                     className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
                   />
-                  {local.q ? (
-                    <button onClick={() => setLocal((p) => ({ ...p, q: undefined }))}
-                      className="text-gray-400 hover:text-gray-700" aria-label="Clear search" type="button">
+                  {local.q && (
+                    <button type="button" onClick={() => setLocal((p) => ({ ...p, q: undefined }))}
+                      className="text-gray-300 hover:text-gray-500">
                       <X className="h-4 w-4" />
                     </button>
-                  ) : null}
+                  )}
                 </div>
               </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-700 mb-2">Projects</div>
-                <div className="flex flex-wrap gap-2">
-                  {projectOptions.slice(0, 28).map((p) => {
-                    const on = (local.projectId ?? []).includes(p.id);
-                    return (
-                      <button key={p.id} type="button" onClick={() => toggle("projectId", p.id)}
-                        className={["px-3 py-1.5 rounded-full text-xs border", pill(on)].join(" ")}
-                        title={p.code ? `${p.name} \u2022 ${p.code}` : p.name}>
-                        {p.code ? `${p.name} (${p.code})` : p.name}
-                      </button>
-                    );
-                  })}
-                  {projectOptions.length === 0 && <div className="text-xs text-gray-500">(No project list available.)</div>}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-700 mb-2">Project Manager</div>
-                <div className="flex flex-wrap gap-2">
-                  {pmOptions.slice(0, 28).map((pm) => {
-                    const on = (local.projectManagerId ?? []).includes(pm.id);
-                    return (
-                      <button key={pm.id} type="button" onClick={() => toggle("projectManagerId", pm.id)}
-                        className={["px-3 py-1.5 rounded-full text-xs border", pill(on)].join(" ")}>{pm.name}</button>
-                    );
-                  })}
-                  {pmOptions.length === 0 && <div className="text-xs text-gray-500">(PM options not available yet.)</div>}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-700 mb-2">Department</div>
-                <div className="flex flex-wrap gap-2">
-                  {deptOptions.slice(0, 28).map((d) => {
-                    const on = (local.department ?? []).includes(d.value);
-                    return (
-                      <button key={d.value} type="button" onClick={() => toggle("department", d.value)}
-                        className={["px-3 py-1.5 rounded-full text-xs border", pill(on)].join(" ")}>{d.label}</button>
-                    );
-                  })}
-                  {deptOptions.length === 0 && <div className="text-xs text-gray-500">(Department options not available yet.)</div>}
-                </div>
-              </div>
+
+              <CheckboxList
+                label="Projects"
+                items={projectOptions.slice(0, 50).map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  sub: p.code ?? undefined,
+                }))}
+                selected={local.projectId ?? []}
+                onToggle={(id) => toggle("projectId", id)}
+                emptyText="No projects available"
+              />
+
+              <CheckboxList
+                label="Project Manager"
+                items={pmOptions.map((pm) => ({ id: pm.id, name: pm.name }))}
+                selected={local.projectManagerId ?? []}
+                onToggle={(id) => toggle("projectManagerId", id)}
+                emptyText="No project managers found"
+              />
+
+              <CheckboxList
+                label="Department"
+                items={deptOptions.map((d) => ({ id: d.value, name: d.label }))}
+                selected={local.department ?? []}
+                onToggle={(id) => toggle("department", id)}
+                emptyText="No departments found"
+              />
             </div>
-            <div className="p-4 border-t border-gray-200 bg-gray-50/60">
-              {/* Active filter count */}
-              {(
-                (local.projectId?.length ?? 0) +
-                (local.projectManagerId?.length ?? 0) +
-                (local.department?.length ?? 0) +
-                (local.q?.trim() ? 1 : 0)
-              ) > 0 && (
+
+            {/* Footer */}
+            <div className="border-t border-gray-200 bg-gray-50/60 p-4">
+              {activeCount > 0 && (
                 <div className="mb-3 flex items-center justify-between">
                   <span className="text-xs text-gray-500">
-                    <span className="font-semibold text-gray-900">
-                      {(local.projectId?.length ?? 0) +
-                        (local.projectManagerId?.length ?? 0) +
-                        (local.department?.length ?? 0) +
-                        (local.q?.trim() ? 1 : 0)}
-                    </span>{" "}filter{((local.projectId?.length ?? 0) + (local.projectManagerId?.length ?? 0) + (local.department?.length ?? 0) + (local.q?.trim() ? 1 : 0)) !== 1 ? "s" : ""} active
+                    <span className="font-semibold text-gray-900">{activeCount}</span>{" "}
+                    filter{activeCount !== 1 ? "s" : ""} active
                   </span>
-                  <button
-                    type="button"
-                    onClick={onClear}
-                    className="text-xs font-semibold text-red-500 hover:text-red-600"
-                  >
+                  <button type="button" onClick={onClear}
+                    className="text-xs font-semibold text-red-500 hover:text-red-600">
                     Clear all
                   </button>
                 </div>
               )}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={onClose}
-                  className="flex-1 h-10 rounded-xl border border-gray-300 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-                  type="button"
-                >
+              <div className="flex gap-2">
+                <button type="button" onClick={onClose}
+                  className="h-10 flex-1 rounded-xl border border-gray-300 bg-white text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50">
                   Cancel
                 </button>
-                <button
-                  onClick={() => onApply(local)}
-                  className="flex-1 h-10 rounded-xl bg-gray-900 text-sm font-semibold text-white hover:bg-gray-800 transition-colors"
-                  type="button"
-                >
+                <button type="button" onClick={() => onApply(local)}
+                  className="h-10 flex-1 rounded-xl bg-gray-900 text-sm font-semibold text-white transition-colors hover:bg-gray-800">
                   Apply filters
                 </button>
               </div>
@@ -1558,8 +1635,11 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
   const fpRag = fpHasData ? ((fpSummary as any).rag as RagLetter) : null;
   const fpCurrency = fpHasData ? (safeStr((fpSummary as any).currency).trim() || "£") : "£";
-  const fpTotalBudget: number | null = fpHasData ? (num((fpSummary as any).total_approved_budget) || null) : null;
-  const fpTotalSpent: number | null = fpHasData ? (num((fpSummary as any).total_spent) || null) : null;
+
+  const _fpBudgetRaw = fpHasData ? (fpSummary as any).total_approved_budget : undefined;
+  const _fpSpentRaw  = fpHasData ? (fpSummary as any).total_spent : undefined;
+  const fpTotalBudget: number | null = _fpBudgetRaw != null && Number.isFinite(Number(_fpBudgetRaw)) ? Number(_fpBudgetRaw) : null;
+  const fpTotalSpent:  number | null = _fpSpentRaw  != null && Number.isFinite(Number(_fpSpentRaw))  ? Number(_fpSpentRaw)  : null;
 
   function formatBudget(n: number, currency: string): string {
     const abs = Math.abs(n);
