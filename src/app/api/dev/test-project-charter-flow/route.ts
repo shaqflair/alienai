@@ -9,7 +9,7 @@ export const revalidate = 0;
 
 type Scenario = "happy_path" | "reject_step_2" | "sla_breach";
 
-const BUILD_MARKER = "test-project-charter-flow-live-2026-03-13-v3";
+const BUILD_MARKER = "test-project-charter-flow-live-2026-03-13-v4";
 
 const TEST_PROGRAMME_LEAD_EMAIL = "alienaprogrammelead@gmail.com";
 const TEST_COMMERCIAL_LEAD_EMAIL = "paapa501@gmail.com";
@@ -122,6 +122,7 @@ async function createProjectCharterArtifact(
 async function createApprovalChain(
   supabase: any,
   artifactId: string,
+  projectId: string,
   organisationId: string,
   createdBy: string,
   approverIds: { programmeLeadId: string; commercialLeadId: string; accountLeadId: string }
@@ -130,12 +131,14 @@ async function createApprovalChain(
     .from("approval_chains")
     .insert({
       organisation_id: organisationId,
+      project_id: projectId,
       artifact_id: artifactId,
-      chain_type: "artifact",
+      artifact_type: "project_charter",
+      is_active: true,
       status: "active",
       created_by: createdBy,
     })
-    .select("id,status,artifact_id")
+    .select("id,status,artifact_id,project_id,artifact_type,is_active")
     .single();
 
   if (chain.error) {
@@ -347,8 +350,8 @@ async function approveStep(
     const closeChain = await supabase
       .from("approval_chains")
       .update({
-        status: "completed",
-        completed_at: new Date().toISOString(),
+        status: "approved",
+        is_active: false,
       })
       .eq("artifact_id", artifactId);
 
@@ -428,8 +431,8 @@ async function rejectStep(
   const chainUpdate = await supabase
     .from("approval_chains")
     .update({
-      status: "terminated",
-      completed_at: new Date().toISOString(),
+      status: "rejected",
+      is_active: false,
     })
     .eq("artifact_id", artifactId);
 
@@ -493,7 +496,7 @@ async function readFinalState(supabase: any, artifactId: string) {
 
   const chain = await supabase
     .from("approval_chains")
-    .select("id,status,completed_at")
+    .select("id,status,is_active,project_id,artifact_type,created_at")
     .eq("artifact_id", artifactId)
     .maybeSingle();
 
@@ -545,9 +548,14 @@ function buildAssertions(state: any, scenario: Scenario) {
       actual: state?.artifact?.status,
     });
     checks.push({
-      name: "Chain completed",
-      pass: state?.chain?.status === "completed",
+      name: "Chain approved",
+      pass: state?.chain?.status === "approved",
       actual: state?.chain?.status,
+    });
+    checks.push({
+      name: "Chain inactive after approval",
+      pass: state?.chain?.is_active === false,
+      actual: state?.chain?.is_active,
     });
     checks.push({
       name: "Three steps approved",
@@ -563,9 +571,14 @@ function buildAssertions(state: any, scenario: Scenario) {
       actual: state?.artifact?.status,
     });
     checks.push({
-      name: "Chain terminated",
-      pass: state?.chain?.status === "terminated",
+      name: "Chain rejected",
+      pass: state?.chain?.status === "rejected",
       actual: state?.chain?.status,
+    });
+    checks.push({
+      name: "Chain inactive after rejection",
+      pass: state?.chain?.is_active === false,
+      actual: state?.chain?.is_active,
     });
   }
 
@@ -578,6 +591,14 @@ function buildAssertions(state: any, scenario: Scenario) {
         step: s.step_order,
         sla_status: s.sla_status,
       })),
+    });
+    checks.push({
+      name: "Chain remains active during breach scenario",
+      pass: state?.chain?.status === "active" && state?.chain?.is_active === true,
+      actual: {
+        status: state?.chain?.status,
+        is_active: state?.chain?.is_active,
+      },
     });
   }
 
@@ -637,7 +658,7 @@ export async function POST(req: NextRequest) {
     const project = await getOrCreateTestProject(supabase, organisationId, user.id);
     const artifact = await createProjectCharterArtifact(supabase, project.id, organisationId, user.id);
 
-    await createApprovalChain(supabase, artifact.id, organisationId, user.id, {
+    await createApprovalChain(supabase, artifact.id, project.id, organisationId, user.id, {
       programmeLeadId,
       commercialLeadId,
       accountLeadId,
