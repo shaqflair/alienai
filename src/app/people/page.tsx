@@ -31,7 +31,8 @@ export default async function PeoplePage() {
     .is("removed_at", null)
     .maybeSingle();
 
-  const isAdmin = safeStr(myMem?.role).toLowerCase() === "admin";
+const role = safeStr(myMem?.role).toLowerCase();
+const isAdmin = role === "admin" || role === "owner";
 
   // -- Fetch org member IDs first (two-step to avoid FK hint issues) ----------
   const { data: memberIdRows } = await supabase
