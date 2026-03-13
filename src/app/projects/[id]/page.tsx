@@ -10,6 +10,7 @@ import ProjectResourcePanel from "./_components/ProjectResourcePanel";
 import AssignPmButton from "./_components/AssignPmButton";
 import { insertRoleRequirements } from "./actions";
 import ProjectRaidRaiseButton from "./_components/ProjectRaidRaiseButton";
+import { computeHealthFromData, type HealthResult } from "@/lib/server/project-health";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,22 +41,13 @@ function isInvalidInputSyntaxError(err: any) {
 }
 
 const RESERVED = new Set([
-  "artifacts",
-  "changes",
-  "change",
-  "members",
-  "approvals",
-  "lessons",
-  "raid",
-  "schedule",
-  "wbs",
+  "artifacts", "changes", "change", "members", "approvals",
+  "lessons", "raid", "schedule", "wbs",
 ]);
 
 function normalizeProjectIdentifier(input: string) {
   let v = safeStr(input).trim();
-  try {
-    v = decodeURIComponent(v);
-  } catch {}
+  try { v = decodeURIComponent(v); } catch {}
   v = v.trim();
   const m = v.match(/(\d{3,})$/);
   if (m?.[1]) return m[1];
@@ -63,13 +55,8 @@ function normalizeProjectIdentifier(input: string) {
 }
 
 const HUMAN_COL_CANDIDATES = [
-  "project_human_id",
-  "human_id",
-  "project_code",
-  "code",
-  "slug",
-  "reference",
-  "ref",
+  "project_human_id", "human_id", "project_code",
+  "code", "slug", "reference", "ref",
 ] as const;
 
 async function resolveProjectUuidFast(supabase: any, identifier: string, organisationId: string) {
@@ -92,7 +79,6 @@ async function resolveProjectUuidFast(supabase: any, identifier: string, organis
       if (isInvalidInputSyntaxError(error)) continue;
       throw error;
     }
-
     if (data?.id) return { projectUuid: String(data.id), project: data };
   }
 
@@ -128,27 +114,29 @@ function formatDate(d: string | null | undefined) {
   if (!d) return "";
   try {
     return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-  } catch {
-    return d as string;
-  }
+  } catch { return d as string; }
 }
 
 function formatDateShort(d: string | null | undefined) {
   if (!d) return "";
   try {
     return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-  } catch {
-    return d as string;
-  }
+  } catch { return d as string; }
+}
+
+function formatCurrency(amount: number, fallback = "—"): string {
+  if (!Number.isFinite(amount)) return fallback;
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency", currency: "GBP",
+    minimumFractionDigits: 0, maximumFractionDigits: 0,
+  }).format(amount);
 }
 
 function daysUntil(d: string | null | undefined): number | null {
   if (!d) return null;
   try {
     return Math.ceil((new Date(d).getTime() - Date.now()) / 86_400_000);
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 async function getOrgMembership(supabase: any, organisationId: string, userId: string) {
@@ -168,22 +156,13 @@ async function getOrgMembership(supabase: any, organisationId: string, userId: s
   }
 
   const role = String(data?.role ?? "").toLowerCase();
-  return {
-    isMember: Boolean(role),
-    isAdmin: role === "admin" || role === "owner",
-    role,
-  };
+  return { isMember: Boolean(role), isAdmin: role === "admin" || role === "owner", role };
 }
 
 async function convertPipelineToConfirmed(formData: FormData) {
   "use server";
-
   const supabase = await createClient();
-  const {
-    data: { user },
-    error: uErr,
-  } = await supabase.auth.getUser();
-
+  const { data: { user }, error: uErr } = await supabase.auth.getUser();
   if (uErr) throw uErr;
   if (!user) redirect("/login");
 
@@ -191,8 +170,7 @@ async function convertPipelineToConfirmed(formData: FormData) {
   if (!activeOrgId) redirect("/projects?err=no_active_org");
 
   const projectId = safeStr(formData.get("project_id")).trim();
-  const returnTo = safeStr(formData.get("return_to")).trim() || "/projects";
-
+  const returnTo  = safeStr(formData.get("return_to")).trim() || "/projects";
   if (!projectId) redirect(`${returnTo}?err=missing_project_id`);
 
   const { data: projRow, error: projErr } = await supabase
@@ -202,7 +180,8 @@ async function convertPipelineToConfirmed(formData: FormData) {
     .maybeSingle();
 
   if (projErr) throw projErr;
-  if (!projRow?.id || String(projRow.organisation_id) !== activeOrgId) redirect(`${returnTo}?err=forbidden`);
+  if (!projRow?.id || String(projRow.organisation_id) !== activeOrgId)
+    redirect(`${returnTo}?err=forbidden`);
 
   const { data: memRows, error: memErr } = await supabase
     .from("project_members")
@@ -215,10 +194,8 @@ async function convertPipelineToConfirmed(formData: FormData) {
 
   const myRole = bestProjectRole(memRows as any);
   const org = await getOrgMembership(supabase, activeOrgId, user.id);
-
-  if (!(org.isAdmin || myRole === "owner" || myRole === "editor")) {
+  if (!(org.isAdmin || myRole === "owner" || myRole === "editor"))
     redirect(`${returnTo}?err=forbidden`);
-  }
 
   const { error: upErr } = await supabase
     .from("projects")
@@ -227,23 +204,19 @@ async function convertPipelineToConfirmed(formData: FormData) {
     .eq("resource_status", "pipeline");
 
   if (upErr) throw upErr;
-
   redirect(`${returnTo}?msg=converted_to_confirmed`);
 }
 
-/* ─── Inline assign-PM server action ─── */
 async function assignPmAction(formData: FormData) {
   "use server";
-
   const supabase = await createClient();
   const { data: { user }, error: uErr } = await supabase.auth.getUser();
   if (uErr) throw uErr;
   if (!user) redirect("/login");
 
   const projectId = safeStr(formData.get("project_id")).trim();
-  const pmUserId = safeStr(formData.get("pm_user_id")).trim();
-  const returnTo = safeStr(formData.get("return_to")).trim() || "/projects";
-
+  const pmUserId  = safeStr(formData.get("pm_user_id")).trim();
+  const returnTo  = safeStr(formData.get("return_to")).trim() || "/projects";
   if (!projectId) redirect(`${returnTo}?err=missing_project_id`);
 
   const activeOrgId = await getActiveOrgId();
@@ -258,48 +231,29 @@ async function assignPmAction(formData: FormData) {
     .is("removed_at", null);
 
   const myRole = bestProjectRole(memRows as any);
-  if (!(org.isAdmin || myRole === "owner" || myRole === "editor")) {
+  if (!(org.isAdmin || myRole === "owner" || myRole === "editor"))
     redirect(`${returnTo}?err=forbidden`);
-  }
 
   let pmName: string | null = null;
-
   if (pmUserId) {
     const { data: pmByUserId } = await supabase
-      .from("profiles")
-      .select("full_name, email")
-      .eq("user_id", pmUserId)
-      .maybeSingle();
-
+      .from("profiles").select("full_name, email").eq("user_id", pmUserId).maybeSingle();
     let pmProfile: any = pmByUserId;
-
     if (!safeStr(pmProfile?.full_name).trim() && !safeStr(pmProfile?.email).trim()) {
       const { data: pmById } = await supabase
-        .from("profiles")
-        .select("full_name, email")
-        .eq("id", pmUserId)
-        .maybeSingle();
+        .from("profiles").select("full_name, email").eq("id", pmUserId).maybeSingle();
       if (pmById) pmProfile = pmById;
     }
-
-    pmName =
-      safeStr(pmProfile?.full_name).trim() ||
-      safeStr(pmProfile?.email).trim() ||
-      null;
+    pmName = safeStr(pmProfile?.full_name).trim() || safeStr(pmProfile?.email).trim() || null;
   }
 
   const { error } = await supabase
     .from("projects")
-    .update({
-      pm_user_id: pmUserId || null,
-      project_manager_id: pmUserId || null,
-      pm_name: pmName,
-    })
+    .update({ pm_user_id: pmUserId || null, project_manager_id: pmUserId || null, pm_name: pmName })
     .eq("id", projectId)
     .eq("organisation_id", activeOrgId);
 
   if (error) throw new Error(error.message);
-
   redirect(`${returnTo}?msg=pm_assigned`);
 }
 
@@ -324,10 +278,7 @@ export default async function ProjectPage({
   if (!activeOrgId) {
     if (looksLikeUuid(rawId)) {
       const { data: proj } = await supabase
-        .from("projects")
-        .select("organisation_id")
-        .eq("id", rawId)
-        .maybeSingle();
+        .from("projects").select("organisation_id").eq("id", rawId).maybeSingle();
       if (proj?.organisation_id) activeOrgId = String(proj.organisation_id);
     }
     if (!activeOrgId) notFound();
@@ -346,7 +297,8 @@ export default async function ProjectPage({
     const { data: p, error: pErr } = await supabase
       .from("projects")
       .select(
-        "id, organisation_id, title, project_code, colour, start_date, finish_date, resource_status, status, created_at, project_manager_id, pm_user_id, pm_name"
+        "id, organisation_id, title, project_code, colour, start_date, finish_date, " +
+        "resource_status, status, created_at, project_manager_id, pm_user_id, pm_name, budget_amount"
       )
       .eq("id", projectUuid)
       .eq("organisation_id", activeOrgId)
@@ -388,6 +340,7 @@ export default async function ProjectPage({
     changeRequestsResult,
     keyArtifactsResult,
     orgMembersBaseResult,
+    spendResult,              // ← new: actual spend from project_spend
   ] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
     supabase
@@ -443,178 +396,82 @@ export default async function ProjectPage({
       .eq("organisation_id", activeOrgId)
       .is("removed_at", null)
       .limit(200),
+    supabase
+      .from("project_spend")
+      .select("amount")
+      .eq("project_id", projectUuid)
+      .is("deleted_at", null)
+      .limit(100000),
   ]);
 
-  const resource = resourceData.status === "fulfilled" ? resourceData.value : null;
-  const periods = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
-  const changes = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
+  const resource         = resourceData.status === "fulfilled" ? resourceData.value : null;
+  const periods          = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
+  const changes          = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
   const pendingApprovals = approvalsResult.status === "fulfilled" ? approvalsResult.value.data ?? [] : [];
-  const members = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
-  const raidItems = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
-  const milestones = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
-  const changeReqs = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
-  const keyArtifacts = keyArtifactsResult.status === "fulfilled" ? keyArtifactsResult.value.data ?? [] : [];
-  const orgMembersBase = orgMembersBaseResult.status === "fulfilled" ? orgMembersBaseResult.value.data ?? [] : [];
+  const members          = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
+  const raidItems        = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
+  const milestones       = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
+  const changeReqs       = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
+  const keyArtifacts     = keyArtifactsResult.status === "fulfilled" ? keyArtifactsResult.value.data ?? [] : [];
+  const orgMembersBase   = orgMembersBaseResult.status === "fulfilled" ? orgMembersBaseResult.value.data ?? [] : [];
+
+  // Sum actual spend
+  const spendRows = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
+  const spentAmount = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
+  const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
 
   let profileMap = new Map<string, any>();
   if (orgMembersBase.length > 0) {
     const userIds = (orgMembersBase as any[]).map((m: any) => m.user_id).filter(Boolean);
 
     const [{ data: profilesByUserId }, { data: profilesById }] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("id, user_id, full_name, email, avatar_url, department, job_title")
-        .in("user_id", userIds),
-      supabase
-        .from("profiles")
-        .select("id, user_id, full_name, email, avatar_url, department, job_title")
-        .in("id", userIds),
+      supabase.from("profiles").select("id, user_id, full_name, email, avatar_url, department, job_title").in("user_id", userIds),
+      supabase.from("profiles").select("id, user_id, full_name, email, avatar_url, department, job_title").in("id", userIds),
     ]);
 
     profileMap = new Map<string, any>();
     for (const p of [...(profilesByUserId ?? []), ...(profilesById ?? [])]) {
-      const pid = safeStr((p as any)?.id).trim();
+      const pid  = safeStr((p as any)?.id).trim();
       const puid = safeStr((p as any)?.user_id).trim();
-      if (pid) profileMap.set(pid, p);
+      if (pid)  profileMap.set(pid, p);
       if (puid) profileMap.set(puid, p);
     }
   }
 
-  const orgMembers = (orgMembersBase as any[]).map((m: any) => {
-    const p = profileMap.get(m.user_id) ?? {};
-    return { ...m, _profile: p };
-  });
+  const orgMembers = (orgMembersBase as any[]).map((m: any) => ({
+    ...m,
+    _profile: profileMap.get(m.user_id) ?? {},
+  }));
 
-  function clamp(n: number) {
-    return Math.max(0, Math.min(100, Math.round(n)));
-  }
+  /* ─── Health score (shared scorer — stays in sync with portfolio) ─── */
 
-  const today = new Date().toISOString().slice(0, 10);
-
-  type ScheduleDetail = { total: number; overdue: number; critical: number; avgSlipDays: number };
-  const scheduleDetail: ScheduleDetail = { total: 0, overdue: 0, critical: 0, avgSlipDays: 0 };
-
-  const scheduleHealth = (() => {
-    const ms = milestones as any[];
-    if (!ms.length) return null;
-
-    let score = 100;
-    let slipSum = 0;
-    let slipCount = 0;
-
-    scheduleDetail.total = ms.length;
-
-    for (const m of ms) {
-      const st = String(m.status ?? "").toLowerCase();
-      const done = ["completed", "done", "closed"].includes(st);
-      const end = m.end_date ? String(m.end_date).slice(0, 10) : null;
-      const base = m.baseline_end ? String(m.baseline_end).slice(0, 10) : null;
-
-      if (!done && end && end < today) {
-        scheduleDetail.overdue++;
-        if (m.critical_path_flag) scheduleDetail.critical++;
-        score -= m.critical_path_flag ? 12 : 8;
-      }
-
-      if (end && base) {
-        const slip = Math.max(
-          0,
-          Math.round((new Date(end).getTime() - new Date(base).getTime()) / 86400000),
-        );
-        slipSum += slip;
-        slipCount++;
-      }
-    }
-
-    scheduleDetail.avgSlipDays = slipCount ? Math.round(slipSum / slipCount) : 0;
-    score -= Math.min(15, Math.round(scheduleDetail.avgSlipDays * 1.5));
-
-    return clamp(score);
-  })();
-
-  type RaidDetail = { total: number; highRisk: number; overdue: number };
-  const raidDetail: RaidDetail = { total: 0, highRisk: 0, overdue: 0 };
-
-  const raidHealth = (() => {
-    const items = raidItems as any[];
-    if (!items.length) return null;
-
-    let score = 100;
-    raidDetail.total = items.length;
-
-    for (const r of items) {
-      const p = Number(r.probability ?? 0);
-      const s = Number(r.severity ?? 0);
-      const composite = p > 0 && s > 0 ? Math.round((p * s) / 100) : 0;
-
-      if (composite >= 70) {
-        score -= 8;
-        raidDetail.highRisk++;
-      } else if (composite >= 50) {
-        score -= 4;
-      }
-
-      const due = r.due_date ? String(r.due_date).slice(0, 10) : null;
-      if (due && due < today) {
-        score -= 6;
-        raidDetail.overdue++;
-      }
-    }
-
-    return clamp(score);
-  })();
-
-  type BudgetDetail = { budgetDays: number | null; allocatedDays: number; utilisationPct: number | null };
-  const budgetDetail: BudgetDetail = {
-    budgetDays: resource?.budgetSummary?.budgetDays ?? null,
-    allocatedDays: resource?.budgetSummary?.allocatedDays ?? 0,
-    utilisationPct: resource?.budgetSummary?.utilisationPct ?? null,
-  };
-
-  const budgetHealth = (() => {
-    const pct = budgetDetail.utilisationPct;
-    if (pct == null) return null;
-    if (pct <= 90) return clamp(100);
-    if (pct <= 100) return clamp(100 - (pct - 90) * 3);
-    if (pct <= 120) return clamp(70 - (pct - 100) * 2);
-    return clamp(30);
-  })();
-
-  type GovernanceDetail = { pendingApprovalCount: number; openChangeRequests: number };
-  const govDetail: GovernanceDetail = {
+  const health: HealthResult = computeHealthFromData({
+    milestones:           milestones as any[],
+    raidItems:            raidItems as any[],
+    budgetAmount,
+    spentAmount,
     pendingApprovalCount: pendingApprovals.length,
-    openChangeRequests: (changeReqs as any[]).filter((c) =>
+    openChangeRequests:   (changeReqs as any[]).filter((c) =>
       ["pending", "open", "submitted", "draft"].includes(String(c.status ?? "").toLowerCase()),
     ).length,
-  };
+  });
 
-  const governanceHealth = (() => {
-    let score = 100;
-    score -= Math.min(35, govDetail.pendingApprovalCount * 5);
-    score -= Math.min(25, govDetail.openChangeRequests * 4);
-    return clamp(score);
-  })();
+  const healthScore      = health.score;
+  const scheduleHealth   = health.parts.schedule;
+  const raidHealth       = health.parts.raid;
+  const budgetHealth     = health.parts.budget;
+  const governanceHealth = health.parts.governance;
 
-  const healthScore = (() => {
-    const dims = [
-      { val: scheduleHealth, w: 35 },
-      { val: raidHealth, w: 30 },
-      { val: budgetHealth, w: 20 },
-      { val: governanceHealth, w: 15 },
-    ].filter((d) => d.val != null) as { val: number; w: number }[];
+  const scheduleDetail   = health.detail.schedule;
+  const raidDetail       = health.detail.raid;
+  const budgetDetail     = health.detail.budget;
+  const govDetail        = health.detail.governance;
 
-    if (!dims.length) return null;
-
-    const totalW = dims.reduce((s, d) => s + d.w, 0);
-    const weighted = dims.reduce((s, d) => s + d.val * d.w, 0);
-
-    return clamp(weighted / totalW);
-  })();
+  /* ─── rest of page data ─── */
 
   let switcherProjects: { id: string; title: string; project_code: string | null; colour: string | null }[] = [];
   if (myProjectMembershipsResult.status === "fulfilled") {
     const myIds = (myProjectMembershipsResult.value.data ?? []).map((r: any) => String(r.project_id));
-
     if (myIds.length > 0) {
       const { data: switcherData } = await supabase
         .from("projects")
@@ -631,46 +488,30 @@ export default async function ProjectPage({
     }
   }
 
-  const pmUserId = safeStr((project as any)?.pm_user_id ?? (project as any)?.project_manager_id ?? "").trim();
-  const storedPmName = safeStr((project as any)?.pm_name).trim();
-
-  let resolvedPmName = storedPmName;
+  const pmUserId       = safeStr((project as any)?.pm_user_id ?? (project as any)?.project_manager_id ?? "").trim();
+  const storedPmName   = safeStr((project as any)?.pm_name).trim();
+  let resolvedPmName   = storedPmName;
   let resolvedPmJobTitle = "";
 
   if (pmUserId) {
     const { data: pmByUserId } = await supabase
-      .from("profiles")
-      .select("full_name, email")
-      .eq("user_id", pmUserId)
-      .maybeSingle();
-
+      .from("profiles").select("full_name, email").eq("user_id", pmUserId).maybeSingle();
     let pmProfile: any = pmByUserId;
-
     if (!safeStr(pmProfile?.full_name).trim() && !safeStr(pmProfile?.email).trim()) {
       const { data: pmById } = await supabase
-        .from("profiles")
-        .select("full_name, email")
-        .eq("id", pmUserId)
-        .maybeSingle();
+        .from("profiles").select("full_name, email").eq("id", pmUserId).maybeSingle();
       if (pmById) pmProfile = pmById;
     }
-
     if (!resolvedPmName) {
       resolvedPmName =
         safeStr(pmProfile?.full_name).trim() ||
-        safeStr(pmProfile?.email).trim() ||
-        "";
+        safeStr(pmProfile?.email).trim() || "";
     }
-
     if (!resolvedPmName) {
       const fromOrg = orgMembers.find((m: any) => safeStr(m.user_id) === pmUserId);
       const p = fromOrg?._profile ?? {};
-      resolvedPmName =
-        safeStr(p?.full_name).trim() ||
-        safeStr(p?.email).trim() ||
-        "";
+      resolvedPmName = safeStr(p?.full_name).trim() || safeStr(p?.email).trim() || "";
     }
-
     const { data: orgPm } = await supabase
       .from("organisation_members")
       .select("job_title")
@@ -678,7 +519,6 @@ export default async function ProjectPage({
       .eq("user_id", pmUserId)
       .is("removed_at", null)
       .maybeSingle();
-
     resolvedPmJobTitle = safeStr((orgPm as any)?.job_title).trim();
   }
 
@@ -688,7 +528,6 @@ export default async function ProjectPage({
       safeStr(p?.full_name).trim() ||
       safeStr(p?.email).trim() ||
       safeStr(m.user_id).slice(0, 8);
-
     return {
       userId: safeStr(m.user_id),
       name,
@@ -696,14 +535,14 @@ export default async function ProjectPage({
     };
   }).filter((x: any) => x.userId);
 
-  const projectTitle = safeStr(project?.title ?? "Project") || "Project";
-  const projectCode = safeStr(project?.project_code ?? "").trim();
-  const projectColour = safeStr(project?.colour ?? "#22c55e");
-  const projectStatus = safeStr(project?.status ?? "active");
-  const isActive = projectStatus.toLowerCase() !== "closed";
+  const projectTitle    = safeStr(project?.title ?? "Project") || "Project";
+  const projectCode     = safeStr(project?.project_code ?? "").trim();
+  const projectColour   = safeStr(project?.colour ?? "#22c55e");
+  const projectStatus   = safeStr(project?.status ?? "active");
+  const isActive        = projectStatus.toLowerCase() !== "closed";
   const projectRefForUrls = projectUuid;
 
-  const flash = flashText(sp?.msg, sp?.conflicts);
+  const flash    = flashText(sp?.msg, sp?.conflicts);
   const flashErr = sp?.err ? `Error: ${sp.err}` : null;
   const daysLeft = daysUntil(project?.finish_date);
 
@@ -711,14 +550,14 @@ export default async function ProjectPage({
     return String(r.type ?? "").toLowerCase().trim() === type;
   }
 
-  const risks = raidItems.filter((r: any) => raidType(r, "risk"));
-  const assumptions = raidItems.filter((r: any) => raidType(r, "assumption"));
-  const issues = raidItems.filter((r: any) => raidType(r, "issue"));
+  const risks        = raidItems.filter((r: any) => raidType(r, "risk"));
+  const assumptions  = raidItems.filter((r: any) => raidType(r, "assumption"));
+  const issues       = raidItems.filter((r: any) => raidType(r, "issue"));
   const dependencies = raidItems.filter((r: any) => raidType(r, "dependency"));
   const totalMembers = members.length;
-  const openRisks = risks.length;
-  const pmName = resolvedPmName || "Unassigned";
-  const pmJobTitle = resolvedPmJobTitle || "";
+  const openRisks    = risks.length;
+  const pmName       = resolvedPmName || "Unassigned";
+  const pmJobTitle   = resolvedPmJobTitle || "";
 
   const artifactHref = (type: string) => {
     const a = (keyArtifacts as any[]).find((x) => x.type === type);
@@ -728,17 +567,26 @@ export default async function ProjectPage({
   };
 
   const tabs = [
-    { id: "overview", label: "Overview", href: `/projects/${projectRefForUrls}` },
-    { id: "artifacts", label: "Artifacts", href: `/projects/${projectRefForUrls}/artifacts` },
-    { id: "schedule", label: "Schedule", href: artifactHref("SCHEDULE") },
-    { id: "wbs", label: "WBS", href: artifactHref("WBS") },
-    { id: "financial", label: "Financial Plan", href: artifactHref("FINANCIAL_PLAN") },
-    { id: "members", label: "Members", href: `/projects/${projectRefForUrls}/members` },
-    { id: "changes", label: "Change Board", href: `/projects/${projectRefForUrls}/change` },
-    { id: "raid", label: "Risks", href: `/projects/${projectRefForUrls}/raid` },
-    { id: "lessons", label: "Lessons", href: `/projects/${projectRefForUrls}/lessons` },
-    { id: "weekly", label: "Weekly Report", href: artifactHref("WEEKLY_REPORT") },
+    { id: "overview",   label: "Overview",       href: `/projects/${projectRefForUrls}` },
+    { id: "artifacts",  label: "Artifacts",      href: `/projects/${projectRefForUrls}/artifacts` },
+    { id: "schedule",   label: "Schedule",       href: artifactHref("SCHEDULE") },
+    { id: "wbs",        label: "WBS",            href: artifactHref("WBS") },
+    { id: "financial",  label: "Financial Plan", href: artifactHref("FINANCIAL_PLAN") },
+    { id: "members",    label: "Members",        href: `/projects/${projectRefForUrls}/members` },
+    { id: "changes",    label: "Change Board",   href: `/projects/${projectRefForUrls}/change` },
+    { id: "raid",       label: "Risks",          href: `/projects/${projectRefForUrls}/raid` },
+    { id: "lessons",    label: "Lessons",        href: `/projects/${projectRefForUrls}/lessons` },
+    { id: "weekly",     label: "Weekly Report",  href: artifactHref("WEEKLY_REPORT") },
   ];
+
+  // Budget tooltip text
+  const budgetTooltip = budgetDetail.budgetAmount != null
+    ? `${formatCurrency(budgetDetail.spentAmount)} spent of ${formatCurrency(budgetDetail.budgetAmount!)} approved budget` +
+      ` (${budgetDetail.utilisationPct}% used).` +
+      (budgetDetail.forecastOverrun
+        ? ` Over budget by ${formatCurrency(Math.abs(budgetDetail.variance!))}.`
+        : ` ${formatCurrency(budgetDetail.variance!)} remaining.`)
+    : "No approved budget set on this project.";
 
   return (
     <>
@@ -847,15 +695,13 @@ export default async function ProjectPage({
         .pm-select {
           border: 1px solid var(--border); border-radius: 7px; padding: 3px 8px;
           font-size: 13px; font-family: 'Geist', sans-serif; color: var(--text-1);
-          background: var(--surface); cursor: pointer; outline: none;
-          transition: border-color 0.15s;
+          background: var(--surface); cursor: pointer; outline: none; transition: border-color 0.15s;
         }
         .pm-select:focus { border-color: var(--blue); }
         .pm-save-btn {
           padding: 3px 10px; border-radius: 7px; border: 1px solid var(--blue);
           background: var(--blue); color: white; font-size: 12px; font-weight: 600;
-          font-family: 'Geist', sans-serif; cursor: pointer;
-          transition: opacity 0.15s;
+          font-family: 'Geist', sans-serif; cursor: pointer; transition: opacity 0.15s;
         }
         .pm-save-btn:hover { opacity: 0.85; }
         @media (max-width: 960px) {
@@ -868,9 +714,7 @@ export default async function ProjectPage({
         }
       `}</style>
 
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
+      <script dangerouslySetInnerHTML={{ __html: `
         (function(){
           function init(){
             var input = document.getElementById('sw-input');
@@ -885,12 +729,12 @@ export default async function ProjectPage({
           if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
           else init();
         })();
-      `,
-        }}
-      />
+      `}} />
 
       <main style={{ minHeight: "100vh", background: "var(--surface-2)", fontFamily: "'Geist', sans-serif" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 28px 64px" }}>
+
+          {/* ── breadcrumb + switcher ── */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-3)", fontWeight: 500 }}>
               <Link href="/projects" style={{ color: "var(--text-3)", textDecoration: "none" }}>Projects</Link>
@@ -934,16 +778,15 @@ export default async function ProjectPage({
             </div>
           </div>
 
-          {flash && <div className="flash-ok" style={{ marginBottom: 14 }}>{flash}</div>}
+          {flash    && <div className="flash-ok"  style={{ marginBottom: 14 }}>{flash}</div>}
           {flashErr && <div className="flash-err" style={{ marginBottom: 14 }}>{flashErr}</div>}
 
+          {/* ── header card ── */}
           <div className="card" style={{ marginBottom: 20 }}>
             <div style={{ padding: "22px 28px 0" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                 <span style={{ width: 10, height: 10, borderRadius: "50%", background: projectColour, display: "inline-block", flexShrink: 0 }}/>
-                <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)", letterSpacing: "-0.3px", margin: 0 }}>
-                  {projectTitle}
-                </h1>
+                <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)", letterSpacing: "-0.3px", margin: 0 }}>{projectTitle}</h1>
                 {projectCode && (
                   <span style={{ padding: "2px 9px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#f6f8fa", color: "var(--text-3)", border: "1px solid var(--border)", fontFamily: "'Geist Mono', monospace" }}>
                     {projectCode}
@@ -953,9 +796,7 @@ export default async function ProjectPage({
                   {isActive ? "Active" : "Closed"}
                 </span>
                 {project?.resource_status === "pipeline" && (
-                  <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: "rgba(124,58,237,0.08)", color: "#7c3aed" }}>
-                    Pipeline
-                  </span>
+                  <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: "rgba(124,58,237,0.08)", color: "#7c3aed" }}>Pipeline</span>
                 )}
               </div>
 
@@ -964,27 +805,15 @@ export default async function ProjectPage({
                   <span style={{ fontWeight: 500 }}>PM:</span>
                   {canEdit ? (
                     <>
-                      <AssignPmButton
-                        projectId={projectUuid}
-                        currentPmName={pmName}
-                        currentPmUserId={pmUserId || null}
-                        orgId={activeOrgId!}
-                      />
+                      <AssignPmButton projectId={projectUuid} currentPmName={pmName} currentPmUserId={pmUserId || null} orgId={activeOrgId!} />
                       <noscript>
                         <form action={assignPmAction} className="pm-form">
                           <input type="hidden" name="project_id" value={projectUuid}/>
                           <input type="hidden" name="return_to" value={`/projects/${projectRefForUrls}`}/>
-                          <select
-                            name="pm_user_id"
-                            defaultValue={pmUserId || ""}
-                            className="pm-select"
-                            aria-label="Assign project manager"
-                          >
+                          <select name="pm_user_id" defaultValue={pmUserId || ""} className="pm-select" aria-label="Assign project manager">
                             <option value="">— Unassigned —</option>
                             {pmOptions.map((o: any) => (
-                              <option key={o.userId} value={o.userId}>
-                                {o.name}{o.jobTitle ? ` (${o.jobTitle})` : ""}
-                              </option>
+                              <option key={o.userId} value={o.userId}>{o.name}{o.jobTitle ? ` (${o.jobTitle})` : ""}</option>
                             ))}
                           </select>
                           <button type="submit" className="pm-save-btn">Save</button>
@@ -995,19 +824,11 @@ export default async function ProjectPage({
                     <span style={{ fontWeight: 600 }}>{pmName}</span>
                   )}
                 </span>
-
-                {pmJobTitle ? (
-                  <>
-                    <span style={{ color: "var(--border-2)" }}>•</span>
-                    <span style={{ fontSize: 12, color: "var(--text-3)" }}>{pmJobTitle}</span>
-                  </>
-                ) : null}
-
+                {pmJobTitle && <><span style={{ color: "var(--border-2)" }}>•</span><span style={{ fontSize: 12, color: "var(--text-3)" }}>{pmJobTitle}</span></>}
                 <span style={{ color: "var(--border-2)" }}>•</span>
                 <span>Created {formatDate(project?.created_at)}</span>
                 <span style={{ color: "var(--border-2)" }}>•</span>
                 <span style={{ textTransform: "capitalize", fontWeight: 500 }}>{myRole}</span>
-
                 {(project?.start_date || project?.finish_date) && (
                   <>
                     <span style={{ color: "var(--border-2)" }}>•</span>
@@ -1020,7 +841,6 @@ export default async function ProjectPage({
                     </span>
                   </>
                 )}
-
                 {daysLeft !== null && (
                   <>
                     <span style={{ color: "var(--border-2)" }}>•</span>
@@ -1031,32 +851,17 @@ export default async function ProjectPage({
                 )}
               </div>
 
-             {canEdit && (
-  <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-    <a href={`/allocations/new?project_id=${projectUuid}&return_to=/projects/${projectRefForUrls}`} className="action-btn primary">
-      + Allocate resource
-    </a>
-
-    <ProjectRaidRaiseButton
-      projectId={projectUuid}
-      projectTitle={projectTitle}
-      projectCode={projectCode || null}
-    />
-
-    <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">
-      + New artifact
-    </Link>
-
-    <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">
-      Project Charter
-    </Link>
+              {canEdit && (
+                <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                  <a href={`/allocations/new?project_id=${projectUuid}&return_to=/projects/${projectRefForUrls}`} className="action-btn primary">+ Allocate resource</a>
+                  <ProjectRaidRaiseButton projectId={projectUuid} projectTitle={projectTitle} projectCode={projectCode || null} />
+                  <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">+ New artifact</Link>
+                  <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">Project Charter</Link>
                   {project?.resource_status === "pipeline" && (
                     <form action={convertPipelineToConfirmed} style={{ display: "contents" }}>
                       <input type="hidden" name="project_id" value={project.id}/>
                       <input type="hidden" name="return_to" value={`/projects/${projectRefForUrls}`}/>
-                      <button type="submit" className="action-btn" style={{ background: "#7c3aed", borderColor: "#7c3aed", color: "white" }}>
-                        Convert to confirmed
-                      </button>
+                      <button type="submit" className="action-btn" style={{ background: "#7c3aed", borderColor: "#7c3aed", color: "white" }}>Convert to confirmed</button>
                     </form>
                   )}
                 </div>
@@ -1068,46 +873,36 @@ export default async function ProjectPage({
                 <Link key={t.id} href={t.href} className={`tab-link${t.id === "overview" ? " active" : ""}`}>
                   {t.label}
                   {t.id === "raid" && openRisks > 0 && (
-                    <span style={{ marginLeft: 5, background: "var(--red)", color: "white", borderRadius: 20, fontSize: 10, fontWeight: 800, padding: "1px 5px" }}>
-                      {openRisks}
-                    </span>
+                    <span style={{ marginLeft: 5, background: "var(--red)", color: "white", borderRadius: 20, fontSize: 10, fontWeight: 800, padding: "1px 5px" }}>{openRisks}</span>
                   )}
                   {t.id === "changes" && pendingApprovals.length > 0 && (
-                    <span style={{ marginLeft: 5, background: "var(--amber)", color: "white", borderRadius: 20, fontSize: 10, fontWeight: 800, padding: "1px 5px" }}>
-                      {pendingApprovals.length}
-                    </span>
+                    <span style={{ marginLeft: 5, background: "var(--amber)", color: "white", borderRadius: 20, fontSize: 10, fontWeight: 800, padding: "1px 5px" }}>{pendingApprovals.length}</span>
                   )}
                 </Link>
               ))}
             </div>
           </div>
 
+          {/* ── stat cards ── */}
           <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 16 }}>
             <div className="stat-card">
               <div className="stat-icon" style={{ background: "#dcfce7" }}>📊</div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Health Score</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", lineHeight: 1 }}>
-                {healthScore != null ? `${healthScore}%` : "—"}
-              </div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", lineHeight: 1 }}>{healthScore != null ? `${healthScore}%` : "—"}</div>
               <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Overall RAG</div>
             </div>
-
             <div className="stat-card">
               <div className="stat-icon" style={{ background: "#ede9fe" }}>👤</div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Project Manager</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>{pmName}</div>
-              <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>
-                {pmName === "Unassigned" ? "Not assigned" : (pmJobTitle || "Assigned")}
-              </div>
+              <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>{pmName === "Unassigned" ? "Not assigned" : (pmJobTitle || "Assigned")}</div>
             </div>
-
             <div className="stat-card">
               <div className="stat-icon" style={{ background: "#dbeafe" }}>📅</div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Start Date</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>{formatDateShort(project?.start_date)}</div>
               <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Kickoff</div>
             </div>
-
             <div className="stat-card">
               <div className="stat-icon" style={{ background: "#f3f4f6" }}>🏁</div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>End Date</div>
@@ -1116,6 +911,7 @@ export default async function ProjectPage({
             </div>
           </div>
 
+          {/* ── description + health card ── */}
           <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, marginBottom: 16 }}>
             <div className="card" style={{ padding: "24px" }}>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 12 }}>Project Description</h3>
@@ -1124,7 +920,6 @@ export default async function ProjectPage({
                   healthScore != null ? ` The project is tracking at ${healthScore}% health with all major milestones on schedule.` : ""
                 }${project?.finish_date ? ` The team is working towards the delivery deadline of ${formatDateShort(project?.finish_date)}.` : ""}`}
               </p>
-
               <div style={{ display: "flex", gap: 8, marginTop: 20, flexWrap: "wrap" }}>
                 {[
                   { href: `/projects/${projectRefForUrls}/artifacts`, label: "Artifacts" },
@@ -1135,9 +930,7 @@ export default async function ProjectPage({
                   <Link key={l.href} href={l.href} className="action-btn">
                     {l.label}
                     {(l.badge ?? 0) > 0 && (
-                      <span style={{ background: "var(--red)", color: "white", borderRadius: 20, fontSize: 10, fontWeight: 800, padding: "1px 5px", marginLeft: 2 }}>
-                        {l.badge}
-                      </span>
+                      <span style={{ background: "var(--red)", color: "white", borderRadius: 20, fontSize: 10, fontWeight: 800, padding: "1px 5px", marginLeft: 2 }}>{l.badge}</span>
                     )}
                   </Link>
                 ))}
@@ -1146,9 +939,7 @@ export default async function ProjectPage({
 
             <div className="card" style={{ padding: "24px" }}>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>Health Score</h3>
-              <p style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 20 }}>
-                Computed from live project data — hover each bar for detail.
-              </p>
+              <p style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 20 }}>Computed from live project data — hover each bar for detail.</p>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 {([
@@ -1168,10 +959,8 @@ export default async function ProjectPage({
                   },
                   {
                     label: "Budget", value: budgetHealth, weight: 20,
-                    tooltip: budgetDetail.utilisationPct != null
-                      ? `${budgetDetail.allocatedDays}d allocated of ${budgetDetail.budgetDays ?? "?"}d budget (${budgetDetail.utilisationPct}% utilisation). ${budgetDetail.utilisationPct <= 90 ? "On track." : budgetDetail.utilisationPct <= 100 ? "Approaching budget limit." : "Over budget."}`
-                      : "No budget days set on this project.",
-                    empty: "Set budget days on the project to track this.",
+                    tooltip: budgetTooltip,
+                    empty: "Set an approved budget and log spend to track this.",
                   },
                   {
                     label: "Governance", value: governanceHealth, weight: 15,
@@ -1182,18 +971,14 @@ export default async function ProjectPage({
                   ({ label, value, weight, tooltip, empty }) => {
                     const barColor = value == null ? "var(--border)" : value >= 85 ? "var(--green)" : value >= 70 ? "var(--amber)" : "var(--red)";
                     const ragLabel = value == null ? null : value >= 85 ? "Green" : value >= 70 ? "Amber" : "Red";
-
                     return (
                       <div key={label} style={{ position: "relative" }} className="health-row">
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 600 }}>{label}</span>
-                            <span style={{ fontSize: 10, color: "var(--text-3)", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 5px", fontWeight: 500 }}>
-                              {weight}%
-                            </span>
+                            <span style={{ fontSize: 10, color: "var(--text-3)", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 5px", fontWeight: 500 }}>{weight}%</span>
                             <span className="hs-tip-trigger" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", background: "var(--surface-2)", border: "1px solid var(--border)", fontSize: 9, color: "var(--text-3)", cursor: "default", fontWeight: 700, flexShrink: 0 }}>
-                              ?
-                              <span className="hs-tip-box">{tooltip}</span>
+                              ?<span className="hs-tip-box">{tooltip}</span>
                             </span>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1217,7 +1002,7 @@ export default async function ProjectPage({
                         )}
                       </div>
                     );
-                  },
+                  }
                 )}
               </div>
 
@@ -1242,6 +1027,7 @@ export default async function ProjectPage({
             </div>
           </div>
 
+          {/* ── resource panel ── */}
           {resource && (
             <div className="card" style={{ padding: "24px", marginBottom: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
@@ -1252,21 +1038,19 @@ export default async function ProjectPage({
             </div>
           )}
 
+          {/* ── RAID + activity ── */}
           <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14 }}>
             <div className="card" style={{ padding: "24px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)" }}>RAID log</span>
-                <Link href={`/projects/${projectRefForUrls}/raid`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
-                  View full RAID →
-                </Link>
+                <Link href={`/projects/${projectRefForUrls}/raid`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>View full RAID →</Link>
               </div>
-
               <div className="raid-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
                 {[
-                  { label: "Risks", items: risks, color: risks.length > 0 ? "var(--red)" : "var(--text-3)", border: risks.length > 0 ? "rgba(239,68,68,0.2)" : "var(--border)" },
-                  { label: "Assumptions", items: assumptions, color: "var(--blue)", border: "var(--border)" },
-                  { label: "Issues", items: issues, color: issues.length > 0 ? "var(--amber)" : "var(--text-3)", border: issues.length > 0 ? "rgba(245,158,11,0.2)" : "var(--border)" },
-                  { label: "Dependencies", items: dependencies, color: "#8b5cf6", border: "var(--border)" },
+                  { label: "Risks",        items: risks,        color: risks.length > 0 ? "var(--red)"   : "var(--text-3)", border: risks.length > 0 ? "rgba(239,68,68,0.2)"  : "var(--border)" },
+                  { label: "Assumptions",  items: assumptions,  color: "var(--blue)",                                       border: "var(--border)" },
+                  { label: "Issues",       items: issues,       color: issues.length > 0 ? "var(--amber)" : "var(--text-3)", border: issues.length > 0 ? "rgba(245,158,11,0.2)" : "var(--border)" },
+                  { label: "Dependencies", items: dependencies, color: "#8b5cf6",                                            border: "var(--border)" },
                 ].map(({ label, items, color, border }) => (
                   <div key={label} className="raid-quad" style={{ borderColor: border }}>
                     <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color, marginBottom: 8 }}>
@@ -1284,10 +1068,7 @@ export default async function ProjectPage({
             </div>
 
             <div className="card" style={{ padding: "24px" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 14 }}>
-                Recent activity
-              </div>
-
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 14 }}>Recent activity</div>
               <div>
                 {changes.length === 0 && pendingApprovals.length === 0 ? (
                   <div style={{ padding: "20px 0", textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>No recent activity</div>
@@ -1302,7 +1083,6 @@ export default async function ProjectPage({
                         </div>
                       </div>
                     ))}
-
                     {changes.slice(0, 4).map((c: any) => {
                       const col = ({ approved: "#22c55e", rejected: "#ef4444", pending: "#f59e0b", draft: "#94a3b8" } as any)[c.status] ?? "#64748b";
                       return (
@@ -1323,14 +1103,12 @@ export default async function ProjectPage({
                   </>
                 )}
               </div>
-
               <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 4 }}>
-                <Link href={`/projects/${projectRefForUrls}/change`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
-                  View change board →
-                </Link>
+                <Link href={`/projects/${projectRefForUrls}/change`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>View change board →</Link>
               </div>
             </div>
           </div>
+
         </div>
       </main>
     </>
