@@ -111,7 +111,10 @@ export async function GET(req: Request) {
       };
     });
 
-    // 3) projects managed (✅ error handled)
+    // 3) projects managed — only fetch projects that have a pm assigned
+    //    ✅ FIX-PM1: Only users who appear as project_manager_id on at least
+    //    one project will be shown in PM Performance. Pure org members who
+    //    have never been assigned as PM are excluded.
     const { data: projectRows, error: projErr } = await supabase
       .from("projects")
       .select(
@@ -134,9 +137,6 @@ export async function GET(req: Request) {
       const pmId = ss((p as any)?.project_manager_id);
       if (!pmId) continue;
 
-      // Optional: treat closed projects as not "managed" (uncomment if desired)
-      // if ((p as any)?.closed_at) continue;
-
       projectsByPm.set(pmId, (projectsByPm.get(pmId) ?? 0) + 1);
 
       const list = projectListByPm.get(pmId) ?? [];
@@ -148,11 +148,19 @@ export async function GET(req: Request) {
       projectListByPm.set(pmId, list);
     }
 
-    // 4) decisions (✅ error handled)
+    // ✅ FIX-PM1: Derive the PM-only user list from who actually has projects.
+    //    All subsequent queries (decisions, pending, overdue) are scoped to
+    //    pmUserIds only — avoids pulling data for non-PM org members.
+    const pmUserIds = Array.from(projectsByPm.keys());
+
+    // If nobody is assigned as PM yet, return empty early
+    if (!pmUserIds.length) return noStoreJson({ ok: true, items: [] });
+
+    // 4) decisions — scoped to PM users only
     const { data: decisionRows, error: decErr } = await supabase
       .from("artifact_approval_decisions")
       .select("actor_user_id, decision, created_at")
-      .in("actor_user_id", userIds)
+      .in("actor_user_id", pmUserIds)
       .order("created_at", { ascending: false });
 
     if (decErr)
@@ -165,19 +173,17 @@ export async function GET(req: Request) {
       const uid = ss((d as any)?.actor_user_id);
       if (!uid) continue;
       const dec = ss((d as any)?.decision).toLowerCase();
-
-      // be a bit tolerant of text values
       if (dec.includes("approv")) approvedByUser.set(uid, (approvedByUser.get(uid) ?? 0) + 1);
       if (dec.includes("reject") || dec.includes("declin"))
         rejectedByUser.set(uid, (rejectedByUser.get(uid) ?? 0) + 1);
     }
 
-    // 5) pending approvals by user (✅ error handled)
+    // 5) pending approvals — scoped to PM users only
     const { data: pendingRows, error: pendErr } = await supabase
       .from("v_pending_artifact_approvals_all")
       .select("pending_user_id, step_status")
       .eq("step_status", "pending")
-      .in("pending_user_id", userIds);
+      .in("pending_user_id", pmUserIds);
 
     if (pendErr)
       return noStoreJson({ ok: false, error: pendErr.message }, { status: 500 });
@@ -189,7 +195,7 @@ export async function GET(req: Request) {
       pendingByUser.set(uid, (pendingByUser.get(uid) ?? 0) + 1);
     }
 
-    // 6) overdue via exec_approval_cache (✅ error handled)
+    // 6) overdue via exec_approval_cache
     const { data: cacheRows, error: cacheErr } = await supabase
       .from("exec_approval_cache")
       .select("approver_label, sla_status")
@@ -199,21 +205,25 @@ export async function GET(req: Request) {
       return noStoreJson({ ok: false, error: cacheErr.message }, { status: 500 });
 
     const overdueByUser = new Map<string, number>();
+
+    // Build email → user_id map scoped to PM users only
     const emailToUid = new Map<string, string>();
-    for (const u of users) if (u.email) emailToUid.set(u.email.toLowerCase(), u.user_id);
+    for (const u of users) {
+      if (u.email && pmUserIds.includes(u.user_id))
+        emailToUid.set(u.email.toLowerCase(), u.user_id);
+    }
 
     for (const row of cacheRows ?? []) {
       const label = ss((row as any)?.approver_label).toLowerCase().trim();
       const sla = ss((row as any)?.sla_status).toLowerCase();
       const isOverdue = sla === "overdue" || sla === "breached" || sla === "overdue_undecided";
       if (!isOverdue || !label) continue;
-
       const uid = emailToUid.get(label);
       if (!uid) continue;
       overdueByUser.set(uid, (overdueByUser.get(uid) ?? 0) + 1);
     }
 
-    // 7) assemble
+    // 7) assemble — ✅ FIX-PM1: filter to PM users only before mapping
     const PM_COLORS = [
       "#6366f1",
       "#10b981",
@@ -226,6 +236,7 @@ export async function GET(req: Request) {
     ];
 
     const items = users
+      .filter((u) => pmUserIds.includes(u.user_id)) // ← only assigned PMs
       .map((u, i) => {
         const approved = approvedByUser.get(u.user_id) ?? 0;
         const rejected = rejectedByUser.get(u.user_id) ?? 0;
