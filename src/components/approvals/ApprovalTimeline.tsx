@@ -27,7 +27,7 @@ type TimelineEvent = {
 };
 
 type Props = {
-  /** internal UUID still allowed for fallback */
+  /** internal UUID still allowed for API fallback */
   projectId?: string | null;
   /** preferred human-readable project code, e.g. P-00012 */
   projectCode?: string | null;
@@ -41,12 +41,18 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
+function looksLikeUuid(input: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    safeStr(input).trim()
+  );
+}
+
 function normaliseProjectCode(input: string) {
   const s = safeStr(input).trim();
   if (!s) return "";
   const m = s.match(/(\d{3,})$/);
   if (m?.[1]) return `P-${m[1].padStart(5, "0")}`;
-  return s.toUpperCase();
+  return looksLikeUuid(s) ? "" : s.toUpperCase();
 }
 
 function ukDateTime(iso: string) {
@@ -64,7 +70,11 @@ function ukDateTime(iso: string) {
 function dayKey(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "Unknown date";
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
 }
 
 function pillTone(action: string) {
@@ -137,17 +147,13 @@ export default function ApprovalTimeline({
 
   const cleanProjectId = safeStr(projectId).trim();
   const cleanProjectCode = normaliseProjectCode(projectCode || "");
-  const projectLabel = cleanProjectCode || cleanProjectId || "Project";
+  const projectLabel = cleanProjectCode || "Project";
 
   const query = useMemo(() => {
     const p = new URLSearchParams();
 
-    // Prefer human project code for routing/readability.
     if (cleanProjectCode) p.set("project_code", cleanProjectCode);
-
-    // Keep UUID as fallback/backward compatibility for the current API.
     if (cleanProjectId) p.set("project_id", cleanProjectId);
-
     if (artifactId) p.set("artifact_id", artifactId);
     if (changeId) p.set("change_id", changeId);
     p.set("limit", "250");
@@ -191,9 +197,11 @@ export default function ApprovalTimeline({
           <div className="mt-1 text-xs text-slate-600">
             Forensic history of submissions, decisions, delegation, escalations, and SLA events.
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">
-            Scope: <span className="font-medium text-slate-700">{projectLabel}</span>
-          </div>
+          {cleanProjectCode ? (
+            <div className="mt-1 text-[11px] text-slate-500">
+              Scope: <span className="font-medium text-slate-700">{projectLabel}</span>
+            </div>
+          ) : null}
         </div>
 
         <button
