@@ -200,21 +200,32 @@ export default async function ApprovalTimelinePage({
     projectCodeLabel ||
     safeStr((project as any)?.title ?? (project as any)?.name ?? projectUuid).trim();
 
-  return (
-    <div className="p-6">
-      <div className="mb-4">
-        <div className="text-lg font-semibold text-slate-900">Approvals</div>
-        <div className="text-sm text-slate-600">
-          Timeline view (project: <span className="font-medium">{projectHeadingLabel}</span>)
-        </div>
-      </div>
+return (
+  <div className="p-6">
+    <div className="mb-4">
+      <div className="text-lg font-semibold text-slate-900">Approvals</div>
 
-      <ApprovalTimeline
-        projectId={projectUuid}
-        projectCode={projectCodeLabel || null}
-        artifactId={artifactId}
-        changeId={changeId}
-      />
+      <div className="text-sm text-slate-600">
+        Timeline view (project:{" "}
+        <span className="font-medium">
+          {projectCodeLabel || projectHeadingLabel}
+        </span>
+      </div>
     </div>
-  );
+
+    <div className="mb-4 text-[11px] text-slate-500">
+      Scope:{" "}
+      <span className="font-medium text-slate-700">
+        {projectCodeLabel || projectHeadingLabel}
+      </span>
+    </div>
+
+    <ApprovalTimeline
+      projectId={projectUuid}
+      projectCode={projectCodeLabel || null}
+      artifactId={artifactId}
+      changeId={changeId}
+    />
+  </div>
+);
 }
