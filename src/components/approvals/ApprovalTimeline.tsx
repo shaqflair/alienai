@@ -27,7 +27,10 @@ type TimelineEvent = {
 };
 
 type Props = {
-  projectId: string;
+  /** internal UUID still allowed for fallback */
+  projectId?: string | null;
+  /** preferred human-readable project code, e.g. P-00012 */
+  projectCode?: string | null;
   artifactId?: string | null;
   changeId?: string | null;
   className?: string;
@@ -36,6 +39,14 @@ type Props = {
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function normaliseProjectCode(input: string) {
+  const s = safeStr(input).trim();
+  if (!s) return "";
+  const m = s.match(/(\d{3,})$/);
+  if (m?.[1]) return `P-${m[1].padStart(5, "0")}`;
+  return s.toUpperCase();
 }
 
 function ukDateTime(iso: string) {
@@ -114,6 +125,7 @@ async function apiGet(url: string) {
 
 export default function ApprovalTimeline({
   projectId,
+  projectCode,
   artifactId,
   changeId,
   className,
@@ -123,14 +135,25 @@ export default function ApprovalTimeline({
   const [err, setErr] = useState<string | null>(null);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
 
+  const cleanProjectId = safeStr(projectId).trim();
+  const cleanProjectCode = normaliseProjectCode(projectCode || "");
+  const projectLabel = cleanProjectCode || cleanProjectId || "Project";
+
   const query = useMemo(() => {
     const p = new URLSearchParams();
-    p.set("project_id", projectId);
+
+    // Prefer human project code for routing/readability.
+    if (cleanProjectCode) p.set("project_code", cleanProjectCode);
+
+    // Keep UUID as fallback/backward compatibility for the current API.
+    if (cleanProjectId) p.set("project_id", cleanProjectId);
+
     if (artifactId) p.set("artifact_id", artifactId);
     if (changeId) p.set("change_id", changeId);
     p.set("limit", "250");
+
     return `/api/approvals/timeline?${p.toString()}`;
-  }, [projectId, artifactId, changeId]);
+  }, [cleanProjectCode, cleanProjectId, artifactId, changeId]);
 
   async function load() {
     setLoading(true);
@@ -168,6 +191,9 @@ export default function ApprovalTimeline({
           <div className="mt-1 text-xs text-slate-600">
             Forensic history of submissions, decisions, delegation, escalations, and SLA events.
           </div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            Scope: <span className="font-medium text-slate-700">{projectLabel}</span>
+          </div>
         </div>
 
         <button
@@ -192,7 +218,7 @@ export default function ApprovalTimeline({
           <div className="p-5">
             <div className="text-sm font-medium text-slate-900">No events yet</div>
             <div className="mt-1 text-xs text-slate-600">
-              This timeline will populate as users submit / approve / reject / delegate / escalate approvals.
+              This timeline will populate as users submit, approve, reject, delegate, or escalate approvals.
             </div>
           </div>
         ) : (
@@ -248,7 +274,7 @@ export default function ApprovalTimeline({
                             </div>
 
                             {ev.comment ? (
-                              <div className="mt-2 text-sm text-slate-800 whitespace-pre-wrap">
+                              <div className="mt-2 whitespace-pre-wrap text-sm text-slate-800">
                                 {ev.comment}
                               </div>
                             ) : null}
@@ -273,8 +299,8 @@ export default function ApprovalTimeline({
             </div>
 
             <div className="mt-6 border-t border-slate-200 pt-4 text-[11px] text-slate-500">
-              Tip: Add SLA events (e.g. <span className="font-medium">sla-breached</span>) and escalation events to unlock
-              “Approval Risk” panels in the cockpit.
+              Tip: Add SLA events (for example <span className="font-medium">sla-breached</span>) and escalation events to unlock
+              Approval Risk panels in the cockpit.
             </div>
           </div>
         )}
