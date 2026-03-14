@@ -750,9 +750,11 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   const nowIso = new Date().toISOString();
   let runtime: any;
   try {
-    runtime = await buildRuntimeApprovalChain({
-      supabase, organisationId, projectId, artifactId,
-      actorUserId: user.id,
+    runtime = await buildRuntimeApprovalChain(supabase, {
+      organisationId,
+      projectId,
+      artifactId,
+      actorId: user.id,
       artifactType: normalizeArtifactType(a0.type),
     });
   } catch (error: any) {
