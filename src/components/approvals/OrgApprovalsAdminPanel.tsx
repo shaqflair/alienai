@@ -1,10 +1,10 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import RulesPanel from "./RulesPanel";
 
 /**
- * ✅ Only approvals for now:
+ * âœ… Only approvals for now:
  * - Project Charter
  * - Change Request
  * - Project Closure Report
@@ -34,7 +34,7 @@ type ApproverCandidate = {
 
 function pill(active: boolean) {
   return `px-3 py-1.5 text-sm transition-colors ${
-    active ? "bg-gray-100 font-semibold" : "bg-white hover:bg-gray-50"
+    active ? "bg-gray-100 font-semibold text-gray-900" : "bg-white hover:bg-gray-50 text-gray-700"
   } disabled:opacity-50`;
 }
 
@@ -131,7 +131,7 @@ export default function OrgApprovalsAdminPanel({
             <span>
               Client:{" "}
               <span className="font-medium text-gray-700">
-                {organisationName || "—"}
+                {organisationName || "â€”"}
               </span>
             </span>
 
@@ -153,7 +153,7 @@ export default function OrgApprovalsAdminPanel({
           <label className="w-full">
             <span className="sr-only">Artifact type</span>
             <select
-              className="w-full border rounded-md px-2 py-1.5 text-sm bg-white"
+              className="w-full border rounded-md px-2 py-1.5 text-sm bg-white text-gray-900"
               value={artifactType}
               onChange={(e) => setArtifactType(e.target.value as ArtifactKey)}
               disabled={!orgId}
@@ -431,20 +431,20 @@ function ApproversTab({
       </div>
 
       {err ? <div className="text-sm text-red-600">{err}</div> : null}
-      {loading ? <div className="text-sm text-gray-600">Loading…</div> : null}
+      {loading ? <div className="text-sm text-gray-600">Loadingâ€¦</div> : null}
 
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs text-gray-600">
           Search approver directory
           <input
-            className="block border rounded-md px-2 py-1 text-sm w-[320px]"
+            className="block border rounded-md px-2 py-1 text-sm text-gray-900 w-[320px]"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="email / name / department / role"
           />
         </label>
         <button
-          className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
+          className="border rounded-md px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
           type="button"
           onClick={load}
         >
@@ -468,7 +468,7 @@ function ApproversTab({
             <label className="text-xs text-gray-600 md:col-span-2">
               Search organisation members
               <input
-                className="block border rounded-md px-2 py-1 text-sm w-full"
+                className="block border rounded-md px-2 py-1 text-sm text-gray-900 w-full"
                 value={candidateQuery}
                 onChange={(e) => {
                   setCandidateQuery(e.target.value);
@@ -482,7 +482,7 @@ function ApproversTab({
             <label className="text-xs text-gray-600 md:col-span-2">
               Matching organisation members
               <select
-                className="block border rounded-md px-2 py-1 text-sm w-full"
+                className="block border rounded-md px-2 py-1 text-sm text-gray-900 w-full"
                 value={selectedCandidateId}
                 onChange={(e) => {
                   const id = e.target.value;
@@ -513,7 +513,7 @@ function ApproversTab({
             <label className="text-xs text-gray-600">
               Email
               <input
-                className="block border rounded-md px-2 py-1 text-sm"
+                className="block border rounded-md px-2 py-1 text-sm text-gray-900"
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
@@ -529,7 +529,7 @@ function ApproversTab({
             <label className="text-xs text-gray-600">
               Name
               <input
-                className="block border rounded-md px-2 py-1 text-sm"
+                className="block border rounded-md px-2 py-1 text-sm text-gray-900"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Optional display name"
@@ -539,27 +539,27 @@ function ApproversTab({
             <label className="text-xs text-gray-600">
               Approver role
               <input
-                className="block border rounded-md px-2 py-1 text-sm"
+                className="block border rounded-md px-2 py-1 text-sm text-gray-900"
                 value={approverRole}
                 onChange={(e) => setApproverRole(e.target.value)}
-                placeholder="Commercial / Delivery Director / CFO…"
+                placeholder="Commercial / Delivery Director / CFOâ€¦"
               />
             </label>
 
             <label className="text-xs text-gray-600">
               Department
               <input
-                className="block border rounded-md px-2 py-1 text-sm"
+                className="block border rounded-md px-2 py-1 text-sm text-gray-900"
                 value={department}
                 onChange={(e) => setDepartment(e.target.value)}
-                placeholder="Finance / Legal / Commercial…"
+                placeholder="Finance / Legal / Commercialâ€¦"
               />
             </label>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <button
-              className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
+              className="border rounded-md px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
               type="button"
               onClick={add}
             >
@@ -567,7 +567,7 @@ function ApproversTab({
             </button>
 
             <button
-              className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
+              className="border rounded-md px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
               type="button"
               onClick={resetForm}
             >
@@ -616,7 +616,7 @@ function ApproversTab({
 
               {canEdit ? (
                 <button
-                  className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
+                  className="border rounded-md px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
                   type="button"
                   onClick={() => removeById(a.id)}
                 >
@@ -718,7 +718,7 @@ function GroupsTab({
       </div>
 
       {err ? <div className="text-sm text-red-600">{err}</div> : null}
-      {loading ? <div className="text-sm text-gray-600">Loading…</div> : null}
+      {loading ? <div className="text-sm text-gray-600">Loadingâ€¦</div> : null}
 
       {canEdit ? (
         <div className="flex flex-wrap items-end gap-2">
@@ -732,7 +732,7 @@ function GroupsTab({
             />
           </label>
           <button
-            className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
+            className="border rounded-md px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
             type="button"
             onClick={createGroup}
           >
@@ -906,14 +906,14 @@ function GroupMembersPanel({
       ) : (
         <div className="p-3 space-y-3">
           {err ? <div className="text-sm text-red-600">{err}</div> : null}
-          {loading ? <div className="text-sm text-gray-600">Loading…</div> : null}
+          {loading ? <div className="text-sm text-gray-600">Loadingâ€¦</div> : null}
 
           {canEdit ? (
             <div className="space-y-2">
               <label className="text-xs text-gray-600">
                 Search organisation approvers
                 <input
-                  className="block border rounded-md px-2 py-1 text-sm w-full"
+                  className="block border rounded-md px-2 py-1 text-sm text-gray-900 w-full"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="email / name / department / role"
@@ -924,7 +924,7 @@ function GroupMembersPanel({
                 <label className="text-xs text-gray-600 flex-1">
                   Select approver
                   <select
-                    className="block border rounded-md px-2 py-1 text-sm w-full"
+                    className="block border rounded-md px-2 py-1 text-sm text-gray-900 w-full"
                     value={approverId}
                     onChange={(e) => setApproverId(e.target.value)}
                   >
@@ -941,7 +941,7 @@ function GroupMembersPanel({
                 </label>
 
                 <button
-                  className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+                  className="border rounded-md px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                   type="button"
                   onClick={add}
                   disabled={!approverId}
@@ -979,7 +979,7 @@ function GroupMembersPanel({
 
                     {canEdit ? (
                       <button
-                        className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
+                        className="border rounded-md px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
                         type="button"
                         onClick={() => remove(m)}
                       >

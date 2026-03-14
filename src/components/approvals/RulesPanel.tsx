@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 
@@ -50,8 +50,8 @@ function safeNum(x: any, fallback: number) {
 
 function money(n: any) {
   const v = Number(n ?? 0);
-  if (!Number.isFinite(v)) return "£0";
-  return `£${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  if (!Number.isFinite(v)) return "Â£0";
+  return `Â£${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
 function approverLabel(a: any) {
@@ -63,9 +63,9 @@ function approverLabel(a: any) {
   const main = name || email || "Approver";
   const meta = [email && name ? email : "", dept && `Dept: ${dept}`, role && `Role: ${role}`]
     .filter(Boolean)
-    .join(" · ");
+    .join(" Â· ");
 
-  return meta ? `${main} · ${meta}` : main;
+  return meta ? `${main} Â· ${meta}` : main;
 }
 
 function authHintFromStatus(status: number) {
@@ -132,7 +132,7 @@ export default function RulesPanel({
         throw new Error((aJson?.error || "Failed to load approvers") + (hint ? ` (${hint})` : ""));
       }
 
-      // ✅ API returns { rules: [...] }
+      // âœ… API returns { rules: [...] }
       setRules((rJson.rules ?? []) as Rule[]);
       setGroups((gJson.groups ?? []) as Group[]);
       setOrgApprovers((aJson.approvers ?? []) as OrgApprover[]);
@@ -173,7 +173,7 @@ export default function RulesPanel({
   const [pickedApproverId, setPickedApproverId] = useState(""); // organisation_approvers.id (UI select)
   const [userId, setUserId] = useState(""); // auth.users.id (saved into rule.approver_user_id)
 
-  // ✅ keep group selection valid
+  // âœ… keep group selection valid
   useEffect(() => {
     if (targetMode !== "group") return;
     const first = groups?.[0]?.id;
@@ -196,7 +196,7 @@ export default function RulesPanel({
     });
   }, [linkableApprovers, userPickQ]);
 
-  // ✅ keep user selection valid (pickedApproverId + userId)
+  // âœ… keep user selection valid (pickedApproverId + userId)
   useEffect(() => {
     if (targetMode !== "user") return;
 
@@ -331,7 +331,7 @@ export default function RulesPanel({
       ) : null}
 
       {err ? <div className="text-sm text-red-600">{err}</div> : null}
-      {loading ? <div className="text-sm text-gray-600">Loading…</div> : null}
+      {loading ? <div className="text-sm text-gray-600">Loadingâ€¦</div> : null}
 
       <div className="border rounded-lg p-3 space-y-3">
         <div className="text-sm font-semibold">Add rule</div>
@@ -368,7 +368,7 @@ export default function RulesPanel({
           </label>
 
           <label className="text-xs text-gray-600">
-            Max amount (blank=∞)
+            Max amount (blank=âˆž)
             <input
               className="block border rounded-md px-2 py-1 text-sm disabled:opacity-50"
               value={max}
@@ -487,10 +487,10 @@ export default function RulesPanel({
               <div key={r.id} className="p-3 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="font-medium">
-                    Step {r.step ?? 1} — {r.approval_role || "Approver"}
+                    Step {r.step ?? 1} â€” {r.approval_role || "Approver"}
                   </div>
                   <div className="text-xs text-gray-700">
-                    Band: {money(r.min_amount)} → {r.max_amount == null ? "∞" : money(r.max_amount)}
+                    Band: {money(r.min_amount)} â†’ {r.max_amount == null ? "âˆž" : money(r.max_amount)}
                   </div>
                   <div className="text-xs text-gray-700 truncate">{who}</div>
                 </div>
