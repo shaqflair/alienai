@@ -133,9 +133,9 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
       .in("role", ["project_manager", "owner"])
       .limit(500),
 
-    // Health scores
+    // Health scores -- select all likely columns since schema varies
     supabase.from("project_health")
-      .select("project_id, score, rag, computed_at")
+      .select("project_id, score, health_score, rag, rag_status, computed_at, updated_at")
       .in("project_id", activeIds)
       .order("computed_at", { ascending: false })
       .limit(500),
@@ -216,13 +216,11 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
   }
 
   // Health per project (latest only)
-  // FIX: normalise rag to single letter -- DB may store "green"/"GREEN"/"G" or "amber"/"A" or "red"/"R"
-  // Also derive from score if rag column is null.
-  // Score may be stored as 0-1 decimal (0.92) or 0-100 integer (92) -- normalise both.
+  // FIX: Try multiple column names -- schema varies across deployments.
+  // Score may be stored as 0-1 decimal or 0-100 integer.
   function normaliseScore(raw: unknown): number | null {
     const n = Number(raw);
-    if (!Number.isFinite(n)) return null;
-    // If stored as 0-1 decimal, multiply up
+    if (!Number.isFinite(n) || n === 0) return null;
     return n <= 1 ? Math.round(n * 100) : Math.round(n);
   }
   function normaliseRag(raw: unknown, score?: number | null): string {
@@ -230,7 +228,6 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     if (s === "g" || s === "green") return "G";
     if (s === "a" || s === "amber") return "A";
     if (s === "r" || s === "red")   return "R";
-    // Fall back to deriving from normalised score
     if (score != null && Number.isFinite(score)) {
       if (score >= 85) return "G";
       if (score >= 70) return "A";
@@ -241,11 +238,24 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
 
   const healthMap = new Map<string, { score: number; rag: string; computed_at: string }>();
   for (const h of healthRows) {
-    const pid   = safeStr(h?.project_id).trim();
+    const pid = safeStr(h?.project_id).trim();
     if (!pid || healthMap.has(pid)) continue;
-    const score = normaliseScore(h?.score);
-    const rag   = normaliseRag(h?.rag, score);
-    healthMap.set(pid, { score: score ?? 0, rag, computed_at: safeStr(h?.computed_at) });
+    // Try every possible column name for the score
+    const rawScore = h?.score ?? h?.health_score ?? h?.health ?? h?.portfolio_score ?? null;
+    const rawRag   = h?.rag   ?? h?.rag_status  ?? h?.status ?? null;
+    const score    = normaliseScore(rawScore);
+    const rag      = normaliseRag(rawRag, score);
+    const ts       = safeStr(h?.computed_at || h?.updated_at || "");
+    healthMap.set(pid, { score: score ?? 0, rag, computed_at: ts });
+  }
+  // Log for debugging (server-side only)
+  if (healthRows.length > 0) {
+    console.log("[portfolio-narrative] sample health row:", JSON.stringify(healthRows[0]));
+    console.log("[portfolio-narrative] healthMap size:", healthMap.size, "/ activeIds:", activeIds.length);
+    if (healthMap.size > 0) {
+      const first = healthMap.values().next().value;
+      console.log("[portfolio-narrative] first mapped:", first);
+    }
   }
 
   // Approvals per project

@@ -235,27 +235,7 @@ async function updateArtifactSubmitted(
   actorId: string,
   nowIso: string
 ) {
-  const patch1: any = {
-    approval_chain_id: chainId,
-    submitted_at: nowIso,
-    submitted_by: actorId,
-    status: "submitted",
-    approval_status: "submitted",
-    approval_step_index: 0,
-    is_locked: true,
-    locked_at: nowIso,
-    locked_by: actorId,
-    rejected_at: null,
-    rejected_by: null,
-    rejection_reason: null,
-    approved_at: null,
-    approved_by: null,
-  };
-
-  const u1 = await supabase.from("artifacts").update(patch1).eq("id", artifactId);
-  if (!u1.error) return;
-
-  const patch2: any = {
+  const patchSafe: any = {
     approval_chain_id: chainId,
     submitted_at: nowIso,
     submitted_by: actorId,
@@ -270,10 +250,13 @@ async function updateArtifactSubmitted(
     approved_by: null,
   };
 
-  const u2 = await supabase.from("artifacts").update(patch2).eq("id", artifactId);
-  if (u2.error) throwDb(u2.error, "artifacts.update(submit_runtime)");
+  const { error } = await supabase
+    .from("artifacts")
+    .update(patchSafe)
+    .eq("id", artifactId);
+
+  if (error) throwDb(error, "artifacts.update(submit_runtime)");
 }
-
 async function getActiveApprovalChainForArtifact(supabase: any, artifactId: string) {
   const { data, error } = await supabase
     .from("approval_chains")
