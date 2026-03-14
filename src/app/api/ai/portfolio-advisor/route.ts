@@ -1,6 +1,10 @@
+// src/app/api/ai/portfolio-advisor/route.ts
 // Portfolio-scoped AI advisor for the homepage "Ask Aliena" feature.
 // Pulls live signals across the org portfolio and feeds them to OpenAI
 // to answer executive-level questions about delivery health, risk, and priorities.
+//
+// FIX: Project UUIDs are now explicitly included in the context so OpenAI
+// generates correct /projects/<uuid> hrefs instead of /projects/PRJ-XXX (404).
 
 import "server-only";
 import { NextResponse } from "next/server";
@@ -90,7 +94,7 @@ async function buildPortfolioContext(supabase: any, userId: string): Promise<str
 
   // Build PM user ID → name map
   const pmUserIds = uniqueStrings(members.map((m: any) => m?.user_id));
-  let profileMap = new Map<string, string>();
+  const profileMap = new Map<string, string>();
   if (pmUserIds.length) {
     const { data: profiles } = await supabase
       .from("profiles")
@@ -231,6 +235,10 @@ async function buildPortfolioContext(supabase: any, userId: string): Promise<str
     `PORTFOLIO OVERVIEW`,
     `Active projects: ${projects.length}`,
     ``,
+    `IMPORTANT — ROUTING RULE: When generating recommended_routes hrefs that link`,
+    `to a specific project, you MUST use the project UUID (the "UUID:" field below),`,
+    `NEVER the project code (e.g. PRJ-100). Correct format: /projects/<UUID>/artifacts`,
+    ``,
   ];
 
   let greenCount = 0, amberCount = 0, redCount = 0, unscoredCount = 0;
@@ -280,13 +288,15 @@ async function buildPortfolioContext(supabase: any, userId: string): Promise<str
     if (pm === "Unassigned") flags.push("NO PM ASSIGNED");
 
     projectLines.push([
-      `Project: ${name}${code ? ` (${code})` : ""} | RAG: ${rag}${health?.score != null ? ` (${health.score}%)` : ""}`,
+      // ✅ FIX: UUID is now explicitly labelled so OpenAI uses it in hrefs
+      `Project: ${name}${code ? ` (${code})` : ""} | UUID: ${pid} | RAG: ${rag}${health?.score != null ? ` (${health.score}%)` : ""}`,
       `  PM: ${pm}`,
       `  ${budgetLine}`,
       `  Approvals: ${approvals.total} pending, ${approvals.overdue} overdue`,
       `  RAID: ${raid.total} open items, ${raid.high} high severity, ${raid.overdue} overdue`,
       `  Milestones due 30d: ${milestones.due} (${milestones.overdue} overdue, ${milestones.critical} critical path)`,
       `  Changes: ${changes.open} open, ${changes.review} in review`,
+      `  Links: /projects/${pid}/artifacts | /projects/${pid}/raid | /projects/${pid}/approvals/timeline`,
       flags.length ? `  ⚠ FLAGS: ${flags.join(" | ")}` : "  No critical flags",
     ].join("\n"));
   }
@@ -334,6 +344,7 @@ RULES:
 - Priority actions must be specific and immediately actionable.
 - Never say "I don't have enough information" — work with what's provided.
 - Be honest about uncertainty but lean towards actionable insight.
+- CRITICAL — ROUTING: For recommended_routes hrefs that link to a specific project, you MUST use the project UUID from the "UUID:" field in the data (e.g. /projects/f47ac10b-58cc-4372-a567-0e02b2c3d479/artifacts). NEVER use the project code (e.g. PRJ-100) in a href — this causes a 404. Each project's pre-built links are listed under "Links:" in the data — use those exactly.
 
 Return ONLY valid JSON — no markdown, no extra keys:
 {
@@ -343,7 +354,7 @@ Return ONLY valid JSON — no markdown, no extra keys:
   ],
   "risk_summary": "One sentence summary of the biggest risk in the portfolio right now",
   "recommended_routes": [
-    { "label": "Button label", "href": "/path" }
+    { "label": "Button label", "href": "/projects/<UUID>/artifacts" }
   ],
   "confidence": 0.85
 }`;
@@ -353,7 +364,8 @@ ${context}
 
 QUESTION: ${question}
 
-Answer using the specific data above. Reference project names, numbers, and PM names where relevant.`;
+Answer using the specific data above. Reference project names, numbers, and PM names where relevant.
+When linking to projects in recommended_routes, copy the exact href from the "Links:" line for that project.`;
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
@@ -373,11 +385,27 @@ Answer using the specific data above. Reference project names, numbers, and PM n
     throw new Error("AI returned invalid JSON");
   }
 
+  // ✅ POST-PROCESS: Sanitise any recommended_routes hrefs that still contain
+  // a project code instead of a UUID. We can't fix them without knowing the
+  // mapping at this point, so we strip them rather than serve a 404.
+  const safeRoutes = (Array.isArray(result.recommended_routes) ? result.recommended_routes : [])
+    .filter((r: any) => {
+      const href = safeStr(r?.href).trim();
+      // Drop any /projects/<non-uuid> href (i.e. contains letters like PRJ-)
+      if (href.startsWith("/projects/")) {
+        const segment = href.split("/")[2] ?? "";
+        const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(segment);
+        const looksLikeCode = /[a-z]/i.test(segment) && !looksLikeUuid;
+        return !looksLikeCode;
+      }
+      return true;
+    });
+
   return {
     answer: safeStr(result.answer),
     priority_actions: Array.isArray(result.priority_actions) ? result.priority_actions : [],
     risk_summary: safeStr(result.risk_summary),
-    recommended_routes: Array.isArray(result.recommended_routes) ? result.recommended_routes : [],
+    recommended_routes: safeRoutes,
     confidence: safeNum(result.confidence, 0.8),
   };
 }
