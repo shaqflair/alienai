@@ -188,30 +188,52 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
   const milestones= rows<any>(msR);
   const changes   = rows<any>(changesR);
 
-  // Health scores -- try multiple views/tables, take first that works
-  let healthRows: any[] = [];
-  const healthQueries = [
-    // Try the view the portfolio health API uses
-    supabase.from("v_project_health_scores")
-      .select("project_id, score, rag, computed_at")
-      .in("project_id", activeIds).order("computed_at", { ascending: false }).limit(200),
-    // Try the raw table with more columns
-    supabase.from("project_health")
-      .select("project_id, score, health_score, rag, rag_status, computed_at, updated_at")
-      .in("project_id", activeIds).order("computed_at", { ascending: false }).limit(200),
-    // Try the latest_project_health view
-    supabase.from("latest_project_health")
-      .select("project_id, score, rag, computed_at")
-      .in("project_id", activeIds).limit(200),
-  ];
-  for (const q of healthQueries) {
-    try {
-      const { data, error } = await q;
-      if (!error && Array.isArray(data) && data.length > 0) {
-        healthRows = data;
-        break;
+  // Health scores -- fetch from the same API the homepage KPI card uses.
+  // This is the only reliable source since project_health table columns vary.
+  let healthByProject = new Map<string, { score: number; rag: string }>();
+  try {
+    // Build the URL for an internal server-side call
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+      ? "https://" + (process.env.VERCEL_URL || "")
+      : "http://localhost:3000";
+    const healthUrl = baseUrl + "/api/portfolio/health?days=30";
+    const { cookies } = await import("next/headers");
+    const cookieHeader = (await cookies()).toString();
+    const healthRes = await fetch(healthUrl, {
+      headers: { Cookie: cookieHeader },
+      cache: "no-store",
+    });
+    if (healthRes.ok) {
+      const healthJson = await healthRes.json().catch(() => null);
+      if (healthJson?.ok && healthJson?.projectScores) {
+        for (const [pid, v] of Object.entries<any>(healthJson.projectScores)) {
+          const score = normaliseScore(v?.score);
+          const rag   = normaliseRag(v?.rag, score);
+          healthByProject.set(pid, { score: score ?? 0, rag });
+        }
       }
-    } catch {}
+    }
+  } catch (e: any) {
+    console.warn("[portfolio-narrative] health fetch failed:", e?.message);
+    // Fall back to direct table query
+    for (const tableName of ["project_health", "v_project_health_scores", "latest_project_health"]) {
+      try {
+        const { data, error } = await supabase.from(tableName as any)
+          .select("*").in("project_id", activeIds).limit(200);
+        if (!error && Array.isArray(data) && data.length > 0) {
+          for (const h of data) {
+            const pid = safeStr(h?.project_id).trim();
+            if (!pid || healthByProject.has(pid)) continue;
+            const rawScore = h?.score ?? h?.health_score ?? h?.health ?? null;
+            const rawRag   = h?.rag ?? h?.rag_status ?? null;
+            const score    = normaliseScore(rawScore);
+            const rag      = normaliseRag(rawRag, score);
+            healthByProject.set(pid, { score: score ?? 0, rag });
+          }
+          if (healthByProject.size > 0) break;
+        }
+      } catch {}
+    }
   }
 
   // Spend data
@@ -241,18 +263,6 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     const pid = safeStr(m?.project_id).trim();
     if (!pid || pmByProject.has(pid)) continue;
     pmByProject.set(pid, profileMap.get(safeStr(m?.user_id).trim()) ?? "Unknown PM");
-  }
-
-  // Health map -- try every possible column name
-  const healthMap = new Map<string, { score: number; rag: string }>();
-  for (const h of healthRows) {
-    const pid = safeStr(h?.project_id).trim();
-    if (!pid || healthMap.has(pid)) continue;
-    const rawScore = h?.score ?? h?.health_score ?? h?.health ?? h?.portfolio_score ?? null;
-    const rawRag   = h?.rag ?? h?.rag_status ?? h?.status ?? null;
-    const score    = normaliseScore(rawScore);
-    const rag      = normaliseRag(rawRag, score);
-    healthMap.set(pid, { score: score ?? 0, rag });
   }
 
   // Other maps
@@ -338,7 +348,7 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     const pid    = safeStr(p?.id).trim();
     const name   = safeStr(p?.title).trim() || pid;
     const pm     = pmByProject.get(pid) || safeStr(p?.pm_name).trim() || null;
-    const h      = healthMap.get(pid);
+    const h      = healthByProject.get(pid);
     const ap     = approvalMap.get(pid) ?? { total: 0, overdue: 0 };
     const rd     = raidMap.get(pid)     ?? { total: 0, high: 0, overdue: 0 };
     const ms     = msMap.get(pid)       ?? { due: 0, overdue: 0, critical: 0 };
@@ -445,20 +455,23 @@ async function generateNarrative(sig: Signals): Promise<{
 
   const system = `You are Aliena, writing a concise executive portfolio briefing.
 Use ONLY the data provided. Do not invent numbers. Write in plain English.
+Always reference specific project names, PM names, and numbers -- never write generic advice.
 
 Return ONLY valid JSON:
 {
-  "executive_summary": "2-3 board-ready sentences using actual numbers.",
+  "executive_summary": "2-3 board-ready sentences using actual project names and numbers.",
   "sections": [
-    { "id": "health",   "title": "Portfolio Health",      "body": "2-3 sentences on health/RAG.", "sentiment": "green|amber|red|neutral" },
-    { "id": "risk",     "title": "Risk and RAID",          "body": "2-3 sentences on RAID items.", "sentiment": "green|amber|red|neutral" },
-    { "id": "delivery", "title": "Delivery and Approvals", "body": "2-3 sentences on milestones/approvals.", "sentiment": "green|amber|red|neutral" },
-    { "id": "finance",  "title": "Financial Position",     "body": "2-3 sentences on budget.", "sentiment": "green|amber|red|neutral" }
+    { "id": "health",   "title": "Portfolio Health",      "body": "2-3 sentences naming specific projects and their scores/RAG.", "sentiment": "green|amber|red|neutral" },
+    { "id": "risk",     "title": "Risk and RAID",          "body": "2-3 sentences naming which projects have high-severity RAID.", "sentiment": "green|amber|red|neutral" },
+    { "id": "delivery", "title": "Delivery and Approvals", "body": "2-3 sentences on specific milestones/approvals by project.", "sentiment": "green|amber|red|neutral" },
+    { "id": "finance",  "title": "Financial Position",     "body": "2-3 sentences with actual budget numbers and project names.", "sentiment": "green|amber|red|neutral" }
   ],
   "talking_points": ["point 1","point 2","point 3","point 4","point 5"]
 }
 Sentiment: green=fine, amber=needs attention, red=urgent, neutral=no data.
-Talking points: 5 items, each one sentence, start with a verb or number.`;
+Talking points: exactly 5, each one sentence, each must name a specific project or give a specific number.
+BAD example: "Monitor the upcoming milestones."
+GOOD example: "Project Comfort has 3 overdue milestones -- escalate to the PM for recovery plan this week."`;
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
