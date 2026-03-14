@@ -89,6 +89,9 @@ type Signals = {
   criticalMilestones: number;
   openChanges: number;
   changesInReview: number;
+  totalBudget: number;
+  totalSpend: number;
+  variancePct: number | null;
   projectNames: string[];
   redProjects: string[];
   amberProjects: string[];
@@ -115,9 +118,9 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     raidR, raidUpdatesR, milestonesR, changesR,
   ] = await Promise.allSettled([
 
-    // Projects -- minimal safe columns only
+    // Projects -- try with budget_amount, fallback handled below if column missing
     supabase.from("projects")
-      .select("id, title, project_code, pm_name, pm_user_id, project_manager_id")
+      .select("id, title, project_code, pm_name, pm_user_id, project_manager_id, budget_amount")
       .in("id", activeIds)
       .is("deleted_at", null)
       .limit(200),
@@ -172,6 +175,14 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
       .limit(2000),
   ]);
 
+  // Load spend separately (simpler than expanding the destructure)
+  const spendResult = await supabase.from("project_spend")
+    .select("project_id, amount")
+    .in("project_id", activeIds)
+    .limit(100000)
+    .catch(() => ({ data: null, error: "failed" }));
+  const spendRows: any[] = Array.isArray(spendResult.data) ? spendResult.data : [];
+
   const projects   = rows<any>(projectsR);
   const members    = rows<any>(membersR);
   const healthRows = rows<any>(healthR);
@@ -203,11 +214,20 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
   }
 
   // Health per project (latest only)
+  // FIX: normalise rag to single letter -- DB may store "green"/"GREEN"/"G" or "amber"/"A" or "red"/"R"
+  function normaliseRag(raw: unknown): string {
+    const s = safeStr(raw).trim().toLowerCase();
+    if (s === "g" || s === "green") return "G";
+    if (s === "a" || s === "amber") return "A";
+    if (s === "r" || s === "red")   return "R";
+    return "UNSCORED";
+  }
+
   const healthMap = new Map<string, { score: number; rag: string; computed_at: string }>();
   for (const h of healthRows) {
     const pid = safeStr(h?.project_id).trim();
     if (!pid || healthMap.has(pid)) continue;
-    healthMap.set(pid, { score: safeNum(h?.score), rag: safeStr(h?.rag).toUpperCase(), computed_at: safeStr(h?.computed_at) });
+    healthMap.set(pid, { score: safeNum(h?.score), rag: normaliseRag(h?.rag), computed_at: safeStr(h?.computed_at) });
   }
 
   // Approvals per project
@@ -272,12 +292,20 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     ? projects
     : activeIds.map((id) => ({ id, title: null, project_code: null, pm_name: null, pm_user_id: null, project_manager_id: null }));
 
+  // Spend per project
+  const spendMap = new Map<string, number>();
+  for (const s of spendRows) {
+    const pid = safeStr(s?.project_id).trim(); if (!pid) continue;
+    spendMap.set(pid, (spendMap.get(pid) ?? 0) + safeNum(s?.amount));
+  }
+
   // Aggregate
   let g = 0, a = 0, r = 0, unscored = 0;
   let pendingApprovals = 0, overdueApprovals = 0;
   let openRaid = 0, highRaid = 0, overdueRaid = 0;
   let milestonesDue = 0, overdueMilestones = 0, criticalMilestones = 0;
   let openChanges = 0, changesInReview = 0;
+  let totalBudget = 0, totalSpend = 0;
   const healthScores: number[] = [];
   const redProjects: string[] = [];
   const amberProjects: string[] = [];
@@ -298,6 +326,14 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     const ms   = msMap.get(pid)       ?? { due: 0, overdue: 0, critical: 0 };
     const ch   = changeMap.get(pid)   ?? { open: 0, review: 0 };
     const rag  = h?.rag ?? "UNSCORED";
+    const budget = safeNum(p?.budget_amount);
+    const spend  = spendMap.get(pid) ?? 0;
+    if (budget > 0) { totalBudget += budget; totalSpend += spend; }
+    if (budget > 0 && spend > budget && ch.open === 0) {
+      const overpct = Math.round(((spend - budget) / budget) * 100);
+      overspendProjects.push(name);
+      gaps.push({ severity: "high", type: "overspend_no_change", detail: overpct + "% over budget with no open change requests", project: name, href: "/projects/" + pid + "/change" });
+    }
 
     projectNames.push(name);
     pendingApprovals  += ap.total;
@@ -348,6 +384,10 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     ? Math.round(healthScores.reduce((s, v) => s + v, 0) / healthScores.length)
     : null;
 
+  const variancePct = totalBudget > 0
+    ? Math.round(((totalSpend - totalBudget) / totalBudget) * 100 * 10) / 10
+    : null;
+
   // Sort gaps: high first
   gaps.sort((x, y) => ({ high: 0, medium: 1, low: 2 }[x.severity] - { high: 0, medium: 1, low: 2 }[y.severity]));
 
@@ -359,6 +399,7 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     openRaid, highRaid, overdueRaid,
     milestonesDue, overdueMilestones, criticalMilestones,
     openChanges, changesInReview,
+    totalBudget, totalSpend, variancePct,
     projectNames,
     redProjects, amberProjects, noPmProjects,
     highRaidProjects, staleRaidProjects, overspendProjects,
@@ -371,6 +412,7 @@ function emptySignals(): Signals {
     projectCount: 0, ragCounts: { g: 0, a: 0, r: 0, unscored: 0 }, avgHealth: null,
     pendingApprovals: 0, overdueApprovals: 0, openRaid: 0, highRaid: 0, overdueRaid: 0,
     milestonesDue: 0, overdueMilestones: 0, criticalMilestones: 0, openChanges: 0, changesInReview: 0,
+    totalBudget: 0, totalSpend: 0, variancePct: null,
     projectNames: [], redProjects: [], amberProjects: [], noPmProjects: [],
     highRaidProjects: [], staleRaidProjects: [], overspendProjects: [], gaps: [],
   };
@@ -402,6 +444,9 @@ async function generateNarrative(sig: Signals): Promise<{
     sig.highRaidProjects.length ? "HIGH RISK PROJECTS: " + sig.highRaidProjects.join(", ") : "",
     "MILESTONES: " + sig.milestonesDue + " due in 30 days, " + sig.overdueMilestones + " overdue, " + sig.criticalMilestones + " critical path",
     "CHANGES: " + sig.openChanges + " open, " + sig.changesInReview + " awaiting decision",
+    sig.totalBudget > 0
+      ? "BUDGET: GBP " + Math.round(sig.totalBudget).toLocaleString() + " total | GBP " + Math.round(sig.totalSpend).toLocaleString() + " spent" + (sig.variancePct != null ? " | " + (sig.variancePct > 0 ? "+" : "") + sig.variancePct + "% variance" : "")
+      : "BUDGET: No budget data configured",
     sig.noPmProjects.length ? "NO PM ASSIGNED: " + sig.noPmProjects.join(", ") : "",
     sig.staleRaidProjects.length ? "STALE RAID (14d+): " + sig.staleRaidProjects.join(", ") : "",
   ].filter(Boolean).join("\n");
@@ -500,6 +545,9 @@ export async function GET() {
         high_raid:           signals.highRaid,
         milestones_due:      signals.milestonesDue,
         overdue_milestones:  signals.overdueMilestones,
+        total_budget:        signals.totalBudget > 0 ? signals.totalBudget : null,
+        total_spend:         signals.totalSpend > 0  ? signals.totalSpend  : null,
+        variance_pct:        signals.variancePct,
       },
       generated_at: new Date().toISOString(),
     });
