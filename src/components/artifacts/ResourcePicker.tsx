@@ -306,7 +306,7 @@ export default function ResourcePicker({
           <div className="p-2 border-b border-gray-100">
             <input
               autoFocus
-              className="w-full text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className="w-full text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 text-gray-900"
               placeholder="Search name, title, department…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
