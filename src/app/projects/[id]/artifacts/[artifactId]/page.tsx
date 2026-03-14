@@ -1,18 +1,13 @@
 ﻿// src/app/projects/[id]/artifacts/[artifactId]/page.tsx
-
 import "server-only";
-
 import React from "react";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
-
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
-
 import { ClientDateTime } from "@/components/date/ClientDateTime";
 import ArtifactDetailClientHost from "@/components/artifacts/ArtifactDetailClientHost";
-
 import {
   updateArtifact,
   createArtifactRevision,
@@ -20,7 +15,6 @@ import {
   updateArtifactJsonArgs,
   updateArtifactJsonSilent,
 } from "../actions";
-
 import {
   submitArtifactForApproval,
   approveArtifact,
@@ -28,7 +22,6 @@ import {
   rejectFinalArtifact,
   renameArtifactTitle,
 } from "./approval-actions";
-
 import { displayType } from "./_lib/artifact-detail-utils";
 import { loadArtifactDetail } from "./_lib/loadArtifactDetail";
 
@@ -41,24 +34,18 @@ function normParam(v: any) {
   if (!s || s === "undefined" || s === "null") return "";
   return s;
 }
-
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-async function getProjectManagerNameBestEffort(
-  supabase: any,
-  projectId: string
-): Promise<string | null> {
+async function getProjectManagerNameBestEffort(supabase: any, projectId: string): Promise<string | null> {
   if (!projectId) return null;
-
   const pmRoleCandidates = [
     "project_manager", "project manager", "pm",
     "programme_manager", "program_manager",
     "programme manager", "program manager",
     "delivery_manager", "delivery manager",
   ];
-
   async function readProfileName(userId: string): Promise<string | null> {
     const uid = safeStr(userId).trim();
     if (!uid) return null;
@@ -76,7 +63,6 @@ async function getProjectManagerNameBestEffort(
     const email = safeStr((prof as any)?.email).trim();
     return email || null;
   }
-
   for (const role of pmRoleCandidates) {
     const { data, error } = await supabase
       .from("project_members")
@@ -90,7 +76,6 @@ async function getProjectManagerNameBestEffort(
     const name = await readProfileName(userId);
     if (name) return name;
   }
-
   const { data: mems } = await supabase
     .from("project_members")
     .select("user_id, role")
@@ -98,7 +83,6 @@ async function getProjectManagerNameBestEffort(
     .eq("is_active", true)
     .in("role", ["owner", "editor"])
     .limit(1);
-
   const fallbackUserId = safeStr(mems?.[0]?.user_id).trim();
   if (!fallbackUserId) return null;
   return await readProfileName(fallbackUserId);
@@ -110,9 +94,8 @@ export default async function ArtifactDetailPage({
   params: Promise<{ id?: string; artifactId?: string }>;
 }) {
   const p = await params;
-  const projectParam   = normParam(p?.id);
-  const artifactParam  = normParam(p?.artifactId);
-
+  const projectParam  = normParam(p?.id);
+  const artifactParam = normParam(p?.artifactId);
   if (!projectParam || !artifactParam) notFound();
 
   const activeOrgId = await getActiveOrgId().catch(() => null);
@@ -134,35 +117,36 @@ export default async function ArtifactDetailPage({
     legacyExports, weeklyMode,
   } = vm as any;
 
-  const projectRefForPaths =
-    normParam(projectHumanId) || projectParam || normParam(projectUuid);
+  const projectRefForPaths = normParam(projectHumanId) || projectParam || normParam(projectUuid);
 
-  const isWeeklyReport  = mode === "weekly_report"   || !!weeklyMode;
-  const isFinancialPlan = mode === "financial_plan"   || !!financialPlanMode;
+  const isWeeklyReport  = mode === "weekly_report"  || !!weeklyMode;
+  const isFinancialPlan = mode === "financial_plan"  || !!financialPlanMode;
 
-  const roleLower    = String(myRole   || "").toLowerCase();
+  const roleLower     = String(myRole  || "").toLowerCase();
   const canEditByRole = roleLower === "owner" || roleLower === "editor";
 
-  const statusLower   = String(status || "").toLowerCase();
-  const isDraftOrCR   = statusLower === "draft" || statusLower === "changes_requested";
-  const isSubmitted   = statusLower === "submitted";
-  const isCurrent     = (artifact as any)?.is_current !== false;
+  const statusLower = String(status || "").toLowerCase();
+  const isDraftOrCR = statusLower === "draft" || statusLower === "changes_requested";
+  const isSubmitted = statusLower === "submitted";
+  const isCurrent   = (artifact as any)?.is_current !== false;
 
   const effectiveLockLayout =
     !!approvalEnabled &&
     (isSubmitted || statusLower === "approved" || statusLower === "rejected");
 
+  // FIX: financial plan now locks during approval like charter/closure
   const effectiveIsEditable =
-    approvalEnabled && (charterMode || closureMode)
+    approvalEnabled && (charterMode || closureMode || financialPlanMode)
       ? canEditByRole && isDraftOrCR && !effectiveLockLayout && isCurrent
       : !!loaderIsEditable;
 
+  // FIX: financial plan can now submit for approval
   const canSubmitFromServer =
-    !!approvalEnabled && !!(charterMode || closureMode) &&
+    !!approvalEnabled && !!(charterMode || closureMode || financialPlanMode) &&
     canEditByRole && isCurrent && isDraftOrCR && !effectiveLockLayout;
 
   const canSubmitNonCharter =
-    !!approvalEnabled && !(charterMode || closureMode) &&
+    !!approvalEnabled && !(charterMode || closureMode || financialPlanMode) &&
     !!loaderIsEditable && !!isCurrent && !effectiveLockLayout;
 
   let projectManagerName: string | null = null;
@@ -184,12 +168,12 @@ export default async function ArtifactDetailPage({
     projectTitleForSeed = projectTitleForSeed || safeStr(projectTitle).trim();
   }
 
-  // ── Server actions ────────────────────────────────────────────────────────
+  // -- Server actions -------------------------------------------------------
 
   async function submitAction() {
     "use server";
     if (!approvalEnabled || !projectUuid) return;
-    const ok = charterMode || closureMode ? canSubmitFromServer : canSubmitNonCharter;
+    const ok = charterMode || closureMode || financialPlanMode ? canSubmitFromServer : canSubmitNonCharter;
     if (!ok) return;
     await submitArtifactForApproval(projectUuid, artifactId);
     revalidatePath(`/projects/${projectRefForPaths}/artifacts/${artifactId}`);
@@ -254,25 +238,23 @@ export default async function ArtifactDetailPage({
 
   const jsonSaveAction = isFinancialPlan ? updateArtifactJsonSilent : updateArtifactJsonArgs;
 
-  // ── Financial plan: clean full-width layout ───────────────────────────────
+  // -- Financial plan: clean full-width layout ------------------------------
 
   if (isFinancialPlan) {
     return (
       <main className="w-full min-h-screen bg-[#F7F7F5]">
-        {/* Slim top bar — just back link + status badge */}
+        {/* Slim top bar */}
         <div className="sticky top-0 z-30 flex items-center justify-between gap-4 px-6 py-3 bg-white border-b border-gray-200">
           <Link
             href={`/projects/${projectRefForPaths}/artifacts`}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-sky-700 hover:text-sky-900 underline underline-offset-4"
           >
-            ← Back to Artifacts
+            &larr; Back to Artifacts
           </Link>
-
           <div className="flex items-center gap-3 text-sm">
             <span className="text-gray-500">
               {safeStr((artifact as any).title || "Financial Plan")}
             </span>
-
             {approvalEnabled ? (
               <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs ${pill.cls}`}>
                 {pill.label}
@@ -282,19 +264,72 @@ export default async function ArtifactDetailPage({
                 Living document
               </span>
             )}
-
             <span className="text-gray-400">
               Role: <span className="font-medium text-gray-700">{myRole}</span>
             </span>
-
             <span className="text-gray-400 text-xs">
               Updated: <ClientDateTime value={(artifact as any).updated_at ?? (artifact as any).created_at} />
             </span>
           </div>
         </div>
 
-        {/* Full-width editor — no box, no padding boxing it in */}
         <div className="px-6 py-6">
+
+          {/* Approval bar -- financial plan */}
+          {approvalEnabled && (
+            <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4 space-y-3" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap text-sm text-gray-600">
+                  {statusLower === "draft"             && "Draft -- ready to submit for approval."}
+                  {statusLower === "changes_requested" && "Changes requested -- update and resubmit."}
+                  {statusLower === "submitted"  &&  isAuthor  && "Awaiting approval -- you cannot approve your own plan."}
+                  {statusLower === "submitted"  && !isAuthor  &&  isApprover && "Submitted -- you can approve, request changes, or reject."}
+                  {statusLower === "submitted"  && !isAuthor  && !isApprover && "Awaiting approval."}
+                  {statusLower === "approved"   && <span className="text-green-700 font-semibold">Approved and baselined.</span>}
+                  {statusLower === "rejected"   && <span className="text-red-700   font-semibold">Rejected.</span>}
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {canSubmitFromServer && (
+                    <form action={submitAction}>
+                      <button type="submit" className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+                        {statusLower === "changes_requested" ? "Resubmit for approval" : "Submit for approval"}
+                      </button>
+                    </form>
+                  )}
+                  {canCreateRevision && (
+                    <form action={createRevisionAction}>
+                      <button type="submit" className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                        Create revision
+                      </button>
+                    </form>
+                  )}
+                </div>
+              </div>
+
+              {canDecide && statusLower === "submitted" && (
+                <div className="grid gap-3 md:grid-cols-3 pt-2 border-t border-gray-100">
+                  <form action={approveAction}>
+                    <button type="submit" className="w-full rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700">
+                      Approve
+                    </button>
+                  </form>
+                  <form action={requestChangesAction} className="space-y-2">
+                    <textarea name="reason" rows={2} placeholder="Reason for changes (optional)" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-900 resize-none" />
+                    <button type="submit" className="w-full rounded-xl border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100">
+                      Request changes
+                    </button>
+                  </form>
+                  <form action={rejectFinalAction} className="space-y-2">
+                    <textarea name="reason" rows={2} placeholder="Rejection reason (optional)" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-900 resize-none" />
+                    <button type="submit" className="w-full rounded-xl border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100">
+                      Reject
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
+          )}
+
           <ArtifactDetailClientHost
             projectId={projectUuid!}
             artifactId={artifactId}
@@ -329,7 +364,7 @@ export default async function ArtifactDetailPage({
     );
   }
 
-  // ── All other artifact types: original layout ─────────────────────────────
+  // -- All other artifact types: original layout ----------------------------
 
   return (
     <main className="mx-auto w-full max-w-[1600px] px-6 py-6 space-y-6 bg-white text-gray-950">
@@ -338,38 +373,26 @@ export default async function ArtifactDetailPage({
           className="inline-flex items-center font-medium text-sky-700 underline underline-offset-4 hover:text-sky-900"
           href={`/projects/${projectRefForPaths}/artifacts`}
         >
-          ← Back to Artifacts
+          &larr; Back to Artifacts
         </Link>
-
         <div className="flex flex-wrap items-center gap-3">
           {approvalEnabled && isApprover ? (
             <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-gray-100 border-gray-300 text-gray-900">
               Approver
             </span>
           ) : null}
-
           <span className="text-gray-700">
             Role: <span className="font-medium text-gray-950">{myRole}</span>
           </span>
-
           {isCurrent ? (
-            <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-emerald-50 border-emerald-200 text-emerald-800">
-              Current
-            </span>
+            <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-emerald-50 border-emerald-200 text-emerald-800">Current</span>
           ) : (
-            <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-gray-50 border-gray-300 text-gray-700">
-              Not current
-            </span>
+            <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-gray-50 border-gray-300 text-gray-700">Not current</span>
           )}
-
           {approvalEnabled ? (
-            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs ${pill.cls}`}>
-              {pill.label}
-            </span>
+            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs ${pill.cls}`}>{pill.label}</span>
           ) : (
-            <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-gray-50 border-gray-300 text-gray-700">
-              Living document
-            </span>
+            <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-gray-50 border-gray-300 text-gray-700">Living document</span>
           )}
         </div>
       </div>
@@ -383,7 +406,7 @@ export default async function ArtifactDetailPage({
               name="title"
               defaultValue={String((artifact as any).title ?? "")}
               className="w-full md:w-[720px] text-2xl font-semibold border border-gray-300 rounded-2xl px-4 py-3 text-gray-950 placeholder:text-gray-400 bg-white"
-              placeholder="Artifact title…"
+              placeholder="Artifact title..."
             />
             <button type="submit" className="px-5 py-3 rounded-2xl bg-black text-white text-sm font-medium hover:opacity-90">
               Save name
@@ -394,23 +417,21 @@ export default async function ArtifactDetailPage({
             {(artifact as any).title || (artifact as any).type || "Artifact"}
           </h1>
         )}
-
         <div className="text-sm text-gray-700 flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center rounded-lg border border-gray-300 px-3 py-1 bg-gray-50 text-gray-900">
             Type: <span className="ml-1 font-mono">{displayType((artifact as any).type)}</span>
           </span>
-          <span className="opacity-40">•</span>
+          <span className="opacity-40">&bull;</span>
           <span>
-            Updated:{" "}
-            <ClientDateTime value={(artifact as any).updated_at ?? (artifact as any).created_at} />
+            Updated: <ClientDateTime value={(artifact as any).updated_at ?? (artifact as any).created_at} />
           </span>
           {mode === "schedule" && (projectStartDate || projectFinishDate) ? (
             <>
-              <span className="opacity-40">•</span>
+              <span className="opacity-40">&bull;</span>
               <span>
                 Project dates:{" "}
-                <span className="font-mono">{projectStartDate || "—"}</span> →{" "}
-                <span className="font-mono">{projectFinishDate || "—"}</span>
+                <span className="font-mono">{projectStartDate || "\u2014"}</span> &rarr;{" "}
+                <span className="font-mono">{projectFinishDate || "\u2014"}</span>
               </span>
             </>
           ) : null}
@@ -440,7 +461,6 @@ export default async function ArtifactDetailPage({
               ? "Rejected (final)."
               : "View-only."}
           </div>
-
           <div className="flex flex-wrap items-center gap-2">
             <Link
               href={`/projects/${projectRefForPaths}/change`}
@@ -448,7 +468,6 @@ export default async function ArtifactDetailPage({
             >
               Change Control
             </Link>
-
             {!isCurrent && canEditByRole ? (
               <form action={makeCurrentAction}>
                 <button className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900" type="submit">
@@ -456,15 +475,13 @@ export default async function ArtifactDetailPage({
                 </button>
               </form>
             ) : null}
-
-            {approvalEnabled && canSubmitNonCharter && !(charterMode || closureMode) ? (
+            {approvalEnabled && canSubmitNonCharter && !(charterMode || closureMode || financialPlanMode) ? (
               <form action={submitAction}>
                 <button className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900" type="submit">
                   {statusLower === "changes_requested" ? "Resubmit for approval" : "Submit for approval"}
                 </button>
               </form>
             ) : null}
-
             {approvalEnabled && canCreateRevision ? (
               <form action={createRevisionAction}>
                 <button className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900" type="submit">
@@ -472,21 +489,18 @@ export default async function ArtifactDetailPage({
                 </button>
               </form>
             ) : null}
-
             <Link
               href={`/projects/${projectRefForPaths}/governance`}
               className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900"
             >
               Delivery Governance
             </Link>
-
             <Link
               href="/governance"
               className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900"
             >
               Governance KB
             </Link>
-
             {!changeRequestsMode ? (
               <Link
                 href={`/projects/${projectRefForPaths}/artifacts/${artifactId}/compare`}
@@ -505,13 +519,11 @@ export default async function ArtifactDetailPage({
               <div className="text-xs text-gray-600">Final approval promotes baseline.</div>
               <button className="px-4 py-2 rounded-xl bg-black text-white text-sm" type="submit">Approve</button>
             </form>
-
             <form action={requestChangesAction} className="border border-gray-300 rounded-2xl p-4 space-y-2 bg-white">
               <div className="font-medium text-gray-950">Request Changes (CR)</div>
               <textarea name="reason" rows={3} className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-950" required />
               <button className="px-4 py-2 rounded-xl border border-gray-300 text-gray-900 text-sm hover:bg-gray-50" type="submit">Request changes</button>
             </form>
-
             <form action={rejectFinalAction} className="border border-gray-300 rounded-2xl p-4 space-y-2 bg-white">
               <div className="font-medium text-gray-950">Reject (Final)</div>
               <textarea name="reason" rows={2} className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-950" />

@@ -7,6 +7,7 @@ const ARTIFACTS = [
   { key: "project_charter",        label: "Project Charter" },
   { key: "change",                 label: "Change Request" },
   { key: "project_closure_report", label: "Project Closure Report" },
+  { key: "financial_plan",          label: "Financial Plan" },
 ] as const;
 
 type ArtifactKey = (typeof ARTIFACTS)[number]["key"];
