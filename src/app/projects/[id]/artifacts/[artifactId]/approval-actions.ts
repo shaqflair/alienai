@@ -965,7 +965,7 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     throw new Error("Only the author or project owners/editors can submit/resubmit.");
   }
 
-  const st = String(a0.approval_status ?? "draft").toLowerCase();
+  const st = lower(a0.approval_status || "draft");
   if (!(st === "draft" || st === "changes_requested")) {
     throw new Error(`Cannot submit from status: ${st}`);
   }
@@ -974,59 +974,84 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     assertCharterReadyForSubmit(a0.content_json);
   }
 
-  const { data: activeChain, error: chainErr } = await supabase
-    .from("approval_chains")
-    .select("id, artifact_id, is_active, status")
-    .eq("artifact_id", artifactId)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (chainErr) throwDb(chainErr, "approval_chains.select(active)");
+  const activeChain = await getActiveApprovalChainForArtifact(supabase, artifactId);
 
   if (activeChain?.id) {
-    const artifactApprovalStatus = String(a0.approval_status ?? "").toLowerCase();
-    const artifactChainId = safeStr(a0.approval_chain_id).trim();
+    const activeChainId = safeStr(activeChain.id).trim();
+    const linkedChainId = safeStr((a0 as any).approval_chain_id).trim();
 
-    if (artifactApprovalStatus === "submitted" && artifactChainId === activeChain.id) {
+    const artifactLooksSubmitted =
+      st === "submitted" ||
+      st === "approved" ||
+      st === "rejected";
+
+    const artifactLinkedToThisChain =
+      !!linkedChainId && linkedChainId === activeChainId;
+
+    if (artifactLooksSubmitted && artifactLinkedToThisChain) {
       revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
-      return;
+      revalidatePath(`/projects/${projectId}/artifacts`);
+      return {
+        ok: true,
+        artifactId,
+        approvalChainId: activeChainId,
+        recovered: false,
+        noOp: true,
+      };
     }
 
-    if (artifactApprovalStatus === "draft" || artifactApprovalStatus === "changes_requested" || !artifactChainId) {
-      await cancelApprovalChainArtifacts(supabase, activeChain.id, artifactId);
+    const recoverableDraftState =
+      st === "draft" ||
+      st === "changes_requested" ||
+      !st;
+
+    if (recoverableDraftState || !artifactLinkedToThisChain) {
+      await cancelApprovalChainArtifacts(supabase, activeChainId, artifactId);
+      await clearArtifactApprovalLinkIfStale(supabase, artifactId, activeChainId);
     } else {
-      throw new Error("This artifact already has an active approval chain.");
+      throw new Error(
+        `Artifact submit blocked: active approval chain ${activeChainId} is already attached to artifact ${artifactId} in status ${st || "unknown"}.`
+      );
     }
   }
 
   const organisationId = await getOrganisationIdForProject(supabase, projectId);
   if (!organisationId) {
-    throw new Error("Could not resolve organisation_id for project. Governance approval engine cannot start.");
+    throw new Error("Could not resolve organisation for this project.");
   }
 
   const nowIso = new Date().toISOString();
 
-  const runtime = await buildRuntimeApprovalChain(supabase, {
-    organisationId,
-    projectId,
-    artifactId,
-    actorId: user.id,
-    amount: 0,
-    artifactType: normalizeArtifactType(a0.type),
-  });
+  let runtime: any;
+  try {
+    runtime = await buildRuntimeApprovalChain({
+      supabase,
+      organisationId,
+      projectId,
+      artifactId,
+      actorUserId: user.id,
+      artifactType: normalizeArtifactType(a0.type),
+    });
+  } catch (error: any) {
+    throw new Error(`Runtime approval chain build failed: ${safeStr(error?.message) || "unknown error"}`);
+  }
 
-  let updatedArtifact: any = null;
+  const runtimeChainId = safeStr(runtime?.chainId).trim();
+  if (!runtimeChainId) {
+    throw new Error("Runtime approval chain build returned no chainId.");
+  }
 
+  let updatedArtifact: any;
   try {
     updatedArtifact = await updateArtifactSubmitted(supabase, {
       artifactId,
       projectId,
-      chainId: runtime.chainId,
+      chainId: runtimeChainId,
       actorId: user.id,
       nowIso,
     });
   } catch (error) {
-    await cancelApprovalChainArtifacts(supabase, runtime.chainId, artifactId);
+    await cancelApprovalChainArtifacts(supabase, runtimeChainId, artifactId);
     throw error;
   }
 
@@ -1043,16 +1068,25 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     after: {
       approval_status: safeStr(updatedArtifact?.approval_status || "submitted"),
       is_locked: updatedArtifact?.is_locked === true,
-      approval_chain_id: safeStr(updatedArtifact?.approval_chain_id || runtime.chainId),
+      approval_chain_id: safeStr(updatedArtifact?.approval_chain_id || runtimeChainId),
       submitted_at: safeStr(updatedArtifact?.submitted_at || nowIso),
       submitted_by: safeStr(updatedArtifact?.submitted_by || user.id),
       runtime_steps_created: true,
-      runtime_artifact_type: runtime.chosenType,
-      runtime_step_count: runtime.stepIds.length,
+      runtime_artifact_type: safeStr(runtime?.chosenType || normalizeArtifactType(a0.type)),
+      runtime_step_count: Array.isArray(runtime?.stepIds) ? runtime.stepIds.length : 0,
     },
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  revalidatePath(`/projects/${projectId}/artifacts`);
+
+  return {
+    ok: true,
+    artifactId,
+    approvalChainId: runtimeChainId,
+    recovered: !!activeChain?.id,
+    noOp: false,
+  };
 }
 
 export async function approveStep(projectId: string, artifactId: string) {
@@ -1128,6 +1162,7 @@ export async function approveStep(projectId: string, artifactId: string) {
     });
 
     revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+    revalidatePath(`/projects/${projectId}/artifacts`);
     return;
   }
 
@@ -1182,6 +1217,7 @@ export async function approveStep(projectId: string, artifactId: string) {
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  revalidatePath(`/projects/${projectId}/artifacts`);
 }
 
 /**
@@ -1270,6 +1306,7 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  revalidatePath(`/projects/${projectId}/artifacts`);
 }
 
 export async function rejectFinalArtifact(projectId: string, artifactId: string, reason?: string) {
@@ -1350,6 +1387,7 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  revalidatePath(`/projects/${projectId}/artifacts`);
 }
 
 /* =========================================================
