@@ -11,7 +11,7 @@ import {
   getCharterInitialRaw,
   getTypedInitialJson,
   isChangeRequestsType,
-  isFinancialPlanType,           // ✅ NEW
+  isFinancialPlanType,
   isLessonsLearnedType,
   isProjectCharterType,
   isProjectClosureReportType,
@@ -60,6 +60,12 @@ const PROJECT_META_SELECT =
 // If your DB uses one canonical string, reduce this list to that single type.
 const WBS_TYPES = ["wbs", "work_breakdown_structure"];
 
+// Canonical charter type is now PROJECT_CHARTER.
+// PID is treated as legacy/read-only compatibility and should redirect
+// to PROJECT_CHARTER when a canonical artifact exists.
+const CANONICAL_PROJECT_CHARTER_TYPE = "PROJECT_CHARTER";
+const LEGACY_PROJECT_CHARTER_TYPES = ["PID"];
+
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
@@ -106,6 +112,15 @@ function isWeeklyReportType(type: any) {
     "status_report",
     "status report",
   ].includes(t);
+}
+
+function isLegacyPidType(type: any) {
+  return LEGACY_PROJECT_CHARTER_TYPES.includes(safeStr(type).trim().toUpperCase());
+}
+
+function normalizeArtifactTypeForUi(type: any) {
+  if (isProjectCharterType(type)) return CANONICAL_PROJECT_CHARTER_TYPE;
+  return safeStr(type).trim();
 }
 
 /**
@@ -165,6 +180,30 @@ async function resolveMyRole(supabase: any, projectUuid: string, userId: string)
       : "viewer";
 
   return effective as "owner" | "editor" | "viewer";
+}
+
+async function findCanonicalProjectCharterArtifact(
+  supabase: any,
+  projectUuid: string,
+  excludeArtifactId?: string | null
+) {
+  let query = supabase
+    .from("artifacts")
+    .select("id, type, is_current, updated_at, version")
+    .eq("project_id", projectUuid)
+    .eq("type", CANONICAL_PROJECT_CHARTER_TYPE)
+    .order("is_current", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .order("version", { ascending: false })
+    .limit(1);
+
+  if (excludeArtifactId) {
+    query = query.neq("id", excludeArtifactId);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error) return null;
+  return data ?? null;
 }
 
 export async function loadArtifactDetail(params: Promise<{ id?: string; artifactId?: string }>) {
@@ -229,8 +268,23 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
 
   const [project, artifactRes, wbsRes] = await Promise.all([projectPromise, artifactPromise, wbsPromise]);
 
-  const { data: artifact, error: artErr } = artifactRes as any;
-  if (artErr || !artifact) notFound();
+  const { data: artifactRaw, error: artErr } = artifactRes as any;
+  if (artErr || !artifactRaw) notFound();
+
+  // 4b) Canonicalize legacy PID → PROJECT_CHARTER if a canonical artifact exists.
+  // This prevents the UI from landing on old PID records when a proper PROJECT_CHARTER exists.
+  if (isLegacyPidType(artifactRaw.type)) {
+    const canonicalCharter = await findCanonicalProjectCharterArtifact(supabase, projectUuid!, artifactRaw.id);
+    if (canonicalCharter?.id) {
+      const projectCode = safeStr((project as any)?.project_code).trim();
+      redirect(`/projects/${projectCode || projectUuid}/artifacts/${canonicalCharter.id}`);
+    }
+  }
+
+  const artifact = {
+    ...artifactRaw,
+    type: normalizeArtifactTypeForUi(artifactRaw.type),
+  };
 
   // 5) Canonical redirect (stable project code in URL)
   const canonicalProjectCode = safeStr((project as any)?.project_code).trim();
@@ -260,7 +314,7 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   const scheduleMode = isScheduleType(artifact.type);
   const changeRequestsMode = isChangeRequestsType(artifact.type);
   const weeklyMode = isWeeklyReportType(artifact.type);
-  const financialPlanMode = isFinancialPlanType(artifact.type); // ✅ NEW
+  const financialPlanMode = isFinancialPlanType(artifact.type);
 
   // ✅ Only Charter/Closure are approval-governed (Weekly Report + Financial Plan are living)
   const approvalEnabled = charterMode || closureMode;
@@ -279,8 +333,8 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     ? "closure"
     : weeklyMode
     ? "weekly_report"
-    : financialPlanMode       // ✅ NEW
-    ? "financial_plan"        // ✅ NEW
+    : financialPlanMode
+    ? "financial_plan"
     : "fallback";
 
   // 8) Status + permissions
@@ -333,7 +387,7 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
 
     myRole,
 
-    artifactId,
+    artifactId: String(artifact.id),
     artifact,
 
     approvalEnabled,
@@ -350,8 +404,8 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
 
     mode,
 
-    aiTargetType: safeStr((artifact as any)?.type ?? ""),
-    aiTitle: safeStr((artifact as any)?.title ?? "") || safeStr((artifact as any)?.type ?? ""),
+    aiTargetType: normalizeArtifactTypeForUi((artifact as any)?.type ?? ""),
+    aiTitle: safeStr((artifact as any)?.title ?? "") || normalizeArtifactTypeForUi((artifact as any)?.type ?? ""),
 
     charterInitial,
     typedInitialJson,
@@ -366,6 +420,6 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     scheduleMode,
     closureMode,
     weeklyMode,
-    financialPlanMode,   // ✅ NEW
+    financialPlanMode,
   };
 }

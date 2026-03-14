@@ -217,19 +217,28 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
 
   // Health per project (latest only)
   // FIX: normalise rag to single letter -- DB may store "green"/"GREEN"/"G" or "amber"/"A" or "red"/"R"
-  function normaliseRag(raw: unknown): string {
+  // Also derive from score if rag column is null (score >= 85 = G, >= 70 = A, else R)
+  function normaliseRag(raw: unknown, score?: number): string {
     const s = safeStr(raw).trim().toLowerCase();
     if (s === "g" || s === "green") return "G";
     if (s === "a" || s === "amber") return "A";
     if (s === "r" || s === "red")   return "R";
+    // Fall back to deriving from score
+    if (score != null && Number.isFinite(score)) {
+      if (score >= 85) return "G";
+      if (score >= 70) return "A";
+      return "R";
+    }
     return "UNSCORED";
   }
 
   const healthMap = new Map<string, { score: number; rag: string; computed_at: string }>();
   for (const h of healthRows) {
-    const pid = safeStr(h?.project_id).trim();
+    const pid   = safeStr(h?.project_id).trim();
     if (!pid || healthMap.has(pid)) continue;
-    healthMap.set(pid, { score: safeNum(h?.score), rag: normaliseRag(h?.rag), computed_at: safeStr(h?.computed_at) });
+    const score = safeNum(h?.score);
+    const rag   = normaliseRag(h?.rag, score);
+    healthMap.set(pid, { score, rag, computed_at: safeStr(h?.computed_at) });
   }
 
   // Approvals per project
