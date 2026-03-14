@@ -10,6 +10,12 @@ import ArtifactBoardClient, {
   type UiStatus,
 } from "@/components/artifacts/ArtifactBoardClient";
 
+import {
+  cloneArtifact,
+  deleteDraftArtifact,
+  setArtifactCurrent,
+} from "./actions";
+
 /* =========================================================
    helpers
 ========================================================= */
@@ -50,8 +56,9 @@ function isInvalidInputSyntaxError(err: any) {
 
 function shapeErr(err: any) {
   if (!err) return { kind: "empty", raw: err };
-  if (err instanceof Error)
+  if (err instanceof Error) {
     return { kind: "Error", name: err.name, message: err.message, stack: err.stack };
+  }
   return {
     kind: typeof err,
     code: err?.code,
@@ -88,9 +95,9 @@ function extractDigitsAsNumber(input: string): number | null {
 
 /**
  * Deterministic resolver:
- * - UUID â†’ use directly (no projects lookup needed)
- * - else â†’ digits â†’ projects.project_code = <number>
- * - else â†’ optional fallbacks to slug/reference columns (best-effort + tolerant)
+ * - UUID → use directly (no projects lookup needed)
+ * - else → digits → projects.project_code = <number>
+ * - else → optional fallbacks to slug/reference columns (best-effort + tolerant)
  */
 async function resolveProject(
   supabase: any,
@@ -177,7 +184,7 @@ function canonType(x: any) {
     .replace(/[_-]+/g, "_")
     .trim();
 
-  // âœ… Governance hub virtual type (future-proof mapping)
+  // ✅ Governance hub virtual type (future-proof mapping)
   if (
     t === "governance" ||
     t === "delivery_governance" ||
@@ -196,16 +203,18 @@ function canonType(x: any) {
     t === "charter" ||
     t === "projectcharter" ||
     t === "pid"
-  )
+  ) {
     return "PROJECT_CHARTER";
+  }
 
   if (
     t === "stakeholder_register" ||
     t === "stakeholder register" ||
     t === "stakeholders" ||
     t === "stakeholder"
-  )
+  ) {
     return "STAKEHOLDER_REGISTER";
+  }
 
   if (t === "wbs" || t === "work breakdown structure" || t === "work_breakdown_structure") return "WBS";
 
@@ -216,8 +225,9 @@ function canonType(x: any) {
     t === "schedule / roadmap" ||
     t === "schedule_roadmap" ||
     t === "schedule_road_map"
-  )
+  ) {
     return "SCHEDULE";
+  }
 
   if (
     t === "change_requests" ||
@@ -227,11 +237,13 @@ function canonType(x: any) {
     t === "change_log" ||
     t === "change log" ||
     t === "kanban"
-  )
+  ) {
     return "CHANGE_REQUESTS";
+  }
 
-  if (t === "raid" || t === "raid_log" || t === "raid log" || t === "raid_register" || t === "raid register")
+  if (t === "raid" || t === "raid_log" || t === "raid log" || t === "raid_register" || t === "raid register") {
     return "RAID";
+  }
 
   if (
     t === "lessons_learned" ||
@@ -241,8 +253,9 @@ function canonType(x: any) {
     t === "lesson" ||
     t === "retrospective" ||
     t === "retro"
-  )
+  ) {
     return "LESSONS_LEARNED";
+  }
 
   if (
     t === "project_closure_report" ||
@@ -252,8 +265,9 @@ function canonType(x: any) {
     t === "project_closeout" ||
     t === "closeout" ||
     t === "close_out"
-  )
+  ) {
     return "PROJECT_CLOSURE_REPORT";
+  }
 
   if (raw.includes("financial")) return "FINANCIAL_PLAN";
   return raw.toUpperCase().replace(/\s+/g, "_");
@@ -305,7 +319,11 @@ function fmtUkDateOnly(iso: string) {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
   try {
-    return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(d);
   } catch {
     return iso;
   }
@@ -318,7 +336,7 @@ const TYPE_ORDER = [
   "WBS",
   "SCHEDULE",
   "CHANGE_REQUESTS",
-  "GOVERNANCE", // âœ… NEW: keep Governance near control artifacts
+  "GOVERNANCE",
   "RAID",
   "LESSONS_LEARNED",
   "PROJECT_CLOSURE_REPORT",
@@ -345,8 +363,6 @@ type ArtifactBoardRowWithActions = ArtifactBoardRow & {
   approvalStatus?: string;
   isLocked?: boolean;
   deletedAt?: string | null;
-
-  // optional: used by board client if it supports it
   href?: string;
   isVirtual?: boolean;
 };
@@ -390,7 +406,7 @@ export default async function ArtifactsPage({
   if (!resolved?.projectUuid) notFound();
   const projectUuid = String(resolved.projectUuid);
 
-  // âœ… membership gate first (real access check)
+  // ✅ membership gate first (real access check)
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
     .select("role, is_active")
@@ -405,7 +421,7 @@ export default async function ArtifactsPage({
   const role = safeLower((mem as any)?.role);
   const canEditProject = role === "owner" || role === "editor";
 
-  // âœ… best-effort project meta if UUID path didnâ€™t fetch it
+  // ✅ best-effort project meta if UUID path didn’t fetch it
   let project = resolved.project ?? null;
   if (!project) {
     const { data: p, error: pErr } = await supabase
@@ -426,7 +442,8 @@ export default async function ArtifactsPage({
     : projectHumanId;
 
   const projectFinishDateIso = safeStr((project as any)?.finish_date ?? (project as any)?.end_date ?? "").trim();
-  const dueDisplay = projectFinishDateIso ? fmtUkDateOnly(projectFinishDateIso) : "â€”";
+  const dueDisplay = projectFinishDateIso ? fmtUkDateOnly(projectFinishDateIso) : "—";
+  void dueDisplay;
 
   // artifacts
   const { data: artifacts, error: artErr } = await supabase
@@ -517,7 +534,7 @@ export default async function ArtifactsPage({
     .filter((a) => safeStr(a?.id).trim())
     .map((a) => {
       const id = safeStr(a.id).trim();
-      const t = canonType(a?.type) || safeStr(a?.type).trim() || "â€”";
+      const t = canonType(a?.type) || safeStr(a?.type).trim() || "—";
       const owner = ownerMap[safeStr(a?.user_id).trim()] ?? {};
 
       const approvalStatus = safeLower(a?.approval_status) || "";
@@ -542,12 +559,11 @@ export default async function ArtifactsPage({
       };
     });
 
-  // âœ… Inject Change Requests as a virtual row if no artifact row exists
+  // ✅ Inject Change Requests as a virtual row if no artifact row exists
   const hasChangeArtifact = rowsFromArtifacts.some((r) => r.artifactType === "CHANGE_REQUESTS");
   const changeVirtualRow: ArtifactBoardRowWithActions | null = hasChangeArtifact
     ? null
     : {
-        // IMPORTANT: not a real artifact id
         id: "__change__",
         artifactType: "CHANGE_REQUESTS",
         title: "Change Requests",
@@ -568,7 +584,7 @@ export default async function ArtifactsPage({
         isVirtual: true,
       };
 
-  // âœ… Inject Delivery Governance as a virtual row (always)
+  // ✅ Inject Delivery Governance as a virtual row (always)
   const governanceVirtualRow: ArtifactBoardRowWithActions = {
     id: "__governance__",
     artifactType: "GOVERNANCE",
@@ -611,6 +627,9 @@ export default async function ArtifactsPage({
       projectName={projectName}
       projectCode={projectCode}
       rows={rows}
+      cloneArtifactAction={cloneArtifact}
+      deleteDraftArtifactAction={deleteDraftArtifact}
+      setArtifactCurrentAction={setArtifactCurrent}
     />
   );
 }
