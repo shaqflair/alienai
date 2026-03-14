@@ -51,8 +51,6 @@ function isoDateOnly(x: unknown) {
 
 function iconForSlug(slug: string) {
   const s = safeStr(slug).trim().toLowerCase();
-
-  // Core governance pillars
   if (s === "delivery-governance-framework") return <Shield className="h-5 w-5" />;
   if (s === "roles-ownership") return <Users className="h-5 w-5" />;
   if (s === "approvals-decision-control") return <FileCheck className="h-5 w-5" />;
@@ -60,28 +58,35 @@ function iconForSlug(slug: string) {
   if (s === "risk-raid-discipline") return <AlertTriangle className="h-5 w-5" />;
   if (s === "ai-assistance") return <Sparkles className="h-5 w-5" />;
   if (s === "executive-oversight") return <BarChart3 className="h-5 w-5" />;
-
-  // ✅ Finance KB (minimal integration)
-  // Covers:
-  // - "financial-governance"
-  // - "finance-overview"
-  // - "finance-resources-tab", etc.
-  // - any future "finance-*" articles
   if (s === "financial-governance") return <BarChart3 className="h-5 w-5" />;
   if (s === "finance-overview") return <BarChart3 className="h-5 w-5" />;
   if (s.startsWith("finance-")) return <BarChart3 className="h-5 w-5" />;
-
   return <Shield className="h-5 w-5" />;
 }
 
+// ✅ FIX: content from the DB is often stored as a JSON string.
+// We attempt JSON.parse before checking for a sections array.
+// Falls back to treating the raw value as plain text paragraphs.
 function extractSections(content: unknown): GovernanceArticleSection[] | null {
   if (!content) return null;
 
-  if (typeof content === "object") {
-    const c: any = content;
+  // Attempt to parse if the DB returned a JSON string
+  let parsed = content;
+  if (typeof content === "string") {
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      // Not valid JSON — treat as plain text below
+    }
+  }
+
+  // Structured content: { sections: [...] }
+  if (parsed && typeof parsed === "object") {
+    const c: any = parsed;
     if (Array.isArray(c?.sections)) return c.sections as GovernanceArticleSection[];
   }
 
+  // Plain text fallback — split on double newlines into paragraphs
   const text = safeStr(content).trim();
   if (!text) return null;
 
@@ -90,13 +95,7 @@ function extractSections(content: unknown): GovernanceArticleSection[] | null {
     .map((p) => p.trim())
     .filter(Boolean);
 
-  return [
-    {
-      heading: "",
-      body: paras,
-      bullets: [],
-    },
-  ];
+  return [{ heading: "", body: paras, bullets: [] }];
 }
 
 export default function GovernanceKbArticleClient({
@@ -129,7 +128,6 @@ export default function GovernanceKbArticleClient({
             Back to Governance
           </Link>
 
-          {/* ✅ Delivery Governance link on article pages */}
           <Link
             href={deliveryFrameworkHref}
             className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
@@ -139,7 +137,6 @@ export default function GovernanceKbArticleClient({
             Delivery Governance
           </Link>
 
-          {/* ✅ Ask Aliena opens drawer (no redirect) */}
           <AskAlienaDrawer
             scope="kb"
             articleSlug={article.slug}
@@ -170,7 +167,6 @@ export default function GovernanceKbArticleClient({
               <p className="mt-1 text-sm text-neutral-600">{article.summary}</p>
             ) : null}
 
-            {/* Small utility row (optional but helpful) */}
             <div className="mt-3 flex flex-wrap gap-2">
               <Link
                 href={deliveryFrameworkHref}
@@ -183,7 +179,6 @@ export default function GovernanceKbArticleClient({
               <button
                 type="button"
                 onClick={() => {
-                  // Deep-link share anchor: /governance/<slug>?ask=help&article=<slug>
                   try {
                     const url = new URL(window.location.href);
                     url.searchParams.set("ask", "help");
@@ -212,27 +207,29 @@ export default function GovernanceKbArticleClient({
               className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm"
             >
               {safeStr(s.heading).trim() ? (
-                <h2 className="text-base font-semibold text-neutral-900">{s.heading}</h2>
+                <h2 className="text-base font-semibold text-neutral-900 mb-3">{s.heading}</h2>
               ) : null}
 
-              <div className="mt-2 space-y-2">
-                {(s.body || []).map((p, i) => (
-                  <p key={i} className="text-sm text-neutral-700">
-                    {p}
-                  </p>
-                ))}
-              </div>
+              {(s.body ?? []).length > 0 && (
+                <div className="space-y-2">
+                  {(s.body ?? []).map((p, i) => (
+                    <p key={i} className="text-sm text-neutral-700 leading-relaxed">
+                      {p}
+                    </p>
+                  ))}
+                </div>
+              )}
 
-              {s.bullets?.length ? (
+              {(s.bullets ?? []).length > 0 && (
                 <ul className="mt-3 space-y-2">
-                  {s.bullets.map((b, i) => (
-                    <li key={i} className="text-sm text-neutral-700">
-                      <span className="mr-2 text-neutral-400">•</span>
+                  {(s.bullets ?? []).map((b, i) => (
+                    <li key={i} className="text-sm text-neutral-700 flex items-start gap-2">
+                      <span className="mt-1 text-neutral-400 shrink-0">•</span>
                       {b}
                     </li>
                   ))}
                 </ul>
-              ) : null}
+              )}
             </div>
           ))
         ) : (
@@ -253,16 +250,12 @@ export default function GovernanceKbArticleClient({
               <div className="text-xs font-semibold text-neutral-500">Previous</div>
               <div className="mt-1 flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-neutral-900">
-                    {prev.title}
-                  </div>
+                  <div className="truncate text-sm font-semibold text-neutral-900">{prev.title}</div>
                   {prev.summary ? (
-                    <div className="mt-1 line-clamp-2 text-xs text-neutral-600">
-                      {prev.summary}
-                    </div>
+                    <div className="mt-1 line-clamp-2 text-xs text-neutral-600">{prev.summary}</div>
                   ) : null}
                 </div>
-                <ChevronRight className="h-4 w-4 rotate-180 text-neutral-300 group-hover:text-neutral-400" />
+                <ChevronRight className="h-4 w-4 rotate-180 text-neutral-300 group-hover:text-neutral-400 shrink-0" />
               </div>
             </Link>
           ) : (
@@ -277,16 +270,12 @@ export default function GovernanceKbArticleClient({
               <div className="text-xs font-semibold text-neutral-500">Next</div>
               <div className="mt-1 flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-neutral-900">
-                    {next.title}
-                  </div>
+                  <div className="truncate text-sm font-semibold text-neutral-900">{next.title}</div>
                   {next.summary ? (
-                    <div className="mt-1 line-clamp-2 text-xs text-neutral-600">
-                      {next.summary}
-                    </div>
+                    <div className="mt-1 line-clamp-2 text-xs text-neutral-600">{next.summary}</div>
                   ) : null}
                 </div>
-                <ChevronRight className="h-4 w-4 text-neutral-300 group-hover:text-neutral-400" />
+                <ChevronRight className="h-4 w-4 text-neutral-300 group-hover:text-neutral-400 shrink-0" />
               </div>
             </Link>
           ) : null}
