@@ -9,6 +9,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PortfolioAskDrawer from "@/components/home/PortfolioAskDrawer";
+import ExecutiveBriefingCard from "@/components/home/ExecutiveBriefingCard";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 import {
@@ -1683,9 +1684,11 @@ export default function HomePage({ data }: { data: HomeData }) {
                 onClick={() => router.push("/budget")} delay={0.15} />
             </div>
 
+            {/* Executive Briefing */}
+            <ExecutiveBriefingCard />
+
             {/* Resource + AI Insights */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">              <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h3 className="font-semibold text-gray-900">Resource Activity</h3>
