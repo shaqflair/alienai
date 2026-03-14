@@ -40,20 +40,14 @@ const DEV = process.env.NODE_ENV === "development";
 
 const ProjectCharterEditor = dynamic(() => import("./ProjectCharterEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading editor...</div>,
-});
-
-const ProjectCharterClassicView = dynamic(() => import("./ProjectCharterClassicView"), {
-  ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading classic view...</div>,
+  loading: () => <div className="text-sm text-[#8a7d68]">Loading editor...</div>,
 });
 
 const ProjectCharterSectionEditor = dynamic(() => import("./ProjectCharterSectionEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading sections...</div>,
+  loading: () => <div className="text-sm text-[#8a7d68]">Loading sections...</div>,
 });
 
-// Prod-safe: do not even define a dynamic import in production
 const CharterV2DebugPanel = DEV
   ? dynamic(() => import("@/components/editors/CharterV2DebugPanel"), { ssr: false, loading: () => null })
   : ((() => null) as any);
@@ -103,7 +97,6 @@ function normalizeBulletsText(text: string) {
   return cleaned.join("\n");
 }
 
-type ViewMode = "sections" | "classic";
 type RowObj = { type: "header" | "data"; cells: string[] };
 
 type V2Section = {
@@ -296,40 +289,12 @@ function safeFilenameBase(x: string) {
 function LegacyLinks({ legacy }: { legacy?: LegacyExports | null }) {
   const hasAny = !!(legacy?.pdf || legacy?.docx || legacy?.xlsx);
   if (!hasAny) return null;
-
   return (
-    <div className="flex items-center gap-3 text-xs text-slate-400">
-      <span className="font-medium text-slate-500 uppercase tracking-wider text-[10px]">Legacy:</span>
-      {legacy?.pdf ? (
-        <a
-          className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium"
-          href={legacy.pdf}
-          target="_blank"
-          rel="noreferrer"
-        >
-          PDF
-        </a>
-      ) : null}
-      {legacy?.docx ? (
-        <a
-          className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium"
-          href={legacy.docx}
-          target="_blank"
-          rel="noreferrer"
-        >
-          DOCX
-        </a>
-      ) : null}
-      {legacy?.xlsx ? (
-        <a
-          className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium"
-          href={legacy.xlsx}
-          target="_blank"
-          rel="noreferrer"
-        >
-          XLSX
-        </a>
-      ) : null}
+    <div className="flex items-center gap-3 text-xs" style={{ color: "#8a7d68" }}>
+      <span className="font-semibold uppercase tracking-wider text-[10px]" style={{ color: "#6b5c3e" }}>Legacy:</span>
+      {legacy?.pdf && <a className="hover:underline font-medium" style={{ color: "#b8975a" }} href={legacy.pdf} target="_blank" rel="noreferrer">PDF</a>}
+      {legacy?.docx && <a className="hover:underline font-medium" style={{ color: "#b8975a" }} href={legacy.docx} target="_blank" rel="noreferrer">DOCX</a>}
+      {legacy?.xlsx && <a className="hover:underline font-medium" style={{ color: "#b8975a" }} href={legacy.xlsx} target="_blank" rel="noreferrer">XLSX</a>}
     </div>
   );
 }
@@ -338,23 +303,15 @@ function applyProjectMetaDefaults(doc: any, defaults: { projectTitle?: string; p
   const d = ensureCanonicalCharter(doc);
   const meta = d.meta && typeof d.meta === "object" ? d.meta : {};
   const next = { ...meta };
-
   const title = String(defaults.projectTitle ?? "").trim();
   const pm = String(defaults.projectManagerName ?? "").trim();
-
   if (!String((next as any).project_title ?? "").trim() && title) (next as any).project_title = title;
   if (!String((next as any).project_manager ?? "").trim() && pm) (next as any).project_manager = pm;
-
   const changed =
     String((next as any).project_title ?? "") !== String((meta as any).project_title ?? "") ||
     String((next as any).project_manager ?? "") !== String((meta as any).project_manager ?? "");
-
   return changed ? { ...d, meta: next } : d;
 }
-
-/* ---------------------------------------------
-   AI helpers (per-section only)
----------------------------------------------- */
 
 function getPmBrief(meta: any) {
   const v = meta && typeof meta === "object" ? (meta as any).pm_brief : "";
@@ -374,16 +331,12 @@ function isNonEmptyString(x: any) {
 function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
   const candidate = (ai && typeof ai === "object" && ((ai as any).charterV2 || (ai as any).doc)) || ai;
   const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
-
   const canon = ensureCanonicalCharter(raw);
-
   const prevCanon = ensureCanonicalCharter(prevDoc);
   const prevMeta = prevCanon.meta && typeof prevCanon.meta === "object" ? prevCanon.meta : {};
   const nextMeta = canon.meta && typeof canon.meta === "object" ? canon.meta : {};
   const pmBrief = getPmBrief(prevMeta);
-
   const mergedMeta = { ...prevMeta, ...nextMeta, pm_brief: pmBrief };
-
   const nextSections = Array.isArray(canon.sections)
     ? canon.sections.map((s: any) => {
         const sec = { ...s };
@@ -391,7 +344,6 @@ function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
         return sec;
       })
     : [];
-
   return { ...canon, meta: mergedMeta, sections: nextSections };
 }
 
@@ -405,79 +357,53 @@ function extractPatchFromAny(ai: any): any | null {
 function applyReplaceSection(prevDoc: any, sectionKey: string, incomingSection: any) {
   const key = String(sectionKey || "").trim();
   if (!key) return ensureCanonicalCharter(prevDoc);
-
   const prev = ensureCanonicalCharter(prevDoc);
   const incoming = incomingSection && typeof incomingSection === "object" ? { ...incomingSection } : { key };
   incoming.key = key;
-
   if (typeof incoming.bullets === "string") incoming.bullets = normalizeBulletsText(incoming.bullets);
-
   const next = {
     ...prev,
     sections: (prev.sections || []).map((s: any) => (String(s?.key ?? "").trim() === key ? { ...s, ...incoming } : s)),
   };
-
   return ensureCanonicalCharter(next);
 }
 
 function applyAiResultToDoc(prevDoc: any, sectionKey: string, data: any) {
   const patch = extractPatchFromAny(data);
-
   if (patch?.kind === "replace_all") {
     const rawDoc = patch.doc ?? (data as any)?.charterV2 ?? (data as any)?.doc ?? data;
     return ensureCanonicalCharter(rawDoc);
   }
-
   if (patch?.kind === "replace_section") {
     const k = String(patch.key || (data as any)?.sectionKey || sectionKey || "").trim();
     const sec = patch.section ?? (data as any)?.section ?? (data as any)?.sections?.[0] ?? null;
     if (!k || !sec) return ensureCanonicalCharter(prevDoc);
     return applyReplaceSection(prevDoc, k, sec);
   }
-
   const k2 = String((data as any)?.sectionKey || sectionKey || "").trim();
   const sec2 = (data as any)?.section ?? (Array.isArray((data as any)?.sections) ? (data as any).sections[0] : null);
   if (k2 && sec2) return applyReplaceSection(prevDoc, k2, sec2);
-
   const candidate = (data && typeof data === "object" && ((data as any).charterV2 || (data as any).doc)) || data;
   const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
-
-  if (raw?.section && typeof raw.section === "object") {
-    return applyReplaceSection(prevDoc, k2 || sectionKey, raw.section);
-  }
-
+  if (raw?.section && typeof raw.section === "object") return applyReplaceSection(prevDoc, k2 || sectionKey, raw.section);
   if (Array.isArray(raw?.sections)) {
     const keyLower = String(sectionKey || "").trim().toLowerCase();
     const found = raw.sections.find((s: any) => String(s?.key ?? "").toLowerCase().trim() === keyLower);
     if (found) return applyReplaceSection(prevDoc, sectionKey, found);
     if (raw.sections.length === 1) return applyReplaceSection(prevDoc, sectionKey, raw.sections[0]);
   }
-
   return ensureCanonicalCharter(prevDoc);
 }
 
-/* ---------------------------------------------
-   Robustly read capabilities response
----------------------------------------------- */
 function coerceWireCaps(payload: any): WireCaps | null {
   if (!payload || typeof payload !== "object") return null;
   const root = payload.capabilities && typeof payload.capabilities === "object" ? payload.capabilities : payload;
   if (!root || typeof root !== "object") return null;
-
   const full = (root as any).full;
   const section = (root as any).section;
   const suggest = (root as any).suggest;
   const validate = (root as any).validate;
-
-  if (
-    typeof full !== "boolean" &&
-    typeof section !== "boolean" &&
-    typeof suggest !== "boolean" &&
-    typeof validate !== "boolean"
-  ) {
-    return null;
-  }
-
+  if (typeof full !== "boolean" && typeof section !== "boolean" && typeof suggest !== "boolean" && typeof validate !== "boolean") return null;
   return {
     full: typeof full === "boolean" ? full : true,
     section: typeof section === "boolean" ? section : true,
@@ -493,10 +419,8 @@ export default function ProjectCharterEditorFormLazy({
   readOnly,
   lockLayout = false,
   artifactVersion,
-
   projectTitle,
   projectManagerName,
-
   legacyExports,
   approvalEnabled = false,
   canSubmitOrResubmit = false,
@@ -509,15 +433,12 @@ export default function ProjectCharterEditorFormLazy({
   readOnly?: boolean;
   lockLayout?: boolean;
   artifactVersion?: number;
-
   projectTitle?: string;
   projectManagerName?: string;
-
   legacyExports?: LegacyExports;
   approvalEnabled?: boolean;
   canSubmitOrResubmit?: boolean;
   approvalStatus?: string | null;
-
   submitForApprovalAction?: ((formData: FormData) => Promise<void>) | (() => Promise<void>) | null;
 }) {
   const router = useRouter();
@@ -530,7 +451,6 @@ export default function ProjectCharterEditorFormLazy({
 
   const [mounted, setMounted] = useState(false);
   const [lastSavedIso, setLastSavedIso] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("sections");
   const [dirty, setDirty] = useState(false);
 
   const [autosaveState, setAutosaveState] = useState<"idle" | "saving" | "queued">("idle");
@@ -544,12 +464,7 @@ export default function ProjectCharterEditorFormLazy({
   const [pmBrief, setPmBrief] = useState<string>(() => getPmBrief((ensureCanonicalCharter(initialJson) as any)?.meta));
   const [aiFullBusy, setAiFullBusy] = useState(false);
 
-  const [wireCaps, setWireCaps] = useState<WireCaps>({
-    full: true,
-    section: true,
-    suggest: true,
-    validate: true,
-  });
+  const [wireCaps, setWireCaps] = useState<WireCaps>({ full: true, section: true, suggest: true, validate: true });
 
   const [exportBusy, setExportBusy] = useState<null | "pdf" | "docx">(null);
   const [exportErr, setExportErr] = useState<string>("");
@@ -571,7 +486,6 @@ export default function ProjectCharterEditorFormLazy({
     const title = String(projectTitle ?? "").trim();
     const pm = String(projectManagerName ?? "").trim();
     if (!title && !pm) return;
-
     setDoc((prev: any) => {
       const next = applyProjectMetaDefaults(prev, { projectTitle, projectManagerName });
       const prevMeta = ensureCanonicalCharter(prev)?.meta ?? {};
@@ -579,10 +493,7 @@ export default function ProjectCharterEditorFormLazy({
       const changed =
         String((prevMeta as any)?.project_title ?? "") !== String((nextMeta as any)?.project_title ?? "") ||
         String((prevMeta as any)?.project_manager ?? "") !== String((nextMeta as any)?.project_manager ?? "");
-      if (changed) {
-        lastLocalEditAtRef.current = Date.now();
-        setDirty(true);
-      }
+      if (changed) { lastLocalEditAtRef.current = Date.now(); setDirty(true); }
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -601,9 +512,7 @@ export default function ProjectCharterEditorFormLazy({
       } catch {}
     }
     void detectCaps();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   const incomingSig = useMemo(() => stableSig(initialJson), [initialJson]);
@@ -627,15 +536,11 @@ export default function ProjectCharterEditorFormLazy({
     if (sinceEdit < 2000) return;
     if (incomingSig === adoptedSigRef.current) return;
     if (incomingSig !== localSig) return;
-
     adoptedSigRef.current = incomingSig;
-
     const next = applyProjectMetaDefaults(ensureCanonicalCharter(initialJson), { projectTitle, projectManagerName });
     setDoc(next);
-
     const serverPmBrief = getPmBrief((ensureCanonicalCharter(initialJson) as any)?.meta);
     setPmBrief((cur) => (cur.trim().length ? cur : serverPmBrief));
-
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingSig, localSig, dirty, projectTitle, projectManagerName]);
 
@@ -650,7 +555,6 @@ export default function ProjectCharterEditorFormLazy({
 
   function saveNow(reason: "manual" | "autosave") {
     if (!canEdit) return;
-
     const payload = v2ForSave;
     const sigAtStart = stableSig(payload);
     const saveStartedAt = Date.now();
@@ -661,30 +565,16 @@ export default function ProjectCharterEditorFormLazy({
           setAutosaveState("saving");
           pendingSigRef.current = sigAtStart;
           autosaveInFlightRef.current = true;
-
           try {
-            await autosaveProjectCharterV2({
-              projectId,
-              artifactId,
-              charterV2: payload,
-              clearLegacyContent: true,
-            });
-
+            await autosaveProjectCharterV2({ projectId, artifactId, charterV2: payload, clearLegacyContent: true });
             autosaveInFlightRef.current = false;
             pendingSigRef.current = null;
-
             setAutosaveError("");
             failedSigRef.current = null;
-
             setLastSavedIso(new Date().toISOString());
             adoptedSigRef.current = sigAtStart;
-
-            if ((lastLocalEditAtRef.current || 0) <= saveStartedAt) {
-              setDirty(false);
-              setAutosaveState("idle");
-            } else {
-              setAutosaveState("queued");
-            }
+            if ((lastLocalEditAtRef.current || 0) <= saveStartedAt) { setDirty(false); setAutosaveState("idle"); }
+            else setAutosaveState("queued");
           } catch (e: any) {
             autosaveInFlightRef.current = false;
             failedSigRef.current = sigAtStart;
@@ -693,30 +583,16 @@ export default function ProjectCharterEditorFormLazy({
           }
           return;
         }
-
         try {
-          const res = await saveProjectCharterV2Manual({
-            mode: "manual",
-            projectId,
-            artifactId,
-            charterV2: payload,
-            clearLegacyContent: true,
-          });
-
+          const res = await saveProjectCharterV2Manual({ mode: "manual", projectId, artifactId, charterV2: payload, clearLegacyContent: true });
           const newId = (res as any)?.newArtifactId ? String((res as any).newArtifactId) : "";
-
           adoptedSigRef.current = sigAtStart;
           setLastSavedIso(new Date().toISOString());
           setAutosaveError("");
           failedSigRef.current = null;
-
           setAutosaveState("idle");
           setDirty(false);
-
-          if (newId && newId !== artifactId) {
-            router.replace(`/projects/${projectId}/artifacts/${newId}`);
-            router.refresh();
-          }
+          if (newId && newId !== artifactId) { router.replace(`/projects/${projectId}/artifacts/${newId}`); router.refresh(); }
         } catch (e: any) {
           setAutosaveError(String(e?.message ?? "Save failed"));
           setAutosaveState("idle");
@@ -726,28 +602,15 @@ export default function ProjectCharterEditorFormLazy({
   }
 
   useEffect(() => {
-    if (!canEdit) return;
-    if (!dirty) return;
-
-    if (autosaveError && failedSigRef.current && failedSigRef.current === localSig) {
-      return;
-    }
-
+    if (!canEdit || !dirty) return;
+    if (autosaveError && failedSigRef.current && failedSigRef.current === localSig) return;
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-
     autosaveTimerRef.current = setTimeout(() => {
-      if (autosaveInFlightRef.current) {
-        setAutosaveState("queued");
-        return;
-      }
+      if (autosaveInFlightRef.current) { setAutosaveState("queued"); return; }
       saveNow("autosave");
     }, 900);
-
     setAutosaveState((s) => (s === "idle" ? "queued" : s));
-
-    return () => {
-      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    };
+    return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, canEdit, localSig, autosaveError]);
 
@@ -756,73 +619,38 @@ export default function ProjectCharterEditorFormLazy({
   async function exportCharter(kind: "pdf" | "docx") {
     setExportErr("");
     setExportBusy(kind);
-
     let effectiveArtifactId = artifactId;
-
     try {
       if (canEdit && dirty && !isPending) {
-        const res = await saveProjectCharterV2Manual({
-          mode: "manual",
-          projectId,
-          artifactId,
-          charterV2: v2ForSave,
-          clearLegacyContent: true,
-        });
-
+        const res = await saveProjectCharterV2Manual({ mode: "manual", projectId, artifactId, charterV2: v2ForSave, clearLegacyContent: true });
         const newId = (res as any)?.newArtifactId ? String((res as any).newArtifactId) : "";
-        if (newId && newId !== artifactId) {
-          effectiveArtifactId = newId;
-          router.replace(`/projects/${projectId}/artifacts/${newId}`);
-          router.refresh();
-        }
-
+        if (newId && newId !== artifactId) { effectiveArtifactId = newId; router.replace(`/projects/${projectId}/artifacts/${newId}`); router.refresh(); }
         setLastSavedIso(new Date().toISOString());
         setDirty(false);
         setAutosaveState("idle");
         setAutosaveError("");
         failedSigRef.current = null;
       }
-
-      const endpoint = `/api/artifacts/${effectiveArtifactId}/export/${kind}`;
-
-      const res = await fetch(endpoint, {
+      const res = await fetch(`/api/artifacts/${effectiveArtifactId}/export/${kind}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept:
-            kind === "pdf"
-              ? "application/pdf"
-              : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        },
+        headers: { "Content-Type": "application/json", Accept: kind === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
         body: JSON.stringify({ projectId, content_json: v2ForSave }),
         cache: "no-store",
       });
-
       if (!res.ok) {
         const raw = await res.text().catch(() => "");
-        try {
-          const j = JSON.parse(raw);
-          throw new Error(String((j as any)?.error || (j as any)?.message || `Export failed (${res.status})`));
-        } catch {
-          throw new Error(raw?.trim() ? raw.slice(0, 300) : `Export failed (${res.status}). Check server logs.`);
-        }
+        try { const j = JSON.parse(raw); throw new Error(String((j as any)?.error || (j as any)?.message || `Export failed (${res.status})`)); }
+        catch { throw new Error(raw?.trim() ? raw.slice(0, 300) : `Export failed (${res.status}). Check server logs.`); }
       }
-
       const blob = await res.blob();
-
       const disp = res.headers.get("content-disposition") || "";
       const m = disp.match(/filename="?([^"]+)"?/i);
-
       const fallback = `${safeFilenameBase("project_charter")}_${projectId.slice(0, 8)}.${kind}`;
       const filename = m?.[1] || fallback;
-
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     } catch (e: any) {
       setExportErr(String(e?.message ?? e ?? "Export failed"));
@@ -831,23 +659,18 @@ export default function ProjectCharterEditorFormLazy({
     }
   }
 
-  /* Status indicator */
+  /* Status dot — warm tones */
   const StatusDot = ({ state }: { state: typeof autosaveState }) => {
     const configs = {
-      idle: { color: "#059669", bg: "#d1fae5", label: "Saved", pulse: false },
-      saving: { color: "#6366f1", bg: "#e0e7ff", label: "Saving...", pulse: true },
-      queued: { color: "#d97706", bg: "#fef3c7", label: "Pending", pulse: true },
+      idle:   { color: "#7a6a4a", bg: "#f5f0e8", label: "Saved",    pulse: false },
+      saving: { color: "#b8975a", bg: "#faf3e0", label: "Saving...", pulse: true  },
+      queued: { color: "#c9a05a", bg: "#fef3c7", label: "Pending",  pulse: true  },
     };
     const c = (configs as any)[state];
     return (
       <span className="inline-flex items-center gap-2 text-xs font-medium" style={{ color: c.color }}>
         <span className="relative flex h-2 w-2">
-          {c.pulse && (
-            <span
-              className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-              style={{ backgroundColor: c.color }}
-            />
-          )}
+          {c.pulse && <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ backgroundColor: c.color }} />}
           <span className="relative inline-flex rounded-full h-2 w-2" style={{ backgroundColor: c.color }} />
         </span>
         {c.label}
@@ -856,45 +679,21 @@ export default function ProjectCharterEditorFormLazy({
   };
 
   const submitWired = !!submitForApprovalAction;
-
   const submitLabel =
-    String(approvalStatus || "").toLowerCase() === "changes_requested"
-      ? "Resubmit for approval"
-      : "Submit for approval";
-
+    String(approvalStatus || "").toLowerCase() === "changes_requested" ? "Resubmit for approval" : "Submit for approval";
   const submitDisabled = !submitWired || !canSubmitOrResubmit || readOnly || lockLayout || isPending;
-
-  const submitDisabledReason = !submitWired
-    ? "Submit action is not wired."
-    : !canSubmitOrResubmit
-      ? "You can't submit right now (role/status/current revision)."
-      : readOnly
-        ? "View-only mode."
-        : lockLayout
-          ? "Layout is locked."
-          : isPending
-            ? "Please wait..."
-            : "";
+  const submitDisabledReason = !submitWired ? "Submit action is not wired." : !canSubmitOrResubmit ? "You can't submit right now." : readOnly ? "View-only mode." : lockLayout ? "Layout is locked." : isPending ? "Please wait..." : "";
 
   async function generateFullCharter() {
     if (!canEdit) return;
-
-    if (wireCaps.full === false) {
-      setAiError("AI generation appears disabled (capability off). Trying anyway...");
-    } else {
-      setAiError("");
-    }
-
-    setAiState("generating");
-    setAiLoadingKey("__full__");
-    setAiFullBusy(true);
-
+    if (wireCaps.full === false) setAiError("AI generation appears disabled. Trying anyway...");
+    else setAiError("");
+    setAiState("generating"); setAiLoadingKey("__full__"); setAiFullBusy(true);
     try {
       const brief = String(pmBrief ?? "");
       setDoc((prev: any) => setPmBriefInMeta(prev, brief));
       markDirty();
       const docForRequest = setPmBriefInMeta(v2ForSave, brief);
-
       const systemPrompt = [
         "Act as a senior programme manager and PMO governance expert.",
         "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
@@ -904,391 +703,271 @@ export default function ProjectCharterEditorFormLazy({
         "Write Business Case and Objectives as clear prose (short paragraphs), not a table.",
         "Write Risks, Issues, Assumptions, Dependencies as bullet points (one per line).",
       ].join("\n");
-
       const res = await fetch("/api/wireai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          mode: "full",
-          doc: docForRequest,
-          meta: { ...((docForRequest as any).meta ?? {}), pm_brief: brief },
-          template: "pmi",
-          instructions: [
-            systemPrompt,
-            "Populate ALL sections of the Project Charter.",
-            "For any uncertain item, prefix with [ASSUMPTION] or [TBC].",
-            "Use concise, executive-friendly bullets.",
-            "Keep tables structured and complete where possible.",
-          ],
-        }),
+        method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+        body: JSON.stringify({ mode: "full", doc: docForRequest, meta: { ...((docForRequest as any).meta ?? {}), pm_brief: brief }, template: "pmi",
+          instructions: [systemPrompt, "Populate ALL sections of the Project Charter.", "For any uncertain item, prefix with [ASSUMPTION] or [TBC].", "Use concise, executive-friendly bullets.", "Keep tables structured and complete where possible."] }),
       });
-
       const text = await res.text().catch(() => "");
       let data: any = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        if (!res.ok) throw new Error(text?.trim() ? text.slice(0, 300) : `AI failed (${res.status})`);
-      }
-
+      try { data = text ? JSON.parse(text) : {}; } catch { if (!res.ok) throw new Error(text?.trim() ? text.slice(0, 300) : `AI failed (${res.status})`); }
       if (!res.ok) throw new Error(String(data?.error ?? "AI full generation failed"));
-
       setDoc((prev: any) => mergeAiFullIntoCharter(prev, data));
-      lastLocalEditAtRef.current = Date.now();
-      setDirty(true);
-      setAiError("");
-    } catch (e: any) {
-      setAiState("error");
-      setAiError(String(e?.message ?? "AI full generation failed"));
-    } finally {
-      setAiLoadingKey(null);
-      setAiState("idle");
-      setAiFullBusy(false);
-    }
+      lastLocalEditAtRef.current = Date.now(); setDirty(true); setAiError("");
+    } catch (e: any) { setAiState("error"); setAiError(String(e?.message ?? "AI full generation failed")); }
+    finally { setAiLoadingKey(null); setAiState("idle"); setAiFullBusy(false); }
   }
 
   async function regenerateSection(sectionKey: string) {
     if (!canEdit) return;
     const key = String(sectionKey || "").trim();
     if (!key) return;
-
-    if (wireCaps.section === false) {
-      setAiError("Section regeneration appears disabled (capability off). Trying anyway...");
-    } else {
-      setAiError("");
-    }
-
-    setAiState("generating");
-    setAiLoadingKey(key);
-
+    if (wireCaps.section === false) setAiError("Section regeneration appears disabled. Trying anyway...");
+    else setAiError("");
+    setAiState("generating"); setAiLoadingKey(key);
     try {
       const docForRequest = setPmBriefInMeta(v2ForSave, String(pmBrief ?? ""));
-
       const res = await fetch("/api/wireai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          mode: "section",
-          sectionKey: key,
-          doc: docForRequest,
-          meta: { ...(docForRequest.meta ?? {}), pm_brief: String(pmBrief ?? "") },
-          template: "pmi",
-        }),
+        method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+        body: JSON.stringify({ mode: "section", sectionKey: key, doc: docForRequest, meta: { ...(docForRequest.meta ?? {}), pm_brief: String(pmBrief ?? "") }, template: "pmi" }),
       });
-
       const rawText = await res.text().catch(() => "");
       let data: any = {};
-      try {
-        data = rawText ? JSON.parse(rawText) : {};
-      } catch {
-        if (!res.ok)
-          throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI regeneration failed (${res.status})`);
-      }
-
+      try { data = rawText ? JSON.parse(rawText) : {}; } catch { if (!res.ok) throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI regeneration failed (${res.status})`); }
       if (!res.ok) throw new Error(String(data?.error ?? "AI regeneration failed"));
-
       setDoc((prev: any) => applyAiResultToDoc(prev, key, data));
-      lastLocalEditAtRef.current = Date.now();
-      setDirty(true);
-      setAiError("");
-    } catch (e: any) {
-      setAiState("error");
-      setAiError(String(e?.message ?? "AI regeneration failed"));
-    } finally {
-      setAiLoadingKey(null);
-      setAiState("idle");
-    }
+      lastLocalEditAtRef.current = Date.now(); setDirty(true); setAiError("");
+    } catch (e: any) { setAiState("error"); setAiError(String(e?.message ?? "AI regeneration failed")); }
+    finally { setAiLoadingKey(null); setAiState("idle"); }
   }
 
   async function improveSection(payload: ImproveSectionPayload) {
     if (!canEdit) return;
-
-    if (wireCaps.suggest === false && wireCaps.section === false) {
-      setAiError("Improve appears disabled (capability off). Trying anyway...");
-    } else {
-      setAiError("");
-    }
-
+    if (wireCaps.suggest === false && wireCaps.section === false) setAiError("Improve appears disabled. Trying anyway...");
+    else setAiError("");
     const key = String(payload?.sectionKey ?? "").trim();
     if (!key) return;
-
-    setAiState("generating");
-    setAiLoadingKey(key);
-
+    setAiState("generating"); setAiLoadingKey(key);
     try {
       const docForRequest = setPmBriefInMeta(v2ForSave, String(pmBrief ?? ""));
-
       const res = await fetch("/api/wireai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          mode: "section",
-          sectionKey: key,
-          doc: docForRequest,
-          meta: { ...(docForRequest.meta ?? {}), pm_brief: String(pmBrief ?? "") },
-          template: "pmi",
-          instructions: [
-            "Improve the section content while keeping it realistic and executive-ready.",
-            "Do not invent facts. If uncertain, mark [TBC] or [ASSUMPTION].",
-            "Keep format consistent with the section type (table vs bullets/prose).",
-          ],
-        }),
+        method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+        body: JSON.stringify({ mode: "section", sectionKey: key, doc: docForRequest, meta: { ...(docForRequest.meta ?? {}), pm_brief: String(pmBrief ?? "") }, template: "pmi",
+          instructions: ["Improve the section content while keeping it realistic and executive-ready.", "Do not invent facts. If uncertain, mark [TBC] or [ASSUMPTION].", "Keep format consistent with the section type (table vs bullets/prose)."] }),
       });
-
       const rawText = await res.text().catch(() => "");
       let data: any = {};
-      try {
-        data = rawText ? JSON.parse(rawText) : {};
-      } catch {
-        if (!res.ok) throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI improve failed (${res.status})`);
-      }
-
+      try { data = rawText ? JSON.parse(rawText) : {}; } catch { if (!res.ok) throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI improve failed (${res.status})`); }
       if (!res.ok) throw new Error(String(data?.error ?? "AI improve failed"));
-
       setDoc((prev: any) => applyAiResultToDoc(prev, key, data));
-      lastLocalEditAtRef.current = Date.now();
-      setDirty(true);
-      setAiError("");
-    } catch (e: any) {
-      setAiState("error");
-      setAiError(String(e?.message ?? "AI improve failed"));
-    } finally {
-      setAiLoadingKey(null);
-      setAiState("idle");
-    }
+      lastLocalEditAtRef.current = Date.now(); setDirty(true); setAiError("");
+    } catch (e: any) { setAiState("error"); setAiError(String(e?.message ?? "AI improve failed")); }
+    finally { setAiLoadingKey(null); setAiState("idle"); }
   }
 
   const pmBriefEmpty = !isNonEmptyString(pmBrief);
 
   return (
     <div
-      className="space-y-6 max-w-7xl mx-auto px-4 py-6"
-      style={{ fontFamily: "'DM Sans', system-ui, -apple-system, sans-serif" }}
+      className="max-w-7xl mx-auto px-4 py-6 space-y-6"
+      style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}
     >
-      {/* Inject fonts */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@400;500&display=swap');
 
-        .charter-form * { font-family: 'DM Sans', system-ui, -apple-system, sans-serif; }
-        .charter-form .font-display { font-family: 'Fraunces', Georgia, serif; }
-        .charter-form .font-mono { font-family: 'DM Mono', 'SF Mono', monospace; }
+        .charter-parchment-header { background: linear-gradient(180deg, #fffcf7 0%, #faf6ee 100%); }
+        .charter-parchment-body { background: linear-gradient(180deg, #fffcf7 0%, #f5f0e8 100%); }
+        .charter-gold-border { background: linear-gradient(90deg, #b8975a 0%, #d4b97a 30%, #8c6d3a 60%, #c4a55e 100%); }
 
-        .glass-card {
-          background: rgba(255, 255, 255, 0.82);
-          backdrop-filter: blur(24px);
-          -webkit-backdrop-filter: blur(24px);
-          border: 1px solid rgba(255, 255, 255, 0.6);
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 8px 40px rgba(0, 0, 0, 0.03);
+        .charter-btn {
+          font-family: 'DM Sans', system-ui, sans-serif;
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 8px 16px; border-radius: 10px;
+          font-size: 13px; font-weight: 500;
+          border: 1px solid #d4c9b0;
+          background: #faf8f4;
+          color: #3d3529;
+          cursor: pointer;
+          transition: all 0.2s ease;
         }
+        .charter-btn:hover:not(:disabled) { background: #f5f0e8; border-color: #c9b99a; }
+        .charter-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-        .btn-primary-gradient {
-          background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
-          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        .charter-btn-primary {
+          font-family: 'DM Sans', system-ui, sans-serif;
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 8px 16px; border-radius: 10px;
+          font-size: 13px; font-weight: 600;
+          background: linear-gradient(135deg, #2c2418 0%, #5a4a32 100%);
+          color: white; border: none; cursor: pointer;
+          transition: all 0.2s ease;
         }
-        .btn-primary-gradient:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 20px rgba(67, 56, 202, 0.3);
-        }
+        .charter-btn-primary:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(44,36,24,0.25); }
+        .charter-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
 
-        .btn-ai-generate {
-          background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%);
+        .charter-btn-ai {
+          font-family: 'DM Sans', system-ui, sans-serif;
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 8px 16px; border-radius: 10px;
+          font-size: 13px; font-weight: 600;
+          background: linear-gradient(135deg, #b8975a 0%, #d4b97a 50%, #c9a05a 100%);
           background-size: 200% 200%;
-          animation: shimmer 3s ease infinite;
-          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          animation: goldenShimmer 3s ease infinite;
+          color: white; border: none; cursor: pointer;
+          transition: all 0.2s ease;
         }
-        .btn-ai-generate:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 6px 24px rgba(99, 102, 241, 0.35);
-        }
-        .btn-ai-generate:disabled {
-          opacity: 0.5;
-          background: #94a3b8;
-          animation: none;
-        }
+        .charter-btn-ai:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(184,151,90,0.4); }
+        .charter-btn-ai:disabled { opacity: 0.45; background: #c9b99a; animation: none; cursor: not-allowed; transform: none; }
 
-        @keyframes shimmer {
+        @keyframes goldenShimmer {
           0%, 100% { background-position: 0% 50%; }
           50% { background-position: 100% 50%; }
         }
 
-        .view-toggle { background: rgba(241, 245, 249, 0.8); backdrop-filter: blur(8px); }
-
-        .brief-card {
-          background: linear-gradient(135deg, rgba(238, 242, 255, 0.5) 0%, rgba(224, 231, 255, 0.3) 100%);
-          border: 1px solid rgba(199, 210, 254, 0.5);
+        .charter-brief-area {
+          font-family: 'DM Sans', system-ui, sans-serif;
+          width: 100%; border-radius: 10px;
+          border: 1px solid #d4c9b0;
+          background: rgba(255,252,247,0.9);
+          padding: 12px 16px;
+          font-size: 13px; color: #3d3529;
+          line-height: 1.7; resize: vertical;
+          transition: all 0.2s ease;
+          outline: none;
         }
+        .charter-brief-area::placeholder { color: #b0a48a; }
+        .charter-brief-area:focus { border-color: #b8975a; box-shadow: 0 0 0 3px rgba(184,151,90,0.1); }
 
-        .error-card {
-          background: linear-gradient(135deg, rgba(255, 241, 242, 0.8) 0%, rgba(254, 226, 226, 0.5) 100%);
-          border: 1px solid rgba(252, 165, 165, 0.4);
-        }
-
-        .fade-in { animation: fadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-
-        .charter-brief-textarea { transition: all 0.2s ease; }
-        .charter-brief-textarea:focus {
-          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08), 0 2px 8px rgba(99, 102, 241, 0.04);
+        .charter-error-bar {
+          background: linear-gradient(135deg, rgba(254,242,242,0.9) 0%, rgba(254,226,226,0.7) 100%);
+          border: 1px solid rgba(220,38,38,0.2);
+          border-radius: 10px; padding: 12px 16px;
+          font-family: 'DM Sans', system-ui, sans-serif;
+          font-size: 13px; color: #991b1b;
+          display: flex; align-items: center; gap: 10px;
         }
       `}</style>
 
-      <div className="charter-form">
-        {/* Header Card */}
-        <div className="glass-card rounded-2xl p-6 space-y-5">
-          {/* Top bar */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-            <div className="space-y-2">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-[28px] font-semibold text-slate-900 tracking-[-0.02em] leading-tight">
+      {/* ── Gold top bar ──────────────────────────────── */}
+      <div className="charter-gold-border h-1.5 w-full rounded-t-xl" />
+
+      {/* ── Header card ───────────────────────────────── */}
+      <div
+        className="rounded-xl overflow-hidden shadow-sm"
+        style={{
+          background: "linear-gradient(180deg, #fffcf7 0%, #faf6ee 100%)",
+          border: "1px solid #e8e2d6",
+        }}
+      >
+        {/* Title row */}
+        <div className="px-8 pt-8 pb-6 border-b border-[#e8e2d6]">
+          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
+            {/* Left: Title + meta */}
+            <div className="space-y-3">
+              {/* Eyebrow */}
+              <div className="flex items-center gap-3">
+                <div className="h-px w-8 bg-[#c9b99a]" />
+                <span className="text-[10px] font-bold uppercase tracking-[0.3em]" style={{ color: "#a08e6c", fontFamily: "'DM Sans', sans-serif" }}>
+                  Official Document
+                </span>
+                <div className="h-px w-8 bg-[#c9b99a]" />
+              </div>
+
+              <div className="flex items-center gap-4 flex-wrap">
+                <h1
+                  className="text-[26px] font-bold uppercase tracking-[0.06em]"
+                  style={{ color: "#1a1a1a", letterSpacing: "0.06em" }}
+                >
                   Project Charter
                 </h1>
 
-                <span className="font-mono px-2 py-0.5 rounded-md bg-slate-100/80 text-slate-500 text-[11px] font-medium border border-slate-200/60 tracking-wider">
+                <span
+                  className="px-2.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider border"
+                  style={{ fontFamily: "'DM Mono', monospace", background: "#faf8f4", color: "#6b5c3e", borderColor: "#d4c9b0" }}
+                >
                   v{badgeVersion}
                 </span>
 
-                {approvalEnabled ? (
+                {approvalEnabled && (
                   <span
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide uppercase"
-                    style={{ background: "linear-gradient(135deg, #1e1b4b, #312e81)", color: "white" }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide uppercase"
+                    style={{ background: "linear-gradient(135deg, #2c2418, #5a4a32)", color: "#f5e6c8" }}
                   >
                     <Shield className="h-3 w-3" />
                     {String(approvalStatus || "draft").replace(/_/g, " ")}
                   </span>
-                ) : null}
+                )}
               </div>
 
-              <p className="text-sm text-slate-500 leading-relaxed">
-                {readOnly
-                  ? "View-only mode"
-                  : lockLayout
-                    ? "Layout locked after submission"
-                    : "Edit and manage your project charter"}
+              <p className="text-sm" style={{ color: "#8a7d68", fontFamily: "'DM Sans', sans-serif" }}>
+                {readOnly ? "View-only mode" : lockLayout ? "Layout locked after submission" : "Edit and manage your project charter"}
               </p>
 
               <LegacyLinks legacy={legacyExports ?? null} />
             </div>
 
-            {/* Actions */}
+            {/* Right: Actions */}
             <div className="flex flex-wrap items-center gap-3">
               <StatusDot state={autosaveState} />
 
+              {/* Save */}
               <button
                 type="button"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                className="charter-btn"
                 disabled={!canEdit || isPending || autosaveState === "saving"}
                 onClick={() => saveNow("manual")}
                 title={!canEdit ? "Read-only / locked" : dirty ? "Save changes" : "No unsaved changes"}
               >
-                <Save className="h-4 w-4 text-slate-500" />
+                <Save className="h-4 w-4" style={{ color: "#8a7d68" }} />
                 Save
               </button>
 
-              {/* View mode toggle */}
-              <div className="view-toggle flex items-center rounded-xl p-1 border border-slate-200/60">
-                <button
-                  type="button"
-                  onClick={() => setViewMode("sections")}
-                  className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-all ${
-                    viewMode === "sections"
-                      ? "bg-white text-slate-900 shadow-sm border border-slate-200/60"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  Sections
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode("classic")}
-                  className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-all ${
-                    viewMode === "classic"
-                      ? "bg-white text-slate-900 shadow-sm border border-slate-200/60"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  Classic
-                </button>
-              </div>
-
-              {/* Submit approval */}
-              {approvalEnabled ? (
+              {/* Submit */}
+              {approvalEnabled && (
                 submitWired ? (
                   <form action={submitForApprovalAction as any}>
-                    <button
-                      type="submit"
-                      className="btn-primary-gradient inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                      disabled={submitDisabled}
-                      title={submitDisabled ? submitDisabledReason : "Submit this charter for approval"}
-                    >
+                    <button type="submit" className="charter-btn-primary" disabled={submitDisabled} title={submitDisabled ? submitDisabledReason : undefined}>
                       <Send className="h-4 w-4" />
                       {submitLabel}
                     </button>
                   </form>
                 ) : (
-                  <button
-                    type="button"
-                    className="btn-primary-gradient inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                    disabled
-                    title={submitDisabledReason}
-                  >
+                  <button type="button" className="charter-btn-primary" disabled title={submitDisabledReason}>
                     <Send className="h-4 w-4" />
                     {submitLabel}
                   </button>
                 )
-              ) : null}
+              )}
 
-              {/* Export dropdown */}
+              {/* Export */}
               {mounted ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 transition-all"
-                      disabled={!!exportBusy}
-                    >
-                      {exportBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Download className="h-4 w-4 text-slate-500" />
-                      )}
+                    <button className="charter-btn" disabled={!!exportBusy}>
+                      {exportBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" style={{ color: "#8a7d68" }} />}
                       {exportBusy ? "Exporting..." : "Export"}
-                      <ChevronDown className="h-3 w-3 opacity-40" />
+                      <ChevronDown className="h-3 w-3 opacity-50" />
                     </button>
                   </DropdownMenuTrigger>
-
-                  <DropdownMenuContent align="end" className="w-52 rounded-xl p-1.5">
-                    <DropdownMenuItem
-                      onClick={() => exportCharter("pdf")}
-                      disabled={!!exportBusy}
-                      className="cursor-pointer rounded-lg px-3 py-2.5 focus:bg-slate-50"
-                    >
-                      <FileText className="h-4 w-4 mr-3 text-rose-500" />
+                  <DropdownMenuContent align="end" className="w-52 rounded-xl p-1.5" style={{ background: "#faf8f4", border: "1px solid #d4c9b0" }}>
+                    <DropdownMenuItem onClick={() => exportCharter("pdf")} disabled={!!exportBusy} className="cursor-pointer rounded-lg px-3 py-2.5">
+                      <FileText className="h-4 w-4 mr-3" style={{ color: "#b8975a" }} />
                       <div className="flex flex-col">
-                        <span className="text-sm font-medium">Export PDF</span>
-                        <span className="text-[11px] text-slate-400">Professional document</span>
+                        <span className="text-sm font-medium" style={{ color: "#3d3529", fontFamily: "'DM Sans', sans-serif" }}>Export PDF</span>
+                        <span className="text-[11px]" style={{ color: "#8a7d68", fontFamily: "'DM Sans', sans-serif" }}>Professional document</span>
                       </div>
                     </DropdownMenuItem>
-
-                    <DropdownMenuItem
-                      onClick={() => exportCharter("docx")}
-                      disabled={!!exportBusy}
-                      className="cursor-pointer rounded-lg px-3 py-2.5 focus:bg-slate-50"
-                    >
-                      <File className="h-4 w-4 mr-3 text-blue-500" />
+                    <DropdownMenuItem onClick={() => exportCharter("docx")} disabled={!!exportBusy} className="cursor-pointer rounded-lg px-3 py-2.5">
+                      <File className="h-4 w-4 mr-3" style={{ color: "#b8975a" }} />
                       <div className="flex flex-col">
-                        <span className="text-sm font-medium">Export Word</span>
-                        <span className="text-[11px] text-slate-400">Editable document</span>
+                        <span className="text-sm font-medium" style={{ color: "#3d3529", fontFamily: "'DM Sans', sans-serif" }}>Export Word</span>
+                        <span className="text-[11px]" style={{ color: "#8a7d68", fontFamily: "'DM Sans', sans-serif" }}>Editable document</span>
                       </div>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
-                <button
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-500"
-                  disabled
-                >
+                <button className="charter-btn" disabled>
                   <Download className="h-4 w-4" />
                   Export
                   <ChevronDown className="h-3 w-3 opacity-40" />
@@ -1296,69 +975,64 @@ export default function ProjectCharterEditorFormLazy({
               )}
             </div>
           </div>
+        </div>
 
-          {/* Autosave error */}
-          {autosaveError ? (
-            <div className="error-card rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 fade-in">
-              <div className="flex items-center gap-2.5 text-sm text-rose-700">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span className="font-medium">Autosave failed:</span>
-                <span className="text-rose-600/80">{autosaveError}</span>
-              </div>
+        {/* Autosave error */}
+        {autosaveError && (
+          <div className="px-8 py-4 border-b border-[#e8e2d6]">
+            <div className="charter-error-bar">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span><span className="font-semibold">Autosave failed:</span> {autosaveError}</span>
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-rose-200 bg-white text-rose-700 hover:bg-rose-50 disabled:opacity-40 transition-all"
+                className="charter-btn ml-auto"
+                style={{ padding: "4px 12px", fontSize: "12px" }}
                 disabled={!canEdit || isPending}
-                onClick={() => {
-                  setAutosaveError("");
-                  failedSigRef.current = null;
-                  saveNow("autosave");
-                }}
+                onClick={() => { setAutosaveError(""); failedSigRef.current = null; saveNow("autosave"); }}
               >
                 Retry
               </button>
             </div>
-          ) : null}
+          </div>
+        )}
 
-          {/* PM Brief */}
-          {canEdit ? (
-            <div className="brief-card rounded-2xl p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-indigo-500" />
-                    <span className="text-sm font-semibold text-slate-900">PM Brief</span>
+        {/* PM Brief */}
+        {canEdit && (
+          <div className="px-8 py-6 border-b border-[#e8e2d6]">
+            <div
+              className="rounded-xl p-5"
+              style={{ background: "linear-gradient(135deg, rgba(245,240,232,0.6) 0%, rgba(212,201,176,0.15) 100%)", border: "1px solid #d4c9b0" }}
+            >
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Sparkles className="h-4 w-4" style={{ color: "#b8975a" }} />
+                    <span className="text-sm font-semibold" style={{ color: "#2c2418", fontFamily: "'DM Sans', sans-serif" }}>PM Brief</span>
                   </div>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Provide context for AI generation -- be specific about scope, constraints, and goals.
+                  <p className="text-xs leading-relaxed" style={{ color: "#8a7d68", fontFamily: "'DM Sans', sans-serif" }}>
+                    Provide context for AI generation — be specific about scope, constraints, and goals.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">
                   {pmBriefEmpty ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/60 bg-amber-50/80 px-2.5 py-1 text-[11px] font-medium text-amber-700">
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium border" style={{ background: "#fef3c7", borderColor: "#d97706", color: "#92400e", fontFamily: "'DM Sans', sans-serif" }}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                       Recommended
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/60 bg-emerald-50/80 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium border" style={{ background: "#f0fdf4", borderColor: "#86efac", color: "#166534", fontFamily: "'DM Sans', sans-serif" }}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
                       Ready
                     </span>
                   )}
 
                   <button
                     type="button"
-                    className="btn-ai-generate inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:cursor-not-allowed"
+                    className="charter-btn-ai"
                     disabled={!canEdit || isPending || aiState === "generating" || aiFullBusy}
                     onClick={() => generateFullCharter()}
-                    title={
-                      wireCaps.full === false
-                        ? "AI capability appears off -- click to try anyway (env/permissions may be missing)."
-                        : pmBriefEmpty
-                          ? "Add a brief first (recommended)"
-                          : "Generate the full charter from your brief"
-                    }
+                    title={pmBriefEmpty ? "Add a brief first (recommended)" : "Generate the full charter from your brief"}
                   >
                     {aiFullBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
                     Generate
@@ -1375,7 +1049,7 @@ export default function ProjectCharterEditorFormLazy({
                   setDoc((prev: any) => setPmBriefInMeta(prev, v));
                   setDirty(true);
                 }}
-                rows={6}
+                rows={5}
                 placeholder={[
                   "Act as a senior programme manager and PMO governance expert.",
                   "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
@@ -1383,82 +1057,87 @@ export default function ProjectCharterEditorFormLazy({
                   "Flag assumptions clearly and avoid generic filler.",
                   "Ensure objectives are measurable and aligned to business value.",
                 ].join("\n")}
-                className="charter-brief-textarea mt-4 w-full rounded-xl border border-indigo-200/60 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400/70 focus:outline-none focus:border-indigo-300 resize-y leading-relaxed"
+                className="charter-brief-area"
               />
             </div>
-          ) : null}
-
-          {/* Footer info */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="font-mono text-[11px] text-slate-400 tracking-wide">
-              {lastSavedIso ? <>Last saved {fmtWhenLocal(lastSavedIso)}</> : "-"}
-            </div>
-
-            {aiState === "error" && aiError ? (
-              <div className="flex items-center gap-2 text-xs text-rose-600 bg-rose-50/80 border border-rose-200/60 rounded-xl px-3 py-2">
-                <AlertCircle className="h-3.5 w-3.5" />
-                {aiError}
-              </div>
-            ) : null}
           </div>
+        )}
 
-          {exportErr && (
-            <div className="error-card rounded-xl px-4 py-3 flex items-center gap-2.5 text-sm text-rose-700 fade-in">
+        {/* Footer meta */}
+        <div className="px-8 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-[11px] font-medium" style={{ color: "#a08e6c", fontFamily: "'DM Mono', monospace" }}>
+            {lastSavedIso ? <>Last saved {fmtWhenLocal(lastSavedIso)}</> : "—"}
+          </div>
+          {aiState === "error" && aiError && (
+            <div className="flex items-center gap-2 text-xs rounded-lg px-3 py-2 border" style={{ background: "#fef2f2", borderColor: "#fca5a5", color: "#991b1b", fontFamily: "'DM Sans', sans-serif" }}>
+              <AlertCircle className="h-3.5 w-3.5" />
+              {aiError}
+            </div>
+          )}
+        </div>
+
+        {exportErr && (
+          <div className="px-8 pb-4">
+            <div className="charter-error-bar">
               <AlertCircle className="h-4 w-4" />
               {exportErr}
             </div>
-          )}
-        </div>
-
-        {/* Editor Body */}
-        <div
-          className="mt-6 glass-card rounded-2xl min-h-[600px] overflow-hidden"
-          style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.03), 0 12px 48px rgba(0,0,0,0.04)" }}
-        >
-          {viewMode === "classic" ? (
-            <ProjectCharterClassicView doc={doc} projectTitleFromProject={projectTitle} />
-          ) : isCanonicalV2 ? (
-            <ProjectCharterSectionEditor
-              meta={doc?.meta ?? {}}
-              onMetaChange={(meta: any) => {
-                markDirty();
-                setDoc((prev: any) => {
-                  const cur = ensureCanonicalCharter(prev);
-                  return applyProjectMetaDefaults({ ...cur, meta }, { projectTitle, projectManagerName });
-                });
-              }}
-              sections={sectionsForEditor}
-              onChange={(sections: any) => {
-                markDirty();
-                setDoc((prev: any) =>
-                  applyProjectMetaDefaults(
-                    ensureCanonicalCharter({ ...prev, sections }),
-                    { projectTitle, projectManagerName }
-                  )
-                );
-              }}
-              readOnly={sectionReadOnly}
-              onImproveSection={(payload: ImproveSectionPayload) => improveSection(payload)}
-              onRegenerateSection={(sectionKey: string) => regenerateSection(sectionKey)}
-              aiDisabled={!canEdit || isPending || aiState === "generating"}
-              aiLoadingKey={aiLoadingKey}
-            />
-          ) : (
-            <ProjectCharterEditor
-              initialJson={doc}
-              onChange={(next: any) => {
-                markDirty();
-                setDoc(applyProjectMetaDefaults(next, { projectTitle, projectManagerName }));
-              }}
-              readOnly={readOnly}
-              lockLayout={lockLayout}
-            />
-          )}
-        </div>
-
-        {/* Dev-only panel */}
-        {DEV ? <CharterV2DebugPanel value={v2ForSave} /> : null}
+          </div>
+        )}
       </div>
+
+      {/* ── Editor Body ───────────────────────────────── */}
+      <div
+        className="rounded-xl overflow-hidden shadow-sm"
+        style={{
+          background: "linear-gradient(180deg, #fffcf7 0%, #f5f0e8 100%)",
+          border: "1px solid #e8e2d6",
+          minHeight: 600,
+        }}
+      >
+        {isCanonicalV2 ? (
+          <ProjectCharterSectionEditor
+            meta={doc?.meta ?? {}}
+            onMetaChange={(meta: any) => {
+              markDirty();
+              setDoc((prev: any) => {
+                const cur = ensureCanonicalCharter(prev);
+                return applyProjectMetaDefaults({ ...cur, meta }, { projectTitle, projectManagerName });
+              });
+            }}
+            sections={sectionsForEditor}
+            onChange={(sections: any) => {
+              markDirty();
+              setDoc((prev: any) =>
+                applyProjectMetaDefaults(
+                  ensureCanonicalCharter({ ...prev, sections }),
+                  { projectTitle, projectManagerName }
+                )
+              );
+            }}
+            readOnly={sectionReadOnly}
+            onImproveSection={(payload: ImproveSectionPayload) => improveSection(payload)}
+            onRegenerateSection={(sectionKey: string) => regenerateSection(sectionKey)}
+            aiDisabled={!canEdit || isPending || aiState === "generating"}
+            aiLoadingKey={aiLoadingKey}
+          />
+        ) : (
+          <ProjectCharterEditor
+            initialJson={doc}
+            onChange={(next: any) => {
+              markDirty();
+              setDoc(applyProjectMetaDefaults(next, { projectTitle, projectManagerName }));
+            }}
+            readOnly={readOnly}
+            lockLayout={lockLayout}
+          />
+        )}
+      </div>
+
+      {/* Gold bottom bar */}
+      <div className="charter-gold-border h-1 w-full rounded-b-xl" />
+
+      {DEV ? <CharterV2DebugPanel value={v2ForSave} /> : null}
     </div>
   );
 }
