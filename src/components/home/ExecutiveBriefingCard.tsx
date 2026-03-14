@@ -135,8 +135,16 @@ function BriefingInner({
     }
   }, [liveRagCounts, projectScores]);
 
-  // Load on mount and when live counts become available
-  useEffect(() => { load(); }, [load]);
+  const hasHealthData = liveRagCounts
+    ? (liveRagCounts.g + liveRagCounts.a + liveRagCounts.r) > 0
+    : false;
+
+  // Load on mount; reload when health data first becomes available
+  useEffect(() => {
+    // If we have no health data yet, wait -- a second effect will fire when it arrives
+    if (liveRagCounts && !hasHealthData) return;
+    load();
+  }, [load, hasHealthData]);
 
   const copy = useCallback(() => {
     const pts = data?.talking_points;

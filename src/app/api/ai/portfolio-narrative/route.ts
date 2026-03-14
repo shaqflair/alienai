@@ -512,7 +512,12 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const force = body?.force === true;
-    const cacheKey = "narrative:" + user.id;
+    const rcFromBody = body?.ragCounts;
+    // Include rag counts in cache key so a different health picture gets fresh generation
+    const ragKey = rcFromBody
+      ? "g" + (Number(rcFromBody.g)||0) + "a" + (Number(rcFromBody.a)||0) + "r" + (Number(rcFromBody.r)||0)
+      : "unscored";
+    const cacheKey = "narrative:" + user.id + ":" + ragKey;
 
     // Return cached version if fresh and not forced
     if (!force) {
