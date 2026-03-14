@@ -1,11 +1,9 @@
-// src/components/home/HomePage.tsx — POLISHED v9.4
+// src/components/home/HomePage.tsx — POLISHED v9.5
 //
-// Fixes vs v9.3:
-//   ✅ HP-F11: Active Projects row now shows live scorer health instead of stale
-//             AI-generated RAG rows from project_health table.
-//             - PortfolioHealthApi type updated to include projectScores map
-//             - liveRagMap derived from phData.projectScores overrides ragMap (SSR)
-//             - ProjectRow receives liveRagMap so health bar/% shows live value
+// Fixes vs v9.4:
+//   ✅ HP-F12: Removed stale SSR health score fallback (ragFallback).
+//             Portfolio Health KPI now shows "…" until live API score arrives,
+//             preventing the flash from stale 85% → live 92%.
 
 "use client";
 
@@ -105,8 +103,6 @@ type PortfolioHealthApi =
         budget: number | null; governance: number | null;
         flow?: number | null; approvals?: number | null; activity?: number | null;
       };
-      // HP-F11: Live per-project scores from the shared scorer
-      // { [projectId]: { score: number, rag: "G"|"A"|"R" } }
       projectScores?: Record<string, { score: number; rag: "G" | "A" | "R" }>;
       drivers?: any[];
       meta?: any;
@@ -715,7 +711,6 @@ function ProjectRow({
   ragMap,
 }: {
   p: any;
-  // HP-F11: ragMap now receives the merged live+SSR map
   ragMap: Map<string, { rag: RagLetter; health: number }>;
 }) {
   const router = useRouter();
@@ -1202,8 +1197,7 @@ export default function HomePage({ data }: { data: HomeData }) {
     return m2;
   }, [rag]);
 
-  // HP-F11: Live RAG map from the shared scorer — overrides stale SSR values.
-  // Merges live scores on top of SSR so projects without a live score still show SSR value.
+  // Live RAG map from the shared scorer — overrides stale SSR values.
   const mergedRagMap = useMemo(() => {
     const merged = new Map(ragMap);
     if (phData?.ok && phData.projectScores) {
@@ -1216,7 +1210,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   const ragAgg = useMemo(() => calcRagAgg(rag as any, activeProjects as any), [rag, activeProjects]);
 
-  // HP-F11: Live RAG counts from mergedRagMap (not stale SSR ragAgg)
+  // Live RAG counts from mergedRagMap
   const liveRagCounts = useMemo(() => {
     let g = 0, a = 0, r = 0;
     for (const p of activeProjects as any[]) {
@@ -1405,8 +1399,10 @@ export default function HomePage({ data }: { data: HomeData }) {
       )
     : null;
 
-  const ragFallback = ragAgg.scored ? ragAgg.avgHealth : null;
-  const phScoreForUi = apiScore != null && apiScore > 0 ? apiScore : ragFallback;
+  // ✅ HP-F12: Removed ragFallback — show "…" until live API score arrives.
+  // No more flash from stale SSR value (e.g. 85%) to live value (e.g. 92%).
+  const phScoreForUi = apiScore != null && apiScore > 0 ? apiScore : null;
+
   const phRag = scoreToRag(phScoreForUi ?? 0);
   const phDelta = phPrevScore != null && phScoreForUi != null ? phScoreForUi - phPrevScore : null;
 
@@ -1559,7 +1555,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fpColorKey = !fpHasData ? "blue" : fpRag === "G" ? "green" : fpRag === "A" ? "amber" : "red";
   const allDueItems = dueItems.slice(0, 8);
 
-  // HP-F11: Use live counts if available, fall back to SSR ragAgg
   const displayRagCounts = phData?.ok
     ? liveRagCounts
     : { g: ragAgg.g, a: ragAgg.a, r: ragAgg.r };
@@ -1752,7 +1747,6 @@ export default function HomePage({ data }: { data: HomeData }) {
             {/* RAG + Projects + Sidebar */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 space-y-4">
-                {/* HP-F11: Uses liveRagCounts when available */}
                 {(phData?.ok ? liveRagCounts.g + liveRagCounts.a + liveRagCounts.r : ragAgg.scored) > 0 && (
                   <m.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
                     className="bg-white rounded-2xl border border-gray-100 px-6 py-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
@@ -1801,7 +1795,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </div>
                     <span className="text-xs text-gray-400 pr-12">Health</span>
                   </div>
-                  {/* HP-F11: Pass mergedRagMap so rows show live scorer values */}
                   {sortedProjects.slice(0, 9).map((p: any, i) => (
                     <m.div key={String(p.id || i)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.03 * i }}>
                       <ProjectRow p={p} ragMap={mergedRagMap} />
