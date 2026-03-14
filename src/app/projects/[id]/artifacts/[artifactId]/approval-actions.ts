@@ -230,22 +230,74 @@ async function getOrganisationIdForProject(supabase: any, projectId: string): Pr
 
 async function updateArtifactSubmitted(
   supabase: any,
-  artifactId: string,
-  chainId: string,
-  actorId: string,
-  nowIso: string
+  args: {
+    artifactId: string;
+    projectId: string;
+    chainId: string;
+    actorId: string;
+    nowIso: string;
+  }
 ) {
   const patch: any = {
-    approval_chain_id: chainId,
+    approval_chain_id: args.chainId,
     approval_status: "submitted",
-    submitted_at: nowIso,
-    submitted_by: actorId,
+    submitted_at: args.nowIso,
+    submitted_by: args.actorId,
     is_locked: true,
   };
 
-  const { error } = await supabase.from("artifacts").update(patch).eq("id", artifactId);
+  const { data, error } = await supabase
+    .from("artifacts")
+    .update(patch)
+    .eq("id", args.artifactId)
+    .eq("project_id", args.projectId)
+    .select("id, project_id, approval_status, approval_chain_id, is_locked, submitted_at, submitted_by")
+    .maybeSingle();
 
   if (error) throwDb(error, "artifacts.update(submit_runtime_minimal)");
+
+  if (!data?.id) {
+    const { data: probe, error: probeErr } = await supabase
+      .from("artifacts")
+      .select("id, project_id, approval_status, approval_chain_id, is_locked, submitted_at, submitted_by")
+      .eq("id", args.artifactId)
+      .maybeSingle();
+
+    if (probeErr) throwDb(probeErr, "artifacts.select(submit_probe)");
+
+    throw new Error(
+      [
+        "Artifact submit update matched 0 rows.",
+        "Most likely cause: artifacts UPDATE RLS/policy blocked the row.",
+        `artifact_id=${args.artifactId}`,
+        `project_id=${args.projectId}`,
+        `probe_found=${probe?.id ? "yes" : "no"}`,
+        `probe_status=${safeStr((probe as any)?.approval_status) || "null"}`,
+        `probe_chain_id=${safeStr((probe as any)?.approval_chain_id) || "null"}`,
+        `probe_is_locked=${String((probe as any)?.is_locked ?? "null")}`,
+      ].join(" ")
+    );
+  }
+
+  const updatedStatus = lower((data as any).approval_status);
+  const updatedChainId = safeStr((data as any).approval_chain_id).trim();
+  const updatedLocked = (data as any).is_locked === true;
+
+  if (updatedStatus !== "submitted" || updatedChainId !== args.chainId || !updatedLocked) {
+    throw new Error(
+      [
+        "Artifact submit verification failed after update.",
+        `expected_status=submitted`,
+        `actual_status=${safeStr((data as any).approval_status) || "null"}`,
+        `expected_chain_id=${args.chainId}`,
+        `actual_chain_id=${updatedChainId || "null"}`,
+        `expected_is_locked=true`,
+        `actual_is_locked=${String((data as any).is_locked ?? "null")}`,
+      ].join(" ")
+    );
+  }
+
+  return data as any;
 }
 
 async function cancelApprovalChainArtifacts(supabase: any, chainId: string) {
@@ -903,8 +955,16 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     artifactType: normalizeArtifactType(a0.type),
   });
 
+  let updatedArtifact: any = null;
+
   try {
-    await updateArtifactSubmitted(supabase, artifactId, runtime.chainId, user.id, nowIso);
+    updatedArtifact = await updateArtifactSubmitted(supabase, {
+      artifactId,
+      projectId,
+      chainId: runtime.chainId,
+      actorId: user.id,
+      nowIso,
+    });
   } catch (error) {
     await cancelApprovalChainArtifacts(supabase, runtime.chainId);
     throw error;
@@ -921,9 +981,11 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
       approval_chain_id: a0.approval_chain_id ?? null,
     },
     after: {
-      approval_status: "submitted",
-      is_locked: true,
-      approval_chain_id: runtime.chainId,
+      approval_status: safeStr(updatedArtifact?.approval_status || "submitted"),
+      is_locked: updatedArtifact?.is_locked === true,
+      approval_chain_id: safeStr(updatedArtifact?.approval_chain_id || runtime.chainId),
+      submitted_at: safeStr(updatedArtifact?.submitted_at || nowIso),
+      submitted_by: safeStr(updatedArtifact?.submitted_by || user.id),
       runtime_steps_created: true,
       runtime_artifact_type: runtime.chosenType,
       runtime_step_count: runtime.stepIds.length,
