@@ -9,7 +9,10 @@ import RulesPanel from "./RulesPanel";
  * - Change Request
  * - Project Closure Report
  *
- * (Change submits via its own route, but it still uses the same org rules + org panel.)
+ * Governance model:
+ * - Approvers = organisation-wide shared directory
+ * - Groups = scoped per artifact type
+ * - Rules = scoped per artifact type
  */
 const ARTIFACTS = [
   { key: "project_charter", label: "Project Charter" },
@@ -30,7 +33,7 @@ type ApproverCandidate = {
 };
 
 function pill(active: boolean) {
-  return `px-3 py-1.5 text-sm ${
+  return `px-3 py-1.5 text-sm transition-colors ${
     active ? "bg-gray-100 font-semibold" : "bg-white hover:bg-gray-50"
   } disabled:opacity-50`;
 }
@@ -44,6 +47,37 @@ function cleanOrgId(x: any) {
   const s = clean(x);
   if (!s || s === "undefined" || s === "null") return "";
   return s;
+}
+
+function badgeTone(kind: "shared" | "scoped" | "admin" | "readonly") {
+  if (kind === "shared") {
+    return "border border-sky-200 bg-sky-50 text-sky-700";
+  }
+  if (kind === "scoped") {
+    return "border border-violet-200 bg-violet-50 text-violet-700";
+  }
+  if (kind === "admin") {
+    return "border border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  return "border border-amber-200 bg-amber-50 text-amber-700";
+}
+
+function ScopeBadge({
+  children,
+  kind,
+}: {
+  children: React.ReactNode;
+  kind: "shared" | "scoped" | "admin" | "readonly";
+}) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${badgeTone(
+        kind
+      )}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 export default function OrgApprovalsAdminPanel({
@@ -69,43 +103,70 @@ export default function OrgApprovalsAdminPanel({
   }, [orgId]);
 
   const canEdit = !!isAdmin;
+  const selectedArtifact =
+    ARTIFACTS.find((a) => a.key === artifactType) ?? ARTIFACTS[0];
+
+  const scopeLabel =
+    tab === "approvers"
+      ? "Shared across all artifact types"
+      : `Scoped to ${selectedArtifact.label}`;
 
   return (
-    <section className="rounded-xl border bg-white">
-      <div className="p-4 flex items-start justify-between gap-3">
-        <div>
-          <div className="text-base font-semibold">Organisation approvals</div>
-          <div className="text-sm text-gray-600">
-            Configure approvers + groups + rules per artifact type.
+    <section className="rounded-xl border bg-white shadow-sm">
+      <div className="p-4 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-base font-semibold">Organisation approvals</div>
+            <ScopeBadge kind={tab === "approvers" ? "shared" : "scoped"}>
+              {scopeLabel}
+            </ScopeBadge>
           </div>
-          <div className="mt-1 text-xs text-gray-500">
-            Client:{" "}
-            <span className="font-medium">{organisationName || "—"}</span>
-            {!canEdit ? (
-              <span className="ml-2 text-amber-700">
-                Read-only (platform admin only)
+
+          <div className="mt-1 text-sm text-gray-600">
+            Configure approvers, approval groups, and routing rules for governance
+            control.
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            <span>
+              Client:{" "}
+              <span className="font-medium text-gray-700">
+                {organisationName || "—"}
               </span>
+            </span>
+
+            {canEdit ? (
+              <ScopeBadge kind="admin">Admin mode</ScopeBadge>
             ) : (
-              <span className="ml-2 text-emerald-700">Admin mode</span>
+              <ScopeBadge kind="readonly">Read-only</ScopeBadge>
             )}
+          </div>
+
+          <div className="mt-3 text-xs text-gray-500">
+            <span className="font-medium text-gray-700">Control-plane model:</span>{" "}
+            Approvers are shared across the organisation. Groups and Rules decide
+            which approvers apply to each artifact type.
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-2">
-          <select
-            className="border rounded-md px-2 py-1 text-sm"
-            value={artifactType}
-            onChange={(e) => setArtifactType(e.target.value as ArtifactKey)}
-            disabled={!orgId}
-          >
-            {ARTIFACTS.map((a) => (
-              <option key={a.key} value={a.key}>
-                {a.label}
-              </option>
-            ))}
-          </select>
+        <div className="flex min-w-[220px] flex-col items-end gap-2">
+          <label className="w-full">
+            <span className="sr-only">Artifact type</span>
+            <select
+              className="w-full border rounded-md px-2 py-1.5 text-sm bg-white"
+              value={artifactType}
+              onChange={(e) => setArtifactType(e.target.value as ArtifactKey)}
+              disabled={!orgId}
+            >
+              {ARTIFACTS.map((a) => (
+                <option key={a.key} value={a.key}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-          <div className="inline-flex rounded-md border overflow-hidden">
+          <div className="inline-flex rounded-md border overflow-hidden bg-white">
             <button
               className={pill(tab === "rules")}
               onClick={() => setTab("rules")}
@@ -144,11 +205,24 @@ export default function OrgApprovalsAdminPanel({
             correctly.
           </div>
         ) : tab === "approvers" ? (
-          <ApproversTab orgId={orgId} canEdit={canEdit} />
+          <ApproversTab
+            orgId={orgId}
+            canEdit={canEdit}
+            selectedArtifactLabel={selectedArtifact.label}
+          />
         ) : tab === "groups" ? (
-          <GroupsTab orgId={orgId} artifactType={artifactType} canEdit={canEdit} />
+          <GroupsTab
+            orgId={orgId}
+            artifactType={artifactType}
+            artifactLabel={selectedArtifact.label}
+            canEdit={canEdit}
+          />
         ) : (
-          <RulesPanel orgId={orgId} artifactType={artifactType} canEdit={canEdit} />
+          <RulesPanel
+            orgId={orgId}
+            artifactType={artifactType}
+            canEdit={canEdit}
+          />
         )}
       </div>
     </section>
@@ -159,7 +233,15 @@ export default function OrgApprovalsAdminPanel({
    Approvers Tab
 ------------------------------ */
 
-function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
+function ApproversTab({
+  orgId,
+  canEdit,
+  selectedArtifactLabel,
+}: {
+  orgId: string;
+  canEdit: boolean;
+  selectedArtifactLabel: string;
+}) {
   const [q, setQ] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -193,6 +275,7 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
     setEmail(candidate.email ?? "");
     setName(candidate.full_name ?? "");
     setDepartment(candidate.department ?? "");
+    setApproverRole(candidate.job_title ?? candidate.role ?? "");
     setCandidateQuery(candidate.label || candidate.email || "");
   }
 
@@ -331,12 +414,28 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
 
   return (
     <div className="space-y-3">
+      <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-sm font-semibold text-sky-900">
+            Organisation approver directory
+          </div>
+          <ScopeBadge kind="shared">Shared across all artifact types</ScopeBadge>
+        </div>
+        <div className="mt-1 text-sm text-sky-800">
+          The people listed here are not tied directly to{" "}
+          <span className="font-medium">{selectedArtifactLabel}</span>. Use{" "}
+          <span className="font-medium">Groups</span> and{" "}
+          <span className="font-medium">Rules</span> to decide which of these
+          approvers are used for each artifact workflow.
+        </div>
+      </div>
+
       {err ? <div className="text-sm text-red-600">{err}</div> : null}
       {loading ? <div className="text-sm text-gray-600">Loading…</div> : null}
 
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs text-gray-600">
-          Search
+          Search approver directory
           <input
             className="block border rounded-md px-2 py-1 text-sm w-[320px]"
             value={q}
@@ -355,7 +454,15 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
 
       {canEdit ? (
         <div className="border rounded-lg p-3 space-y-3">
-          <div className="text-sm font-semibold">Add approver</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-sm font-semibold">Add approver</div>
+            <ScopeBadge kind="shared">Directory entry</ScopeBadge>
+          </div>
+
+          <div className="text-xs text-gray-500">
+            Add a linked organisation member or create an external approver. This
+            entry becomes available to artifact-specific Groups and Rules later.
+          </div>
 
           <div className="grid md:grid-cols-2 gap-2">
             <label className="text-xs text-gray-600 md:col-span-2">
@@ -482,24 +589,28 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
           </div>
         ) : (
           approvers.map((a) => (
-            <div key={a.id} className="p-3 flex items-start justify-between gap-3">
+            <div
+              key={a.id}
+              className="p-3 flex items-start justify-between gap-3"
+            >
               <div className="min-w-0">
-                <div className="font-medium truncate">
-                  {a.label || a.email || a.name || a.id}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="font-medium truncate">
+                    {a.label || a.email || a.name || a.id}
+                  </div>
+                  <ScopeBadge kind={a.link_state === "linked" || a.user_id ? "shared" : "readonly"}>
+                    {a.link_state === "linked" || a.user_id
+                      ? "Linked member"
+                      : "External"}
+                  </ScopeBadge>
                 </div>
 
                 <div className="mt-1 text-xs text-gray-600 truncate">
                   {a.email ? <span className="mr-2">{a.email}</span> : null}
-                  {a.department ? <span className="mr-2">Dept: {a.department}</span> : null}
+                  {a.department ? (
+                    <span className="mr-2">Dept: {a.department}</span>
+                  ) : null}
                   {a.approver_role ? <span>Role: {a.approver_role}</span> : null}
-                </div>
-
-                <div className="text-[11px] text-gray-500 truncate">
-                  {a.link_state === "linked" || a.user_id ? (
-                    <span className="text-emerald-700">Linked member</span>
-                  ) : (
-                    <span className="text-amber-700">External / not linked</span>
-                  )}
                 </div>
               </div>
 
@@ -527,10 +638,12 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
 function GroupsTab({
   orgId,
   artifactType,
+  artifactLabel,
   canEdit,
 }: {
   orgId: string;
   artifactType: string;
+  artifactLabel: string;
   canEdit: boolean;
 }) {
   const [err, setErr] = useState("");
@@ -569,7 +682,9 @@ function GroupsTab({
 
   useEffect(() => {
     if (!selected) return;
-    const exists = (groups ?? []).some((g: any) => String(g?.id) === String(selected));
+    const exists = (groups ?? []).some(
+      (g: any) => String(g?.id) === String(selected)
+    );
     if (!exists) setSelected(groups?.[0]?.id ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups.length]);
@@ -589,6 +704,19 @@ function GroupsTab({
 
   return (
     <div className="space-y-3">
+      <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-sm font-semibold text-violet-900">
+            Artifact approval groups
+          </div>
+          <ScopeBadge kind="scoped">Scoped to {artifactLabel}</ScopeBadge>
+        </div>
+        <div className="mt-1 text-sm text-violet-800">
+          These groups only apply to <span className="font-medium">{artifactLabel}</span>.
+          Group members are selected from the shared organisation approver directory.
+        </div>
+      </div>
+
       {err ? <div className="text-sm text-red-600">{err}</div> : null}
       {loading ? <div className="text-sm text-gray-600">Loading…</div> : null}
 
@@ -600,6 +728,7 @@ function GroupsTab({
               className="block border rounded-md px-2 py-1 text-sm w-[360px]"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              placeholder={`e.g. ${artifactLabel} Executive Approvers`}
             />
           </label>
           <button
@@ -637,7 +766,12 @@ function GroupsTab({
           </div>
         </div>
 
-        <GroupMembersPanel orgId={orgId} groupId={selected} canEdit={canEdit} />
+        <GroupMembersPanel
+          orgId={orgId}
+          groupId={selected}
+          canEdit={canEdit}
+          artifactLabel={artifactLabel}
+        />
       </div>
     </div>
   );
@@ -651,10 +785,12 @@ function GroupMembersPanel({
   orgId,
   groupId,
   canEdit,
+  artifactLabel,
 }: {
   orgId: string;
   groupId: string;
   canEdit: boolean;
+  artifactLabel: string;
 }) {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -758,7 +894,12 @@ function GroupMembersPanel({
 
   return (
     <div className="border rounded-lg overflow-hidden">
-      <div className="p-3 border-b text-sm font-semibold">Members</div>
+      <div className="p-3 border-b">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-sm font-semibold">Members</div>
+          <ScopeBadge kind="scoped">{artifactLabel} group membership</ScopeBadge>
+        </div>
+      </div>
 
       {!groupId ? (
         <div className="p-3 text-sm text-gray-600">Select a group.</div>
@@ -770,7 +911,7 @@ function GroupMembersPanel({
           {canEdit ? (
             <div className="space-y-2">
               <label className="text-xs text-gray-600">
-                Search approvers
+                Search organisation approvers
                 <input
                   className="block border rounded-md px-2 py-1 text-sm w-full"
                   value={q}
@@ -820,7 +961,10 @@ function GroupMembersPanel({
                   memberKey(m) ||
                   `m_${String(m?.created_at || "")}_${Math.random()}`;
                 return (
-                  <div key={key} className="p-3 flex items-start justify-between gap-3">
+                  <div
+                    key={key}
+                    className="p-3 flex items-start justify-between gap-3"
+                  >
                     <div className="min-w-0">
                       <div className="font-medium truncate">
                         {m.email || m.label || m.name || "Member"}

@@ -29,6 +29,11 @@
 // Aliena $100M polish:
 //   ✅ UI-POLISH1: Add Executive AI assistant avatar button in header (Ask ΛliΞnΛ)
 //                 Opens governance drawer with curated actions + deep links
+//
+// UI Clarity fixes:
+//   ✅ FIX-UI1: Who's Blocking + Bottlenecks href fixed → /approvals (was 404 /approvals/bottlenecks)
+//   ✅ FIX-UI2: Empty state shown when count === 0 and no child content ("No items to action right now")
+//   ✅ FIX-UI3: "VIEW DETAILS" link hidden when count === 0 (was misleading on empty tiles)
 
 "use client";
 
@@ -362,8 +367,9 @@ function bestHref(item: any, fallbackHref: string): string {
     return `/projects/${projectRef}`;
   }
 
+  // ✅ FIX-UI1: approvals/bottlenecks doesn't exist — fall back to /approvals
   if (kind.includes("approval") || kind.includes("approver") || kind.includes("bottleneck") || kind.includes("blocking"))
-    return "/approvals/bottlenecks";
+    return "/approvals";
 
   return fallbackHref || "/approvals";
 }
@@ -499,7 +505,6 @@ function Drawer({
   tone: ToneKey;
   items: any[];
   fallbackHref: string;
-  /** UUIDs of projects the current user is a member of */
   memberProjectIds: string[];
   isAdmin: boolean;
 }) {
@@ -518,7 +523,6 @@ function Drawer({
   function canAccess(item: any): boolean {
     if (isAdmin) return true;
     const pid = extractProjectId(item);
-    // If no project ID on item (e.g. non-project bottleneck) allow through
     if (!pid || !looksLikeUuid(pid)) return true;
     return memberProjectIds.includes(pid);
   }
@@ -671,7 +675,6 @@ function CockpitTile({
   onClick?: () => void;
 }) {
   const acc = TONES[tone];
-  const hasData = count !== null && !error;
 
   return (
     <m.button
@@ -749,8 +752,19 @@ function CockpitTile({
             {icon}
           </div>
         </div>
+
+        {/* ✅ FIX-UI2: Show a clear empty state when count is 0 and there's no child content */}
+        {count === 0 && !error && !children && (
+          <div className="mt-1 flex items-center gap-2 rounded-xl border border-slate-100/80 bg-slate-50/60 px-3 py-2.5 text-[11px] font-medium text-slate-400">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+            No items to action right now
+          </div>
+        )}
+
         {count !== null && !error && children && <div className="mt-auto">{children}</div>}
-        {href && count !== null && !error && (
+
+        {/* ✅ FIX-UI3: Only show VIEW DETAILS when count > 0 */}
+        {href && count !== null && count > 0 && !error && (
           <div className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider" style={{ color: acc.bar }}>
             View details <ArrowUpRight className="h-3 w-3" />
           </div>
@@ -1084,7 +1098,6 @@ function CockpitHeader({
       </div>
 
       <div className="flex items-center gap-3">
-        {/* ✅ Aliena assistant avatar */}
         <AIAssistantAvatar label="Ask ΛliΞnΛ — executive actions" onClick={onAskAliena} />
 
         {label && (
@@ -1111,9 +1124,7 @@ function CockpitHeader({
 
 export default function ExecutiveCockpitClient({
   orgId: _orgId,
-  /** UUIDs of projects the current user is a member of. Pass from your server component. */
   memberProjectIds = [],
-  /** True if the current user is an org admin (bypasses all project-level access checks). */
   isAdmin = false,
 }: {
   orgId?: string;
@@ -1160,8 +1171,8 @@ export default function ExecutiveCockpitClient({
       {
         kind: "ask",
         title: "Ask: What is blocking delivery?",
-        project_name: "Approvals bottlenecks",
-        href: "/approvals/bottlenecks",
+        project_name: "Approvals overview",
+        href: "/approvals",
         meta: {},
       },
       {
@@ -1220,7 +1231,7 @@ export default function ExecutiveCockpitClient({
         fetchJson<Payload>("/api/executive/approvals/pending?limit=200", signal),
         fetchJson<Payload>("/api/executive/approvals/who-blocking", signal),
         fetchJson<Payload>("/api/executive/approvals/sla-radar", signal),
-        fetchJson<Payload>("/api/executive/risk-signals", signal), // ✅ FIX-ECC15
+        fetchJson<Payload>("/api/executive/risk-signals", signal),
         fetchJson<Payload>("/api/executive/approvals/portfolio", signal),
         fetchJson<Payload>("/api/executive/approvals/bottlenecks", signal),
       ]);
@@ -1344,7 +1355,6 @@ export default function ExecutiveCockpitClient({
     return saw ? sum : null;
   })();
 
-  // ✅ FIX-ECC16: prefer primary if it has data; otherwise fall back to Brain
   function pickCount(primary: Payload | null, fallback: number | null): number | null {
     const c = getCount(primary);
     if (c == null) return fallback;
@@ -1382,7 +1392,8 @@ export default function ExecutiveCockpitClient({
       tone: "amber" as ToneKey,
       count: pickCount(whoBlocking, brainWhoBlocking.length ? brainWhoBlocking.length : null),
       error: getError(whoBlocking),
-      href: "/approvals/bottlenecks",
+      // ✅ FIX-UI1: was /approvals/bottlenecks (404) — corrected to /approvals
+      href: "/approvals",
       items: pickItems(wbItems, brainWhoBlocking),
       body: wbItems.length ? <WhoBlockingBody items={wbItems} /> : brainWhoBlocking.length ? <WhoBlockingBody items={brainWhoBlocking} /> : null,
     },
@@ -1430,7 +1441,8 @@ export default function ExecutiveCockpitClient({
       tone: "slate" as ToneKey,
       count: pickCount(bottlenecks, brainWhoBlocking.length ? brainWhoBlocking.length : null),
       error: getError(bottlenecks),
-      href: "/approvals/bottlenecks",
+      // ✅ FIX-UI1: was /approvals/bottlenecks (404) — corrected to /approvals
+      href: "/approvals",
       items: pickItems(bottItems, brainWhoBlocking),
       body: bottItems.length ? <BottlenecksBody items={bottItems} /> : brainWhoBlocking.length ? <BottlenecksBody items={brainWhoBlocking} /> : null,
     },
