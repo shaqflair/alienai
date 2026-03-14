@@ -235,28 +235,35 @@ async function updateArtifactSubmitted(
   actorId: string,
   nowIso: string
 ) {
-  const patchSafe: any = {
+  const patch: any = {
     approval_chain_id: chainId,
+    approval_status: "submitted",
     submitted_at: nowIso,
     submitted_by: actorId,
-    approval_status: "submitted",
     is_locked: true,
-    locked_at: nowIso,
-    locked_by: actorId,
-    rejected_at: null,
-    rejected_by: null,
-    rejection_reason: null,
-    approved_at: null,
-    approved_by: null,
   };
 
-  const { error } = await supabase
-    .from("artifacts")
-    .update(patchSafe)
-    .eq("id", artifactId);
+  const { error } = await supabase.from("artifacts").update(patch).eq("id", artifactId);
 
-  if (error) throwDb(error, "artifacts.update(submit_runtime)");
+  if (error) throwDb(error, "artifacts.update(submit_runtime_minimal)");
 }
+
+async function cancelApprovalChainArtifacts(supabase: any, chainId: string) {
+  const { error: stepsError } = await supabase
+    .from("artifact_approval_steps")
+    .update({ status: "cancelled" })
+    .eq("chain_id", chainId);
+
+  if (stepsError) throwDb(stepsError, "artifact_approval_steps.update(cancel_submit_failure)");
+
+  const { error: chainError } = await supabase
+    .from("approval_chains")
+    .update({ is_active: false, status: "cancelled" })
+    .eq("id", chainId);
+
+  if (chainError) throwDb(chainError, "approval_chains.update(cancel_submit_failure)");
+}
+
 async function getActiveApprovalChainForArtifact(supabase: any, artifactId: string) {
   const { data, error } = await supabase
     .from("approval_chains")
@@ -425,7 +432,11 @@ async function markActiveChainStepsClosed(
     updated_at: nowIso,
   };
 
-  const r1 = await supabase.from("artifact_approval_steps").update(patch1).eq("chain_id", chainId).eq("is_active", true);
+  const r1 = await supabase
+    .from("artifact_approval_steps")
+    .update(patch1)
+    .eq("chain_id", chainId)
+    .eq("is_active", true);
   if (!r1.error) return;
 
   const patch2: any = {
@@ -433,7 +444,11 @@ async function markActiveChainStepsClosed(
     status: terminalStatus,
   };
 
-  const r2 = await supabase.from("artifact_approval_steps").update(patch2).eq("chain_id", chainId).eq("is_active", true);
+  const r2 = await supabase
+    .from("artifact_approval_steps")
+    .update(patch2)
+    .eq("chain_id", chainId)
+    .eq("is_active", true);
   if (r2.error) throwDb(r2.error, "artifact_approval_steps.update(close_active)");
 }
 
@@ -855,15 +870,9 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     throw new Error(`Cannot submit from status: ${st}`);
   }
 
-  // Charter validation
   if (isProjectCharterType(a0.type)) {
     assertCharterReadyForSubmit(a0.content_json);
   }
-
-  /* =========================================================
-     DUPLICATE APPROVAL CHAIN GUARD
-     Prevent multiple runtime chains from being created
-  ========================================================= */
 
   const { data: activeChain, error: chainErr } = await supabase
     .from("approval_chains")
@@ -877,8 +886,6 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   if (activeChain?.id) {
     throw new Error("This artifact already has an active approval chain.");
   }
-
-  /* ========================================================= */
 
   const organisationId = await getOrganisationIdForProject(supabase, projectId);
   if (!organisationId) {
@@ -896,7 +903,12 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     artifactType: normalizeArtifactType(a0.type),
   });
 
-  await updateArtifactSubmitted(supabase, artifactId, runtime.chainId, user.id, nowIso);
+  try {
+    await updateArtifactSubmitted(supabase, artifactId, runtime.chainId, user.id, nowIso);
+  } catch (error) {
+    await cancelApprovalChainArtifacts(supabase, runtime.chainId);
+    throw error;
+  }
 
   await writeAuditLog(supabase, {
     project_id: projectId,
