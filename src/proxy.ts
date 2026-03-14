@@ -5,7 +5,6 @@ import { createServerClient } from "@supabase/ssr";
 /** Fast allowlist for paths that never need auth cookie refresh */
 function isStaticAssetPath(pathname: string) {
   if (pathname.startsWith("/_next/")) return true;
-
   if (
     pathname === "/favicon.ico" ||
     pathname === "/robots.txt" ||
@@ -13,7 +12,6 @@ function isStaticAssetPath(pathname: string) {
     pathname === "/manifest.json"
   )
     return true;
-
   if (
     pathname.startsWith("/assets/") ||
     pathname.startsWith("/images/") ||
@@ -21,7 +19,6 @@ function isStaticAssetPath(pathname: string) {
     pathname.startsWith("/fonts/")
   )
     return true;
-
   const lower = pathname.toLowerCase();
   return (
     lower.endsWith(".png") ||
@@ -49,37 +46,45 @@ function isStaticAssetPath(pathname: string) {
 
 /** Conservative check: only refresh for typical page navigations */
 function shouldRefreshSession(req: NextRequest) {
-  // Only GET/HEAD should ever matter here
   if (req.method !== "GET" && req.method !== "HEAD") return false;
-
-  // Next prefetches can be very chatty; skip for perf
-  // (header used by Next Router for prefetch)
   if (req.headers.get("x-middleware-prefetch") === "1") return false;
-
-  // If Accept header doesn't include HTML, likely an asset/data request
   const accept = (req.headers.get("accept") || "").toLowerCase();
   if (accept && !accept.includes("text/html") && !accept.includes("*/*")) return false;
-
   return true;
 }
+
+/** Paths that should never trigger the onboarding gate */
+function isOnboardingExempt(pathname: string) {
+  return (
+    pathname.startsWith("/onboarding") ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/forgot-password") ||
+    pathname.startsWith("/invite") ||
+    pathname.startsWith("/organisations/invite")
+  );
+}
+
+// Cookie name -- set after onboarding completes so DB is not hit every request
+const ONBOARDING_DONE_COOKIE = "aliena_onboarding_done";
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // ✅ Skip static assets immediately
+  // Skip static assets immediately
   if (isStaticAssetPath(pathname)) {
     return NextResponse.next({ request: { headers: req.headers } });
   }
 
-  // ✅ Skip non-page-like requests for perf
+  // Skip non-page-like requests
   if (!shouldRefreshSession(req)) {
     return NextResponse.next({ request: { headers: req.headers } });
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseUrl    = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // ✅ Never crash if env vars are missing (prevents 500 / invocation failures)
   if (!supabaseUrl || !supabaseAnonKey) {
     if (process.env.NODE_ENV !== "production") {
       console.warn("[proxy] Supabase env missing; skipping session refresh");
@@ -87,13 +92,8 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next({ request: { headers: req.headers } });
   }
 
-  if (
-    process.env.NODE_ENV === "production" &&
-    supabaseUrl.startsWith("http://")
-  ) {
-    console.warn(
-      "[proxy] Supabase URL is http in production; cookies may be insecure"
-    );
+  if (process.env.NODE_ENV === "production" && supabaseUrl.startsWith("http://")) {
+    console.warn("[proxy] Supabase URL is http in production; cookies may be insecure");
   }
 
   const res = NextResponse.next({ request: { headers: req.headers } });
@@ -110,8 +110,46 @@ export async function proxy(req: NextRequest) {
       },
     });
 
-    // 🔑 Refresh session cookies for server components
-    await supabase.auth.getUser();
+    // Refresh session cookies for server components
+    const { data: { user } } = await supabase.auth.getUser();
+
+    // -- Onboarding gate ------------------------------------------------------
+    // Only runs for logged-in users on non-exempt page routes.
+    // Uses a cookie to avoid a DB hit on every request once onboarding is done.
+    if (user && !isOnboardingExempt(pathname)) {
+
+      // If the cookie says onboarding is complete, skip DB check entirely
+      const doneCookie = req.cookies.get(ONBOARDING_DONE_COOKIE)?.value;
+      if (doneCookie === user.id) {
+        // Already onboarded -- pass through
+        return res;
+      }
+
+      // Check the profile for job_title (the completion signal)
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("job_title")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (!profile?.job_title) {
+        // Profile incomplete -- redirect to onboarding
+        const url = req.nextUrl.clone();
+        url.pathname = "/onboarding";
+        return NextResponse.redirect(url);
+      }
+
+      // Profile complete -- set the cookie so we skip DB next time (30 days)
+      res.cookies.set(ONBOARDING_DONE_COOKIE, user.id, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 60 * 60 * 24 * 30,
+        path: "/",
+      });
+    }
+    // -- End onboarding gate --------------------------------------------------
+
   } catch {
     if (process.env.NODE_ENV !== "production") {
       console.warn("[proxy] session refresh failed");
@@ -123,7 +161,6 @@ export async function proxy(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // ✅ Exclude: /api, all Next internals, and common public files
     "/((?!api/|_next/|favicon.ico|robots.txt|sitemap.xml|manifest.json).*)",
   ],
 };
