@@ -294,7 +294,43 @@ async function updateArtifactSubmitted(
   return data as any;
 }
 
-async function cancelApprovalChainArtifacts(supabase: any, chainId: string) {
+async function clearArtifactApprovalLinkIfStale(
+  supabase: any,
+  artifactId: string,
+  chainId: string
+) {
+  const { data: art, error: artErr } = await supabase
+    .from("artifacts")
+    .select("id, approval_status, approval_chain_id, is_locked")
+    .eq("id", artifactId)
+    .maybeSingle();
+
+  if (artErr) throwDb(artErr, "artifacts.select(clear_stale_link)");
+  if (!art?.id) return;
+
+  const approvalStatus = String((art as any).approval_status ?? "").toLowerCase();
+  const linkedChainId = safeStr((art as any).approval_chain_id).trim();
+
+  if (linkedChainId !== chainId) return;
+
+  if (approvalStatus !== "submitted") {
+    const { error: clrErr } = await supabase
+      .from("artifacts")
+      .update({
+        approval_chain_id: null,
+        is_locked: false,
+      })
+      .eq("id", artifactId);
+
+    if (clrErr) throwDb(clrErr, "artifacts.update(clear_stale_link)");
+  }
+}
+
+async function cancelApprovalChainArtifacts(
+  supabase: any,
+  chainId: string,
+  artifactId?: string
+) {
   const { error: stepsError } = await supabase
     .from("artifact_approval_steps")
     .update({ status: "cancelled" })
@@ -308,6 +344,10 @@ async function cancelApprovalChainArtifacts(supabase: any, chainId: string) {
     .eq("id", chainId);
 
   if (chainError) throwDb(chainError, "approval_chains.update(cancel_submit_failure)");
+
+  if (artifactId) {
+    await clearArtifactApprovalLinkIfStale(supabase, artifactId, chainId);
+  }
 }
 
 async function getActiveApprovalChainForArtifact(supabase: any, artifactId: string) {
@@ -936,7 +976,7 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
 
   const { data: activeChain, error: chainErr } = await supabase
     .from("approval_chains")
-    .select("id")
+    .select("id, artifact_id, is_active, status")
     .eq("artifact_id", artifactId)
     .eq("is_active", true)
     .maybeSingle();
@@ -944,7 +984,19 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   if (chainErr) throwDb(chainErr, "approval_chains.select(active)");
 
   if (activeChain?.id) {
-    throw new Error("This artifact already has an active approval chain.");
+    const artifactApprovalStatus = String(a0.approval_status ?? "").toLowerCase();
+    const artifactChainId = safeStr(a0.approval_chain_id).trim();
+
+    if (artifactApprovalStatus === "submitted" && artifactChainId === activeChain.id) {
+      revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+      return;
+    }
+
+    if (artifactApprovalStatus === "draft" || artifactApprovalStatus === "changes_requested" || !artifactChainId) {
+      await cancelApprovalChainArtifacts(supabase, activeChain.id, artifactId);
+    } else {
+      throw new Error("This artifact already has an active approval chain.");
+    }
   }
 
   const organisationId = await getOrganisationIdForProject(supabase, projectId);
@@ -974,7 +1026,7 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
       nowIso,
     });
   } catch (error) {
-    await cancelApprovalChainArtifacts(supabase, runtime.chainId);
+    await cancelApprovalChainArtifacts(supabase, runtime.chainId, artifactId);
     throw error;
   }
 
