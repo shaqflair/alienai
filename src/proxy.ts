@@ -2,7 +2,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-/** Fast allowlist for paths that never need auth cookie refresh */
 function isStaticAssetPath(pathname: string) {
   if (pathname.startsWith("/_next/")) return true;
   if (
@@ -10,41 +9,25 @@ function isStaticAssetPath(pathname: string) {
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||
     pathname === "/manifest.json"
-  )
-    return true;
+  ) return true;
   if (
     pathname.startsWith("/assets/") ||
     pathname.startsWith("/images/") ||
     pathname.startsWith("/icons/") ||
     pathname.startsWith("/fonts/")
-  )
-    return true;
+  ) return true;
   const lower = pathname.toLowerCase();
   return (
-    lower.endsWith(".png") ||
-    lower.endsWith(".jpg") ||
-    lower.endsWith(".jpeg") ||
-    lower.endsWith(".gif") ||
-    lower.endsWith(".webp") ||
-    lower.endsWith(".svg") ||
-    lower.endsWith(".ico") ||
-    lower.endsWith(".css") ||
-    lower.endsWith(".js") ||
-    lower.endsWith(".mjs") ||
-    lower.endsWith(".map") ||
-    lower.endsWith(".txt") ||
-    lower.endsWith(".xml") ||
-    lower.endsWith(".woff") ||
-    lower.endsWith(".woff2") ||
-    lower.endsWith(".ttf") ||
-    lower.endsWith(".eot") ||
-    lower.endsWith(".otf") ||
-    lower.endsWith(".pdf") ||
-    lower.endsWith(".zip")
+    lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
+    lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".svg") ||
+    lower.endsWith(".ico") || lower.endsWith(".css")  || lower.endsWith(".js")  ||
+    lower.endsWith(".mjs") || lower.endsWith(".map")  || lower.endsWith(".txt") ||
+    lower.endsWith(".xml") || lower.endsWith(".woff") || lower.endsWith(".woff2") ||
+    lower.endsWith(".ttf") || lower.endsWith(".eot")  || lower.endsWith(".otf") ||
+    lower.endsWith(".pdf") || lower.endsWith(".zip")
   );
 }
 
-/** Conservative check: only refresh for typical page navigations */
 function shouldRefreshSession(req: NextRequest) {
   if (req.method !== "GET" && req.method !== "HEAD") return false;
   if (req.headers.get("x-middleware-prefetch") === "1") return false;
@@ -53,7 +36,7 @@ function shouldRefreshSession(req: NextRequest) {
   return true;
 }
 
-/** Paths that should never trigger the onboarding gate */
+/** Paths that bypass the onboarding gate entirely */
 function isOnboardingExempt(pathname: string) {
   return (
     pathname.startsWith("/onboarding") ||
@@ -66,23 +49,19 @@ function isOnboardingExempt(pathname: string) {
   );
 }
 
-// Cookie name -- set after onboarding completes so DB is not hit every request
 const ONBOARDING_DONE_COOKIE = "aliena_onboarding_done";
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Skip static assets immediately
   if (isStaticAssetPath(pathname)) {
     return NextResponse.next({ request: { headers: req.headers } });
   }
-
-  // Skip non-page-like requests
   if (!shouldRefreshSession(req)) {
     return NextResponse.next({ request: { headers: req.headers } });
   }
 
-  const supabaseUrl    = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
@@ -110,45 +89,51 @@ export async function proxy(req: NextRequest) {
       },
     });
 
-    // Refresh session cookies for server components
+    // Refresh session cookies
     const { data: { user } } = await supabase.auth.getUser();
 
-    // -- Onboarding gate ------------------------------------------------------
-    // Only runs for logged-in users on non-exempt page routes.
-    // Uses a cookie to avoid a DB hit on every request once onboarding is done.
+    // ---- Onboarding gate -----------------------------------------------
+    // Only for logged-in users on non-exempt page routes.
+    // Uses a cookie to skip the DB check on every request.
     if (user && !isOnboardingExempt(pathname)) {
 
-      // If the cookie says onboarding is complete, skip DB check entirely
+      // Cookie present and matches this user -- already onboarded
       const doneCookie = req.cookies.get(ONBOARDING_DONE_COOKIE)?.value;
       if (doneCookie === user.id) {
-        // Already onboarded -- pass through
         return res;
       }
 
-      // Check the profile for job_title (the completion signal)
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("job_title")
-        .eq("user_id", user.id)
-        .maybeSingle();
+      // Check profile AND org role in one go
+      const [profileResult, roleResult] = await Promise.all([
+        supabase.from("profiles").select("job_title").eq("user_id", user.id).maybeSingle(),
+        supabase.from("organisation_members").select("role").eq("user_id", user.id).is("removed_at", null).limit(1).maybeSingle(),
+      ]);
 
-      if (!profile?.job_title) {
-        // Profile incomplete -- redirect to onboarding
+      const jobTitle = profileResult.data?.job_title;
+      const orgRole  = (roleResult.data?.role ?? "").toLowerCase();
+
+      // Org owners/admins who set up via the original wizard may not have
+      // job_title -- don't gate them, just set the cookie and move on.
+      const isOrgOwnerOrAdmin = orgRole === "owner" || orgRole === "admin";
+
+      if (!jobTitle && !isOrgOwnerOrAdmin) {
+        // Profile incomplete and not an owner -- redirect to onboarding
         const url = req.nextUrl.clone();
         url.pathname = "/onboarding";
+        url.search   = "";
         return NextResponse.redirect(url);
       }
 
-      // Profile complete -- set the cookie so we skip DB next time (30 days)
+      // Profile complete (or owner) -- set cookie so we skip DB next time
       res.cookies.set(ONBOARDING_DONE_COOKIE, user.id, {
         httpOnly: true,
         sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 60 * 60 * 24 * 30,
-        path: "/",
+        secure:   process.env.NODE_ENV === "production",
+        maxAge:   60 * 60 * 24 * 30,
+        path:     "/",
       });
     }
-    // -- End onboarding gate --------------------------------------------------
+    // ---- End gate --------------------------------------------------------
 
   } catch {
     if (process.env.NODE_ENV !== "production") {
