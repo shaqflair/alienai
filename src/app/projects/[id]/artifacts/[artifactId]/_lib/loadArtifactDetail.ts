@@ -34,6 +34,7 @@ const ARTIFACT_SELECT = [
   "title",
   "content",
   "content_json",
+  "status",
   "created_at",
   "updated_at",
   "is_locked",

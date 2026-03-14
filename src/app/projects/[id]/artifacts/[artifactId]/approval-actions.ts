@@ -543,9 +543,30 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     throw new Error(`Cannot submit from status: ${st}`);
   }
 
+  // Charter validation
   if (isProjectCharterType(a0.type)) {
     assertCharterReadyForSubmit(a0.content_json);
   }
+
+  /* =========================================================
+     DUPLICATE APPROVAL CHAIN GUARD
+     Prevent multiple runtime chains from being created
+  ========================================================= */
+
+  const { data: activeChain, error: chainErr } = await supabase
+    .from("approval_chains")
+    .select("id")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (chainErr) throwDb(chainErr, "approval_chains.select(active)");
+
+  if (activeChain?.id) {
+    throw new Error("This artifact already has an active approval chain.");
+  }
+
+  /* ========================================================= */
 
   const organisationId = await getOrganisationIdForProject(supabase, projectId);
   if (!organisationId) {
@@ -587,7 +608,6 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }
-
 export async function approveArtifact(projectId: string, artifactId: string) {
   const { supabase, user } = await requireUser();
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");

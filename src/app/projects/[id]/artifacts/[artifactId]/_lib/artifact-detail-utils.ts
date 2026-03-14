@@ -77,18 +77,25 @@ export const PROJECT_META_SELECT =
 ========================================================= */
 
 export function derivedStatus(a: any) {
-  const s = String(a?.approval_status ?? "").toLowerCase();
+  const rawStatus = String(a?.status ?? "").toLowerCase();
+  const approvalStatus = String(a?.approval_status ?? "").toLowerCase();
+  const locked = !!a?.is_locked;
 
-  if (s === "approved") return "approved";
-  if (s === "rejected") return "rejected";
-  if (s === "changes_requested") return "changes_requested";
-  if (s === "submitted") return "submitted";
+  // Priority 1: approval workflow state
+  if (approvalStatus === "approved") return "approved";
+  if (approvalStatus === "submitted") return "submitted";
+  if (approvalStatus === "changes_requested") return "changes_requested";
+  if (approvalStatus === "rejected") return "rejected";
 
-  // legacy fallbacks
-  if (a?.approved_by) return "approved";
-  if (a?.rejected_by) return "rejected";
-  if (a?.is_locked) return "submitted";
+  // Priority 2: lifecycle status
+  if (rawStatus === "approved") return "approved";
+  if (rawStatus === "submitted") return "submitted";
+  if (rawStatus === "draft") return "draft";
 
+  // Priority 3: infer from locking
+  if (locked) return "submitted";
+
+  // fallback
   return "draft";
 }
 
