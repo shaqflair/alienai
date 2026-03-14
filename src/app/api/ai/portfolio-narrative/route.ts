@@ -502,19 +502,52 @@ GOOD example: "Project Comfort has 3 overdue milestones -- escalate to the PM fo
   };
 }
 
-/* -- GET handler ----------------------------------------------------------- */
+/* -- GET/POST handler ----------------------------------------------------------- */
 
-export async function GET() {
+// Accept POST so the client can send live health data from the homepage
+export async function POST(req: Request) {
   try {
     const supabase = await createClient();
     const user     = await requireAuth(supabase);
+
+    const body = await req.json().catch(() => ({}));
+    const force = body?.force === true;
     const cacheKey = "narrative:" + user.id;
 
-    // Return cached version if fresh
-    const cached = cacheGet(cacheKey);
-    if (cached) return jsonNoStore({ ...cached, cached: true });
+    // Return cached version if fresh and not forced
+    if (!force) {
+      const cached = cacheGet(cacheKey);
+      if (cached) return jsonNoStore({ ...cached, cached: true });
+    }
 
     const signals = await collectSignals(supabase, user.id);
+
+    // Override health data with live counts passed from the homepage
+    // This is the reliable source -- avoids all project_health table issues
+    if (body?.ragCounts && typeof body.ragCounts === "object") {
+      const rc = body.ragCounts;
+      signals.rag.g       = Number(rc.g)  || 0;
+      signals.rag.a       = Number(rc.a)  || 0;
+      signals.rag.r       = Number(rc.r)  || 0;
+      signals.rag.unscored = Math.max(0, signals.projectCount - signals.rag.g - signals.rag.a - signals.rag.r);
+    }
+    if (body?.projectScores && typeof body.projectScores === "object") {
+      const ps = body.projectScores as Record<string, { score: number; rag: string }>;
+      const scores = Object.values(ps).map((v) => Number(v?.score)).filter((n) => n > 0);
+      if (scores.length) {
+        signals.avgHealth = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+      }
+      // Update project-level names for red/amber lists
+      signals.redProjects   = [];
+      signals.amberProjects = [];
+      for (const [pid, v] of Object.entries(ps)) {
+        const rag = safeStr(v?.rag).toUpperCase();
+        // Find project name from projectNames list (best effort)
+        const name = pid; // fallback to pid -- narratives will use it
+        if (rag === "R") signals.redProjects.push(name);
+        if (rag === "A") signals.amberProjects.push(name);
+      }
+    }
 
     if (signals.projectCount === 0) {
       const empty = {
@@ -563,4 +596,13 @@ export async function GET() {
     console.error("[portfolio-narrative] fatal:", e);
     return jsonNoStore({ ok: false, error: e?.message ?? "Failed" }, { status: 500 });
   }
+}
+
+// Keep GET for backwards compat -- just calls POST with empty body
+export async function GET() {
+  return POST(new Request("http://local/api/ai/portfolio-narrative", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  }));
 }
