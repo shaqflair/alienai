@@ -81,7 +81,7 @@ async function resolveProject(
   if (looksLikeUuid(raw)) {
     const { data, error } = await supabase
       .from("projects")
-      .select("id,title,name,project_code,client_name,organisation_id,finish_date,end_date")
+      .select("id,title,project_code,client_name,organisation_id,finish_date,end_date")
       .eq("id", raw)
       .maybeSingle();
 
@@ -97,7 +97,7 @@ async function resolveProject(
   if (codeNum != null) {
     const { data, error } = await supabase
       .from("projects")
-      .select("id,title,name,project_code,client_name,organisation_id,finish_date,end_date")
+      .select("id,title,project_code,client_name,organisation_id,finish_date,end_date")
       .eq("project_code", codeNum)
       .maybeSingle();
 
@@ -119,7 +119,7 @@ async function resolveProject(
   for (const col of fallbacks) {
     const { data, error } = await supabase
       .from("projects")
-      .select("id,title,name,project_code,client_name,organisation_id,finish_date,end_date")
+      .select("id,title,project_code,client_name,organisation_id,finish_date,end_date")
       .eq(col, raw)
       .maybeSingle();
 
@@ -186,7 +186,7 @@ export default async function ApprovalTimelinePage({
     (
       await supabase
         .from("projects")
-        .select("id,title,name,project_code")
+        .select("id,title,project_code")
         .eq("id", projectUuid)
         .maybeSingle()
     ).data ??
@@ -198,34 +198,32 @@ export default async function ApprovalTimelinePage({
 
   const projectHeadingLabel =
     projectCodeLabel ||
-    safeStr((project as any)?.title ?? (project as any)?.name ?? projectUuid).trim();
+    safeStr((project as any)?.title ?? projectUuid).trim();
 
-return (
-  <div className="p-6">
-    <div className="mb-4">
-      <div className="text-lg font-semibold text-slate-900">Approvals</div>
+  return (
+    <div className="p-6">
+      <div className="mb-4">
+        <div className="text-lg font-semibold text-slate-900">Approvals</div>
 
-      <div className="text-sm text-slate-600">
-        Timeline view (project:{" "}
-        <span className="font-medium">
+        <div className="text-sm text-slate-600">
+          Timeline view (project:{" "}
+          <span className="font-medium">{projectCodeLabel || projectHeadingLabel}</span>)
+        </div>
+      </div>
+
+      <div className="mb-4 text-[11px] text-slate-500">
+        Scope:{" "}
+        <span className="font-medium text-slate-700">
           {projectCodeLabel || projectHeadingLabel}
         </span>
       </div>
-    </div>
 
-    <div className="mb-4 text-[11px] text-slate-500">
-      Scope:{" "}
-      <span className="font-medium text-slate-700">
-        {projectCodeLabel || projectHeadingLabel}
-      </span>
+      <ApprovalTimeline
+        projectId={projectUuid}
+        projectCode={projectCodeLabel || null}
+        artifactId={artifactId}
+        changeId={changeId}
+      />
     </div>
-
-    <ApprovalTimeline
-      projectId={projectUuid}
-      projectCode={projectCodeLabel || null}
-      artifactId={artifactId}
-      changeId={changeId}
-    />
-  </div>
-);
+  );
 }
