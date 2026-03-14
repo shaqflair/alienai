@@ -36,12 +36,6 @@ function isMissingColumnError(errMsg: string, col: string) {
   );
 }
 
-function looksLikeUuid(s: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    String(s || "").trim()
-  );
-}
-
 function lower(x: any) {
   return safeStr(x).trim().toLowerCase();
 }
@@ -287,11 +281,11 @@ async function updateArtifactSubmitted(
     throw new Error(
       [
         "Artifact submit verification failed after update.",
-        `expected_status=submitted`,
+        "expected_status=submitted",
         `actual_status=${safeStr((data as any).approval_status) || "null"}`,
         `expected_chain_id=${args.chainId}`,
         `actual_chain_id=${updatedChainId || "null"}`,
-        `expected_is_locked=true`,
+        "expected_is_locked=true",
         `actual_is_locked=${String((data as any).is_locked ?? "null")}`,
       ].join(" ")
     );
@@ -722,10 +716,14 @@ export async function applySuggestion(formData: FormData) {
   const artifactId = String(formData.get("artifact_id") ?? "").trim();
   const suggestionId = String(formData.get("suggestion_id") ?? "").trim();
 
-  if (!projectId || !artifactId || !suggestionId) throw new Error("project_id, artifact_id, suggestion_id are required.");
+  if (!projectId || !artifactId || !suggestionId) {
+    throw new Error("project_id, artifact_id, suggestion_id are required.");
+  }
 
   const myRole = await requireMemberRole(supabase, projectId, user.id);
-  if (!(myRole === "owner" || myRole === "editor")) throw new Error("Only owners/editors can apply suggestions.");
+  if (!(myRole === "owner" || myRole === "editor")) {
+    throw new Error("Only owners/editors can apply suggestions.");
+  }
 
   const { data: s0, error: sErr } = await supabase
     .from("artifact_suggestions")
@@ -749,7 +747,9 @@ export async function applySuggestion(formData: FormData) {
 
   const approvalStatus = String(a0.approval_status ?? "draft").toLowerCase();
   const canMutateArtifact = !a0.is_locked && (approvalStatus === "draft" || approvalStatus === "changes_requested");
-  if (!canMutateArtifact) throw new Error("You can only apply suggestions when the artifact is unlocked (draft/CR).");
+  if (!canMutateArtifact) {
+    throw new Error("You can only apply suggestions when the artifact is unlocked (draft/CR).");
+  }
 
   const anchor = String((s0 as any).anchor ?? "content").toLowerCase();
   const suggestedText = String((s0 as any).suggested_text ?? "").trim();
@@ -796,7 +796,11 @@ export async function applySuggestion(formData: FormData) {
     actor_id: user.id,
     action: "suggestion_applied_to_artifact",
     before: { suggestion_id: suggestionId, suggestion_status: status0, anchor, artifact: beforeArtifact },
-    after: { suggestion_id: suggestionId, suggestion_status: "applied", applied_to: anchor === "title" ? "title" : "content" },
+    after: {
+      suggestion_id: suggestionId,
+      suggestion_status: "applied",
+      applied_to: anchor === "title" ? "title" : "content",
+    },
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
@@ -809,10 +813,14 @@ export async function dismissSuggestion(formData: FormData) {
   const artifactId = String(formData.get("artifact_id") ?? "").trim();
   const suggestionId = String(formData.get("suggestion_id") ?? "").trim();
 
-  if (!projectId || !artifactId || !suggestionId) throw new Error("project_id, artifact_id, suggestion_id are required.");
+  if (!projectId || !artifactId || !suggestionId) {
+    throw new Error("project_id, artifact_id, suggestion_id are required.");
+  }
 
   const myRole = await requireMemberRole(supabase, projectId, user.id);
-  if (!(myRole === "owner" || myRole === "editor")) throw new Error("Only owners/editors can dismiss suggestions.");
+  if (!(myRole === "owner" || myRole === "editor")) {
+    throw new Error("Only owners/editors can dismiss suggestions.");
+  }
 
   const { data: s0, error: sErr } = await supabase
     .from("artifact_suggestions")
