@@ -405,15 +405,29 @@ async function expandGroupMembersToUserIds(supabase: any, groupId: string): Prom
   if (!gid) return [];
 
   try {
-    const { data, error } = await supabase
-      .from("approver_group_members")
-      .select("user_id, is_active")
-      .eq("group_id", gid)
+    const gm = await supabase
+      .from("approval_group_members")
+      .select("approver_id")
+      .eq("group_id", gid);
+
+    if (gm.error) return [];
+
+    const approverIds = (Array.isArray(gm.data) ? gm.data : [])
+      .map((r: any) => safeStr(r?.approver_id))
+      .filter(Boolean);
+
+    if (!approverIds.length) return [];
+
+    const oa = await supabase
+      .from("organisation_approvers")
+      .select("id, user_id, is_active")
+      .in("id", approverIds)
       .eq("is_active", true);
 
-    if (error) return [];
-    const ids = (Array.isArray(data) ? data : [])
-      .map((r: any) => (r?.user_id ? String(r.user_id) : ""))
+    if (oa.error) return [];
+
+    const ids = (Array.isArray(oa.data) ? oa.data : [])
+      .map((r: any) => safeStr(r?.user_id))
       .filter(Boolean);
 
     return Array.from(new Set(ids));
