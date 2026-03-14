@@ -10,8 +10,6 @@ import type {
   ResourceType,
 } from "./FinancialPlanEditor";
 
-// ── PickedPerson ─────────────────────────────────────────────────────────────
-
 export type PickedPerson = {
   user_id: string;
   full_name: string | null;
@@ -38,67 +36,27 @@ type OrgMember = {
   role: string;
 };
 
-// ── Avatar ───────────────────────────────────────────────────────────────────
-
-function Avatar({
-  name,
-  avatarUrl,
-  size = 7,
-}: {
-  name?: string | null;
-  avatarUrl?: string | null;
-  size?: number;
-}) {
-  const initials = (name ?? "?")
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-
+function Avatar({ name, avatarUrl, size = 7 }: { name?: string | null; avatarUrl?: string | null; size?: number }) {
+  const initials = (name ?? "?").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
   if (avatarUrl) {
-    return (
-      <img
-        src={avatarUrl}
-        alt={name ?? ""}
-        className={`w-${size} h-${size} rounded-full object-cover flex-shrink-0`}
-      />
-    );
+    return <img src={avatarUrl} alt={name ?? ""} className={`w-${size} h-${size} rounded-full object-cover flex-shrink-0`} />;
   }
-
   return (
-    <div
-      className={`w-${size} h-${size} rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-semibold flex-shrink-0`}
-    >
+    <div className={`w-${size} h-${size} rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-semibold flex-shrink-0`}>
       {initials}
     </div>
   );
 }
 
-// ── Rate badge ───────────────────────────────────────────────────────────────
-
 const CURRENCY_SYMBOLS: Record<string, string> = {
-  GBP: "£", USD: "$", EUR: "€", AUD: "A$", CAD: "C$",
+  GBP: "\u00a3", USD: "$", EUR: "\u20ac", AUD: "A$", CAD: "C$",
 };
 
-function RateBadge({
-  match,
-  source,
-}: {
-  match: RateCardMatch;
-  source: "personal" | "role";
-}) {
+function RateBadge({ match, source }: { match: RateCardMatch; source: "personal" | "role" }) {
   const sym   = CURRENCY_SYMBOLS[match.currency] ?? match.currency;
   const label = match.rate_type === "day_rate" ? "/day" : "/mo";
-
   return (
-    <span
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-        source === "personal"
-          ? "bg-emerald-100 text-emerald-700"
-          : "bg-blue-100 text-blue-700"
-      }`}
-    >
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${source === "personal" ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>
       <Zap className="w-2.5 h-2.5" />
       {sym}{Number(match.rate).toLocaleString()}{label}
       {source === "role" && <span className="opacity-70">(role)</span>}
@@ -106,11 +64,7 @@ function RateBadge({
   );
 }
 
-// ── Cache ────────────────────────────────────────────────────────────────────
-
 const memberCache: Record<string, OrgMember[]> = {};
-
-// ── Main component ───────────────────────────────────────────────────────────
 
 type Props = {
   organisationId: string;
@@ -120,13 +74,7 @@ type Props = {
   onPick: (person: PickedPerson) => void;
 };
 
-export default function ResourcePicker({
-  organisationId,
-  value,
-  currentResource,
-  disabled = false,
-  onPick,
-}: Props) {
+export default function ResourcePicker({ organisationId, value, currentResource, disabled = false, onPick }: Props) {
   const [open,        setOpen]        = useState(false);
   const [q,           setQ]           = useState("");
   const [members,     setMembers]     = useState<OrgMember[]>(memberCache[organisationId] ?? []);
@@ -136,26 +84,20 @@ export default function ResourcePicker({
 
   const selected = members.find((m) => m.user_id === value);
 
-  // ── Use fetch (NOT server actions) so navigation is never blocked ──────────
-
   async function handleOpen() {
     if (disabled) return;
     setOpen((o) => !o);
     if (members.length > 0 || loading) return;
-
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/org/members?orgId=${encodeURIComponent(organisationId)}`,
-        { cache: "no-store" }
-      );
+      const res = await fetch(`/api/org/members?orgId=${encodeURIComponent(organisationId)}`, { cache: "no-store" });
       const d = await res.json();
       if (Array.isArray(d.members)) {
         memberCache[organisationId] = d.members;
         setMembers(d.members);
       }
     } catch {
-      // silent — empty list shown
+      // silent
     } finally {
       setLoading(false);
     }
@@ -181,7 +123,7 @@ export default function ResourcePicker({
         rateSource = "personal";
       }
     } catch {
-      setRateError("Could not load rate — please set manually");
+      setRateError("Could not load rate -- please set manually");
     } finally {
       setRateLoading(false);
     }
@@ -202,24 +144,25 @@ export default function ResourcePicker({
     });
   }
 
+  const emptyPick: PickedPerson = {
+    user_id: "", full_name: null, email: null, avatar_url: null,
+    job_title: null, department: null, rate_type: null, rate: null,
+    currency: null, resource_type: null, role_label: null, rate_source: null,
+  };
+
   function handleClear(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    onPick({
-      user_id: "", full_name: null, email: null, avatar_url: null,
-      job_title: null, department: null, rate_type: null, rate: null,
-      currency: null, resource_type: null, role_label: null, rate_source: null,
-    });
+    onPick(emptyPick);
   }
 
   const filtered = useMemo(() => {
     const lq = q.toLowerCase();
-    return members.filter(
-      (m) =>
-        (m.full_name  ?? "").toLowerCase().includes(lq) ||
-        (m.email      ?? "").toLowerCase().includes(lq) ||
-        (m.job_title  ?? "").toLowerCase().includes(lq) ||
-        (m.department ?? "").toLowerCase().includes(lq)
+    return members.filter((m) =>
+      (m.full_name  ?? "").toLowerCase().includes(lq) ||
+      (m.email      ?? "").toLowerCase().includes(lq) ||
+      (m.job_title  ?? "").toLowerCase().includes(lq) ||
+      (m.department ?? "").toLowerCase().includes(lq)
     );
   }, [members, q]);
 
@@ -240,37 +183,32 @@ export default function ResourcePicker({
           <>
             <Avatar name={selected.full_name} avatarUrl={selected.avatar_url} size={6} />
             <div className="flex-1 min-w-0 text-left">
-              <div className="text-xs font-medium text-gray-800 truncate">
+              <div className="text-xs font-medium text-gray-900 truncate">
                 {selected.full_name ?? selected.email}
               </div>
               {selected.job_title && (
                 <div className="text-[10px] text-gray-400 truncate">{selected.job_title}</div>
               )}
             </div>
-            {currentResource.rate_type &&
-              (currentResource.day_rate || currentResource.monthly_cost) && (
-                <RateBadge
-                  match={{
-                    rate_type:     currentResource.rate_type,
-                    rate:          Number(currentResource.rate_type === "day_rate" ? currentResource.day_rate : currentResource.monthly_cost),
-                    currency:      "GBP",
-                    resource_type: currentResource.type,
-                    role_label:    currentResource.name,
-                  }}
-                  source="personal"
-                />
-              )}
+            {currentResource.rate_type && (currentResource.day_rate || currentResource.monthly_cost) && (
+              <RateBadge
+                match={{
+                  rate_type:     currentResource.rate_type,
+                  rate:          Number(currentResource.rate_type === "day_rate" ? currentResource.day_rate : currentResource.monthly_cost),
+                  currency:      "GBP",
+                  resource_type: currentResource.type,
+                  role_label:    currentResource.name,
+                }}
+                source="personal"
+              />
+            )}
             {!disabled && (
               <span
                 role="button"
                 tabIndex={0}
                 onClick={handleClear}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onPick({ user_id: "", full_name: null, email: null, avatar_url: null, job_title: null, department: null, rate_type: null, rate: null, currency: null, resource_type: null, role_label: null, rate_source: null });
-                  }
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onPick(emptyPick); }
                 }}
                 className="ml-1 text-gray-300 hover:text-gray-500 flex-shrink-0 inline-flex items-center justify-center"
                 aria-label="Clear selected person"
@@ -283,12 +221,12 @@ export default function ResourcePicker({
         ) : rateLoading ? (
           <>
             <div className="w-6 h-6 rounded-full bg-gray-100 animate-pulse flex-shrink-0" />
-            <span className="text-xs text-gray-400 flex-1 text-left">Loading rate…</span>
+            <span className="text-xs text-gray-400 flex-1 text-left">Loading rate...</span>
           </>
         ) : (
           <>
             <User className="w-4 h-4 text-gray-300 flex-shrink-0" />
-            <span className="text-xs text-gray-400 flex-1 text-left">Pick a person…</span>
+            <span className="text-xs text-gray-400 flex-1 text-left">Pick a person...</span>
             <ChevronDown className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
           </>
         )}
@@ -306,8 +244,8 @@ export default function ResourcePicker({
           <div className="p-2 border-b border-gray-100">
             <input
               autoFocus
-              className="w-full text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 text-gray-900"
-              placeholder="Search name, title, department…"
+              className="w-full text-xs text-gray-900 px-2.5 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-400"
+              placeholder="Search name, title, department..."
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
@@ -315,35 +253,34 @@ export default function ResourcePicker({
 
           <ul className="max-h-60 overflow-y-auto py-1">
             {loading && (
-              <li className="px-3 py-4 text-xs text-gray-400 text-center">Loading members…</li>
+              <li className="px-3 py-4 text-xs text-gray-400 text-center">Loading members...</li>
             )}
             {!loading && filtered.length === 0 && (
               <li className="px-3 py-4 text-xs text-gray-400 text-center">No members found</li>
             )}
-            {!loading &&
-              filtered.map((m) => (
-                <li key={m.user_id}>
-                  <button
-                    type="button"
-                    onClick={() => handleSelect(m)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-blue-50 transition-colors"
-                  >
-                    <Avatar name={m.full_name} avatarUrl={m.avatar_url} size={7} />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-gray-800 truncate">
-                        {m.full_name ?? m.email}
-                      </div>
-                      {m.job_title && (
-                        <div className="text-[10px] text-indigo-500 truncate">{m.job_title}</div>
-                      )}
-                      {m.department && (
-                        <div className="text-[10px] text-gray-400 truncate">{m.department}</div>
-                      )}
+            {!loading && filtered.map((m) => (
+              <li key={m.user_id}>
+                <button
+                  type="button"
+                  onClick={() => handleSelect(m)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-blue-50 transition-colors"
+                >
+                  <Avatar name={m.full_name} avatarUrl={m.avatar_url} size={7} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-gray-900 truncate">
+                      {m.full_name ?? m.email}
                     </div>
-                    <span className="text-[10px] text-gray-300 flex-shrink-0">{m.role}</span>
-                  </button>
-                </li>
-              ))}
+                    {m.job_title && (
+                      <div className="text-[10px] text-indigo-500 truncate">{m.job_title}</div>
+                    )}
+                    {m.department && (
+                      <div className="text-[10px] text-gray-400 truncate">{m.department}</div>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-gray-300 flex-shrink-0">{m.role}</span>
+                </button>
+              </li>
+            ))}
           </ul>
 
           <div className="border-t border-gray-100 px-3 py-2 text-[10px] text-gray-400 flex items-center gap-1">
