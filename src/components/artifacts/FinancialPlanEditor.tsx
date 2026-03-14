@@ -46,7 +46,7 @@ const P = {
 export const CURRENCIES = ["GBP", "USD", "EUR", "AUD", "CAD"] as const;
 export type Currency = typeof CURRENCIES[number];
 export const CURRENCY_SYMBOLS: Record<Currency, string> = {
-  GBP: "£", USD: "$", EUR: "€", AUD: "A$", CAD: "C$",
+  GBP: "\u00a3", USD: "$", EUR: "\u20ac", AUD: "A$", CAD: "C$",
 };
 
 export type CostCategory =
@@ -198,12 +198,12 @@ function applyActualsToCostLines(lines: CostLine[], actualTotals: Record<string,
 }
 
 function fmt(n: number | "" | null | undefined, sym: string): string {
-  if (n === "" || n == null || isNaN(Number(n))) return "—";
+  if (n === "" || n == null || isNaN(Number(n))) return "\u2014";
   return `${sym}${Number(n).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
 }
 
 function fmtShort(n: number, sym: string): string {
-  if (!n) return "—";
+  if (!n) return "\u2014";
   if (Math.abs(n) >= 1_000_000) return `${sym}${(Math.abs(n) / 1_000_000).toFixed(1)}M`;
   return `${sym}${Math.abs(n).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
 }
@@ -213,7 +213,7 @@ function sumField(lines: CostLine[], field: keyof CostLine): number {
 }
 
 function VarianceBadge({ budget, forecast }: { budget: number | ""; forecast: number | "" }) {
-  if (!budget || forecast === "") return <span style={{ color: P.border, fontSize: 11 }}>—</span>;
+  if (!budget || forecast === "") return <span style={{ color: P.border, fontSize: 11 }}>\u2014</span>;
   const pct = ((Number(forecast) - Number(budget)) / Number(budget)) * 100;
   const over = pct > 0;
   return (
@@ -255,7 +255,7 @@ function ActualCell({ value, symbol, approvedDays, hasTimesheetData }: {
           : <Clock style={{ width: 10, height: 10, color: P.textSm, flexShrink: 0, opacity: 0.4 }} />
         }
         <span style={{ fontSize: 12, fontWeight: 600, fontFamily: P.mono, color: hasValue ? P.violet : P.textSm, fontVariantNumeric: "tabular-nums" }}>
-          {hasValue ? fmt(value, symbol) : "—"}
+          {hasValue ? fmt(value, symbol) : "\u2014"}
         </span>
       </div>
       {hasTimesheetData && approvedDays > 0 && (
@@ -279,7 +279,7 @@ function OverrideToggle({ line, hasLinkedResources, resTotal, sym, onToggle }: {
       type="button"
       onClick={onToggle}
       style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", cursor: "pointer", background: line.override ? P.amberLt : P.greenLt, border: `1px solid ${line.override ? "#E0C080" : "#A0D0B8"}`, color: line.override ? P.amber : P.green }}
-      title={line.override ? "Re-enable auto-update from resources" : "Override — stop auto-update"}
+      title={line.override ? "Re-enable auto-update from resources" : "Override -- stop auto-update"}
     >
       {line.override ? <Link2Off style={{ width: 9, height: 9 }} /> : <Link2 style={{ width: 9, height: 9 }} />}
       {line.override ? "Override" : `Auto ${fmt(resTotal, sym)}`}
@@ -294,7 +294,7 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
 }) {
   const [expanded, setExpanded] = useState(false);
   const [synced, setSynced]     = useState(false);
-  const sym = CURRENCY_SYMBOLS[currency as Currency] ?? "£";
+  const sym = CURRENCY_SYMBOLS[currency as Currency] ?? "\u00a3";
   const preview = previewSync(resources, costLines, monthlyData, fyConfig);
 
   const readyResources = resources.filter(r =>
@@ -331,15 +331,15 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
           <Zap style={{ width: 14, height: 14, flexShrink: 0, color: synced ? P.green : hasChanges ? P.navy : P.textSm }} />
           <div>
             <div style={{ fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: synced ? P.green : hasChanges ? P.navy : P.textMd, letterSpacing: "0.04em" }}>
-              {synced ? "Monthly phasing synced — actuals from approved timesheets"
+              {synced ? "Monthly phasing synced -- actuals from approved timesheets"
                 : hasChanges ? `${readyResources.length} resource${readyResources.length !== 1 ? "s" : ""} ready to sync to monthly phasing`
                 : "Monthly phasing is up to date with resources"}
             </div>
             <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>
-              {readyResources.length} ready · {unreadyResources.length} missing rate or qty · {resources.filter(r => !r.cost_line_id).length} unlinked
+              {readyResources.length} ready &middot; {unreadyResources.length} missing rate or qty &middot; {resources.filter(r => !r.cost_line_id).length} unlinked
               {timesheetEntries.length > 0 && (
                 <span style={{ marginLeft: 8, color: P.violet, fontWeight: 600 }}>
-                  · {timesheetEntries.length} approved timesheet entr{timesheetEntries.length !== 1 ? "ies" : "y"}
+                  &middot; {timesheetEntries.length} approved timesheet entr{timesheetEntries.length !== 1 ? "ies" : "y"}
                 </span>
               )}
             </div>
@@ -348,12 +348,10 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           {hasChanges && !synced && (
             <>
-              {/* FIX: type="button" to prevent form submission */}
               <button type="button" onClick={() => setExpanded(v => !v)} style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: P.mono, fontSize: 10, color: P.navy, cursor: "pointer", background: "none", border: "none", fontWeight: 500 }}>
                 Preview
                 <ChevronRight style={{ width: 12, height: 12, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
               </button>
-              {/* FIX: type="button" to prevent form submission */}
               <button type="button" onClick={handleSync} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: P.navy, color: "#FFF", fontFamily: P.mono, fontSize: 10, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.04em" }}>
                 <Zap style={{ width: 11, height: 11 }} /> SYNC TO MONTHLY
               </button>
@@ -379,7 +377,7 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: P.mono, fontSize: 11, flexShrink: 0 }}>
                   <span style={{ color: P.textSm }}>{fmtShort(row.totalBefore, sym)}</span>
-                  <span style={{ color: P.border }}>→</span>
+                  <span style={{ color: P.border }}>{"\u2192"}</span>
                   <span style={{ fontWeight: 700, color: P.text }}>{fmtShort(row.totalAfter, sym)}</span>
                   {delta !== 0 && (
                     <span style={{ padding: "2px 6px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, background: delta > 0 ? P.amberLt : P.greenLt, color: delta > 0 ? P.amber : P.green, border: `1px solid ${delta > 0 ? "#E0C080" : "#A0D0B8"}` }}>
@@ -407,7 +405,7 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
               <div style={{ fontFamily: P.mono, fontSize: 9, color: P.violet }}>
                 <strong>Actuals</strong> will be auto-computed from{" "}
                 <strong>{timesheetEntries.length} approved timesheet entr{timesheetEntries.length !== 1 ? "ies" : "y"}</strong>{" "}
-                (approved days × rate card rate). The Actual column is locked.
+                (approved days x rate card rate). The Actual column is locked.
               </div>
             </div>
           )}
@@ -489,7 +487,7 @@ function ResourcesTab({
             {byLine.map(({ line, resources: lr, total }) => (
               <div key={line.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: line.override ? P.amberLt : P.surface, border: `1px solid ${line.override ? "#E0C080" : P.border}`, fontSize: 11 }}>
                 <span style={{ fontWeight: 600, color: P.text, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{line.description || line.category}</span>
-                <span style={{ color: P.textSm }}>←</span>
+                <span style={{ color: P.textSm }}>{"\u2190"}</span>
                 <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textMd }}>{lr.length} resource{lr.length !== 1 ? "s" : ""}</span>
                 <span style={{ fontFamily: P.mono, fontWeight: 700, color: P.navy }}>{fmt(total, sym)}</span>
                 {line.override && <span style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.amber, background: P.amberLt, border: `1px solid #E0C080`, padding: "1px 5px" }}>Override</span>}
@@ -505,12 +503,12 @@ function ResourcesTab({
 
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8, border: `1px solid #a5f3fc`, background: P.violetLt, padding: "8px 12px", fontSize: 11, color: P.violet }}>
         <Lock style={{ width: 12, height: 12, flexShrink: 0, marginTop: 1 }} />
-        <span><strong>People actuals are locked</strong> — computed from approved timesheet days × rate card rate. Hardware, infrastructure and vendor lines can be edited manually in the Cost Breakdown tab.</span>
+        <span><strong>People actuals are locked</strong> -- computed from approved timesheet days x rate card rate. Hardware, infrastructure and vendor lines can be edited manually in the Cost Breakdown tab.</span>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${P.border}`, background: P.navyLt, padding: "8px 12px", fontSize: 11, color: P.navy }}>
         <Users style={{ width: 12, height: 12, flexShrink: 0 }} />
-        <span>Pick a person from your organisation — their rate auto-fills from the <strong>Rate Card</strong>. Then hit <strong>Sync to monthly</strong> to phase costs across the timeline.</span>
+        <span>Pick a person from your organisation -- their rate auto-fills from the <strong>Rate Card</strong>. Then hit <strong>Sync to monthly</strong> to phase costs across the timeline.</span>
       </div>
 
       <div style={{ border: `1px solid ${P.borderMd}`, overflowX: "auto" }}>
@@ -586,7 +584,7 @@ function ResourcesTab({
                       }}
                     />
                     <input type="text" value={r.name} onChange={e => update(r.id, { name: e.target.value })} readOnly={readOnly}
-                      placeholder="Role label override…"
+                      placeholder="Role label override..."
                       style={{ width: "100%", border: "none", background: "transparent", padding: "2px 6px", fontSize: 10, color: P.textMd, fontFamily: P.sans, outline: "none" }}
                     />
                   </td>
@@ -632,20 +630,20 @@ function ResourcesTab({
                     </div>
                   </td>
                   <td style={{ ...cellStyle, padding: "4px 10px" }}>
-                    <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: total > 0 ? P.text : P.textSm, fontVariantNumeric: "tabular-nums" }}>{total > 0 ? fmt(total, sym) : "—"}</div>
+                    <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: total > 0 ? P.text : P.textSm, fontVariantNumeric: "tabular-nums" }}>{total > 0 ? fmt(total, sym) : "\u2014"}</div>
                     {total > 0 && <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>planned total</div>}
                   </td>
                   <td style={{ ...cellStyle, background: idx % 2 === 0 ? P.violetLt : "#e0f7fa", padding: "4px 10px", minWidth: 100 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <Lock style={{ width: 9, height: 9, color: P.violet, flexShrink: 0, opacity: 0.5 }} />
                       <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: hasTimesheet ? P.violet : P.textSm, fontVariantNumeric: "tabular-nums" }}>
-                        {hasTimesheet ? approvedDays.toLocaleString() : "—"}
+                        {hasTimesheet ? approvedDays.toLocaleString() : "\u2014"}
                       </span>
                     </div>
                     <div style={{ fontFamily: P.mono, fontSize: 9, color: P.violet, marginTop: 2, opacity: 0.7 }}>{hasTimesheet ? "approved days" : "no timesheets"}</div>
                     {hasTimesheet && r.rate_type === "day_rate" && Number(r.planned_days) > 0 && (
                       <div style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 600, marginTop: 2, color: approvedDays > Number(r.planned_days) ? P.red : P.green }}>
-                        {approvedDays > Number(r.planned_days) ? "▲" : "▼"} {Math.abs(approvedDays - Number(r.planned_days))} vs plan
+                        {approvedDays > Number(r.planned_days) ? "\u25b2" : "\u25bc"} {Math.abs(approvedDays - Number(r.planned_days))} vs plan
                       </div>
                     )}
                   </td>
@@ -653,7 +651,7 @@ function ResourcesTab({
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <Lock style={{ width: 9, height: 9, color: P.violet, flexShrink: 0, opacity: 0.5 }} />
                       <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: actualCost > 0 ? P.violet : P.textSm, fontVariantNumeric: "tabular-nums" }}>
-                        {actualCost > 0 ? fmt(actualCost, sym) : "—"}
+                        {actualCost > 0 ? fmt(actualCost, sym) : "\u2014"}
                       </span>
                     </div>
                     <div style={{ fontFamily: P.mono, fontSize: 9, color: P.violet, marginTop: 2, opacity: 0.7 }}>{hasTimesheet ? "actual spend" : "awaiting timesheets"}</div>
@@ -672,7 +670,7 @@ function ResourcesTab({
                   <td style={{ ...cellStyle, minWidth: 160, padding: "4px 6px" }}>
                     <select value={r.cost_line_id ?? ""} onChange={e => update(r.id, { cost_line_id: e.target.value || null })} disabled={readOnly}
                       style={{ width: "100%", border: `1px solid ${P.border}`, background: P.surface, fontSize: 11, fontFamily: P.sans, padding: "5px 6px", color: P.text, outline: "none", cursor: readOnly ? "default" : "pointer" }}>
-                      <option value="">— not linked —</option>
+                      <option value="">-- not linked --</option>
                       {costLines.map(l => <option key={l.id} value={l.id}>{l.description || l.category}</option>)}
                     </select>
                     {linkedLine && (
@@ -684,25 +682,19 @@ function ResourcesTab({
                       </div>
                     )}
                   </td>
-                  {/* FIX: locked icon when timesheet exists, trash icon only when no timesheet */}
                   <td style={{ ...cellStyle, padding: "4px 6px", textAlign: "center", width: 32 }}>
                     {!readOnly && (
                       hasTimesheet ? (
-                        <div
-                          title="Cannot remove — resource has approved timesheet hours"
-                          style={{ padding: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", color: P.border, cursor: "not-allowed" }}
-                        >
+                        <div title="Cannot remove -- resource has approved timesheet hours"
+                          style={{ padding: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", color: P.border, cursor: "not-allowed" }}>
                           <Lock style={{ width: 13, height: 13 }} />
                         </div>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => onChange(resources.filter(x => x.id !== r.id))}
+                        <button type="button" onClick={() => onChange(resources.filter(x => x.id !== r.id))}
                           style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0.35, transition: "opacity 0.15s, color 0.15s" }}
                           onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
                           onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0.35"; }}
-                          aria-label="Remove resource"
-                        >
+                          aria-label="Remove resource">
                           <Trash2 style={{ width: 13, height: 13 }} />
                         </button>
                       )
@@ -730,7 +722,6 @@ function ResourcesTab({
         </table>
         {!readOnly && (
           <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
-            {/* FIX: type="button" to prevent form submission */}
             <button type="button" onClick={() => onChange([...resources, emptyResource()])} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.navy, cursor: "pointer", fontWeight: 500 }}>
               <Plus style={{ width: 14, height: 14 }} /> Add resource
             </button>
@@ -741,10 +732,16 @@ function ResourcesTab({
   );
 }
 
+/* =========================================================================
+   PROPS -- budgetLocked added
+   budget is locked when the financial plan artifact approval_status === 'approved'
+   Pass: budgetLocked={artifact?.approval_status === 'approved'}
+   ========================================================================= */
 type Props = {
   content: FinancialPlanContent;
   onChange: (c: FinancialPlanContent) => void;
   readOnly?: boolean;
+  budgetLocked?: boolean;
   organisationId: string;
   timesheetEntries?: TimesheetEntry[];
   raidItems?: Array<{ type: string; title: string; severity: string; status: string }>;
@@ -752,18 +749,15 @@ type Props = {
 };
 
 export default function FinancialPlanEditor({
-  content, onChange, readOnly = false, organisationId,
+  content, onChange, readOnly = false, budgetLocked = false, organisationId,
   timesheetEntries = [], raidItems, approvalDelays,
 }: Props) {
   const [activeTab, setActiveTab] = useState<"budget" | "resources" | "monthly" | "changes" | "narrative">("budget");
   const [signals, setSignals]     = useState<Signal[]>([]);
   const [, startTransition]       = useTransition();
-  // Stable key ref — prevents setSignals firing when analyseFinancialPlan
-  // returns a new array reference with identical contents, which causes
-  // an infinite re-render loop that starves the Next.js router.
   const lastSignalsKeyRef         = useRef<string>("");
 
-  const sym       = CURRENCY_SYMBOLS[content.currency] ?? "£";
+  const sym       = CURRENCY_SYMBOLS[content.currency] ?? "\u00a3";
   const lines     = content.cost_lines ?? [];
   const resources = content.resources  ?? [];
 
@@ -856,12 +850,9 @@ export default function FinancialPlanEditor({
 
   useEffect(() => {
     const sigs = analyseFinancialPlan(contentDeps, monthlyDataWithActuals, fyConfig, { lastUpdatedAt: contentDeps.last_updated_at });
-    // Stringify the result as a stable key — only update state when
-    // the signals actually changed, breaking the reference-equality loop.
     const key = JSON.stringify(sigs);
     if (key === lastSignalsKeyRef.current) return;
     lastSignalsKeyRef.current = key;
-    // Mark as a low-priority transition so navigation can always interrupt it.
     startTransition(() => setSignals(sigs));
   }, [contentDeps, monthlyDataWithActuals, fyConfig, startTransition]);
 
@@ -882,6 +873,7 @@ export default function FinancialPlanEditor({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, fontFamily: P.sans }}>
 
+      {/* -- Header: currency + approved budget -- */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-end" }}>
         <div>
           <label style={labelStyle}>Currency</label>
@@ -889,19 +881,39 @@ export default function FinancialPlanEditor({
             {CURRENCIES.map(c => <option key={c} value={c}>{c} ({CURRENCY_SYMBOLS[c]})</option>)}
           </select>
         </div>
+
+        {/* -- Total Approved Budget -- locked when baselined -- */}
         <div>
-          <label style={labelStyle}>Total Approved Budget</label>
-          <div style={{ display: "flex", alignItems: "center", gap: 4, border: `1px solid ${P.border}`, background: P.surface, padding: "0 10px" }}>
-            <span style={{ fontFamily: P.mono, fontSize: 13, fontWeight: 700, color: P.textSm }}>{sym}</span>
-            <input type="number" min={0} step={1000} value={content.total_approved_budget}
+          <label style={labelStyle}>
+            Total Approved Budget
+            {budgetLocked && (
+              <span style={{ marginLeft: 6, fontFamily: P.mono, fontSize: 8, fontWeight: 700, color: P.green, background: P.greenLt, border: `1px solid #A0D0B8`, padding: "2px 6px", letterSpacing: "0.06em" }}>
+                BASELINED
+              </span>
+            )}
+          </label>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, border: `1px solid ${budgetLocked ? "#A0D0B8" : P.border}`, background: budgetLocked ? P.greenLt : P.surface, padding: "0 10px" }}>
+            {budgetLocked && <Lock style={{ width: 12, height: 12, color: P.green, flexShrink: 0 }} />}
+            <span style={{ fontFamily: P.mono, fontSize: 13, fontWeight: 700, color: budgetLocked ? P.green : P.textSm }}>{sym}</span>
+            <input
+              type="number" min={0} step={1000} value={content.total_approved_budget}
               onChange={e => updateField("total_approved_budget", e.target.value === "" ? "" : Number(e.target.value))}
-              readOnly={readOnly} placeholder="0"
-              style={{ width: 144, border: "none", background: "transparent", fontSize: 13, fontWeight: 600, fontFamily: P.mono, color: P.text, outline: "none", padding: "6px 0" }}
+              readOnly={readOnly || budgetLocked}
+              placeholder="0"
+              title={budgetLocked ? "Budget is baselined and locked. Raise a Change Request to uplift it." : undefined}
+              style={{ width: 144, border: "none", background: "transparent", fontSize: 13, fontWeight: 600, fontFamily: P.mono, color: budgetLocked ? P.green : P.text, outline: "none", padding: "6px 0", cursor: budgetLocked ? "not-allowed" : "text" }}
             />
           </div>
+          {budgetLocked && (
+            <div style={{ marginTop: 4, fontFamily: P.mono, fontSize: 9, color: P.green, display: "flex", alignItems: "center", gap: 4 }}>
+              <Lock style={{ width: 9, height: 9 }} />
+              Locked -- raise a Change Request to uplift
+            </div>
+          )}
         </div>
       </div>
 
+      {/* -- KPI tiles -- */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
         {[
           { label: "Budgeted",         value: fmt(totalBudgeted, sym),   sub: "across all cost lines",                                                                                            color: P.text,   locked: false },
@@ -923,7 +935,7 @@ export default function FinancialPlanEditor({
       {totalResourceCost > 0 && approvedBudget > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 12, border: `1px solid ${totalResourceCost > approvedBudget ? "#F0B0AA" : P.border}`, background: totalResourceCost > approvedBudget ? P.redLt : P.navyLt, color: totalResourceCost > approvedBudget ? P.red : P.navy }}>
           <Users style={{ width: 13, height: 13, flexShrink: 0 }} />
-          <span>Resource costs total <strong>{fmt(totalResourceCost, sym)}</strong> ({Math.round((totalResourceCost / approvedBudget) * 100)}% of approved budget).{totalResourceCost > approvedBudget && " ⚠ Exceeds approved budget."}</span>
+          <span>Resource costs total <strong>{fmt(totalResourceCost, sym)}</strong> ({Math.round((totalResourceCost / approvedBudget) * 100)}% of approved budget).{totalResourceCost > approvedBudget && " Warning: Exceeds approved budget."}</span>
         </div>
       )}
 
@@ -942,7 +954,7 @@ export default function FinancialPlanEditor({
         />
       </div>
 
-      {/* FIX: type="button" on all tab buttons prevents form submission / navigation */}
+      {/* -- Tabs -- */}
       <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${P.border}`, overflowX: "auto" }}>
         {tabs.map(tab => {
           const active = activeTab === tab.id;
@@ -963,16 +975,17 @@ export default function FinancialPlanEditor({
         })}
       </div>
 
+      {/* -- Cost Breakdown tab -- */}
       {activeTab === "budget" && (
         <div style={{ border: `1px solid ${P.borderMd}`, overflow: "hidden" }}>
           <div style={{ padding: "6px 12px", background: P.violetLt, borderBottom: `1px solid #a5f3fc`, display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 9, color: P.violet, fontWeight: 500 }}>
             <Lock style={{ width: 11, height: 11 }} />
-            People actuals are locked — auto-computed from approved timesheets × rate card. All other categories (hardware, infrastructure, vendors etc.) can be edited manually.
+            People actuals are locked -- auto-computed from approved timesheets x rate card. All other categories (hardware, infrastructure, vendors etc.) can be edited manually.
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "#F4F4F2", borderBottom: `1px solid ${P.borderMd}` }}>
-                {["Category", "Description", `Budgeted (${sym})`, `Actual (${sym}) ⓘ`, `Forecast (${sym})`, "Variance", "Resources", "Notes", ""].map((h, i) => (
+                {["Category", "Description", `Budgeted (${sym})`, `Actual (${sym})`, `Forecast (${sym})`, "Variance", "Resources", "Notes", ""].map((h, i) => (
                   <th key={i} style={{ padding: "8px 10px", textAlign: "left", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: h.startsWith("Actual") ? P.violet : P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", borderBottom: `1px solid ${P.borderMd}`, background: h.startsWith("Actual") ? P.violetLt : "#F4F4F2", whiteSpace: "nowrap" }}>
                     {h}
                   </th>
@@ -1032,12 +1045,10 @@ export default function FinancialPlanEditor({
                     </td>
                     <td style={{ ...cellBase, padding: "4px 6px" }}>
                       {!readOnly && (
-                        // FIX: type="button" to prevent form submission
                         <button type="button" onClick={() => removeLine(l.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
                           onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
                           onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0.35"; }}
-                          aria-label="Delete cost line"
-                        >
+                          aria-label="Delete cost line">
                           <Trash2 style={{ width: 13, height: 13 }} />
                         </button>
                       )}
@@ -1065,7 +1076,6 @@ export default function FinancialPlanEditor({
           </table>
           {!readOnly && (
             <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
-              {/* FIX: type="button" to prevent form submission */}
               <button type="button" onClick={addLine} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.navy, cursor: "pointer", fontWeight: 500 }}>
                 <Plus style={{ width: 14, height: 14 }} /> Add line
               </button>
@@ -1159,12 +1169,10 @@ export default function FinancialPlanEditor({
                       </td>
                       <td style={{ ...cellBase, padding: "4px 6px" }}>
                         {!readOnly && (
-                          // FIX: type="button" to prevent form submission
                           <button type="button" onClick={() => removeCE(c.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
                             onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
                             onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0"; }}
-                            aria-label="Delete change exposure"
-                          >
+                            aria-label="Delete change exposure">
                             <Trash2 style={{ width: 13, height: 13 }} />
                           </button>
                         )}
@@ -1176,7 +1184,6 @@ export default function FinancialPlanEditor({
             </table>
             {!readOnly && (
               <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
-                {/* FIX: type="button" to prevent form submission */}
                 <button type="button" onClick={addCE} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.amber, cursor: "pointer", fontWeight: 500 }}>
                   <Plus style={{ width: 14, height: 14 }} /> Add change exposure
                 </button>
