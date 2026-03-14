@@ -241,14 +241,22 @@ export default function ResourcePicker({ organisationId, value, currentResource,
 
       {open && (
         <div className="absolute z-50 mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-xl">
-          <div className="p-2 border-b border-gray-100">
+          <div className="p-2 border-b border-gray-100 flex items-center gap-2">
             <input
               autoFocus
-              className="w-full text-xs text-gray-900 px-2.5 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-400"
+              className="flex-1 text-xs text-gray-900 px-2.5 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-400"
               placeholder="Search name, title, department..."
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setQ(""); }}
+              className="flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg p-1.5 transition-colors"
+              aria-label="Close picker"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
 
           <ul className="max-h-60 overflow-y-auto py-1">
