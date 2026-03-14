@@ -51,8 +51,6 @@ function safeNum(x: any, fallback: number) {
 function money(n: any) {
   const v = Number(n ?? 0);
   if (!Number.isFinite(v)) return "£0";
-  return `£${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-})}`;
 })}`;
 }
 
@@ -514,4 +512,3 @@ export default function RulesPanel({
     </div>
   );
 }
-
