@@ -176,12 +176,14 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
   ]);
 
   // Load spend separately (simpler than expanding the destructure)
-  const spendResult = await supabase.from("project_spend")
-    .select("project_id, amount")
-    .in("project_id", activeIds)
-    .limit(100000)
-    .catch(() => ({ data: null, error: "failed" }));
-  const spendRows: any[] = Array.isArray(spendResult.data) ? spendResult.data : [];
+  let spendRows: any[] = [];
+  try {
+    const spendResult = await supabase.from("project_spend")
+      .select("project_id, amount")
+      .in("project_id", activeIds)
+      .limit(100000);
+    if (Array.isArray(spendResult.data)) spendRows = spendResult.data;
+  } catch { /* spend optional */ }
 
   const projects   = rows<any>(projectsR);
   const members    = rows<any>(membersR);
