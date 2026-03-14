@@ -447,7 +447,7 @@ async function generateNarrative(sig: Signals): Promise<{
     "MILESTONES: " + sig.milestonesDue + " due in 30d, " + sig.overdueMilestones + " overdue, " + sig.criticalMilestones + " critical path",
     "CHANGES: " + sig.openChanges + " open, " + sig.changesInReview + " awaiting decision",
     sig.totalBudget > 0
-      ? "BUDGET: GBP " + Math.round(sig.totalBudget).toLocaleString() + " total | GBP " + Math.round(sig.totalSpend).toLocaleString() + " spent" + (sig.variancePct != null ? " | " + (sig.variancePct > 0 ? "+" : "") + sig.variancePct + "% variance" : "")
+      ? "BUDGET: GBP " + Math.round(sig.totalBudget).toLocaleString() + " total | GBP " + Math.round(sig.totalSpend).toLocaleString() + " spent" + (sig.variancePct != null ? " | " + (sig.variancePct > 0 ? "+" : "") + sig.variancePct + "% spend-to-budget ratio (negative = underspent, not necessarily bad)" : "")
       : "BUDGET: Not configured",
     sig.noPmProjects.length ? "NO PM: " + sig.noPmProjects.join(", ") : "",
     sig.staleRaidProjects.length ? "STALE RAID: " + sig.staleRaidProjects.join(", ") : "",
