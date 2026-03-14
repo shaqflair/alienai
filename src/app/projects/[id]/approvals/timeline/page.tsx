@@ -55,6 +55,16 @@ function extractDigitsAsNumber(input: string): number | null {
   return Math.floor(n);
 }
 
+function toProjectCodeLabel(projectCode: unknown): string {
+  const raw = safeStr(projectCode).trim();
+  if (!raw) return "";
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) {
+    return `P-${String(Math.floor(n)).padStart(5, "0")}`;
+  }
+  return raw;
+}
+
 async function resolveProject(
   supabase: any,
   identifier: string
@@ -76,10 +86,7 @@ async function resolveProject(
       .maybeSingle();
 
     if (!error && data?.id) {
-      const human = safeStr(data.project_code).trim()
-        ? `P-${String(Number(data.project_code)).padStart(5, "0")}`
-        : raw;
-
+      const human = toProjectCodeLabel(data.project_code) || raw;
       return { projectUuid: String(data.id), project: data, projectHumanId: human };
     }
 
@@ -102,10 +109,7 @@ async function resolveProject(
     }
 
     if (data?.id) {
-      const human = safeStr(data.project_code).trim()
-        ? `P-${String(Number(data.project_code)).padStart(5, "0")}`
-        : normalizeProjectIdentifier(raw);
-
+      const human = toProjectCodeLabel(data.project_code) || normalizeProjectIdentifier(raw);
       return { projectUuid: String(data.id), project: data, projectHumanId: human };
     }
   }
@@ -126,10 +130,7 @@ async function resolveProject(
     }
 
     if (data?.id) {
-      const human = safeStr(data.project_code).trim()
-        ? `P-${String(Number(data.project_code)).padStart(5, "0")}`
-        : normalizeProjectIdentifier(raw);
-
+      const human = toProjectCodeLabel(data.project_code) || normalizeProjectIdentifier(raw);
       return { projectUuid: String(data.id), project: data, projectHumanId: human };
     }
   }
@@ -191,22 +192,26 @@ export default async function ApprovalTimelinePage({
     ).data ??
     null;
 
-  const projectLabel =
-    safeStr((project as any)?.project_code).trim()
-      ? `P-${String(Number((project as any).project_code)).padStart(5, "0")}`
-      : safeStr((project as any)?.title ?? (project as any)?.name ?? resolved.projectHumanId ?? projectUuid).trim();
+  const projectCodeLabel =
+    toProjectCodeLabel((project as any)?.project_code) ||
+    safeStr(resolved.projectHumanId).trim();
+
+  const projectHeadingLabel =
+    projectCodeLabel ||
+    safeStr((project as any)?.title ?? (project as any)?.name ?? projectUuid).trim();
 
   return (
     <div className="p-6">
       <div className="mb-4">
         <div className="text-lg font-semibold text-slate-900">Approvals</div>
         <div className="text-sm text-slate-600">
-          Timeline view (project: <span className="font-medium">{projectLabel}</span>)
+          Timeline view (project: <span className="font-medium">{projectHeadingLabel}</span>)
         </div>
       </div>
 
       <ApprovalTimeline
         projectId={projectUuid}
+        projectCode={projectCodeLabel || null}
         artifactId={artifactId}
         changeId={changeId}
       />
