@@ -8,6 +8,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import PortfolioAskDrawer from "@/components/home/PortfolioAskDrawer";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 import {
@@ -1604,8 +1605,10 @@ export default function HomePage({ data }: { data: HomeData }) {
                 </div>
                 {dueUpdatedAt && <LastUpdated iso={dueUpdatedAt} />}
                 <div className="h-5 w-px bg-gray-200 mx-1" />
+                {/* ✅ HP-F13: Ask Aliena AI portfolio advisor */}
+                <PortfolioAskDrawer />
                 <button type="button" onClick={openDrawerFocusSearch}
-                  className={["h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
+                                  className={["h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
                     drawerOpenViaSearch ? "bg-gray-900 border-gray-900" : "bg-white border-gray-200 hover:bg-gray-50"].join(" ")}
                   aria-label="Search" title="Search">
                   <Search className={["h-4 w-4", drawerOpenViaSearch ? "text-white" : "text-gray-700"].join(" ")} />
