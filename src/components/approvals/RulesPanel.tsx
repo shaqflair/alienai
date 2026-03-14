@@ -50,8 +50,10 @@ function safeNum(x: any, fallback: number) {
 
 function money(n: any) {
   const v = Number(n ?? 0);
-  if (!Number.isFinite(v)) return "Â£0";
-  return `Â£${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  if (!Number.isFinite(v)) return "£0";
+  return `£${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+})}`;
+})}`;
 }
 
 function approverLabel(a: any) {
@@ -63,9 +65,9 @@ function approverLabel(a: any) {
   const main = name || email || "Approver";
   const meta = [email && name ? email : "", dept && `Dept: ${dept}`, role && `Role: ${role}`]
     .filter(Boolean)
-    .join(" Â· ");
+    .join(" \u00b7 ");
 
-  return meta ? `${main} Â· ${meta}` : main;
+  return meta ? `${main} \u00b7 ${meta}` : main : main;
 }
 
 function authHintFromStatus(status: number) {
@@ -368,7 +370,7 @@ export default function RulesPanel({
           </label>
 
           <label className="text-xs text-gray-600">
-            Max amount (blank=âˆž)
+            Max amount (blank=∞)
             <input
               className="block border rounded-md px-2 py-1 text-sm disabled:opacity-50"
               value={max}
@@ -512,3 +514,4 @@ export default function RulesPanel({
     </div>
   );
 }
+
