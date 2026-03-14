@@ -57,12 +57,8 @@ const ARTIFACT_SELECT = [
 const PROJECT_META_SELECT =
   "id, project_code, title, name, client_name, start_date, finish_date, organisation_id";
 
-// If your DB uses one canonical string, reduce this list to that single type.
 const WBS_TYPES = ["wbs", "work_breakdown_structure"];
 
-// Canonical charter type is now PROJECT_CHARTER.
-// PID is treated as legacy/read-only compatibility and should redirect
-// to PROJECT_CHARTER when a canonical artifact exists.
 const CANONICAL_PROJECT_CHARTER_TYPE = "PROJECT_CHARTER";
 const LEGACY_PROJECT_CHARTER_TYPES = ["PID"];
 
@@ -73,18 +69,12 @@ function safeLower(x: any) {
   return safeStr(x).trim().toLowerCase();
 }
 
-/**
- * ✅ local safeParam (avoids runtime mismatch if utils import resolves differently)
- */
 function safeParam(x: unknown): string {
   if (typeof x === "string") return x;
   if (Array.isArray(x) && typeof (x as any)[0] === "string") return (x as any)[0];
   return "";
 }
 
-/**
- * ✅ runtime-safe UUID detector (guards against "looksLikeUuid is not a function")
- */
 function looksLikeUuid(s: string) {
   if (typeof _looksLikeUuid === "function") return _looksLikeUuid(s);
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -92,25 +82,15 @@ function looksLikeUuid(s: string) {
   );
 }
 
-/**
- * ✅ runtime-safe weekly detector (guards against "isWeeklyReportType is not a function")
- */
 function isWeeklyReportType(type: any) {
   if (typeof _isWeeklyReportType === "function") return _isWeeklyReportType(type);
-
   const t = safeLower(type);
   return [
-    "weekly_report",
-    "weekly report",
-    "weekly",
-    "weekly_status",
-    "weekly status",
-    "weekly_update",
-    "weekly update",
-    "delivery_report",
-    "delivery report",
-    "status_report",
-    "status report",
+    "weekly_report", "weekly report", "weekly",
+    "weekly_status", "weekly status",
+    "weekly_update", "weekly update",
+    "delivery_report", "delivery report",
+    "status_report", "status report",
   ].includes(t);
 }
 
@@ -123,11 +103,6 @@ function normalizeArtifactTypeForUi(type: any) {
   return safeStr(type).trim();
 }
 
-/**
- * ✅ Backward compatible role resolution:
- * 1) Try project_members (legacy)
- * 2) Fallback to org membership (new model): projects.organisation_id + organisation_members
- */
 async function resolveMyRole(supabase: any, projectUuid: string, userId: string) {
   // 1) legacy: project_members
   const { data: pm } = await supabase
@@ -166,18 +141,11 @@ async function resolveMyRole(supabase: any, projectUuid: string, userId: string)
   if (!om) return null;
 
   const orgRole = safeLower(om.role || "member");
-
-  // map org role -> project effective role
   const effective =
-    orgRole === "admin"
-      ? "owner"
-      : orgRole === "owner"
-      ? "owner"
-      : orgRole === "editor"
-      ? "editor"
-      : orgRole === "member"
-      ? "editor"
-      : "viewer";
+    orgRole === "admin"  ? "owner"  :
+    orgRole === "owner"  ? "owner"  :
+    orgRole === "editor" ? "editor" :
+    orgRole === "member" ? "editor" : "viewer";
 
   return effective as "owner" | "editor" | "viewer";
 }
@@ -192,14 +160,12 @@ async function findCanonicalProjectCharterArtifact(
     .select("id, type, is_current, updated_at, version")
     .eq("project_id", projectUuid)
     .eq("type", CANONICAL_PROJECT_CHARTER_TYPE)
-    .order("is_current", { ascending: false })
-    .order("updated_at", { ascending: false })
-    .order("version", { ascending: false })
+    .order("is_current",  { ascending: false })
+    .order("updated_at",  { ascending: false })
+    .order("version",     { ascending: false })
     .limit(1);
 
-  if (excludeArtifactId) {
-    query = query.neq("id", excludeArtifactId);
-  }
+  if (excludeArtifactId) query = query.neq("id", excludeArtifactId);
 
   const { data, error } = await query.maybeSingle();
   if (error) return null;
@@ -223,25 +189,24 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
 
   const projectIdentifier = String(projectIdentifierRaw).trim();
 
-  // 2) Resolve project UUID (slug/human id support)
+  // 2) Resolve project UUID
   const resolved = await resolveProjectUuidFast(supabase, projectIdentifier);
   let projectUuid: string | null = resolved.projectUuid;
 
-  // Fallback: resolve via artifact.project_id (if project id/slug is wrong but artifact is real)
   if (!projectUuid) {
     const { data: a0 } = await supabase.from("artifacts").select("project_id").eq("id", artifactId).maybeSingle();
     if (!a0?.project_id) notFound();
     projectUuid = String(a0.project_id);
   }
 
-  // 3) ✅ Membership gate (legacy + org fallback)
+  // 3) Membership gate
   const myRoleResolved = await resolveMyRole(supabase, projectUuid!, auth.user.id);
   if (!myRoleResolved) notFound();
 
-  const myRole = myRoleResolved; // owner|editor|viewer
+  const myRole = myRoleResolved;
   const canEditByRole = myRole === "owner" || myRole === "editor";
 
-  // ✅ Start WBS lookup early (cheap + parallel)
+  // WBS lookup (parallel)
   const wbsPromise = supabase
     .from("artifacts")
     .select("id, content_json, updated_at, type, is_current")
@@ -271,8 +236,7 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   const { data: artifactRaw, error: artErr } = artifactRes as any;
   if (artErr || !artifactRaw) notFound();
 
-  // 4b) Canonicalize legacy PID → PROJECT_CHARTER if a canonical artifact exists.
-  // This prevents the UI from landing on old PID records when a proper PROJECT_CHARTER exists.
+  // 4b) Canonicalize legacy PID
   if (isLegacyPidType(artifactRaw.type)) {
     const canonicalCharter = await findCanonicalProjectCharterArtifact(supabase, projectUuid!, artifactRaw.id);
     if (canonicalCharter?.id) {
@@ -286,7 +250,7 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     type: normalizeArtifactTypeForUi(artifactRaw.type),
   };
 
-  // 5) Canonical redirect (stable project code in URL)
+  // 5) Canonical redirect
   const canonicalProjectCode = safeStr((project as any)?.project_code).trim();
   if (canonicalProjectCode && projectIdentifier !== canonicalProjectCode) {
     redirect(`/projects/${canonicalProjectCode}/artifacts/${artifactId}`);
@@ -296,55 +260,46 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   if (isRAIDType(artifact.type)) {
     redirect(`/projects/${canonicalProjectCode || projectUuid}/raid?fromArtifact=${artifactId}`);
   }
-
   if (isLessonsLearnedType(artifact.type)) {
     redirect(`/projects/${canonicalProjectCode || projectUuid}/lessons?fromArtifact=${artifactId}`);
   }
 
   // 7) Modes + approval scope
-  const projectTitle = safeStr((project as any)?.title ?? (project as any)?.name ?? "").trim();
-  const clientName = safeStr((project as any)?.client_name ?? "").trim();
-  const projectStartDate = safeStr((project as any)?.start_date ?? "").trim() || null;
+  const projectTitle      = safeStr((project as any)?.title ?? (project as any)?.name ?? "").trim();
+  const clientName        = safeStr((project as any)?.client_name ?? "").trim();
+  const projectStartDate  = safeStr((project as any)?.start_date  ?? "").trim() || null;
   const projectFinishDate = safeStr((project as any)?.finish_date ?? "").trim() || null;
 
-  const charterMode = isProjectCharterType(artifact.type);
-  const closureMode = isProjectClosureReportType(artifact.type);
-  const stakeholderMode = isStakeholderRegisterType(artifact.type);
-  const wbsMode = isWbsType(artifact.type);
-  const scheduleMode = isScheduleType(artifact.type);
+  const charterMode        = isProjectCharterType(artifact.type);
+  const closureMode        = isProjectClosureReportType(artifact.type);
+  const stakeholderMode    = isStakeholderRegisterType(artifact.type);
+  const wbsMode            = isWbsType(artifact.type);
+  const scheduleMode       = isScheduleType(artifact.type);
   const changeRequestsMode = isChangeRequestsType(artifact.type);
-  const weeklyMode = isWeeklyReportType(artifact.type);
-  const financialPlanMode = isFinancialPlanType(artifact.type);
+  const weeklyMode         = isWeeklyReportType(artifact.type);
+  const financialPlanMode  = isFinancialPlanType(artifact.type);
 
-  // ✅ Only Charter/Closure are approval-governed (Weekly Report + Financial Plan are living)
-  const approvalEnabled = charterMode || closureMode;
+  // FIX: Financial Plan is now approval-governed alongside Charter and Closure
+  const approvalEnabled = charterMode || closureMode || financialPlanMode;
 
-  const mode = charterMode
-    ? "charter"
-    : stakeholderMode
-    ? "stakeholder"
-    : wbsMode
-    ? "wbs"
-    : scheduleMode
-    ? "schedule"
-    : changeRequestsMode
-    ? "change_requests"
-    : closureMode
-    ? "closure"
-    : weeklyMode
-    ? "weekly_report"
-    : financialPlanMode
-    ? "financial_plan"
+  const mode = charterMode        ? "charter"
+    : stakeholderMode             ? "stakeholder"
+    : wbsMode                     ? "wbs"
+    : scheduleMode                ? "schedule"
+    : changeRequestsMode          ? "change_requests"
+    : closureMode                 ? "closure"
+    : weeklyMode                  ? "weekly_report"
+    : financialPlanMode           ? "financial_plan"
     : "fallback";
 
   // 8) Status + permissions
   const status = derivedStatus(artifact);
-  const pill = statusPill(status);
+  const pill   = statusPill(status);
 
-  const isAuthor = safeStr(artifact.user_id) === auth.user.id;
+  const isAuthor   = safeStr(artifact.user_id) === auth.user.id;
   const isApprover = approvalEnabled ? myRole === "owner" : false;
 
-  // ✅ Treat NULL as "current"
+  // Treat NULL as "current"
   const isCurrent = (artifact as any)?.is_current !== false;
 
   const isEditable = approvalEnabled
@@ -353,7 +308,9 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     ? canEditByRole
     : canEditByRole;
 
-  const lockLayout = approvalEnabled && (status === "submitted" || status === "approved" || status === "rejected");
+  const lockLayout = approvalEnabled && (
+    status === "submitted" || status === "approved" || status === "rejected"
+  );
 
   const canSubmitOrResubmit =
     approvalEnabled && isEditable && isCurrent && (status === "draft" || status === "changes_requested");
@@ -367,14 +324,12 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
 
   // 9) Content prep
   const charterInitialRaw = ensureCharterV2Stored(getCharterInitialRaw(artifact));
-  const charterInitial = forceProjectTitleIntoCharter(charterInitialRaw, projectTitle, clientName);
-  const typedInitialJson = getTypedInitialJson(artifact);
+  const charterInitial    = forceProjectTitleIntoCharter(charterInitialRaw, projectTitle, clientName);
+  const typedInitialJson  = getTypedInitialJson(artifact);
 
   // 10) WBS helpers for schedule
-  const wbsRow = (wbsRes as any)?.data ?? null;
+  const wbsRow        = (wbsRes as any)?.data ?? null;
   const wbsArtifactId = wbsRow?.id ? String(wbsRow.id) : null;
-
-  // ✅ for schedule editor we want the latest WBS json
   const latestWbsJson = scheduleMode ? (wbsRow?.content_json ?? null) : null;
 
   return {

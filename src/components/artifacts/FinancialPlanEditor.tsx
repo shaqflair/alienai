@@ -585,7 +585,7 @@ function ResourcesTab({
                     />
                     <input type="text" value={r.name} onChange={e => update(r.id, { name: e.target.value })} readOnly={readOnly}
                       placeholder="Role label override..."
-                      style={{ width: "100%", border: "none", background: "transparent", padding: "2px 6px", fontSize: 10, color: P.textMd, fontFamily: P.sans, outline: "none" }}
+                      style={{ width: "100%", border: "none", background: "transparent", padding: "2px 6px", fontSize: 10, color: P.text, fontFamily: P.sans, outline: "none" }}
                     />
                   </td>
                   <td style={{ ...cellStyle, minWidth: 110, padding: "4px 6px" }}>
