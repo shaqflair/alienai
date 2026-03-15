@@ -7,15 +7,16 @@ import { createAdminClient } from "@/utils/supabase/admin";
 
 import { assertCharterReadyForSubmit } from "@/lib/charter/charter-validation";
 import { buildRuntimeApprovalChain } from "@/lib/server/approvals/runtime-chain-builder";
+import { notifyFirstStepApprovers } from "@/lib/server/notifications/approval-notifications";
 
 /* =========================================================
    Helpers
 ========================================================= */
 
 function throwDb(error: any, label: string): never {
-  const code    = error?.code    ?? "";
-  const msg     = error?.message ?? "";
-  const hint    = error?.hint    ?? "";
+  const code = error?.code ?? "";
+  const msg = error?.message ?? "";
+  const hint = error?.hint ?? "";
   const details = error?.details ?? "";
   throw new Error(
     `[${label}] ${code} ${msg}${hint ? ` | hint: ${hint}` : ""}${details ? ` | details: ${details}` : ""}`
@@ -94,13 +95,29 @@ async function getArtifact(supabase: any, artifactId: string) {
     .from("artifacts")
     .select(
       [
-        "id", "project_id", "user_id", "type", "title",
-        "content", "content_json", "is_locked",
-        "approval_status", "submitted_at", "submitted_by",
-        "approved_at", "approved_by", "rejected_at", "rejected_by",
-        "rejection_reason", "is_current", "is_baseline",
-        "root_artifact_id", "parent_artifact_id",
-        "version", "updated_at", "approval_chain_id",
+        "id",
+        "project_id",
+        "user_id",
+        "type",
+        "title",
+        "content",
+        "content_json",
+        "is_locked",
+        "approval_status",
+        "submitted_at",
+        "submitted_by",
+        "approved_at",
+        "approved_by",
+        "rejected_at",
+        "rejected_by",
+        "rejection_reason",
+        "is_current",
+        "is_baseline",
+        "root_artifact_id",
+        "parent_artifact_id",
+        "version",
+        "updated_at",
+        "approval_chain_id",
       ].join(", ")
     )
     .eq("id", artifactId)
@@ -114,14 +131,21 @@ async function getArtifact(supabase: any, artifactId: string) {
 async function writeAuditLog(
   supabase: any,
   args: {
-    project_id: string; artifact_id: string; actor_id: string | null;
-    action: string; before?: any; after?: any;
+    project_id: string;
+    artifact_id: string;
+    actor_id: string | null;
+    action: string;
+    before?: any;
+    after?: any;
   }
 ) {
   const { error } = await supabase.from("artifact_audit_log").insert({
-    project_id: args.project_id, artifact_id: args.artifact_id,
-    actor_id: args.actor_id, action: args.action,
-    before: args.before ?? null, after: args.after ?? null,
+    project_id: args.project_id,
+    artifact_id: args.artifact_id,
+    actor_id: args.actor_id,
+    action: args.action,
+    before: args.before ?? null,
+    after: args.after ?? null,
   });
   if (error) throwDb(error, "artifact_audit_log.insert");
 }
@@ -137,7 +161,17 @@ function isProjectCharterType(type: any) {
 
 function isClosureReportType(type: any) {
   const t = String(type ?? "").toLowerCase().trim();
-  return t === "project_closure_report" || t === "project closure report" || t === "closure_report" || t === "closure report" || t === "project_closeout" || t === "closeout" || t === "close_out" || t === "status_dashboard" || t === "status dashboard";
+  return (
+    t === "project_closure_report" ||
+    t === "project closure report" ||
+    t === "closure_report" ||
+    t === "closure report" ||
+    t === "project_closeout" ||
+    t === "closeout" ||
+    t === "close_out" ||
+    t === "status_dashboard" ||
+    t === "status dashboard"
+  );
 }
 
 function isFinancialPlanType(type: any) {
@@ -151,8 +185,8 @@ function isApprovalEligibleArtifact(type: any) {
 
 function normalizeArtifactType(type: any) {
   if (isProjectCharterType(type)) return "project_charter";
-  if (isClosureReportType(type))  return "project_closure_report";
-  if (isFinancialPlanType(type))  return "financial_plan";
+  if (isClosureReportType(type)) return "project_closure_report";
+  if (isFinancialPlanType(type)) return "financial_plan";
   return safeStr(type).trim().toLowerCase();
 }
 
@@ -162,11 +196,18 @@ function normalizeArtifactType(type: any) {
 
 async function getOrganisationIdForProject(supabase: any, projectId: string): Promise<string | null> {
   const p1 = await supabase.from("projects").select("organisation_id").eq("id", projectId).maybeSingle();
-  if (!p1.error) { const id = safeStr((p1.data as any)?.organisation_id); if (id) return id; }
+  if (!p1.error) {
+    const id = safeStr((p1.data as any)?.organisation_id);
+    if (id) return id;
+  }
   const msg1 = safeStr(p1.error?.message);
   if (!msg1 || !isMissingColumnError(msg1, "organisation_id")) return null;
+
   const p2 = await supabase.from("projects").select("organization_id").eq("id", projectId).maybeSingle();
-  if (!p2.error) { const id = safeStr((p2.data as any)?.organization_id); if (id) return id; }
+  if (!p2.error) {
+    const id = safeStr((p2.data as any)?.organization_id);
+    if (id) return id;
+  }
   return null;
 }
 
@@ -175,13 +216,18 @@ async function updateArtifactSubmitted(
   args: { artifactId: string; projectId: string; chainId: string; actorId: string; nowIso: string }
 ) {
   const patch: any = {
-    approval_chain_id: args.chainId, approval_status: "submitted",
-    submitted_at: args.nowIso, submitted_by: args.actorId, is_locked: true,
+    approval_chain_id: args.chainId,
+    approval_status: "submitted",
+    submitted_at: args.nowIso,
+    submitted_by: args.actorId,
+    is_locked: true,
   };
 
   const { data, error } = await supabase
-    .from("artifacts").update(patch)
-    .eq("id", args.artifactId).eq("project_id", args.projectId)
+    .from("artifacts")
+    .update(patch)
+    .eq("id", args.artifactId)
+    .eq("project_id", args.projectId)
     .select("id, project_id, approval_status, approval_chain_id, is_locked, submitted_at, submitted_by")
     .maybeSingle();
 
@@ -191,16 +237,18 @@ async function updateArtifactSubmitted(
     const { data: probe, error: probeErr } = await supabase
       .from("artifacts")
       .select("id, project_id, approval_status, approval_chain_id, is_locked, submitted_at, submitted_by")
-      .eq("id", args.artifactId).maybeSingle();
+      .eq("id", args.artifactId)
+      .maybeSingle();
+
     if (probeErr) throwDb(probeErr, "artifacts.select(submit_probe)");
     throw new Error(
       `Artifact submit update matched 0 rows. artifact_id=${args.artifactId} project_id=${args.projectId} probe_found=${probe?.id ? "yes" : "no"} probe_status=${safeStr((probe as any)?.approval_status) || "null"}`
     );
   }
 
-  const updatedStatus  = lower((data as any).approval_status);
+  const updatedStatus = lower((data as any).approval_status);
   const updatedChainId = safeStr((data as any).approval_chain_id).trim();
-  const updatedLocked  = (data as any).is_locked === true;
+  const updatedLocked = (data as any).is_locked === true;
 
   if (updatedStatus !== "submitted" || updatedChainId !== args.chainId || !updatedLocked) {
     throw new Error(
@@ -212,17 +260,22 @@ async function updateArtifactSubmitted(
 
 async function clearArtifactApprovalLinkIfStale(supabase: any, artifactId: string, chainId: string) {
   const { data: art, error: artErr } = await supabase
-    .from("artifacts").select("id, approval_status, approval_chain_id, is_locked")
-    .eq("id", artifactId).maybeSingle();
+    .from("artifacts")
+    .select("id, approval_status, approval_chain_id, is_locked")
+    .eq("id", artifactId)
+    .maybeSingle();
+
   if (artErr) throwDb(artErr, "artifacts.select(clear_stale_link)");
   if (!art?.id) return;
 
   const approvalStatus = String((art as any).approval_status ?? "").toLowerCase();
-  const linkedChainId  = safeStr((art as any).approval_chain_id).trim();
+  const linkedChainId = safeStr((art as any).approval_chain_id).trim();
   if (linkedChainId !== chainId) return;
+
   if (approvalStatus !== "submitted") {
     const { error: clrErr } = await supabase
-      .from("artifacts").update({ approval_chain_id: null, is_locked: false })
+      .from("artifacts")
+      .update({ approval_chain_id: null, is_locked: false })
       .eq("id", artifactId);
     if (clrErr) throwDb(clrErr, "artifacts.update(clear_stale_link)");
   }
@@ -235,17 +288,13 @@ async function clearArtifactApprovalLinkIfStale(supabase: any, artifactId: strin
    when a new chain tries to INSERT steps with the same artifact+order.
 ───────────────────────────────────────────────────────────────────────── */
 async function cancelApprovalChainArtifacts(supabase: any, chainId: string, artifactId?: string) {
-  // Use admin client for step operations — RLS blocks regular client DELETE/UPDATE on steps
   const adminDb = createAdminClient();
 
-  await adminDb
-    .from("artifact_approval_steps")
-    .delete()
-    .eq("chain_id", chainId);
+  await adminDb.from("artifact_approval_steps").delete().eq("chain_id", chainId);
 
-  // Mark chain inactive (regular client is fine here — RLS allows owner updates)
   const { error: chainError } = await supabase
-    .from("approval_chains").update({ is_active: false, status: "cancelled" })
+    .from("approval_chains")
+    .update({ is_active: false, status: "cancelled" })
     .eq("id", chainId);
   if (chainError) throwDb(chainError, "approval_chains.update(cancel_submit_failure)");
 
@@ -253,8 +302,7 @@ async function cancelApprovalChainArtifacts(supabase: any, chainId: string, arti
 }
 
 async function listApprovalStepsForChain(supabase: any, chainId: string) {
-  const { data, error } = await supabase
-    .from("artifact_approval_steps").select("*").eq("chain_id", chainId);
+  const { data, error } = await supabase.from("artifact_approval_steps").select("*").eq("chain_id", chainId);
   if (error) throwDb(error, "artifact_approval_steps.select(list)");
   return Array.isArray(data) ? (data as any[]) : [];
 }
@@ -264,9 +312,11 @@ function sortApprovalSteps(rows: any[]) {
     const ao = firstFinite(a?.step_order, a?.step_index, a?.sequence, a?.order_no, a?.sort_order, 0) ?? 0;
     const bo = firstFinite(b?.step_order, b?.step_index, b?.sequence, b?.order_no, b?.sort_order, 0) ?? 0;
     if (ao !== bo) return ao - bo;
+
     const ad = toIso(a?.created_at || a?.inserted_at || a?.started_at || a?.updated_at);
     const bd = toIso(b?.created_at || b?.inserted_at || b?.started_at || b?.updated_at);
     if (ad && bd && ad !== bd) return ad < bd ? -1 : 1;
+
     return safeStr(a?.id).localeCompare(safeStr(b?.id));
   });
 }
@@ -278,17 +328,35 @@ function getStepPosition(step: any, sortedSteps: any[]) {
 function getCurrentStep(sortedSteps: any[]) {
   return (
     sortedSteps.find((s) => s?.is_active === true) ??
-    sortedSteps.find((s) => { const st = lower(s?.status); return st === "active" || st === "current" || st === "in_progress" || st === "pending_approval"; }) ??
-    sortedSteps.find((s) => { const st = lower(s?.status); return st === "pending" || st === "submitted" || st === "not_started"; }) ??
+    sortedSteps.find((s) => {
+      const st = lower(s?.status);
+      return st === "active" || st === "current" || st === "in_progress" || st === "pending_approval";
+    }) ??
+    sortedSteps.find((s) => {
+      const st = lower(s?.status);
+      return st === "pending" || st === "submitted" || st === "not_started";
+    }) ??
     null
   );
 }
 
-async function updateArtifactApprovalProgress(supabase: any, artifactId: string, patchPrimary: Record<string, any>, patchFallback?: Record<string, any>) {
+async function updateArtifactApprovalProgress(
+  supabase: any,
+  artifactId: string,
+  patchPrimary: Record<string, any>,
+  patchFallback?: Record<string, any>
+) {
   const u1 = await supabase.from("artifacts").update(patchPrimary).eq("id", artifactId);
   if (!u1.error) return;
+
   const msg = safeStr(u1.error?.message);
-  if (patchFallback && (isMissingColumnError(msg, "approval_step_index") || isMissingColumnError(msg, "status") || isMissingColumnError(msg, "locked_at") || isMissingColumnError(msg, "locked_by"))) {
+  if (
+    patchFallback &&
+    (isMissingColumnError(msg, "approval_step_index") ||
+      isMissingColumnError(msg, "status") ||
+      isMissingColumnError(msg, "locked_at") ||
+      isMissingColumnError(msg, "locked_by"))
+  ) {
     const u2 = await supabase.from("artifacts").update(patchFallback).eq("id", artifactId);
     if (!u2.error) return;
     throwDb(u2.error, "artifacts.update(progress_fallback)");
@@ -297,40 +365,127 @@ async function updateArtifactApprovalProgress(supabase: any, artifactId: string,
 }
 
 async function markStepApproved(supabase: any, stepId: string, userId: string, nowIso: string) {
-  const r1 = await supabase.from("artifact_approval_steps").update({ status: "approved", approved_at: nowIso, approved_by: userId, acted_at: nowIso, actor_id: userId, is_active: false }).eq("id", stepId);
+  const r1 = await supabase
+    .from("artifact_approval_steps")
+    .update({
+      status: "approved",
+      approved_at: nowIso,
+      approved_by: userId,
+      acted_at: nowIso,
+      actor_id: userId,
+      is_active: false,
+    })
+    .eq("id", stepId);
+
   if (r1.error) {
-    const r2 = await supabase.from("artifact_approval_steps").update({ status: "approved", approved_at: nowIso, approved_by: userId, is_active: false }).eq("id", stepId);
+    const r2 = await supabase
+      .from("artifact_approval_steps")
+      .update({
+        status: "approved",
+        approved_at: nowIso,
+        approved_by: userId,
+        is_active: false,
+      })
+      .eq("id", stepId);
     if (r2.error) throwDb(r2.error, "artifact_approval_steps.update(approve)");
   }
-  const ap1 = await supabase.from("approval_step_approvers").update({ status: "approved", approved_at: nowIso, acted_at: nowIso }).eq("step_id", stepId).eq("user_id", userId);
+
+  const ap1 = await supabase
+    .from("approval_step_approvers")
+    .update({ status: "approved", approved_at: nowIso, acted_at: nowIso })
+    .eq("step_id", stepId)
+    .eq("user_id", userId);
+
   if (ap1.error) {
-    const ap2 = await supabase.from("approval_step_approvers").update({ status: "approved", approved_at: nowIso }).eq("step_id", stepId).eq("user_id", userId);
+    const ap2 = await supabase
+      .from("approval_step_approvers")
+      .update({ status: "approved", approved_at: nowIso })
+      .eq("step_id", stepId)
+      .eq("user_id", userId);
+
     if (ap2.error) {
       const apMsg = safeStr(ap2.error?.message);
-      if (!isMissingColumnError(apMsg, "approved_at") && !isMissingColumnError(apMsg, "acted_at") && !isMissingColumnError(apMsg, "status")) throwDb(ap2.error, "approval_step_approvers.update(approve)");
+      if (
+        !isMissingColumnError(apMsg, "approved_at") &&
+        !isMissingColumnError(apMsg, "acted_at") &&
+        !isMissingColumnError(apMsg, "status")
+      ) {
+        throwDb(ap2.error, "approval_step_approvers.update(approve)");
+      }
     }
   }
 }
 
 async function activateStep(supabase: any, stepId: string, nowIso: string) {
-  const r1 = await supabase.from("artifact_approval_steps").update({ status: "active", is_active: true, started_at: nowIso }).eq("id", stepId);
+  const r1 = await supabase
+    .from("artifact_approval_steps")
+    .update({ status: "active", is_active: true, started_at: nowIso })
+    .eq("id", stepId);
   if (!r1.error) return;
-  const r2 = await supabase.from("artifact_approval_steps").update({ status: "active", is_active: true }).eq("id", stepId);
+
+  const r2 = await supabase
+    .from("artifact_approval_steps")
+    .update({ status: "active", is_active: true })
+    .eq("id", stepId);
   if (r2.error) throwDb(r2.error, "artifact_approval_steps.update(activate)");
 }
 
-async function markActiveChainStepsClosed(supabase: any, chainId: string, nowIso: string, terminalStatus: "changes_requested" | "rejected") {
-  const r1 = await supabase.from("artifact_approval_steps").update({ is_active: false, status: terminalStatus, updated_at: nowIso }).eq("chain_id", chainId).eq("is_active", true);
+async function markActiveChainStepsClosed(
+  supabase: any,
+  chainId: string,
+  nowIso: string,
+  terminalStatus: "changes_requested" | "rejected"
+) {
+  const r1 = await supabase
+    .from("artifact_approval_steps")
+    .update({ is_active: false, status: terminalStatus, updated_at: nowIso })
+    .eq("chain_id", chainId)
+    .eq("is_active", true);
   if (!r1.error) return;
-  const r2 = await supabase.from("artifact_approval_steps").update({ is_active: false, status: terminalStatus }).eq("chain_id", chainId).eq("is_active", true);
+
+  const r2 = await supabase
+    .from("artifact_approval_steps")
+    .update({ is_active: false, status: terminalStatus })
+    .eq("chain_id", chainId)
+    .eq("is_active", true);
   if (r2.error) throwDb(r2.error, "artifact_approval_steps.update(close_active)");
 }
 
-async function closeApprovalChain(supabase: any, chainId: string, args: { status: "approved" | "changes_requested" | "rejected" | "closed"; actorId: string; nowIso: string; reason?: string | null }) {
-  const r1 = await supabase.from("approval_chains").update({ is_active: false, status: args.status, completed_at: args.nowIso, completed_by: args.actorId, closed_at: args.nowIso, closed_by: args.actorId, rejection_reason: args.reason ?? null }).eq("id", chainId);
+async function closeApprovalChain(
+  supabase: any,
+  chainId: string,
+  args: {
+    status: "approved" | "changes_requested" | "rejected" | "closed";
+    actorId: string;
+    nowIso: string;
+    reason?: string | null;
+  }
+) {
+  const r1 = await supabase
+    .from("approval_chains")
+    .update({
+      is_active: false,
+      status: args.status,
+      completed_at: args.nowIso,
+      completed_by: args.actorId,
+      closed_at: args.nowIso,
+      closed_by: args.actorId,
+      rejection_reason: args.reason ?? null,
+    })
+    .eq("id", chainId);
   if (!r1.error) return;
-  const r2 = await supabase.from("approval_chains").update({ is_active: false, status: args.status, completed_at: args.nowIso, rejection_reason: args.reason ?? null }).eq("id", chainId);
+
+  const r2 = await supabase
+    .from("approval_chains")
+    .update({
+      is_active: false,
+      status: args.status,
+      completed_at: args.nowIso,
+      rejection_reason: args.reason ?? null,
+    })
+    .eq("id", chainId);
   if (!r2.error) return;
+
   const r3 = await supabase.from("approval_chains").update({ is_active: false, status: args.status }).eq("id", chainId);
   if (r3.error) throwDb(r3.error, "approval_chains.update(close)");
 }
@@ -341,35 +496,72 @@ async function getStepApproverRows(supabase: any, stepId: string) {
   return Array.isArray(data) ? (data as any[]) : [];
 }
 
-async function assertUserCanActOnCurrentStep(supabase: any, args: { stepId: string; userId: string; myRole: string }) {
+async function assertUserCanActOnCurrentStep(
+  supabase: any,
+  args: { stepId: string; userId: string; myRole: string }
+) {
   const rows = await getStepApproverRows(supabase, args.stepId);
+
   if (!rows.length) {
     if (!canApproveByRole(args.myRole)) throw new Error("You are not an eligible approver for this step.");
     return { matchedApprover: null, approverCount: 0 };
   }
+
   const match =
     rows.find((r) => safeStr((r as any)?.user_id) === args.userId) ??
     rows.find((r) => safeStr((r as any)?.approver_user_id) === args.userId) ??
     rows.find((r) => safeStr((r as any)?.delegate_user_id) === args.userId) ??
     null;
+
   if (!match) throw new Error("You are not assigned to the current approval step.");
+
   const st = lower((match as any)?.status);
   if (st === "approved") throw new Error("You have already approved this step.");
   if (st === "rejected" || st === "changes_requested") throw new Error("This step has already been completed.");
+
   return { matchedApprover: match, approverCount: rows.length };
 }
 
-async function finalizeArtifactApproval(supabase: any, args: { artifactId: string; actorId: string; nowIso: string }) {
-  await updateArtifactApprovalProgress(supabase, args.artifactId,
-    { approval_status: "approved", approved_at: args.nowIso, approved_by: args.actorId, is_locked: true, status: "approved" },
-    { approval_status: "approved", approved_at: args.nowIso, approved_by: args.actorId, is_locked: true }
+async function finalizeArtifactApproval(
+  supabase: any,
+  args: { artifactId: string; actorId: string; nowIso: string }
+) {
+  await updateArtifactApprovalProgress(
+    supabase,
+    args.artifactId,
+    {
+      approval_status: "approved",
+      approved_at: args.nowIso,
+      approved_by: args.actorId,
+      is_locked: true,
+      status: "approved",
+    },
+    {
+      approval_status: "approved",
+      approved_at: args.nowIso,
+      approved_by: args.actorId,
+      is_locked: true,
+    }
   );
 }
 
-async function moveArtifactToNextApprovalStep(supabase: any, args: { artifactId: string; nextStepIndex: number }) {
-  await updateArtifactApprovalProgress(supabase, args.artifactId,
-    { approval_status: "submitted", approval_step_index: args.nextStepIndex, is_locked: true, status: "submitted" },
-    { approval_status: "submitted", is_locked: true }
+async function moveArtifactToNextApprovalStep(
+  supabase: any,
+  args: { artifactId: string; nextStepIndex: number }
+) {
+  await updateArtifactApprovalProgress(
+    supabase,
+    args.artifactId,
+    {
+      approval_status: "submitted",
+      approval_step_index: args.nextStepIndex,
+      is_locked: true,
+      status: "submitted",
+    },
+    {
+      approval_status: "submitted",
+      is_locked: true,
+    }
   );
 }
 
@@ -387,15 +579,15 @@ function clampInt(x: any, min: number, max: number) {
 
 export async function addSuggestion(formData: FormData) {
   const { supabase, user } = await requireUser();
-  const projectId    = String(formData.get("project_id")    ?? "").trim();
-  const artifactId   = String(formData.get("artifact_id")   ?? "").trim();
-  const anchor       = String(formData.get("anchor")        ?? "content").trim() || "content";
+  const projectId = String(formData.get("project_id") ?? "").trim();
+  const artifactId = String(formData.get("artifact_id") ?? "").trim();
+  const anchor = String(formData.get("anchor") ?? "content").trim() || "content";
   const suggested_text = String(formData.get("suggested_text") ?? "").trim();
-  const color  = String(formData.get("color")  ?? "#2563eb").trim() || "#2563eb";
-  const bold   = String(formData.get("bold")   ?? "").toLowerCase() === "true";
+  const color = String(formData.get("color") ?? "#2563eb").trim() || "#2563eb";
+  const bold = String(formData.get("bold") ?? "").toLowerCase() === "true";
   const italic = String(formData.get("italic") ?? "").toLowerCase() === "true";
   const range_start_raw = formData.get("range_start");
-  const range_end_raw   = formData.get("range_end");
+  const range_end_raw = formData.get("range_end");
 
   if (!projectId || !artifactId) throw new Error("project_id and artifact_id are required.");
   if (!suggested_text) throw new Error("suggested_text is required.");
@@ -409,38 +601,65 @@ export async function addSuggestion(formData: FormData) {
   let range: any = null;
   const contentLen = String(a0.content ?? "").length;
   const rs = range_start_raw !== null ? clampInt(range_start_raw, 0, contentLen) : null;
-  const re = range_end_raw   !== null ? clampInt(range_end_raw,   0, contentLen) : null;
+  const re = range_end_raw !== null ? clampInt(range_end_raw, 0, contentLen) : null;
   const anchorLower = anchor.toLowerCase();
+
   if ((anchorLower === "content" || anchorLower === "general") && rs !== null && re !== null && re >= rs) {
     range = { start: rs, end: re };
   }
 
   const { error } = await supabase.from("artifact_suggestions").insert({
-    project_id: projectId, artifact_id: artifactId, actor_user_id: user.id,
-    anchor, range, suggested_text, style: { color, bold, italic }, status: "open",
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_user_id: user.id,
+    anchor,
+    range,
+    suggested_text,
+    style: { color, bold, italic },
+    status: "open",
   });
   if (error) throwDb(error, "artifact_suggestions.insert");
 
-  await writeAuditLog(supabase, { project_id: projectId, artifact_id: artifactId, actor_id: user.id, action: "suggest_edit", before: { anchor, range: range ?? null }, after: { anchor, range: range ?? null, style: { color, bold, italic } } });
+  await writeAuditLog(supabase, {
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_id: user.id,
+    action: "suggest_edit",
+    before: { anchor, range: range ?? null },
+    after: { anchor, range: range ?? null, style: { color, bold, italic } },
+  });
+
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }
 
 export async function applySuggestion(formData: FormData) {
   const { supabase, user } = await requireUser();
-  const projectId    = String(formData.get("project_id")    ?? "").trim();
-  const artifactId   = String(formData.get("artifact_id")   ?? "").trim();
+  const projectId = String(formData.get("project_id") ?? "").trim();
+  const artifactId = String(formData.get("artifact_id") ?? "").trim();
   const suggestionId = String(formData.get("suggestion_id") ?? "").trim();
-  if (!projectId || !artifactId || !suggestionId) throw new Error("project_id, artifact_id, suggestion_id are required.");
+  if (!projectId || !artifactId || !suggestionId) {
+    throw new Error("project_id, artifact_id, suggestion_id are required.");
+  }
 
   const myRole = await requireMemberRole(supabase, projectId, user.id);
   if (!(myRole === "owner" || myRole === "editor")) throw new Error("Only owners/editors can apply suggestions.");
 
-  const { data: s0, error: sErr } = await supabase.from("artifact_suggestions").select("id, status, anchor, range, suggested_text, style").eq("id", suggestionId).eq("project_id", projectId).eq("artifact_id", artifactId).maybeSingle();
+  const { data: s0, error: sErr } = await supabase
+    .from("artifact_suggestions")
+    .select("id, status, anchor, range, suggested_text, style")
+    .eq("id", suggestionId)
+    .eq("project_id", projectId)
+    .eq("artifact_id", artifactId)
+    .maybeSingle();
+
   if (sErr) throwDb(sErr, "artifact_suggestions.select(apply)");
   if (!s0) throw new Error("Suggestion not found.");
 
   const status0 = String((s0 as any).status ?? "open").toLowerCase();
-  if (status0 === "applied") { revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`); return; }
+  if (status0 === "applied") {
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+    return;
+  }
 
   const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
@@ -463,9 +682,11 @@ export async function applySuggestion(formData: FormData) {
     const content = String(a0.content ?? "");
     const range = (s0 as any).range as any;
     let nextContent = content;
+
     if (range && typeof range === "object") {
       const start = clampInt((range as any).start, 0, content.length);
-      const end   = clampInt((range as any).end,   0, content.length);
+      const end = clampInt((range as any).end, 0, content.length);
+
       if (start !== null && end !== null && end >= start) {
         nextContent = content.slice(0, start) + suggestedText + content.slice(end);
       } else {
@@ -474,38 +695,86 @@ export async function applySuggestion(formData: FormData) {
     } else {
       nextContent = content + "\n\n---\nAPPLIED SUGGESTION [" + anchor + "]\n" + suggestedText + "\n";
     }
+
     const { error: upArtErr } = await supabase.from("artifacts").update({ content: nextContent }).eq("id", artifactId);
     if (upArtErr) throwDb(upArtErr, "artifacts.update(apply_content)");
   }
 
-  const { error: upSugErr } = await supabase.from("artifact_suggestions").update({ status: "applied" }).eq("id", suggestionId).eq("project_id", projectId).eq("artifact_id", artifactId);
+  const { error: upSugErr } = await supabase
+    .from("artifact_suggestions")
+    .update({ status: "applied" })
+    .eq("id", suggestionId)
+    .eq("project_id", projectId)
+    .eq("artifact_id", artifactId);
   if (upSugErr) throwDb(upSugErr, "artifact_suggestions.update(applied)");
 
-  await writeAuditLog(supabase, { project_id: projectId, artifact_id: artifactId, actor_id: user.id, action: "suggestion_applied_to_artifact", before: { suggestion_id: suggestionId, suggestion_status: status0, anchor, artifact: beforeArtifact }, after: { suggestion_id: suggestionId, suggestion_status: "applied", applied_to: anchor === "title" ? "title" : "content" } });
+  await writeAuditLog(supabase, {
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_id: user.id,
+    action: "suggestion_applied_to_artifact",
+    before: {
+      suggestion_id: suggestionId,
+      suggestion_status: status0,
+      anchor,
+      artifact: beforeArtifact,
+    },
+    after: {
+      suggestion_id: suggestionId,
+      suggestion_status: "applied",
+      applied_to: anchor === "title" ? "title" : "content",
+    },
+  });
+
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }
 
 export async function dismissSuggestion(formData: FormData) {
   const { supabase, user } = await requireUser();
-  const projectId    = String(formData.get("project_id")    ?? "").trim();
-  const artifactId   = String(formData.get("artifact_id")   ?? "").trim();
+  const projectId = String(formData.get("project_id") ?? "").trim();
+  const artifactId = String(formData.get("artifact_id") ?? "").trim();
   const suggestionId = String(formData.get("suggestion_id") ?? "").trim();
-  if (!projectId || !artifactId || !suggestionId) throw new Error("project_id, artifact_id, suggestion_id are required.");
+  if (!projectId || !artifactId || !suggestionId) {
+    throw new Error("project_id, artifact_id, suggestion_id are required.");
+  }
 
   const myRole = await requireMemberRole(supabase, projectId, user.id);
   if (!(myRole === "owner" || myRole === "editor")) throw new Error("Only owners/editors can dismiss suggestions.");
 
-  const { data: s0, error: sErr } = await supabase.from("artifact_suggestions").select("id, status").eq("id", suggestionId).eq("project_id", projectId).eq("artifact_id", artifactId).maybeSingle();
+  const { data: s0, error: sErr } = await supabase
+    .from("artifact_suggestions")
+    .select("id, status")
+    .eq("id", suggestionId)
+    .eq("project_id", projectId)
+    .eq("artifact_id", artifactId)
+    .maybeSingle();
+
   if (sErr) throwDb(sErr, "artifact_suggestions.select(dismiss)");
   if (!s0) throw new Error("Suggestion not found.");
 
   const status0 = String((s0 as any).status ?? "open").toLowerCase();
-  if (status0 === "dismissed") { revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`); return; }
+  if (status0 === "dismissed") {
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+    return;
+  }
 
-  const { error: upErr } = await supabase.from("artifact_suggestions").update({ status: "dismissed" }).eq("id", suggestionId).eq("project_id", projectId).eq("artifact_id", artifactId);
+  const { error: upErr } = await supabase
+    .from("artifact_suggestions")
+    .update({ status: "dismissed" })
+    .eq("id", suggestionId)
+    .eq("project_id", projectId)
+    .eq("artifact_id", artifactId);
   if (upErr) throwDb(upErr, "artifact_suggestions.update(dismissed)");
 
-  await writeAuditLog(supabase, { project_id: projectId, artifact_id: artifactId, actor_id: user.id, action: "suggestion_dismissed", before: { suggestion_id: suggestionId, status: status0 }, after: { suggestion_id: suggestionId, status: "dismissed" } });
+  await writeAuditLog(supabase, {
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_id: user.id,
+    action: "suggestion_dismissed",
+    before: { suggestion_id: suggestionId, status: status0 },
+    after: { suggestion_id: suggestionId, status: "dismissed" },
+  });
+
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }
 
@@ -515,18 +784,21 @@ export async function dismissSuggestion(formData: FormData) {
 
 export async function renameArtifactTitle(formData: FormData) {
   const { supabase, user } = await requireUser();
-  const projectId  = String(formData.get("project_id")  ?? "").trim();
+  const projectId = String(formData.get("project_id") ?? "").trim();
   const artifactId = String(formData.get("artifact_id") ?? "").trim();
-  const title      = String(formData.get("title")       ?? "").trim();
+  const title = String(formData.get("title") ?? "").trim();
+
   if (!projectId || !artifactId) throw new Error("project_id and artifact_id are required.");
   if (!title) throw new Error("Title is required.");
 
   const myRole = await requireMemberRole(supabase, projectId, user.id);
-  const a0     = await getArtifact(supabase, artifactId);
+  const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
 
   const isAuthor = String(a0.user_id) === user.id;
-  if (!(isAuthor || myRole === "owner" || myRole === "editor")) throw new Error("Only the author or owners/editors can rename the artifact.");
+  if (!(isAuthor || myRole === "owner" || myRole === "editor")) {
+    throw new Error("Only the author or owners/editors can rename the artifact.");
+  }
 
   const approvalStatus = String(a0.approval_status ?? "draft").toLowerCase();
   if (a0.is_locked || !(approvalStatus === "draft" || approvalStatus === "changes_requested")) {
@@ -536,7 +808,15 @@ export async function renameArtifactTitle(formData: FormData) {
   const { error } = await supabase.from("artifacts").update({ title }).eq("id", artifactId);
   if (error) throwDb(error, "artifacts.update(rename_title)");
 
-  await writeAuditLog(supabase, { project_id: projectId, artifact_id: artifactId, actor_id: user.id, action: "rename_title", before: { title: a0.title }, after: { title } });
+  await writeAuditLog(supabase, {
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_id: user.id,
+    action: "rename_title",
+    before: { title: a0.title },
+    after: { title },
+  });
+
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }
 
@@ -551,31 +831,41 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
 
   const myRole = await requireMemberRole(supabase, projectId, user.id);
-  const a0     = await getArtifact(supabase, artifactId);
+  const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
   if (!a0.is_current) throw new Error("Only the current version can be submitted.");
 
   if (!isApprovalEligibleArtifact(a0.type)) {
-    throw new Error("Submit for approval is only enabled for Project Charter, Project Closure Report, and Financial Plan.");
+    throw new Error(
+      "Submit for approval is only enabled for Project Charter, Project Closure Report, and Financial Plan."
+    );
   }
 
   const isAuthor = String(a0.user_id) === user.id;
-  if (!canSubmitByRole(myRole, isAuthor)) throw new Error("Only the author or project owners/editors can submit/resubmit.");
+  if (!canSubmitByRole(myRole, isAuthor)) {
+    throw new Error("Only the author or project owners/editors can submit/resubmit.");
+  }
 
   const st = lower(a0.approval_status || "draft");
-  if (!(st === "draft" || st === "changes_requested")) throw new Error(`Cannot submit from status: ${st}`);
+  if (!(st === "draft" || st === "changes_requested")) {
+    throw new Error(`Cannot submit from status: ${st}`);
+  }
 
-  if (isProjectCharterType(a0.type)) assertCharterReadyForSubmit(a0.content_json);
+  if (isProjectCharterType(a0.type)) {
+    assertCharterReadyForSubmit(a0.content_json);
+  }
 
-  // ── Stale chain sweep ──────────────────────────────────────────────────
   const { data: allActiveChains, error: sweepErr } = await supabase
-    .from("approval_chains").select("id")
-    .eq("artifact_id", artifactId).eq("is_active", true);
+    .from("approval_chains")
+    .select("id")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true);
 
   if (sweepErr) throwDb(sweepErr, "approval_chains.select(sweep_all_active)");
 
   const staleChainIds: string[] = (allActiveChains ?? [])
-    .map((r: any) => safeStr(r?.id).trim()).filter(Boolean);
+    .map((r: any) => safeStr(r?.id).trim())
+    .filter(Boolean);
 
   for (const staleId of staleChainIds) {
     const linkedChainId = safeStr((a0 as any).approval_chain_id).trim();
@@ -591,10 +881,12 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     await cancelApprovalChainArtifacts(supabase, staleId, artifactId);
   }
 
-  // ── Post-sweep verification ────────────────────────────────────────────
   const { data: postSweepCheck, error: postSweepErr } = await supabase
-    .from("approval_chains").select("id")
-    .eq("artifact_id", artifactId).eq("is_active", true).limit(1);
+    .from("approval_chains")
+    .select("id")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true)
+    .limit(1);
 
   if (postSweepErr) throwDb(postSweepErr, "approval_chains.select(post_sweep_verify)");
 
@@ -604,22 +896,15 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     );
   }
 
-  // ── FIX: Delete orphaned steps using admin client (bypasses RLS) ──────
-  // The unique constraint artifact_approval_steps_unique_order fires when
-  // buildRuntimeApprovalChain inserts steps that share (artifact_id, step_order)
-  // with steps from previous failed submissions. Regular client DELETEs are
-  // blocked by RLS and fail silently. Admin client bypasses RLS for cleanup.
   {
     const adminDb = createAdminClient();
 
-    // Strategy A: delete by artifact_id if the column exists on steps table
-    const { error: cleanByArtifactErr } = await adminDb
+    await adminDb
       .from("artifact_approval_steps")
       .delete()
       .eq("artifact_id", artifactId)
       .neq("status", "approved");
 
-    // Strategy B (always run): delete by chain_id for all chains on this artifact
     const { data: allChainsForArtifact } = await adminDb
       .from("approval_chains")
       .select("id")
@@ -637,18 +922,20 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
         .neq("status", "approved");
     }
   }
-  // ── End orphaned step cleanup ───────────────────────────────────────────
 
   const organisationId = await getOrganisationIdForProject(supabase, projectId);
   if (!organisationId) throw new Error("Could not resolve organisation for this project.");
 
   const nowIso = new Date().toISOString();
-  // Use admin client for chain builder so RLS never blocks step inserts
   const adminDbForBuilder = createAdminClient();
+
   let runtime: any;
   try {
     runtime = await buildRuntimeApprovalChain(adminDbForBuilder, {
-      organisationId, projectId, artifactId, actorId: user.id,
+      organisationId,
+      projectId,
+      artifactId,
+      actorId: user.id,
       artifactType: normalizeArtifactType(a0.type),
     });
   } catch (error: any) {
@@ -665,32 +952,80 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   let updatedArtifact: any;
   try {
     updatedArtifact = await updateArtifactSubmitted(supabase, {
-      artifactId, projectId, chainId: runtimeChainId, actorId: user.id, nowIso,
+      artifactId,
+      projectId,
+      chainId: runtimeChainId,
+      actorId: user.id,
+      nowIso,
     });
   } catch (error) {
     await cancelApprovalChainArtifacts(adminDbForBuilder, runtimeChainId, artifactId);
     throw error;
   }
 
+  try {
+    const { data: project } = await supabase
+      .from("projects")
+      .select("id, title, name, project_code")
+      .eq("id", projectId)
+      .maybeSingle();
+
+    const { data: me } = await supabase
+      .from("profiles")
+      .select("id, user_id, full_name, display_name, name")
+      .or(`id.eq.${user.id},user_id.eq.${user.id}`)
+      .maybeSingle();
+
+    const submittedByName =
+      safeStr((me as any)?.full_name).trim() ||
+      safeStr((me as any)?.display_name).trim() ||
+      safeStr((me as any)?.name).trim() ||
+      null;
+
+    await notifyFirstStepApprovers(supabase, {
+      projectId,
+      artifactId,
+      artifactTitle: safeStr(a0.title).trim() || "Artifact",
+      artifactType: safeStr(a0.type).trim() || "artifact",
+      project: project ?? null,
+      projectFallbackRef: projectId,
+      submittedByName,
+    });
+  } catch (notifyErr) {
+    console.error("[submitArtifactForApproval] notification failed:", notifyErr);
+  }
+
   await writeAuditLog(supabase, {
-    project_id: projectId, artifact_id: artifactId, actor_id: user.id,
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_id: user.id,
     action: st === "changes_requested" ? "resubmit" : "submit",
-    before: { approval_status: a0.approval_status, is_locked: a0.is_locked, approval_chain_id: a0.approval_chain_id ?? null },
+    before: {
+      approval_status: a0.approval_status,
+      is_locked: a0.is_locked,
+      approval_chain_id: a0.approval_chain_id ?? null,
+    },
     after: {
-      approval_status:       safeStr(updatedArtifact?.approval_status || "submitted"),
-      is_locked:             updatedArtifact?.is_locked === true,
-      approval_chain_id:     safeStr(updatedArtifact?.approval_chain_id || runtimeChainId),
-      submitted_at:          safeStr(updatedArtifact?.submitted_at || nowIso),
-      submitted_by:          safeStr(updatedArtifact?.submitted_by || user.id),
+      approval_status: safeStr(updatedArtifact?.approval_status || "submitted"),
+      is_locked: updatedArtifact?.is_locked === true,
+      approval_chain_id: safeStr(updatedArtifact?.approval_chain_id || runtimeChainId),
+      submitted_at: safeStr(updatedArtifact?.submitted_at || nowIso),
+      submitted_by: safeStr(updatedArtifact?.submitted_by || user.id),
       runtime_steps_created: true,
       runtime_artifact_type: safeStr(runtime?.chosenType || normalizeArtifactType(a0.type)),
-      runtime_step_count:    Array.isArray(runtime?.stepIds) ? runtime.stepIds.length : 0,
+      runtime_step_count: Array.isArray(runtime?.stepIds) ? runtime.stepIds.length : 0,
     },
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
   revalidatePath(`/projects/${projectId}/artifacts`);
-  return { ok: true, artifactId, approvalChainId: runtimeChainId, recovered: staleChainIds.length > 0, noOp: false };
+  return {
+    ok: true,
+    artifactId,
+    approvalChainId: runtimeChainId,
+    recovered: staleChainIds.length > 0,
+    noOp: false,
+  };
 }
 
 /* =========================================================
@@ -702,7 +1037,7 @@ export async function approveStep(projectId: string, artifactId: string) {
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
 
   const myRole = await requireMemberRole(supabase, projectId, user.id);
-  const a0     = await getArtifact(supabase, artifactId);
+  const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
   if (!isApprovalEligibleArtifact(a0.type)) throw new Error("This artifact does not use approvals.");
   if (String(a0.user_id) === user.id) throw new Error("You cannot approve your own artifact.");
@@ -711,39 +1046,107 @@ export async function approveStep(projectId: string, artifactId: string) {
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
   const { data: activeChainRow, error: chainErr } = await supabase
-    .from("approval_chains").select("*").eq("artifact_id", artifactId).eq("is_active", true).maybeSingle();
+    .from("approval_chains")
+    .select("*")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true)
+    .maybeSingle();
   if (chainErr) throwDb(chainErr, "approval_chains.select(active_for_artifact)");
+
   const chain = (activeChainRow as any) ?? null;
   if (!chain?.id) throw new Error("No active approval chain found for this artifact.");
 
-  const steps       = sortApprovalSteps(await listApprovalStepsForChain(supabase, chain.id));
+  const steps = sortApprovalSteps(await listApprovalStepsForChain(supabase, chain.id));
   if (!steps.length) throw new Error("No approval steps found for the active approval chain.");
+
   const currentStep = getCurrentStep(steps);
   if (!currentStep?.id) throw new Error("No current active approval step found.");
 
-  await assertUserCanActOnCurrentStep(supabase, { stepId: currentStep.id, userId: user.id, myRole });
+  await assertUserCanActOnCurrentStep(supabase, {
+    stepId: currentStep.id,
+    userId: user.id,
+    myRole,
+  });
 
-  const nowIso     = new Date().toISOString();
+  const nowIso = new Date().toISOString();
   const currentPos = getStepPosition(currentStep, steps);
-  const nextStep   = currentPos >= 0 ? steps[currentPos + 1] ?? null : null;
+  const nextStep = currentPos >= 0 ? steps[currentPos + 1] ?? null : null;
 
   await markStepApproved(supabase, currentStep.id, user.id, nowIso);
 
   if (nextStep?.id) {
     await activateStep(supabase, nextStep.id, nowIso);
-    await moveArtifactToNextApprovalStep(supabase, { artifactId, nextStepIndex: Math.max(0, currentPos + 1) });
-    await writeAuditLog(supabase, { project_id: projectId, artifact_id: artifactId, actor_id: user.id, action: "approve_step", before: { approval_status: a0.approval_status, approval_chain_id: chain.id, step_id: currentStep.id, next_step_id: null }, after: { approval_status: "submitted", approval_chain_id: chain.id, step_id: currentStep.id, step_status: "approved", next_step_id: nextStep.id, next_step_status: "active", approval_step_index: Math.max(0, currentPos + 1) } });
+    await moveArtifactToNextApprovalStep(supabase, {
+      artifactId,
+      nextStepIndex: Math.max(0, currentPos + 1),
+    });
+
+    await writeAuditLog(supabase, {
+      project_id: projectId,
+      artifact_id: artifactId,
+      actor_id: user.id,
+      action: "approve_step",
+      before: {
+        approval_status: a0.approval_status,
+        approval_chain_id: chain.id,
+        step_id: currentStep.id,
+        next_step_id: null,
+      },
+      after: {
+        approval_status: "submitted",
+        approval_chain_id: chain.id,
+        step_id: currentStep.id,
+        step_status: "approved",
+        next_step_id: nextStep.id,
+        next_step_status: "active",
+        approval_step_index: Math.max(0, currentPos + 1),
+      },
+    });
+
     revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
     revalidatePath(`/projects/${projectId}/artifacts`);
     return;
   }
 
   await finalizeArtifactApproval(supabase, { artifactId, actorId: user.id, nowIso });
-  const baselineId = await promoteApprovedToBaseline(supabase, { projectId, approvedArtifactId: artifactId, artifactType: a0.type, actorId: user.id });
+  const baselineId = await promoteApprovedToBaseline(supabase, {
+    projectId,
+    approvedArtifactId: artifactId,
+    artifactType: a0.type,
+    actorId: user.id,
+  });
   await closeApprovalChain(supabase, chain.id, { status: "approved", actorId: user.id, nowIso });
 
-  await writeAuditLog(supabase, { project_id: projectId, artifact_id: artifactId, actor_id: user.id, action: "approve", before: { approval_status: a0.approval_status, is_locked: a0.is_locked, approval_chain_id: chain.id, step_id: currentStep.id }, after: { approval_status: "approved", approved_by: user.id, approved_at: nowIso, approval_chain_id: chain.id, chain_closed: true, step_id: currentStep.id, step_status: "approved" } });
-  await writeAuditLog(supabase, { project_id: projectId, artifact_id: artifactId, actor_id: user.id, action: "baseline_promoted", before: { is_baseline: false }, after: { is_baseline: true, baseline_artifact_id: baselineId } });
+  await writeAuditLog(supabase, {
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_id: user.id,
+    action: "approve",
+    before: {
+      approval_status: a0.approval_status,
+      is_locked: a0.is_locked,
+      approval_chain_id: chain.id,
+      step_id: currentStep.id,
+    },
+    after: {
+      approval_status: "approved",
+      approved_by: user.id,
+      approved_at: nowIso,
+      approval_chain_id: chain.id,
+      chain_closed: true,
+      step_id: currentStep.id,
+      step_status: "approved",
+    },
+  });
+
+  await writeAuditLog(supabase, {
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_id: user.id,
+    action: "baseline_promoted",
+    before: { is_baseline: false },
+    after: { is_baseline: true, baseline_artifact_id: baselineId },
+  });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
   revalidatePath(`/projects/${projectId}/artifacts`);
@@ -758,7 +1161,7 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
 
   const myRole = await requireMemberRole(supabase, projectId, user.id);
-  const a0     = await getArtifact(supabase, artifactId);
+  const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
   if (!isApprovalEligibleArtifact(a0.type)) throw new Error("This artifact does not use approvals.");
   if (String(a0.user_id) === user.id) throw new Error("You cannot request changes on your own artifact.");
@@ -767,26 +1170,67 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
   const { data: activeChainRow, error: chainErr } = await supabase
-    .from("approval_chains").select("*").eq("artifact_id", artifactId).eq("is_active", true).maybeSingle();
+    .from("approval_chains")
+    .select("*")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true)
+    .maybeSingle();
   if (chainErr) throwDb(chainErr, "approval_chains.select(active_for_artifact)");
-  const chain = (activeChainRow as any) ?? null;
 
+  const chain = (activeChainRow as any) ?? null;
   const steps = chain?.id ? sortApprovalSteps(await listApprovalStepsForChain(supabase, chain.id)) : [];
   const currentStep = getCurrentStep(steps);
 
-  if (currentStep?.id) { await assertUserCanActOnCurrentStep(supabase, { stepId: currentStep.id, userId: user.id, myRole }); }
-  else if (!canApproveByRole(myRole)) { throw new Error("You are not an eligible approver for this project."); }
+  if (currentStep?.id) {
+    await assertUserCanActOnCurrentStep(supabase, { stepId: currentStep.id, userId: user.id, myRole });
+  } else if (!canApproveByRole(myRole)) {
+    throw new Error("You are not an eligible approver for this project.");
+  }
 
   const nowIso = new Date().toISOString();
-  const { error: upErr } = await supabase.from("artifacts").update({ approval_status: "changes_requested", rejected_at: nowIso, rejected_by: user.id, rejection_reason: reason ?? null, is_locked: false, locked_at: null, locked_by: null }).eq("id", artifactId);
+  const { error: upErr } = await supabase
+    .from("artifacts")
+    .update({
+      approval_status: "changes_requested",
+      rejected_at: nowIso,
+      rejected_by: user.id,
+      rejection_reason: reason ?? null,
+      is_locked: false,
+      locked_at: null,
+      locked_by: null,
+    })
+    .eq("id", artifactId);
   if (upErr) throwDb(upErr, "artifacts.update(request_changes)");
 
   if (chain?.id) {
     if (currentStep?.id) await markActiveChainStepsClosed(supabase, chain.id, nowIso, "changes_requested");
-    await closeApprovalChain(supabase, chain.id, { status: "changes_requested", actorId: user.id, nowIso, reason: reason ?? null });
+    await closeApprovalChain(supabase, chain.id, {
+      status: "changes_requested",
+      actorId: user.id,
+      nowIso,
+      reason: reason ?? null,
+    });
   }
 
-  await writeAuditLog(supabase, { project_id: projectId, artifact_id: artifactId, actor_id: user.id, action: "request_changes", before: { approval_status: a0.approval_status, is_locked: a0.is_locked, approval_chain_id: chain?.id ?? null, step_id: currentStep?.id ?? null }, after: { approval_status: "changes_requested", reason: reason ?? null, is_locked: false, approval_chain_id: chain?.id ?? null, chain_closed: !!chain?.id } });
+  await writeAuditLog(supabase, {
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_id: user.id,
+    action: "request_changes",
+    before: {
+      approval_status: a0.approval_status,
+      is_locked: a0.is_locked,
+      approval_chain_id: chain?.id ?? null,
+      step_id: currentStep?.id ?? null,
+    },
+    after: {
+      approval_status: "changes_requested",
+      reason: reason ?? null,
+      is_locked: false,
+      approval_chain_id: chain?.id ?? null,
+      chain_closed: !!chain?.id,
+    },
+  });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
   revalidatePath(`/projects/${projectId}/artifacts`);
@@ -797,7 +1241,7 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
 
   const myRole = await requireMemberRole(supabase, projectId, user.id);
-  const a0     = await getArtifact(supabase, artifactId);
+  const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
   if (!isApprovalEligibleArtifact(a0.type)) throw new Error("This artifact does not use approvals.");
   if (String(a0.user_id) === user.id) throw new Error("You cannot reject your own artifact.");
@@ -806,26 +1250,67 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
   const { data: activeChainRow, error: chainErr } = await supabase
-    .from("approval_chains").select("*").eq("artifact_id", artifactId).eq("is_active", true).maybeSingle();
+    .from("approval_chains")
+    .select("*")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true)
+    .maybeSingle();
   if (chainErr) throwDb(chainErr, "approval_chains.select(active_for_artifact)");
-  const chain = (activeChainRow as any) ?? null;
 
+  const chain = (activeChainRow as any) ?? null;
   const steps = chain?.id ? sortApprovalSteps(await listApprovalStepsForChain(supabase, chain.id)) : [];
   const currentStep = getCurrentStep(steps);
 
-  if (currentStep?.id) { await assertUserCanActOnCurrentStep(supabase, { stepId: currentStep.id, userId: user.id, myRole }); }
-  else if (!canApproveByRole(myRole)) { throw new Error("You are not an eligible approver for this project."); }
+  if (currentStep?.id) {
+    await assertUserCanActOnCurrentStep(supabase, { stepId: currentStep.id, userId: user.id, myRole });
+  } else if (!canApproveByRole(myRole)) {
+    throw new Error("You are not an eligible approver for this project.");
+  }
 
   const nowIso = new Date().toISOString();
-  const { error: upErr } = await supabase.from("artifacts").update({ approval_status: "rejected", rejected_at: nowIso, rejected_by: user.id, rejection_reason: reason ?? null, is_locked: false, locked_at: null, locked_by: null }).eq("id", artifactId);
+  const { error: upErr } = await supabase
+    .from("artifacts")
+    .update({
+      approval_status: "rejected",
+      rejected_at: nowIso,
+      rejected_by: user.id,
+      rejection_reason: reason ?? null,
+      is_locked: false,
+      locked_at: null,
+      locked_by: null,
+    })
+    .eq("id", artifactId);
   if (upErr) throwDb(upErr, "artifacts.update(reject_final)");
 
   if (chain?.id) {
     if (currentStep?.id) await markActiveChainStepsClosed(supabase, chain.id, nowIso, "rejected");
-    await closeApprovalChain(supabase, chain.id, { status: "rejected", actorId: user.id, nowIso, reason: reason ?? null });
+    await closeApprovalChain(supabase, chain.id, {
+      status: "rejected",
+      actorId: user.id,
+      nowIso,
+      reason: reason ?? null,
+    });
   }
 
-  await writeAuditLog(supabase, { project_id: projectId, artifact_id: artifactId, actor_id: user.id, action: "reject_final", before: { approval_status: a0.approval_status, is_locked: a0.is_locked, approval_chain_id: chain?.id ?? null, step_id: currentStep?.id ?? null }, after: { approval_status: "rejected", reason: reason ?? null, is_locked: false, approval_chain_id: chain?.id ?? null, chain_closed: !!chain?.id } });
+  await writeAuditLog(supabase, {
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_id: user.id,
+    action: "reject_final",
+    before: {
+      approval_status: a0.approval_status,
+      is_locked: a0.is_locked,
+      approval_chain_id: chain?.id ?? null,
+      step_id: currentStep?.id ?? null,
+    },
+    after: {
+      approval_status: "rejected",
+      reason: reason ?? null,
+      is_locked: false,
+      approval_chain_id: chain?.id ?? null,
+      chain_closed: !!chain?.id,
+    },
+  });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
   revalidatePath(`/projects/${projectId}/artifacts`);
@@ -835,25 +1320,49 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
    Baseline promotion (internal)
 ========================================================= */
 
-async function promoteApprovedToBaseline(supabase: any, args: { projectId: string; approvedArtifactId: string; artifactType: string | null; actorId: string }): Promise<string> {
+async function promoteApprovedToBaseline(
+  supabase: any,
+  args: { projectId: string; approvedArtifactId: string; artifactType: string | null; actorId: string }
+): Promise<string> {
   const { projectId, approvedArtifactId, artifactType, actorId } = args;
   if (!artifactType) throw new Error("Artifact type is required to create a baseline.");
 
-  const { error: retireErr } = await supabase.from("artifacts").update({ is_current: false }).eq("project_id", projectId).eq("type", artifactType).eq("is_baseline", true).eq("is_current", true);
+  const { error: retireErr } = await supabase
+    .from("artifacts")
+    .update({ is_current: false })
+    .eq("project_id", projectId)
+    .eq("type", artifactType)
+    .eq("is_baseline", true)
+    .eq("is_current", true);
   if (retireErr) throwDb(retireErr, "artifacts.update(retire_baseline)");
 
   const a0 = await getArtifact(supabase, approvedArtifactId);
   const now = new Date().toISOString();
 
-  const { data: inserted, error: insErr } = await supabase.from("artifacts").insert({
-    project_id: projectId, user_id: a0.user_id ?? actorId, type: a0.type, title: a0.title,
-    content: String(a0.content ?? ""), content_json: a0.content_json ?? null,
-    is_locked: true, locked_at: now, locked_by: actorId,
-    version: (a0.version ?? 1) + 1,
-    parent_artifact_id: a0.id, root_artifact_id: a0.root_artifact_id ?? a0.id,
-    approval_status: "approved", approved_at: now, approved_by: actorId,
-    is_current: true, is_baseline: true, status: "approved",
-  }).select("id").single();
+  const { data: inserted, error: insErr } = await supabase
+    .from("artifacts")
+    .insert({
+      project_id: projectId,
+      user_id: a0.user_id ?? actorId,
+      type: a0.type,
+      title: a0.title,
+      content: String(a0.content ?? ""),
+      content_json: a0.content_json ?? null,
+      is_locked: true,
+      locked_at: now,
+      locked_by: actorId,
+      version: (a0.version ?? 1) + 1,
+      parent_artifact_id: a0.id,
+      root_artifact_id: a0.root_artifact_id ?? a0.id,
+      approval_status: "approved",
+      approved_at: now,
+      approved_by: actorId,
+      is_current: true,
+      is_baseline: true,
+      status: "approved",
+    })
+    .select("id")
+    .single();
 
   if (insErr) throwDb(insErr, "artifacts.insert(baseline)");
   return String(inserted.id);
