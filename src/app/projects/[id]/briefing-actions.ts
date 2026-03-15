@@ -1,328 +1,526 @@
-"use client";
+"use server";
 
-import React, { useEffect, useRef, useState, useTransition } from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  RefreshCw,
-  Sparkles,
-  X,
-  Zap,
-} from "lucide-react";
-import {
-  getOrGenerateBriefing,
-  regenerateBriefing,
-} from "@/app/projects/[id]/briefing-actions";
-import type { BriefingSection, ProjectBriefing } from "@/app/projects/[id]/briefing-actions";
+import "server-only";
+import OpenAI from "openai";
+import { createClient } from "@/utils/supabase/server";
+import { redirect } from "next/navigation";
 
-// -- Types ---------------------------------------------------------------------
+// -- Constants ----------------------------------------------------------------
 
-interface Props {
-  projectId:         string;
-  initialBriefing?:  ProjectBriefing | null;  // Optional SSR-provided cached briefing
-  canRegenerate?:    boolean;                  // Owners/editors only
+const BRIEFING_TTL_HOURS = 24;
+const BRIEFING_MODEL      = "gpt-4o";
+
+// -- Types --------------------------------------------------------------------
+
+export type BriefingSection = {
+  summary:             string;
+  on_track:            string[];
+  needs_attention:      { item: string; priority: "high" | "medium" }[];
+  biggest_risk:        string;
+  recommended_actions: string[];
+};
+
+export type ProjectBriefing = {
+  id:           string;
+  project_id:   string;
+  content:      BriefingSection;
+  generated_at: string;
+  generated_by: "auto" | "manual" | "system";
+  is_stale:     boolean;
+};
+
+// -- Helpers ------------------------------------------------------------------
+
+function safeStr(x: unknown): string {
+  if (typeof x === "string") return x;
+  if (x == null) return "";
+  return String(x);
 }
 
-// -- Dismiss key — resets each calendar day ------------------------------------
-
-function getDismissKey(projectId: string): string {
-  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-  return `briefing_dismissed_${projectId}_${today}`;
+function isStale(generatedAt: string): boolean {
+  const age = Date.now() - new Date(generatedAt).getTime();
+  return age > BRIEFING_TTL_HOURS * 60 * 60 * 1000;
 }
 
-function isDismissed(projectId: string): boolean {
+function getOpenAIClient(): OpenAI {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
+  return new OpenAI({ apiKey });
+}
+
+// -- Prompt schema ------------------------------------------------------------
+
+const BRIEFING_SYSTEM = `You are a senior PMO advisor generating concise daily briefings for
+project managers. Be specific, not generic. Reference actual risks, milestones, and artifacts
+by name. No filler phrases like "continue to monitor" or "ensure alignment".
+Always respond with valid JSON only -- no prose, no markdown fences.`;
+
+const BRIEFING_SCHEMA = `{
+  "summary": "string -- 1-2 sentence plain English overview of where the project stands today",
+  "on_track": ["string -- specific item going well"],
+  "needs_attention": [
+    { "item": "string -- specific actionable item", "priority": "high" }
+  ],
+  "biggest_risk": "string -- single sentence describing the most critical threat to delivery",
+  "recommended_actions": [
+    "string -- concrete action for today"
+  ]
+}`;
+
+// -- Data fetchers ------------------------------------------------------------
+
+async function fetchProjectMeta(supabase: any, projectId: string) {
+  const { data } = await supabase
+    .from("projects")
+    .select("id, title, name, start_date, finish_date, status, health_score, rag_status")
+    .eq("id", projectId)
+    .maybeSingle();
+  return data ?? {};
+}
+
+async function fetchOpenRaidItems(supabase: any, projectId: string) {
+  const { data, error } = await supabase
+    .from("raid_items")
+    .select("id, type, title, description, status, priority, owner, due_date")
+    .eq("project_id", projectId)
+    .in("status", ["open", "active", "in_progress", "identified"])
+    .order("priority", { ascending: false })
+    .limit(20);
+
+  if (!error && data?.length) return data as any[];
+
+  const { data: risks } = await supabase
+    .from("risks")
+    .select("id, title, description, status, impact, likelihood, owner")
+    .eq("project_id", projectId)
+    .not("status", "eq", "closed")
+    .limit(10);
+
+  return risks ?? [];
+}
+
+async function fetchUpcomingMilestones(supabase: any, projectId: string) {
+  const today        = new Date();
+  const twoWeeks     = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const twoWeeksAgo = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+  const { data: milestones, error: msErr } = await supabase
+    .from("milestones")
+    .select("id, title, due_date, status, owner")
+    .eq("project_id", projectId)
+    .gte("due_date", twoWeeksAgo.toISOString().split("T")[0])
+    .lte("due_date", twoWeeks.toISOString().split("T")[0])
+    .order("due_date", { ascending: true })
+    .limit(10);
+
+  if (!msErr && milestones?.length) return milestones as any[];
+
+  const { data: scheduleArtifact } = await supabase
+    .from("artifacts")
+    .select("content_json")
+    .eq("project_id", projectId)
+    .in("type", ["schedule", "SCHEDULE"])
+    .eq("is_current", true)
+    .maybeSingle();
+
+  const tasks = scheduleArtifact?.content_json?.tasks ?? scheduleArtifact?.content_json?.milestones ?? [];
+  if (!Array.isArray(tasks)) return [];
+
+  return tasks
+    .filter((t: any) => {
+      const d = new Date(t.due_date ?? t.end_date ?? "");
+      return !isNaN(d.getTime()) && d >= twoWeeksAgo && d <= twoWeeks;
+    })
+    .slice(0, 10)
+    .map((t: any) => ({
+      title:    t.title ?? t.name ?? "Unnamed task",
+      due_date: t.due_date ?? t.end_date,
+      status:   t.status ?? "unknown",
+    }));
+}
+
+async function fetchRecentArtifactActivity(supabase: any, projectId: string) {
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: auditRows } = await supabase
+    .from("artifact_audit_log")
+    .select("action, artifact_id, created_at, after")
+    .eq("project_id", projectId)
+    .gte("created_at", sevenDaysAgo)
+    .in("action", ["submit", "resubmit", "approve", "request_changes", "reject_final", "baseline_promoted"])
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (auditRows?.length) return auditRows as any[];
+
+  const { data: artifacts } = await supabase
+    .from("artifacts")
+    .select("id, title, type, approval_status, updated_at")
+    .eq("project_id", projectId)
+    .gte("updated_at", sevenDaysAgo)
+    .order("updated_at", { ascending: false })
+    .limit(10);
+
+  return artifacts ?? [];
+}
+
+async function fetchLatestWeeklyReport(supabase: any, projectId: string) {
+  const { data } = await supabase
+    .from("artifacts")
+    .select("title, content, content_json, updated_at")
+    .eq("project_id", projectId)
+    .in("type", ["weekly_report", "WEEKLY_REPORT", "weekly", "status_report"])
+    .eq("is_current", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return data ?? null;
+}
+
+// -- Prompt builder -----------------------------------------------------------
+
+function buildUserPrompt(data: {
+  project:          any;
+  raidItems:        any[];
+  milestones:       any[];
+  artifactActivity: any[];
+  weeklyReport:     any | null;
+  generatedAt:      string;
+}): string {
+  const projectName = safeStr(data.project?.title ?? data.project?.name ?? "this project");
+  const today = new Date(data.generatedAt).toLocaleDateString("en-GB", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+  });
+
+  const raidSummary = data.raidItems.length
+    ? data.raidItems.slice(0, 10).map((r: any) =>
+        `- [${safeStr(r.type ?? r.category ?? "RISK").toUpperCase()}] ${safeStr(r.title)}: ` +
+        `${safeStr(r.description ?? "").slice(0, 120)} ` +
+        `(priority: ${r.priority ?? "unknown"}, owner: ${r.owner ?? "unassigned"})`
+      ).join("\n")
+    : "No open RAID items.";
+
+  const milestoneSummary = data.milestones.length
+    ? data.milestones.map((m: any) =>
+        `- ${safeStr(m.title)} -- due ${safeStr(m.due_date)} -- status: ${safeStr(m.status)}`
+      ).join("\n")
+    : "No milestones due in the next 14 days.";
+
+  const activitySummary = data.artifactActivity.length
+    ? data.artifactActivity.slice(0, 5).map((a: any) =>
+        `- ${safeStr(a.action ?? a.approval_status)} on ` +
+        `${safeStr(a.title ?? a.type ?? "artifact")} at ` +
+        `${safeStr(a.created_at ?? a.updated_at ?? "").slice(0, 10)}`
+      ).join("\n")
+    : "No recent governance activity.";
+
+  const weeklySummary = data.weeklyReport
+    ? (typeof data.weeklyReport.content_json === "object"
+        ? JSON.stringify(data.weeklyReport.content_json).slice(0, 600)
+        : safeStr(data.weeklyReport.content).slice(0, 600))
+    : "No weekly report available.";
+
+  return `Generate a daily briefing for the project manager of "${projectName}".
+Today is ${today}.
+
+PROJECT HEALTH
+- Health Score: ${data.project?.health_score ?? "unknown"}%
+- RAG Status: ${safeStr(data.project?.rag_status ?? "unknown").toUpperCase()}
+- Timeline: ${safeStr(data.project?.start_date || "TBC")} -> ${safeStr(data.project?.finish_date || "TBC")}
+
+OPEN RAID ITEMS
+${raidSummary}
+
+MILESTONES DUE WITHIN 14 DAYS
+${milestoneSummary}
+
+RECENT GOVERNANCE ACTIVITY (last 7 days)
+${activitySummary}
+
+LATEST WEEKLY REPORT (excerpt)
+${weeklySummary}
+
+Required JSON schema:
+${BRIEFING_SCHEMA}
+
+Rules:
+- Be specific -- reference actual risks, milestones, and artifacts by name
+- on_track: 2-4 items
+- needs_attention: 2-4 items ordered by urgency, each with priority "high" or "medium"
+- recommended_actions: exactly 3 concrete things to do today
+- No filler phrases like "continue to monitor" or "ensure alignment"
+- Return ONLY the JSON object`;
+}
+
+// -- LLM call -----------------------------------------------------------------
+
+export async function buildDailyBriefingLLM(data: {
+  project:          any;
+  raidItems:        any[];
+  milestones:       any[];
+  artifactActivity: any[];
+  weeklyReport:     any | null;
+  generatedAt:      string;
+}): Promise<{ content: BriefingSection; model: string }> {
+  const client     = getOpenAIClient();
+  const userPrompt = buildUserPrompt(data);
+
+  const response = await client.chat.completions.create({
+    model: BRIEFING_MODEL,
+    response_format: { type: "json_object" },
+    max_tokens: 1000,
+    messages: [
+      { role: "system", content: BRIEFING_SYSTEM },
+      { role: "user",   content: userPrompt },
+    ],
+  });
+
+  const text    = response.choices[0]?.message?.content ?? "";
+  const content = JSON.parse(text) as BriefingSection;
+  return { content, model: response.model };
+}
+
+// -- Rule-based fallback ------------------------------------------------------
+
+export function buildDailyBriefingFallback(data: {
+  project:          any;
+  raidItems:        any[];
+  milestones:       any[];
+  artifactActivity: any[];
+}): { content: BriefingSection; model: string } {
+  const health    = data.project?.health_score ?? null;
+  const rag       = safeStr(data.project?.rag_status ?? "").toUpperCase() || "UNKNOWN";
+  const highRaids = data.raidItems.filter((r: any) =>
+    safeStr(r.priority).toLowerCase() === "high"
+  );
+  const overdue = data.milestones.filter((m: any) => {
+    const due = new Date(safeStr(m.due_date));
+    return !isNaN(due.getTime()) && due < new Date() && safeStr(m.status).toLowerCase() !== "complete";
+  });
+
+  const on_track: string[] = [];
+  if (data.raidItems.length === 0)                          on_track.push("No open RAID items requiring immediate action");
+  if (overdue.length === 0)                                 on_track.push("No overdue milestones in the next 14 days");
+  if (rag === "GREEN" || (health != null && health >= 80)) on_track.push(`Health score tracking at ${health != null ? `${health}%` : rag}`);
+  if (data.artifactActivity.length > 0)                    on_track.push("Recent governance activity is recorded");
+  if (on_track.length === 0)                               on_track.push("Project is active in the system");
+
+  const needs_attention: { item: string; priority: "high" | "medium" }[] = [];
+  if (highRaids.length > 0) {
+    needs_attention.push({
+      item:     `${highRaids.length} high-priority RAID item${highRaids.length > 1 ? "s" : ""} open: ${safeStr(highRaids[0]?.title)}`,
+      priority: "high",
+    });
+  }
+  if (overdue.length > 0) {
+    needs_attention.push({
+      item:     `${overdue.length} overdue milestone${overdue.length > 1 ? "s" : ""}: ${safeStr(overdue[0]?.title)} was due ${safeStr(overdue[0]?.due_date)}`,
+      priority: "high",
+    });
+  }
+  const soonMs = data.milestones.filter((m: any) => {
+    const due           = new Date(safeStr(m.due_date));
+    const inSevenDays = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    return !isNaN(due.getTime()) && due >= new Date() && due <= inSevenDays;
+  });
+  if (soonMs.length > 0) {
+    needs_attention.push({
+      item:     `Milestone due within 7 days: ${safeStr(soonMs[0]?.title)} on ${safeStr(soonMs[0]?.due_date)}`,
+      priority: "medium",
+    });
+  }
+  if (needs_attention.length === 0) {
+    needs_attention.push({ item: "Review project data is up to date for accurate briefing", priority: "medium" });
+  }
+
+  const biggest_risk = highRaids.length > 0
+    ? `${safeStr(highRaids[0]?.title)}: ${safeStr(highRaids[0]?.description ?? "").slice(0, 120) || "High priority -- assign mitigation owner"}`
+    : data.raidItems.length > 0
+    ? `${data.raidItems.length} open RAID item${data.raidItems.length > 1 ? "s" : ""} -- review and triage urgently`
+    : "No specific risks identified -- ensure RAID register is kept up to date";
+
+  const recommended_actions = [
+    highRaids.length > 0
+      ? `Review and update mitigation plan for: ${safeStr(highRaids[0]?.title)}`
+      : "Review RAID register and confirm all items have owners and mitigations",
+    overdue.length > 0
+      ? `Chase overdue milestone status: ${safeStr(overdue[0]?.title)}`
+      : soonMs.length > 0
+      ? `Confirm delivery readiness for: ${safeStr(soonMs[0]?.title)} (due ${safeStr(soonMs[0]?.due_date)})`
+      : "Review schedule and confirm next milestone is on track",
+    "Check pending artifact approvals and governance actions",
+  ];
+
+  const projectName = safeStr(data.project?.title ?? data.project?.name ?? "Project");
+
+  return {
+    content: {
+      summary: `${projectName} is tracking at ${health != null ? `${health}% health` : `RAG ${rag}`}. ${needs_attention.length > 0 ? `${needs_attention.length} item${needs_attention.length > 1 ? "s" : ""} require attention today.` : "No critical issues identified."}`,
+      on_track:            on_track.slice(0, 4),
+      needs_attention:     needs_attention.slice(0, 4),
+      biggest_risk,
+      recommended_actions: recommended_actions.slice(0, 3),
+    },
+    model: "rule-based-fallback-v1",
+  };
+}
+
+// -- Core generation ----------------------------------------------------------
+
+async function generateBriefingContent(
+  projectId: string,
+  supabase: any
+): Promise<{ content: BriefingSection; model: string; snapshot: any }> {
+  const [project, raidItems, milestones, artifactActivity, weeklyReport] = await Promise.all([
+    fetchProjectMeta(supabase, projectId),
+    fetchOpenRaidItems(supabase, projectId),
+    fetchUpcomingMilestones(supabase, projectId),
+    fetchRecentArtifactActivity(supabase, projectId),
+    fetchLatestWeeklyReport(supabase, projectId),
+  ]);
+
+  const generatedAt = new Date().toISOString();
+  const inputData   = { project, raidItems, milestones, artifactActivity, weeklyReport, generatedAt };
+
+  let content: BriefingSection;
+  let model: string;
+
   try {
-    return localStorage.getItem(getDismissKey(projectId)) === "1";
+    ({ content, model } = await buildDailyBriefingLLM(inputData));
+  } catch (err) {
+    console.error("[briefing-actions] gpt-4o briefing failed, using fallback:", err);
+    ({ content, model } = buildDailyBriefingFallback(inputData));
+  }
+
+  return {
+    content,
+    model,
+    snapshot: {
+      project_health:    project?.health_score,
+      rag_status:        project?.rag_status,
+      raid_count:        raidItems.length,
+      milestone_count:   milestones.length,
+      activity_count:    artifactActivity.length,
+      has_weekly_report: !!weeklyReport,
+      model,
+    },
+  };
+}
+
+// -- Public server actions ----------------------------------------------------
+
+export async function getOrGenerateBriefing(
+  projectId: string
+): Promise<{ briefing: ProjectBriefing | null; error?: string }> {
+  if (!projectId) return { briefing: null, error: "projectId is required." };
+
+  try {
+    const supabase = await createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) redirect("/login");
+
+    const { data: existing } = await supabase
+      .from("project_briefings")
+      .select("id, project_id, content, generated_at, generated_by")
+      .eq("project_id", projectId)
+      .maybeSingle();
+
+    if (existing && !isStale(existing.generated_at)) {
+      return { briefing: { ...existing, is_stale: false } as ProjectBriefing };
+    }
+
+    const { content, model, snapshot } = await generateBriefingContent(projectId, supabase);
+    const now = new Date().toISOString();
+
+    const { data: upserted, error: upsertErr } = await supabase
+      .from("project_briefings")
+      .upsert(
+        { project_id: projectId, content, generated_at: now, generated_by: "auto", model, data_snapshot: snapshot },
+        { onConflict: "project_id" }
+      )
+      .select("id, project_id, content, generated_at, generated_by")
+      .maybeSingle();
+
+    if (upsertErr) throw upsertErr;
+
+    return {
+      briefing: {
+        ...(upserted ?? { id: "", project_id: projectId, content, generated_at: now, generated_by: "auto" }),
+        is_stale: false,
+      } as ProjectBriefing,
+    };
+  } catch (e: any) {
+    console.error("[getOrGenerateBriefing]", e?.message ?? e);
+    return { briefing: null, error: safeStr(e?.message) || "Failed to generate briefing." };
+  }
+}
+
+export async function regenerateBriefing(
+  projectId: string
+): Promise<{ briefing: ProjectBriefing | null; error?: string }> {
+  if (!projectId) return { briefing: null, error: "projectId is required." };
+
+  try {
+    const supabase = await createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) redirect("/login");
+
+    const { data: mem } = await supabase
+      .from("project_members")
+      .select("role")
+      .eq("project_id", projectId)
+      .eq("user_id", auth.user.id)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    const role = safeStr((mem as any)?.role).toLowerCase();
+    if (role !== "owner" && role !== "editor") {
+      return { briefing: null, error: "Only owners and editors can regenerate the briefing." };
+    }
+
+    const { content, model, snapshot } = await generateBriefingContent(projectId, supabase);
+    const now = new Date().toISOString();
+
+    const { data: upserted, error: upsertErr } = await supabase
+      .from("project_briefings")
+      .upsert(
+        { project_id: projectId, content, generated_at: now, generated_by: "manual", model, data_snapshot: snapshot },
+        { onConflict: "project_id" }
+      )
+      .select("id, project_id, content, generated_at, generated_by")
+      .maybeSingle();
+
+    if (upsertErr) throw upsertErr;
+
+    return {
+      briefing: {
+        ...(upserted ?? { id: "", project_id: projectId, content, generated_at: now, generated_by: "manual" }),
+        is_stale: false,
+      } as ProjectBriefing,
+    };
+  } catch (e: any) {
+    console.error("[regenerateBriefing]", e?.message ?? e);
+    return { briefing: null, error: safeStr(e?.message) || "Regeneration failed." };
+  }
+}
+
+export async function getCachedBriefing(
+  projectId: string
+): Promise<{ briefing: ProjectBriefing | null }> {
+  if (!projectId) return { briefing: null };
+
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("project_briefings")
+      .select("id, project_id, content, generated_at, generated_by")
+      .eq("project_id", projectId)
+      .maybeSingle();
+
+    if (!data) return { briefing: null };
+    return { briefing: { ...data, is_stale: isStale(data.generated_at) } as ProjectBriefing };
   } catch {
-    return false;
+    return { briefing: null };
   }
-}
-
-function setDismissed(projectId: string) {
-  try {
-    localStorage.setItem(getDismissKey(projectId), "1");
-  } catch {}
-}
-
-// -- Skeleton ------------------------------------------------------------------
-
-function BriefingSkeleton() {
-  return (
-    <div className="animate-pulse space-y-3 py-1">
-      <div className="h-4 bg-gray-200 rounded-full w-3/4" />
-      <div className="grid grid-cols-3 gap-4">
-        <div className="space-y-2">
-          <div className="h-3 bg-gray-200 rounded-full w-1/2" />
-          <div className="h-3 bg-gray-100 rounded-full" />
-          <div className="h-3 bg-gray-100 rounded-full w-5/6" />
-        </div>
-        <div className="space-y-2">
-          <div className="h-3 bg-gray-200 rounded-full w-1/2" />
-          <div className="h-3 bg-gray-100 rounded-full" />
-          <div className="h-3 bg-gray-100 rounded-full w-4/5" />
-        </div>
-        <div className="space-y-2">
-          <div className="h-3 bg-gray-200 rounded-full w-1/2" />
-          <div className="h-3 bg-gray-100 rounded-full" />
-          <div className="h-3 bg-gray-100 rounded-full w-2/3" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// -- Priority badge -------------------------------------------------------------
-
-function PriorityBadge({ priority }: { priority: "high" | "medium" }) {
-  return priority === "high" ? (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-red-50 border border-red-200 text-red-700">
-      <Zap className="w-2.5 h-2.5" />
-      High
-    </span>
-  ) : (
-    <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-700">
-      Med
-    </span>
-  );
-}
-
-// -- Main component -------------------------------------------------------------
-
-export default function ProjectDailyBriefing({
-  projectId,
-  initialBriefing,
-  canRegenerate = false,
-}: Props) {
-  const [briefing, setBriefing]     = useState<ProjectBriefing | null>(initialBriefing ?? null);
-  const [loading, setLoading]       = useState(!initialBriefing);
-  const [error, setError]           = useState<string | null>(null);
-  const [collapsed, setCollapsed]   = useState(false);
-  const [dismissed, setDismissedState] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const hasFetched = useRef(false);
-
-  useEffect(() => {
-    if (isDismissed(projectId)) {
-      setDismissedState(true);
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    if (hasFetched.current) return;
-    hasFetched.current = true;
-
-    if (initialBriefing && !initialBriefing.is_stale) {
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    startTransition(() => {
-      void (async () => {
-        try {
-          const { briefing: b, error: e } = await getOrGenerateBriefing(projectId);
-          if (e) {
-            setError(e);
-          } else {
-            setBriefing(b);
-          }
-        } catch (err: any) {
-          setError(err?.message ?? "Failed to load briefing.");
-        } finally {
-          setLoading(false);
-        }
-      })();
-    });
-  }, [projectId]);
-
-  function handleDismiss() {
-    setDismissed(projectId);
-    setDismissedState(true);
-  }
-
-  function handleRegenerate() {
-    setLoading(true);
-    setError(null);
-    startTransition(() => {
-      void (async () => {
-        try {
-          const { briefing: b, error: e } = await regenerateBriefing(projectId);
-          if (e) {
-            setError(e);
-          } else {
-            setBriefing(b);
-          }
-        } catch (err: any) {
-          setError(err?.message ?? "Regeneration failed.");
-        } finally {
-          setLoading(false);
-        }
-      })();
-    });
-  }
-
-  if (dismissed) return null;
-
-  const content = briefing?.content as BriefingSection | undefined;
-  const generatedAt = briefing?.generated_at
-    ? new Date(briefing.generated_at).toLocaleTimeString("en-GB", {
-        hour: "2-digit", minute: "2-digit",
-      })
-    : null;
-
-  return (
-    <div
-      className="w-full border-b border-gray-200 bg-gradient-to-r from-indigo-50/60 via-white to-purple-50/40"
-      style={{ borderTop: "2px solid #6366f1" }}
-    >
-      <div className="flex items-center justify-between px-6 py-2.5 gap-3">
-        <button
-          onClick={() => setCollapsed((c) => !c)}
-          className="flex items-center gap-2 text-left flex-1 min-w-0 group"
-        >
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-            </div>
-            <span className="text-sm font-semibold text-gray-900">
-              AI Daily Briefing
-            </span>
-          </div>
-
-          {content?.summary && !collapsed && (
-            <span className="text-sm text-gray-500 truncate hidden sm:block">
-              — {content.summary}
-            </span>
-          )}
-
-          <span className="ml-auto shrink-0 text-gray-400 group-hover:text-gray-600 transition-colors">
-            {collapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-          </span>
-        </button>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {generatedAt && !loading && (
-            <span className="text-xs text-gray-400 hidden md:block">
-              Generated {generatedAt}
-            </span>
-          )}
-
-          {canRegenerate && !loading && (
-            <button
-              onClick={handleRegenerate}
-              disabled={isPending || loading}
-              className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-indigo-600 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-40"
-              title="Regenerate briefing"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isPending || loading ? "animate-spin" : ""}`} />
-              <span className="hidden sm:inline">Regenerate</span>
-            </button>
-          )}
-
-          <button
-            onClick={handleDismiss}
-            className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-            title="Dismiss for today"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {!collapsed && (
-        <div className="px-6 pb-5 pt-1">
-          {loading && <BriefingSkeleton />}
-
-          {!loading && error && (
-            <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-medium">Briefing unavailable: </span>
-                {error}
-                {canRegenerate && (
-                  <button onClick={handleRegenerate} className="ml-2 underline underline-offset-2 hover:no-underline">
-                    Try again
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {!loading && !error && content && (
-            <div className="space-y-4">
-              {content.summary && (
-                <p className="text-sm text-gray-700 leading-relaxed border-l-2 border-indigo-300 pl-3 italic">
-                  {content.summary}
-                </p>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* On track */}
-                <div className="rounded-xl bg-green-50 border border-green-200 p-4 space-y-2">
-                  <div className="flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
-                    <span className="text-xs font-semibold uppercase tracking-wider text-green-800">On track</span>
-                  </div>
-                  <ul className="space-y-1.5">
-                    {content.on_track?.map((item, i) => (
-                      <li key={i} className="text-xs text-green-900 flex gap-2">
-                        <span className="text-green-400 mt-0.5 shrink-0">?</span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Needs attention */}
-                <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-2">
-                  <div className="flex items-center gap-1.5">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span className="text-xs font-semibold uppercase tracking-wider text-amber-800">Needs attention</span>
-                  </div>
-                  <ul className="space-y-2">
-                    {content.needs_attention?.map((item, i) => (
-                      <li key={i} className="text-xs text-amber-900 flex flex-col gap-1">
-                        <div className="flex items-start gap-2">
-                          <span className="text-amber-400 mt-0.5 shrink-0">!</span>
-                          <span className="flex-1">{item.item}</span>
-                        </div>
-                        <div className="pl-4">
-                          <PriorityBadge priority={item.priority} />
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Biggest risk */}
-                <div className="rounded-xl bg-red-50 border border-red-200 p-4 space-y-3">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
-                      <span className="text-xs font-semibold uppercase tracking-wider text-red-800">Biggest risk</span>
-                    </div>
-                    <p className="text-xs text-red-900 leading-relaxed pl-1">{content.biggest_risk}</p>
-                  </div>
-
-                  <div className="space-y-1.5 border-t border-red-200 pt-3">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-red-800">Actions for today</span>
-                    <ol className="space-y-1.5">
-                      {content.recommended_actions?.map((action, i) => (
-                        <li key={i} className="text-xs text-red-900 flex gap-2">
-                          <span className="font-semibold text-red-400 shrink-0">{i + 1}.</span>
-                          <span>{action}</span>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
