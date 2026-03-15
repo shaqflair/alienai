@@ -365,12 +365,21 @@ export async function buildRuntimeApprovalChain(
     throw new Error("Approval chain created but no steps returned.");
   }
 
-  // 6. Build explicit step-order -> inserted step id map
+  // 6. Sort returned rows explicitly — Supabase does not guarantee insert().select() order
+  const orderedSteps = [...insertedSteps].sort(
+    (a: any, b: any) => Number(a?.step_order ?? 0) - Number(b?.step_order ?? 0)
+  );
+
   const insertedStepIdByOrder = new Map<number, string>();
-  for (const step of insertedSteps) {
+
+  for (const step of orderedSteps) {
     const stepId = safeStr((step as any)?.id).trim();
     const stepOrder = Number((step as any)?.step_order ?? 0);
-    if (!stepId || !Number.isFinite(stepOrder) || stepOrder < 1) continue;
+
+    if (!stepId || !Number.isFinite(stepOrder) || stepOrder < 1) {
+      throw new Error("Invalid approval step returned from insert.");
+    }
+
     insertedStepIdByOrder.set(stepOrder, stepId);
   }
 
@@ -415,7 +424,7 @@ export async function buildRuntimeApprovalChain(
 
   return {
     chainId: chain.id,
-    stepIds: insertedSteps.map((s: any) => s.id),
+    stepIds: orderedSteps.map((s: any) => s.id),
     chosenType: desiredType,
   };
 }
