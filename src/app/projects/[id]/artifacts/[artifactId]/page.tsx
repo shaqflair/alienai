@@ -190,11 +190,14 @@ export default async function ArtifactDetailPage({
     if (!approvalEnabled || !projectUuid) return;
     const ok = charterMode || closureMode || financialPlanMode ? canSubmitFromServer : canSubmitNonCharter;
     if (!ok) return;
+    let errMsg: string | null = null;
     try {
       await submitArtifactForApproval(projectUuid, artifactId);
-    } catch (e) {
-      const msg = encodeURIComponent(String((e as any)?.message ?? "Submit failed"));
-      redirect(`${artifactPath}?action_error=${msg}`);
+    } catch (e: any) {
+      errMsg = String(e?.message ?? "Submit failed");
+    }
+    if (errMsg) {
+      redirect(`${artifactPath}?action_error=${encodeURIComponent(errMsg)}`);
     }
     revalidatePath(artifactPath);
     revalidatePath(artifactsPath);
@@ -204,11 +207,14 @@ export default async function ArtifactDetailPage({
   async function approveAction() {
     "use server";
     if (!approvalEnabled || !projectUuid) return;
+    let errMsg: string | null = null;
     try {
       await approveArtifact(projectUuid, artifactId);
-    } catch (e) {
-      const msg = encodeURIComponent(String((e as any)?.message ?? "Approve failed"));
-      redirect(`${artifactPath}?action_error=${msg}`);
+    } catch (e: any) {
+      errMsg = String(e?.message ?? "Approve failed");
+    }
+    if (errMsg) {
+      redirect(`${artifactPath}?action_error=${encodeURIComponent(errMsg)}`);
     }
     revalidatePath(artifactPath);
     revalidatePath(artifactsPath);
@@ -219,11 +225,14 @@ export default async function ArtifactDetailPage({
     "use server";
     if (!approvalEnabled || !projectUuid) return;
     const reason = String(formData.get("reason") ?? "").trim() || undefined;
+    let errMsg: string | null = null;
     try {
       await requestChangesArtifact(projectUuid, artifactId, reason);
-    } catch (e) {
-      const msg = encodeURIComponent(String((e as any)?.message ?? "Request changes failed"));
-      redirect(`${artifactPath}?action_error=${msg}`);
+    } catch (e: any) {
+      errMsg = String(e?.message ?? "Request changes failed");
+    }
+    if (errMsg) {
+      redirect(`${artifactPath}?action_error=${encodeURIComponent(errMsg)}`);
     }
     revalidatePath(artifactPath);
     revalidatePath(artifactsPath);
@@ -234,11 +243,14 @@ export default async function ArtifactDetailPage({
     "use server";
     if (!approvalEnabled || !projectUuid) return;
     const reason = String(formData.get("reason") ?? "").trim() || undefined;
+    let errMsg: string | null = null;
     try {
       await rejectFinalArtifact(projectUuid, artifactId, reason);
-    } catch (e) {
-      const msg = encodeURIComponent(String((e as any)?.message ?? "Reject failed"));
-      redirect(`${artifactPath}?action_error=${msg}`);
+    } catch (e: any) {
+      errMsg = String(e?.message ?? "Reject failed");
+    }
+    if (errMsg) {
+      redirect(`${artifactPath}?action_error=${encodeURIComponent(errMsg)}`);
     }
     revalidatePath(artifactPath);
     revalidatePath(artifactsPath);
@@ -247,11 +259,14 @@ export default async function ArtifactDetailPage({
 
   async function renameTitleAction(formData: FormData) {
     "use server";
+    let errMsg: string | null = null;
     try {
       await renameArtifactTitle(formData);
-    } catch (e) {
-      const msg = encodeURIComponent(String((e as any)?.message ?? "Rename failed"));
-      redirect(`${artifactPath}?action_error=${msg}`);
+    } catch (e: any) {
+      errMsg = String(e?.message ?? "Rename failed");
+    }
+    if (errMsg) {
+      redirect(`${artifactPath}?action_error=${encodeURIComponent(errMsg)}`);
     }
     revalidatePath(artifactPath);
     revalidatePath(artifactsPath);
@@ -262,15 +277,18 @@ export default async function ArtifactDetailPage({
     "use server";
     if (!approvalEnabled || !projectUuid) return;
     let newArtifactId = "";
+    let errMsg: string | null = null;
     try {
       const res = await createArtifactRevision({
         projectId: projectUuid, artifactId,
         revisionReason: "Revision created", revisionType: "material",
       });
       newArtifactId = safeStr((res as any).newArtifactId).trim();
-    } catch (e) {
-      const msg = encodeURIComponent(String((e as any)?.message ?? "Create revision failed"));
-      redirect(`${artifactPath}?action_error=${msg}`);
+    } catch (e: any) {
+      errMsg = String(e?.message ?? "Create revision failed");
+    }
+    if (errMsg) {
+      redirect(`${artifactPath}?action_error=${encodeURIComponent(errMsg)}`);
     }
     revalidatePath(artifactsPath);
     revalidatePath(artifactPath);
@@ -286,11 +304,14 @@ export default async function ArtifactDetailPage({
     if (!projectUuid || !canEditByRole) return;
     const blocked = statusLower === "submitted" || statusLower === "approved" || statusLower === "rejected";
     if (blocked) return;
+    let errMsg: string | null = null;
     try {
       await setArtifactCurrent({ projectId: projectUuid, artifactId });
-    } catch (e) {
-      const msg = encodeURIComponent(String((e as any)?.message ?? "Make current failed"));
-      redirect(`${artifactPath}?action_error=${msg}`);
+    } catch (e: any) {
+      errMsg = String(e?.message ?? "Make current failed");
+    }
+    if (errMsg) {
+      redirect(`${artifactPath}?action_error=${encodeURIComponent(errMsg)}`);
     }
     revalidatePath(artifactsPath);
     revalidatePath(artifactPath);
