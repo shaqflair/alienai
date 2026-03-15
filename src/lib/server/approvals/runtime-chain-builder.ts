@@ -87,16 +87,25 @@ type RuleRow = {
   max_amount: number | null;
 };
 
+type StepApprover = {
+  userId: string;
+  role: string;
+};
+
 /**
  * DB OPERATIONS
  */
 
 async function supersedeExistingArtifactChains(supabase: SupabaseClient, artifactId: string) {
-  await supabase
+  const { error } = await supabase
     .from("approval_chains")
     .update({ is_active: false, status: "superseded" })
     .eq("artifact_id", artifactId)
     .eq("is_active", true);
+
+  if (error) {
+    throw new Error(`approval_chains supersede failed: ${error.message}`);
+  }
 }
 
 async function loadRulesForArtifact(
@@ -254,20 +263,22 @@ export async function buildRuntimeApprovalChain(
   const amount = Number(args.amount ?? 0) || 0;
   const desiredType = normalizeArtifactType(args.artifactType);
 
-  // 1. Resolve Rules
+  // 1. Resolve rules
   const rules = await loadRulesForArtifact(supabase, args.organisationId, desiredType, amount);
-  if (!rules.length) throw new Error("No matching approval rules found.");
+  if (!rules.length) {
+    throw new Error("No matching approval rules found.");
+  }
 
   // 2. Resolve and dedupe approvers per logical rule step
   const logicalStepNumbers = Array.from(new Set(rules.map((r) => r.step)))
     .filter((n) => Number.isFinite(n) && n >= 1)
     .sort((a, b) => a - b);
 
-  const approversByLogicalStep = new Map<number, Array<{ userId: string; role: string }>>();
+  const approversByLogicalStep = new Map<number, StepApprover[]>();
 
   for (const logicalStepNo of logicalStepNumbers) {
     const stepRules = rules.filter((r) => r.step === logicalStepNo);
-    const collected: Array<{ userId: string; role: string }> = [];
+    const collected: StepApprover[] = [];
 
     for (const rule of stepRules) {
       if (rule.approver_user_id) {
@@ -302,9 +313,7 @@ export async function buildRuntimeApprovalChain(
     throw new Error("No valid approvers resolved for the matching approval rules.");
   }
 
-  // 3. Supersede old chains + purge old step rows for this artifact
-  //    This avoids collisions with unique constraints such as
-  //    artifact_approval_steps_unique_order when rebuilding a chain.
+  // 3. Supersede old chains + purge old rows
   await supersedeExistingArtifactChains(supabase, args.artifactId);
   await purgeExistingArtifactStepRows(supabase, args.artifactId);
 
@@ -323,10 +332,11 @@ export async function buildRuntimeApprovalChain(
     .select("id")
     .single();
 
-  if (cErr) throw new Error(`approval_chains insert failed: ${cErr.message}`);
+  if (cErr) {
+    throw new Error(`approval_chains insert failed: ${cErr.message}`);
+  }
 
-  // 5. Create steps using normalized sequential order (1..N),
-  //    not the raw rule step number, to guarantee unique ordering.
+  // 5. Create steps with guaranteed sequential order 1..N
   const stepRows = activeLogicalSteps.map((logicalStepNo, index) => ({
     artifact_id: args.artifactId,
     chain_id: chain.id,
@@ -336,7 +346,6 @@ export async function buildRuntimeApprovalChain(
     name: `Step ${index + 1}`,
     status: index === 0 ? "pending" : "waiting",
     mode: "serial",
-    // kept only in-memory mapping via logicalStepNo below
     __logical_step_no: logicalStepNo,
   }));
 
@@ -353,15 +362,19 @@ export async function buildRuntimeApprovalChain(
 
   const insertedSteps = Array.isArray(steps) ? steps : [];
   if (!insertedSteps.length) {
-    throw new Error("No approval steps were created.");
+    throw new Error("Approval chain created but no steps returned.");
   }
 
-  // 6. Finalize approvers
-  const stepOrderToLogicalStep = new Map<number, number>();
-  stepRows.forEach((row) => {
-    stepOrderToLogicalStep.set(row.step_order, row.__logical_step_no);
-  });
+  // 6. Build explicit step-order -> inserted step id map
+  const insertedStepIdByOrder = new Map<number, string>();
+  for (const step of insertedSteps) {
+    const stepId = safeStr((step as any)?.id).trim();
+    const stepOrder = Number((step as any)?.step_order ?? 0);
+    if (!stepId || !Number.isFinite(stepOrder) || stepOrder < 1) continue;
+    insertedStepIdByOrder.set(stepOrder, stepId);
+  }
 
+  // 7. Resolve approver emails once
   const allUserIds = Array.from(
     new Set(
       Array.from(approversByLogicalStep.values())
@@ -373,19 +386,26 @@ export async function buildRuntimeApprovalChain(
 
   const emails = await getUserEmailsByIds(supabase, allUserIds);
 
+  // 8. Create approver rows using the same normalized sequential order used for step inserts
   const finalApproverRows: any[] = [];
 
-  for (const step of insertedSteps) {
-    const stepOrder = Number((step as any)?.step_order ?? 0);
-    const logicalStepNo = stepOrderToLogicalStep.get(stepOrder);
-    if (!logicalStepNo) continue;
+  for (let normalizedOrder = 1; normalizedOrder <= activeLogicalSteps.length; normalizedOrder += 1) {
+    const stepId = insertedStepIdByOrder.get(normalizedOrder);
+    if (!stepId) {
+      throw new Error(`Inserted approval step missing for normalized step order ${normalizedOrder}.`);
+    }
 
+    const logicalStepNo = activeLogicalSteps[normalizedOrder - 1];
     const approvers = approversByLogicalStep.get(logicalStepNo) || [];
+
     for (const approver of approvers) {
+      const userId = safeStr(approver.userId).trim();
+      if (!userId) continue;
+
       finalApproverRows.push({
-        step_id: (step as any).id,
-        user_id: approver.userId,
-        email: emails.get(approver.userId) || null,
+        step_id: stepId,
+        user_id: userId,
+        email: emails.get(userId) || null,
         role: labelToRole(approver.role),
       });
     }
