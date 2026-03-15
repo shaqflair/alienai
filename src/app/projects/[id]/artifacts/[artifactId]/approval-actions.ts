@@ -292,17 +292,6 @@ async function cancelApprovalChainArtifacts(supabase: any, chainId: string, arti
   if (artifactId) await clearArtifactApprovalLinkIfStale(supabase, artifactId, chainId);
 }
 
-async function getActiveApprovalChainForArtifact(supabase: any, artifactId: string) {
-  const { data, error } = await supabase
-    .from("approval_chains")
-    .select("*")
-    .eq("artifact_id", artifactId)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (error) throwDb(error, "approval_chains.select(active_for_artifact)");
-  return (data as any) ?? null;
-}
-
 async function listApprovalStepsForChain(supabase: any, chainId: string) {
   const { data, error } = await supabase
     .from("artifact_approval_steps")
@@ -719,30 +708,61 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   // Charter-specific validation only
   if (isProjectCharterType(a0.type)) assertCharterReadyForSubmit(a0.content_json);
 
-  const activeChain = await getActiveApprovalChainForArtifact(supabase, artifactId);
+  // ── Stale chain sweep ──────────────────────────────────────────────────────
+  // Fetch ALL active chains for this artifact (not just the first one via
+  // maybeSingle). If multiple orphaned chains exist we cancel every one of
+  // them before letting buildRuntimeApprovalChain proceed.
+  const { data: allActiveChains, error: sweepErr } = await supabase
+    .from("approval_chains")
+    .select("id")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true);
 
-  if (activeChain?.id) {
-    const activeChainId = safeStr(activeChain.id).trim();
+  if (sweepErr) throwDb(sweepErr, "approval_chains.select(sweep_all_active)");
+
+  const staleChainIds: string[] = (allActiveChains ?? [])
+    .map((r: any) => safeStr(r?.id).trim())
+    .filter(Boolean);
+
+  for (const staleId of staleChainIds) {
     const linkedChainId = safeStr((a0 as any).approval_chain_id).trim();
-    const artifactLooksSubmitted = st === "submitted" || st === "approved" || st === "rejected";
-    const artifactLinkedToThisChain = !!linkedChainId && linkedChainId === activeChainId;
+    const artifactLooksSubmitted =
+      st === "submitted" || st === "approved" || st === "rejected";
+    const artifactLinkedToThis = !!linkedChainId && linkedChainId === staleId;
 
-    if (artifactLooksSubmitted && artifactLinkedToThisChain) {
+    // If the artifact is already properly submitted against this chain it is a
+    // no-op (e.g. double-click). Return early rather than re-submit.
+    if (artifactLooksSubmitted && artifactLinkedToThis) {
       revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
       revalidatePath(`/projects/${projectId}/artifacts`);
-      return { ok: true, artifactId, approvalChainId: activeChainId, recovered: false, noOp: true };
+      return {
+        ok: true, artifactId, approvalChainId: staleId,
+        recovered: false, noOp: true,
+      };
     }
 
-    const recoverableDraftState = st === "draft" || st === "changes_requested" || !st;
-    if (recoverableDraftState || !artifactLinkedToThisChain) {
-      await cancelApprovalChainArtifacts(supabase, activeChainId, artifactId);
-      await clearArtifactApprovalLinkIfStale(supabase, artifactId, activeChainId);
-    } else {
-      throw new Error(
-        `Artifact submit blocked: active approval chain ${activeChainId} is already attached to artifact ${artifactId} in status ${st || "unknown"}.`
-      );
-    }
+    // Stale / orphaned chain — cancel it before building the new one.
+    await cancelApprovalChainArtifacts(supabase, staleId, artifactId);
   }
+
+  // Post-sweep verification: confirm the cancellation writes landed before we
+  // call buildRuntimeApprovalChain (which runs its own active-chain guard).
+  const { data: postSweepCheck, error: postSweepErr } = await supabase
+    .from("approval_chains")
+    .select("id")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true)
+    .limit(1);
+
+  if (postSweepErr) throwDb(postSweepErr, "approval_chains.select(post_sweep_verify)");
+
+  if ((postSweepCheck ?? []).length > 0) {
+    throw new Error(
+      `Artifact submit blocked: could not cancel all active approval chains for artifact ${artifactId}. ` +
+      `Remaining chain id: ${safeStr((postSweepCheck as any)[0]?.id)}. Please retry in a moment.`
+    );
+  }
+  // ── End sweep ──────────────────────────────────────────────────────────────
 
   const organisationId = await getOrganisationIdForProject(supabase, projectId);
   if (!organisationId) throw new Error("Could not resolve organisation for this project.");
@@ -758,7 +778,17 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
       artifactType: normalizeArtifactType(a0.type),
     });
   } catch (error: any) {
-    throw new Error(`Runtime approval chain build failed: ${safeStr(error?.message) || "unknown error"}`);
+    const msg = safeStr(error?.message) || "unknown error";
+    // If buildRuntimeApprovalChain still sees a stale chain (e.g. replication
+    // lag between the sweep write and the read inside the builder), surface a
+    // clear, user-friendly, retryable message instead of a hard 500.
+    if (msg.toLowerCase().includes("already has an active approval chain")) {
+      throw new Error(
+        "A previous approval submission is still being processed. " +
+        "Please wait a moment and try submitting again."
+      );
+    }
+    throw new Error(`Runtime approval chain build failed: ${msg}`);
   }
 
   const runtimeChainId = safeStr(runtime?.chainId).trim();
@@ -779,11 +809,11 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     action: st === "changes_requested" ? "resubmit" : "submit",
     before: { approval_status: a0.approval_status, is_locked: a0.is_locked, approval_chain_id: a0.approval_chain_id ?? null },
     after: {
-      approval_status:      safeStr(updatedArtifact?.approval_status || "submitted"),
-      is_locked:            updatedArtifact?.is_locked === true,
-      approval_chain_id:    safeStr(updatedArtifact?.approval_chain_id || runtimeChainId),
-      submitted_at:         safeStr(updatedArtifact?.submitted_at || nowIso),
-      submitted_by:         safeStr(updatedArtifact?.submitted_by || user.id),
+      approval_status:       safeStr(updatedArtifact?.approval_status || "submitted"),
+      is_locked:             updatedArtifact?.is_locked === true,
+      approval_chain_id:     safeStr(updatedArtifact?.approval_chain_id || runtimeChainId),
+      submitted_at:          safeStr(updatedArtifact?.submitted_at || nowIso),
+      submitted_by:          safeStr(updatedArtifact?.submitted_by || user.id),
       runtime_steps_created: true,
       runtime_artifact_type: safeStr(runtime?.chosenType || normalizeArtifactType(a0.type)),
       runtime_step_count:    Array.isArray(runtime?.stepIds) ? runtime.stepIds.length : 0,
@@ -792,7 +822,10 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
   revalidatePath(`/projects/${projectId}/artifacts`);
-  return { ok: true, artifactId, approvalChainId: runtimeChainId, recovered: !!activeChain?.id, noOp: false };
+  return {
+    ok: true, artifactId, approvalChainId: runtimeChainId,
+    recovered: staleChainIds.length > 0, noOp: false,
+  };
 }
 
 export async function approveStep(projectId: string, artifactId: string) {
@@ -808,7 +841,15 @@ export async function approveStep(projectId: string, artifactId: string) {
   const st = lower(a0.approval_status);
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
-  const chain = await getActiveApprovalChainForArtifact(supabase, artifactId);
+  const { data: activeChainRow, error: chainErr } = await supabase
+    .from("approval_chains")
+    .select("*")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (chainErr) throwDb(chainErr, "approval_chains.select(active_for_artifact)");
+  const chain = (activeChainRow as any) ?? null;
+
   if (!chain?.id) throw new Error("No active approval chain found for this artifact.");
 
   const steps       = sortApprovalSteps(await listApprovalStepsForChain(supabase, chain.id));
@@ -879,7 +920,15 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
   const st = String(a0.approval_status ?? "").toLowerCase();
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
-  const chain       = await getActiveApprovalChainForArtifact(supabase, artifactId);
+  const { data: activeChainRow, error: chainErr } = await supabase
+    .from("approval_chains")
+    .select("*")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (chainErr) throwDb(chainErr, "approval_chains.select(active_for_artifact)");
+  const chain = (activeChainRow as any) ?? null;
+
   const steps       = chain?.id ? sortApprovalSteps(await listApprovalStepsForChain(supabase, chain.id)) : [];
   const currentStep = getCurrentStep(steps);
 
@@ -927,7 +976,15 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
   const st = String(a0.approval_status ?? "").toLowerCase();
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
-  const chain       = await getActiveApprovalChainForArtifact(supabase, artifactId);
+  const { data: activeChainRow, error: chainErr } = await supabase
+    .from("approval_chains")
+    .select("*")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (chainErr) throwDb(chainErr, "approval_chains.select(active_for_artifact)");
+  const chain = (activeChainRow as any) ?? null;
+
   const steps       = chain?.id ? sortApprovalSteps(await listApprovalStepsForChain(supabase, chain.id)) : [];
   const currentStep = getCurrentStep(steps);
 
