@@ -255,7 +255,7 @@ Rules:
 
 // -- LLM call -----------------------------------------------------------------
 
-export async function buildDailyBriefingLLM(data: {
+async function buildDailyBriefingLLM(data: {
   project:          any;
   raidItems:        any[];
   milestones:       any[];
@@ -283,7 +283,7 @@ export async function buildDailyBriefingLLM(data: {
 
 // -- Rule-based fallback ------------------------------------------------------
 
-export function buildDailyBriefingFallback(data: {
+function buildDailyBriefingFallback(data: {
   project:          any;
   raidItems:        any[];
   milestones:       any[];
