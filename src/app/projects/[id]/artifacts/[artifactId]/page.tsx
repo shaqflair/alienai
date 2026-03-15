@@ -101,10 +101,14 @@ function statusConfig(status: string): { label: string; bg: string; color: strin
 
 export default async function ArtifactDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id?: string; artifactId?: string }>;
+  searchParams?: Promise<{ action_error?: string }>;
 }) {
   const p = await params;
+  const sp = searchParams ? await searchParams : {};
+  const actionError = normParam(sp?.action_error ?? "");
   const projectParam  = normParam(p?.id);
   const artifactParam = normParam(p?.artifactId);
   if (!projectParam || !artifactParam) notFound();
@@ -178,60 +182,103 @@ export default async function ArtifactDetailPage({
 
   // -- Server actions --------------------------------------------------------
 
+  const artifactPath  = `/projects/${projectRefForPaths}/artifacts/${artifactId}`;
+  const artifactsPath = `/projects/${projectRefForPaths}/artifacts`;
+
   async function submitAction() {
     "use server";
     if (!approvalEnabled || !projectUuid) return;
     const ok = charterMode || closureMode || financialPlanMode ? canSubmitFromServer : canSubmitNonCharter;
     if (!ok) return;
-    await submitArtifactForApproval(projectUuid, artifactId);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts/${artifactId}`);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts`);
+    try {
+      await submitArtifactForApproval(projectUuid, artifactId);
+    } catch (e) {
+      const msg = encodeURIComponent(String((e as any)?.message ?? "Submit failed"));
+      redirect(`${artifactPath}?action_error=${msg}`);
+    }
+    revalidatePath(artifactPath);
+    revalidatePath(artifactsPath);
+    redirect(artifactPath);
   }
 
   async function approveAction() {
     "use server";
     if (!approvalEnabled || !projectUuid) return;
-    await approveArtifact(projectUuid, artifactId);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts/${artifactId}`);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts`);
+    try {
+      await approveArtifact(projectUuid, artifactId);
+    } catch (e) {
+      const msg = encodeURIComponent(String((e as any)?.message ?? "Approve failed"));
+      redirect(`${artifactPath}?action_error=${msg}`);
+    }
+    revalidatePath(artifactPath);
+    revalidatePath(artifactsPath);
+    redirect(artifactPath);
   }
 
   async function requestChangesAction(formData: FormData) {
     "use server";
     if (!approvalEnabled || !projectUuid) return;
     const reason = String(formData.get("reason") ?? "").trim() || undefined;
-    await requestChangesArtifact(projectUuid, artifactId, reason);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts/${artifactId}`);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts`);
+    try {
+      await requestChangesArtifact(projectUuid, artifactId, reason);
+    } catch (e) {
+      const msg = encodeURIComponent(String((e as any)?.message ?? "Request changes failed"));
+      redirect(`${artifactPath}?action_error=${msg}`);
+    }
+    revalidatePath(artifactPath);
+    revalidatePath(artifactsPath);
+    redirect(artifactPath);
   }
 
   async function rejectFinalAction(formData: FormData) {
     "use server";
     if (!approvalEnabled || !projectUuid) return;
     const reason = String(formData.get("reason") ?? "").trim() || undefined;
-    await rejectFinalArtifact(projectUuid, artifactId, reason);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts/${artifactId}`);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts`);
+    try {
+      await rejectFinalArtifact(projectUuid, artifactId, reason);
+    } catch (e) {
+      const msg = encodeURIComponent(String((e as any)?.message ?? "Reject failed"));
+      redirect(`${artifactPath}?action_error=${msg}`);
+    }
+    revalidatePath(artifactPath);
+    revalidatePath(artifactsPath);
+    redirect(artifactPath);
   }
 
   async function renameTitleAction(formData: FormData) {
     "use server";
-    await renameArtifactTitle(formData);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts/${artifactId}`);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts`);
+    try {
+      await renameArtifactTitle(formData);
+    } catch (e) {
+      const msg = encodeURIComponent(String((e as any)?.message ?? "Rename failed"));
+      redirect(`${artifactPath}?action_error=${msg}`);
+    }
+    revalidatePath(artifactPath);
+    revalidatePath(artifactsPath);
+    redirect(artifactPath);
   }
 
   async function createRevisionAction() {
     "use server";
     if (!approvalEnabled || !projectUuid) return;
-    const res = await createArtifactRevision({
-      projectId: projectUuid, artifactId,
-      revisionReason: "Revision created", revisionType: "material",
-    });
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts`);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts/${artifactId}`);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts/${(res as any).newArtifactId}`);
-    redirect(`/projects/${projectRefForPaths}/artifacts/${(res as any).newArtifactId}`);
+    let newArtifactId = "";
+    try {
+      const res = await createArtifactRevision({
+        projectId: projectUuid, artifactId,
+        revisionReason: "Revision created", revisionType: "material",
+      });
+      newArtifactId = safeStr((res as any).newArtifactId).trim();
+    } catch (e) {
+      const msg = encodeURIComponent(String((e as any)?.message ?? "Create revision failed"));
+      redirect(`${artifactPath}?action_error=${msg}`);
+    }
+    revalidatePath(artifactsPath);
+    revalidatePath(artifactPath);
+    if (newArtifactId) {
+      revalidatePath(`/projects/${projectRefForPaths}/artifacts/${newArtifactId}`);
+      redirect(`/projects/${projectRefForPaths}/artifacts/${newArtifactId}`);
+    }
+    redirect(artifactPath);
   }
 
   async function makeCurrentAction() {
@@ -239,9 +286,15 @@ export default async function ArtifactDetailPage({
     if (!projectUuid || !canEditByRole) return;
     const blocked = statusLower === "submitted" || statusLower === "approved" || statusLower === "rejected";
     if (blocked) return;
-    await setArtifactCurrent({ projectId: projectUuid, artifactId });
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts`);
-    revalidatePath(`/projects/${projectRefForPaths}/artifacts/${artifactId}`);
+    try {
+      await setArtifactCurrent({ projectId: projectUuid, artifactId });
+    } catch (e) {
+      const msg = encodeURIComponent(String((e as any)?.message ?? "Make current failed"));
+      redirect(`${artifactPath}?action_error=${msg}`);
+    }
+    revalidatePath(artifactsPath);
+    revalidatePath(artifactPath);
+    redirect(artifactPath);
   }
 
   const jsonSaveAction = isFinancialPlan ? updateArtifactJsonSilent : updateArtifactJsonArgs;
@@ -546,6 +599,12 @@ export default async function ArtifactDetailPage({
   if (isFinancialPlan) {
     return (
       <div className="w-full min-h-screen" style={{ background: "#f6f8fa" }}>
+        {actionError && (
+          <div style={{ margin: "0 0 16px", padding: "12px 16px", borderRadius: 10, background: "#fff5f5", border: "1px solid #fecaca", fontSize: 13, color: "#b91c1c", display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <span style={{ fontWeight: 700, flexShrink: 0 }}>Action failed:</span>
+            <span>{decodeURIComponent(actionError)}</span>
+          </div>
+        )}
         <ArtifactPageHeader />
         <ArtifactDetailClientHost
           projectId={projectUuid!}
@@ -584,6 +643,12 @@ export default async function ArtifactDetailPage({
 
   return (
     <div className="w-full" style={{ background: "#f6f8fa" }}>
+      {actionError && (
+        <div style={{ margin: "0 0 16px", padding: "12px 16px", borderRadius: 10, background: "#fff5f5", border: "1px solid #fecaca", fontSize: 13, color: "#b91c1c", display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <span style={{ fontWeight: 700, flexShrink: 0 }}>Action failed:</span>
+          <span>{decodeURIComponent(actionError)}</span>
+        </div>
+      )}
       {/* Weekly report has its own complete sticky header/toolbar — skip ours */}
       {!isWeeklyReport && <ArtifactPageHeader />}
 
