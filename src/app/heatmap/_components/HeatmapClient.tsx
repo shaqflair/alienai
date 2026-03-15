@@ -5,8 +5,9 @@ import { useState, useCallback, useRef, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { HeatmapData, PersonRow, AllocationCell, Granularity, PeriodHeader, PipelineGapRow } from "../_lib/heatmap-query";
 import { updateAllocation, deleteAllocationDirect } from "../../allocations/actions";
+import AllocationAuditTrail from "@/components/heatmap/AllocationAuditTrail";
 
-// ── Util ─────────────────────────────────────────────────────────────────────
+// -- Util ---------------------------------------------------------------------
 const UC = {
   empty:    { bg:"#f8fafc",              text:"#cbd5e1", border:"#f1f5f9"               },
   low:      { bg:"rgba(16,185,129,0.1)", text:"#059669", border:"rgba(16,185,129,0.2)" },
@@ -23,17 +24,17 @@ const GL:Record<Granularity,string>={weekly:"Weekly",sprint:"Sprint",monthly:"Mo
 const CW:Record<Granularity,number>={weekly:64,sprint:80,monthly:90,quarterly:110};
 const PERSON_COL = 280;
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// -- Types --------------------------------------------------------------------
 type CS={personId:string;personName:string;projectId:string;projectTitle:string;projectCode:string|null;colour:string;periodKey:string;startDate:string;endDate:string;daysAllocated:number;capacityDays:number;};
 export type PersonOption={id:string;name:string;department:string|null;jobTitle:string|null;};
 type PO={id:string;title:string;code:string|null;status:string;colour:string;};
 type Filters={granularity:Granularity;dateFrom:string;dateTo:string;departments:string[];statuses:string[];personIds:string[];projectIds:string[];roles:string[];pmIds:string[];};
 
-// ── Shared styles ─────────────────────────────────────────────────────────────
+// -- Shared styles ------------------------------------------------------------
 const MLS:React.CSSProperties={display:"block",fontSize:"10px",fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"5px"};
 const MIS:React.CSSProperties={width:"100%",boxSizing:"border-box",padding:"8px 10px",borderRadius:"8px",border:"1.5px solid #e2e8f0",fontSize:"13px",color:"#0f172a",fontFamily:"inherit",outline:"none"};
 
-// ── Edit Modal ────────────────────────────────────────────────────────────────
+// -- Edit Modal ---------------------------------------------------------------
 function EditModal({cell,people,projects,onClose,onSaved,onSaveError}:{cell:CS;people:PersonOption[];projects:PO[];onClose:()=>void;onSaved:(a:string,b:string,c:string,d:string,e:number,f:string)=>void;onSaveError?:(msg:string)=>void;}){
   const CAPS=[0.5,1,1.5,2,2.5,3,3.5,4,4.5,5];
   const[pid,setPid]=useState(cell.personId);const[prid,setPrid]=useState(cell.projectId);
@@ -57,13 +58,13 @@ function EditModal({cell,people,projects,onClose,onSaved,onSaveError}:{cell:CS;p
       <div style={{background:"white",borderRadius:"16px",border:`1.5px solid ${ac}30`,width:"100%",maxWidth:"440px",boxShadow:`0 20px 60px rgba(0,0,0,0.15)`}}>
         <div style={{padding:"16px 20px 12px",borderBottom:"1px solid #f1f5f9",background:`linear-gradient(135deg,${ac}08 0%,transparent 60%)`,borderRadius:"16px 16px 0 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div><div style={{fontSize:"15px",fontWeight:800,color:"#0f172a"}}>Edit allocation</div><div style={{fontSize:"11px",color:"#94a3b8",marginTop:"2px"}}>{cell.daysAllocated}d / {cell.capacityDays}d capacity ({Math.round((cell.daysAllocated/cell.capacityDays)*100)}%)</div></div>
-          <button onClick={onClose} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"18px",padding:"2px 6px"}}>×</button>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"18px",padding:"2px 6px"}}>x</button>
         </div>
         <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:"14px"}}>
           <div style={{position:"relative"}}><label style={MLS}>Person</label><input value={ps} onChange={e=>{setPs(e.target.value);setSpd(true);}} onFocus={()=>setSpd(true)} placeholder="Search people..." style={MIS}/>{spd&&fp.length>0&&<div style={DDS}>{fp.map(p=><button key={p.id} type="button" onClick={()=>{setPid(p.id);setPs(p.name);setSpd(false);}} style={{...DIS,background:p.id===pid?"rgba(0,184,219,0.08)":"white"}}><span style={{fontWeight:600,color:"#0f172a"}}>{p.name}</span>{p.jobTitle&&<span style={{color:"#94a3b8",fontSize:"11px"}}> - {p.jobTitle}</span>}</button>)}</div>}</div>
           <div style={{position:"relative"}}><label style={MLS}>Project</label><input value={prs} onChange={e=>{setPrs(e.target.value);setSprd(true);}} onFocus={()=>setSprd(true)} placeholder="Search projects..." style={MIS}/>{sprd&&fpr.length>0&&<div style={DDS}>{fpr.map(p=><button key={p.id} type="button" onClick={()=>{setPrid(p.id);setPrs(p.code?`${p.code} - ${p.title}`:p.title);setSprd(false);}} style={{...DIS,background:p.id===prid?"rgba(0,184,219,0.08)":"white"}}>{p.code&&<span style={{fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:"#64748b",marginRight:"6px"}}>{p.code}</span>}<span style={{fontWeight:600,color:"#0f172a"}}>{p.title}</span><span style={{marginLeft:"auto",fontSize:"10px",fontWeight:700,color:p.status==="confirmed"?"#059669":"#7c3aed",textTransform:"capitalize"}}>{p.status}</span></button>)}</div>}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}><div><label style={MLS}>Start</label><input type="date" value={sd} onChange={e=>setSd(e.target.value)} style={MIS}/></div><div><label style={MLS}>End</label><input type="date" value={ed} onChange={e=>setEd(e.target.value)} style={MIS}/></div></div>
-          {wk>0&&<div style={{fontSize:"11px",color:"#94a3b8",marginTop:"-8px"}}>{wk}w — {Math.round(wk*dpw*10)/10}d total</div>}
+          {wk>0&&<div style={{fontSize:"11px",color:"#94a3b8",marginTop:"-8px"}}>{wk}w - {Math.round(wk*dpw*10)/10}d total</div>}
           <div><label style={MLS}>Days / week</label><div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>{CAPS.map(d=><button key={d} type="button" onClick={()=>setDpw(d)} style={{padding:"6px 10px",borderRadius:"7px",border:`1.5px solid ${dpw===d?"#00b8db":"#e2e8f0"}`,background:dpw===d?"rgba(0,184,219,0.1)":"white",color:dpw===d?"#0e7490":"#475569",fontSize:"12px",fontWeight:dpw===d?800:500,cursor:"pointer"}}>{d}</button>)}</div></div>
           <div><label style={MLS}>Type</label><div style={{display:"flex",gap:"8px"}}>{(["confirmed","soft"] as const).map(t=><button key={t} type="button" onClick={()=>setAt(t)} style={{flex:1,padding:"7px",borderRadius:"7px",border:`1.5px solid ${at===t?"#00b8db":"#e2e8f0"}`,background:at===t?"rgba(0,184,219,0.08)":"white",color:at===t?"#0e7490":"#64748b",fontSize:"12px",fontWeight:700,cursor:"pointer"}}>{t==="confirmed"?"Confirmed":"Soft"}</button>)}</div></div>
         </div>
@@ -80,7 +81,7 @@ function EditModal({cell,people,projects,onClose,onSaved,onSaveError}:{cell:CS;p
   );
 }
 
-// ── Searchable multi-select dropdown ─────────────────────────────────────────
+// -- Searchable multi-select dropdown -----------------------------------------
 function MultiDropdown({
   label, placeholder, options, selected, onToggle, renderOption, renderSelected,
 }: {
@@ -127,7 +128,7 @@ function MultiDropdown({
             : placeholder}
         </span>
         <span style={{ fontSize: "10px", color: "#94a3b8", marginLeft: "6px" }}>
-          {open ? "▲" : "▼"}
+          {open ? "^" : "v"}
         </span>
       </button>
 
@@ -142,7 +143,7 @@ function MultiDropdown({
               autoFocus
               value={q}
               onChange={e => setQ(e.target.value)}
-              placeholder={`Search ${label.toLowerCase()}…`}
+              placeholder={`Search ${label.toLowerCase()}...`}
               style={{ ...MIS, fontSize: "12px", padding: "6px 10px" }}
             />
           </div>
@@ -169,7 +170,7 @@ function MultiDropdown({
                   background: selected.includes(o.id) ? "#00b8db" : "white",
                   display: "flex", alignItems: "center", justifyContent: "center",
                 }}>
-                  {selected.includes(o.id) && <span style={{ color: "white", fontSize: "9px", lineHeight: 1 }}>✓</span>}
+                  {selected.includes(o.id) && <span style={{ color: "white", fontSize: "9px", lineHeight: 1 }}>ok</span>}
                 </div>
                 {renderOption ? renderOption(o) : (
                   <div style={{ minWidth: 0 }}>
@@ -193,7 +194,7 @@ function MultiDropdown({
   );
 }
 
-// ── Ask AI Panel ─────────────────────────────────────────────────────────────
+// -- Ask AI Panel -------------------------------------------------------------
 const PRESET_QUESTIONS = [
   "Who has the most availability in the next 4 weeks?",
   "Who is currently overallocated and by how much?",
@@ -201,7 +202,7 @@ const PRESET_QUESTIONS = [
   "Can we take on a new project requiring 2 people full-time next month?",
   "Who could be freed up if we paused a project?",
   "What is the average team utilisation right now?",
-  "Which people have zero allocation — are they unassigned?",
+  "Which people have zero allocation - are they unassigned?",
   "What is the resource situation for the next quarter?",
 ];
 
@@ -213,24 +214,22 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  // Build a detailed per-period context so the AI can answer availability questions accurately
   function buildContext(): string {
     const lines: string[] = [
-      `Resource Heatmap — ${data.dateFrom} to ${data.dateTo}`,
+      `Resource Heatmap - ${data.dateFrom} to ${data.dateTo}`,
       `Granularity: ${data.granularity} | People: ${data.people.length}`,
       `Periods covered: ${data.periods.map(p => p.label).join(", ")}`,
       "",
       "CAPACITY KEY: Each period shows [utilisation% | allocated_days / capacity_days | available_days_remaining]",
       "0% or -- means FULLY AVAILABLE (no allocations that period).",
       "",
-      "PEOPLE — PER-PERIOD BREAKDOWN:",
+      "PEOPLE - PER-PERIOD BREAKDOWN:",
     ];
 
     for (const p of data.people) {
       const cap = p.defaultCapacityDays;
-      lines.push(`\n▶ ${p.fullName} | ${p.jobTitle || p.department || "no role"} | ${cap}d/wk capacity`);
+      lines.push(`\n> ${p.fullName} | ${p.jobTitle || p.department || "no role"} | ${cap}d/wk capacity`);
 
-      // Per-period row
       const periodRows = data.periods.map(period => {
         const cell = p.summaryCells.find(c => c.periodKey === period.key);
         if (!cell || cell.capacityDays === 0) return `  ${period.label}: NO DATA`;
@@ -243,11 +242,10 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
                      : pct < 95   ? "busy"
                      : pct <= 110 ? "at limit"
                      : "OVERALLOCATED";
-        return `  ${period.label}: ${pct}% [${alloc}d allocated / ${totalCap}d capacity = ${avail}d free] — ${status}`;
+        return `  ${period.label}: ${pct}% [${alloc}d allocated / ${totalCap}d capacity = ${avail}d free] - ${status}`;
       });
       lines.push(...periodRows);
 
-      // Project summary
       const projList = p.projects.map(pr => `${pr.projectCode || pr.projectTitle}(${pr.totalDays}d total)`).join(", ");
       lines.push(`  Projects: ${projList || "none assigned"}`);
     }
@@ -258,7 +256,7 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
         const gapStr = g.cells.filter(c => c.gapDays > 0)
           .map(c => `${c.periodKey}: needs ${c.gapDays}d (weighted: ${c.weightedDemand.toFixed(1)}d at ${g.winProbability}% win prob)`)
           .join(", ");
-        lines.push(`• ${g.projectTitle} — ${gapStr || "no gaps"}`);
+        lines.push(`* ${g.projectTitle} - ${gapStr || "no gaps"}`);
       }
     }
 
@@ -305,7 +303,6 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
       fontFamily: "'DM Sans', sans-serif",
       animation: "slideInRight 0.2s ease",
     }}>
-      {/* Header */}
       <div style={{
         padding: "16px 20px", borderBottom: "1px solid #f1f5f9",
         background: "linear-gradient(135deg, rgba(0,184,219,0.06) 0%, transparent 60%)",
@@ -313,16 +310,15 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
       }}>
         <div>
           <div style={{ fontSize: "15px", fontWeight: 800, color: "#0f172a", display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "18px" }}>✨</span> Resource AI Advisor
+            <span style={{ fontSize: "18px" }}>*</span> Resource AI Advisor
           </div>
           <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>
             Ask anything about your team's capacity
           </div>
         </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "20px", lineHeight: 1 }}>×</button>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "20px", lineHeight: 1 }}>x</button>
       </div>
 
-      {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
         {messages.length === 0 && (
           <div>
@@ -378,14 +374,13 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <div style={{ padding: "12px 16px", borderTop: "1px solid #f1f5f9", flexShrink: 0 }}>
         {messages.length > 0 && (
           <button type="button" onClick={() => setMessages([])} style={{
             background: "none", border: "none", color: "#94a3b8", fontSize: "11px",
             cursor: "pointer", padding: 0, marginBottom: "8px", display: "block",
           }}>
-            ↩ New conversation
+            New conversation
           </button>
         )}
         <div style={{ display: "flex", gap: "8px" }}>
@@ -393,7 +388,7 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
             value={question}
             onChange={e => setQuestion(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(question); } }}
-            placeholder="Ask about capacity, availability, risks…"
+            placeholder="Ask about capacity, availability, risks..."
             style={{
               flex: 1, padding: "9px 12px", borderRadius: "8px",
               border: "1.5px solid #e2e8f0", fontSize: "13px",
@@ -414,7 +409,7 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
               fontFamily: "inherit",
             }}
           >
-            ↑
+            ^
           </button>
         </div>
       </div>
@@ -422,7 +417,7 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// -- Sub-components -----------------------------------------------------------
 function Avatar({name,size=30}:{name:string;size?:number}){return<div style={{width:size,height:size,borderRadius:"50%",background:avcol(name),color:"#fff",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*0.33,fontWeight:800}}>{ini(name)}</div>;}
 function UtilBadge({pct}:{pct:number}){const c=UC[tier(pct)];if(pct===0)return null;return<span style={{fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",background:c.bg,color:c.text,border:`1px solid ${c.border}`,borderRadius:"4px",padding:"1px 5px"}}>{ulabel(pct)}</span>;}
 function GranToggle({value,onChange}:{value:Granularity;onChange:(g:Granularity)=>void}){return<div style={{display:"flex",background:"#f1f5f9",borderRadius:"8px",padding:"3px",gap:"2px"}}>{(["weekly","sprint","monthly","quarterly"] as Granularity[]).map(g=><button key={g} type="button" onClick={()=>onChange(g)} style={{padding:"5px 12px",borderRadius:"6px",border:"none",fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:value===g?"white":"transparent",color:value===g?"#0f172a":"#64748b",boxShadow:value===g?"0 1px 4px rgba(0,0,0,0.08)":"none"}}>{GL[g]}</button>)}</div>;}
@@ -433,9 +428,9 @@ function HCell({cell,cw,cur}:{cell:AllocationCell|null;cw:number;cur:boolean}){
   const cap = cell?.capacityDays??0;
   const avail = cell?.daysAllocated!==undefined ? cap - cell.daysAllocated : cap;
   const tooltip = isLeaveOnly
-    ? `Leave / exception this week — ${cap}d available, 0d allocated`
-    : cell ? `${cell.daysAllocated}d / ${cell.capacityDays}d (${pct}%)${ex?" — Capacity exception":""}`
-    : "—";
+    ? `Leave / exception this week - ${cap}d available, 0d allocated`
+    : cell ? `${cell.daysAllocated}d / ${cell.capacityDays}d (${pct}%)${ex?" - Capacity exception":""}`
+    : "---";
   return<div title={tooltip} style={{
     width:cw-2,minWidth:cw-2,height:"34px",borderRadius:"5px",
     background: isLeaveOnly ? "rgba(99,102,241,0.08)" : cur&&pct===0 ? "rgba(0,184,219,0.04)" : c.bg,
@@ -447,7 +442,7 @@ function HCell({cell,cw,cur}:{cell:AllocationCell|null;cw:number;cur:boolean}){
     transition:"all 0.1s",position:"relative",flexShrink:0,
   }}>
     {isLeaveOnly
-      ? <><span style={{fontSize:"12px",lineHeight:1}}>🏖</span><span style={{fontSize:"9px",fontWeight:700,color:"#818cf8",letterSpacing:"0.04em"}}>LEAVE</span></>
+      ? <><span style={{fontSize:"12px",lineHeight:1}}>X</span><span style={{fontSize:"9px",fontWeight:700,color:"#818cf8",letterSpacing:"0.04em"}}>LEAVE</span></>
       : pct>0 ? ulabel(pct) : "--"
     }
     {ex&&!isLeaveOnly&&<div style={{position:"absolute",top:"3px",right:"3px",width:"5px",height:"5px",borderRadius:"50%",background:"#818cf8",boxShadow:"0 0 0 1px white"}}/>}
@@ -457,22 +452,24 @@ function HCell({cell,cw,cur}:{cell:AllocationCell|null;cw:number;cur:boolean}){
 
 function PipeCell({cell,cw}:{cell:PipelineGapRow["cells"][number]|null;cw:number}){
   const hg=cell&&cell.gapDays>0,hd=cell&&cell.demandDays>0;
-  return<div title={cell?`Demand:${cell.demandDays}d/Gap:${cell.gapDays}d`:"—"} style={{width:cw-2,minWidth:cw-2,height:"34px",borderRadius:"5px",background:hg?"rgba(239,68,68,0.06)":hd?"rgba(124,58,237,0.07)":"#f8fafc",border:`1.5px dashed ${hg?"rgba(239,68,68,0.3)":hd?"rgba(124,58,237,0.3)":"#e2e8f0"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:hg?"#dc2626":hd?"#7c3aed":"#cbd5e1",flexShrink:0}}>{hd?(hg?`-${cell!.gapDays}d`:`${cell!.demandDays}d`):"--"}</div>;
+  return<div title={cell?`Demand:${cell.demandDays}d/Gap:${cell.gapDays}d`:"---"} style={{width:cw-2,minWidth:cw-2,height:"34px",borderRadius:"5px",background:hg?"rgba(239,68,68,0.06)":hd?"rgba(124,58,237,0.07)":"#f8fafc",border:`1.5px dashed ${hg?"rgba(239,68,68,0.3)":hd?"rgba(124,58,237,0.3)":"#e2e8f0"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:hg?"#dc2626":hd?"#7c3aed":"#cbd5e1",flexShrink:0}}>{hd?(hg?`-${cell!.gapDays}d`:`${cell!.demandDays}d`):"--"}</div>;
 }
 
 function PHeaders({periods,cw}:{periods:PeriodHeader[];cw:number}){return<div style={{display:"flex",gap:"2px"}}>{periods.map(p=><div key={p.key} style={{width:cw,minWidth:cw,flexShrink:0,textAlign:"center",padding:"0 2px"}}>{p.subLabel&&<div style={{fontSize:"9px",fontWeight:700,color:"#94a3b8",fontFamily:"'DM Mono',monospace",marginBottom:"1px"}}>{p.subLabel}</div>}<div style={{fontSize:"11px",fontWeight:p.isCurrentPeriod?800:500,color:p.isCurrentPeriod?"#00b8db":"#475569",background:p.isCurrentPeriod?"rgba(0,184,219,0.08)":"transparent",borderRadius:"5px",padding:"2px 0"}}>{p.label}</div></div>)}</div>;}
 
+// -- HeatmapPersonRow -- with audit trail toggle ------------------------------
 function HeatmapPersonRow({person,periods,cw,expanded,onToggle,onCell}:{person:PersonRow;periods:PeriodHeader[];cw:number;expanded:boolean;onToggle:()=>void;onCell:(s:CS)=>void}){
+  const [showAudit, setShowAudit] = useState(false);
   return(
     <div style={{borderBottom:"1px solid #f1f5f9"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 0",cursor:"pointer",background:expanded?"rgba(0,184,219,0.02)":"transparent"}} onClick={onToggle}>
         <div style={{width:PERSON_COL,minWidth:PERSON_COL,flexShrink:0,display:"flex",alignItems:"center",gap:"8px",paddingRight:"12px"}}>
-          <span style={{fontSize:"12px",color:"#94a3b8",transform:expanded?"rotate(90deg)":"rotate(0)",transition:"transform 0.2s",display:"inline-block",width:"14px",flexShrink:0}}>›</span>
+          <span style={{fontSize:"12px",color:"#94a3b8",transform:expanded?"rotate(90deg)":"rotate(0)",transition:"transform 0.2s",display:"inline-block",width:"14px",flexShrink:0}}>></span>
           <Avatar name={person.fullName} size={28}/>
           <div style={{minWidth:0,flex:1}}>
             <div style={{fontSize:"13px",fontWeight:600,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{person.fullName}</div>
             <div style={{fontSize:"10px",color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {person.jobTitle||person.department||"—"}
+              {person.jobTitle||person.department||"---"}
               {person.employmentType==="part_time"&&<span style={{color:"#f59e0b",marginLeft:"4px",fontWeight:600}}>PT</span>}
             </div>
           </div>
@@ -487,36 +484,46 @@ function HeatmapPersonRow({person,periods,cw,expanded,onToggle,onCell}:{person:P
             ?<div style={{paddingLeft:`${PERSON_COL+22}px`,padding:"8px 0 8px",fontSize:"12px",color:"#94a3b8",fontStyle:"italic"}}>No allocations in this period</div>
             :person.projects.map(proj=>(
               <div key={proj.projectId} style={{display:"flex",alignItems:"center",padding:"3px 0",gap:"2px"}}>
-                {/* Left: colour bar + code + name + role */}
                 <div style={{width:PERSON_COL,minWidth:PERSON_COL,flexShrink:0,display:"grid",gridTemplateColumns:"22px 72px 1fr 80px",gap:"4px",paddingRight:"12px",alignItems:"center"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
                     <div style={{width:"3px",height:"22px",borderRadius:"2px",background:proj.colour}}/>
                   </div>
-                  {/* Code */}
-                  <div style={{fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:proj.colour,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={proj.projectCode||"—"}>
-                    {proj.projectCode||<span style={{color:"#e2e8f0"}}>—</span>}
+                  <div style={{fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:proj.colour,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={proj.projectCode||"---"}>
+                    {proj.projectCode||<span style={{color:"#e2e8f0"}}>---</span>}
                   </div>
-                  {/* Full name */}
                   <div style={{fontSize:"11px",fontWeight:600,color:"#334155",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={proj.projectTitle}>
                     {proj.projectTitle}
                   </div>
-                  {/* Role */}
-                  <div style={{fontSize:"10px",color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:proj.roleOnProject?"normal":"italic"}} title={proj.roleOnProject||"—"}>
-                    {proj.roleOnProject||<span style={{color:"#e2e8f0"}}>—</span>}
+                  <div style={{fontSize:"10px",color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:proj.roleOnProject?"normal":"italic"}} title={proj.roleOnProject||"---"}>
+                    {proj.roleOnProject||<span style={{color:"#e2e8f0"}}>---</span>}
                   </div>
                 </div>
-                {/* Cells */}
                 <div style={{display:"flex",gap:"2px"}}>{periods.map(p=>{
                   const c=proj.cells.find(c=>c.periodKey===p.key);
                   if(!c||c.daysAllocated===0)return<div key={p.key} style={{width:cw-2,minWidth:cw-2,height:"26px",flexShrink:0}}/>;
-                  return<div key={p.key} title={`${c.daysAllocated}d — click to edit`} onClick={()=>onCell({personId:person.personId,personName:person.fullName,projectId:proj.projectId,projectTitle:proj.projectTitle,projectCode:proj.projectCode,colour:proj.colour,periodKey:p.key,startDate:p.startDate,endDate:p.endDate,daysAllocated:c.daysAllocated,capacityDays:c.capacityDays})} style={{width:cw-2,minWidth:cw-2,height:"26px",borderRadius:"4px",flexShrink:0,background:`${proj.colour}15`,border:`1px solid ${proj.colour}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:proj.colour,cursor:"pointer"}} onMouseEnter={e=>{const d=e.currentTarget as HTMLDivElement;d.style.background=`${proj.colour}30`;d.style.transform="scale(1.05)";}} onMouseLeave={e=>{const d=e.currentTarget as HTMLDivElement;d.style.background=`${proj.colour}15`;d.style.transform="scale(1)";}}>{c.daysAllocated}d</div>;
+                  return<div key={p.key} title={`${c.daysAllocated}d - click to edit`} onClick={()=>onCell({personId:person.personId,personName:person.fullName,projectId:proj.projectId,projectTitle:proj.projectTitle,projectCode:proj.projectCode,colour:proj.colour,periodKey:p.key,startDate:p.startDate,endDate:p.endDate,daysAllocated:c.daysAllocated,capacityDays:c.capacityDays})} style={{width:cw-2,minWidth:cw-2,height:"26px",borderRadius:"4px",flexShrink:0,background:`${proj.colour}15`,border:`1px solid ${proj.colour}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:proj.colour,cursor:"pointer"}} onMouseEnter={e=>{const d=e.currentTarget as HTMLDivElement;d.style.background=`${proj.colour}30`;d.style.transform="scale(1.05)";}} onMouseLeave={e=>{const d=e.currentTarget as HTMLDivElement;d.style.background=`${proj.colour}15`;d.style.transform="scale(1)";}}>{c.daysAllocated}d</div>;
                 })}</div>
               </div>
             ))
           }
-          <div style={{paddingLeft:`${PERSON_COL+22}px`,padding:"4px 0 6px"}}>
-            <a href={`/allocations/new?person_id=${person.personId}&return_to=/heatmap`} style={{fontSize:"11px",color:"#00b8db",fontWeight:600,textDecoration:"none",paddingLeft:`${PERSON_COL+22}px`}}>+ Allocate to project</a>
+          <div style={{paddingLeft:`${PERSON_COL+22}px`,padding:"4px 0 6px",display:"flex",alignItems:"center",gap:"16px"}}>
+            <a href={`/allocations/new?person_id=${person.personId}&return_to=/heatmap`} style={{fontSize:"11px",color:"#00b8db",fontWeight:600,textDecoration:"none"}}>+ Allocate to project</a>
+            <button
+              type="button"
+              onClick={e=>{e.stopPropagation();setShowAudit(v=>!v);}}
+              style={{background:"none",border:"none",fontSize:"11px",color:showAudit?"#7c3aed":"#94a3b8",fontWeight:600,cursor:"pointer",padding:0,fontFamily:"inherit"}}
+            >
+              {showAudit?"- Hide history":"- View change history"}
+            </button>
           </div>
+          {showAudit&&(
+            <div style={{marginLeft:PERSON_COL+22,marginRight:16,marginBottom:12,padding:"16px",background:"white",borderRadius:10,border:"1px solid #e2e8f0"}}>
+              <AllocationAuditTrail
+                personId={person.personId}
+                title={`${person.fullName} - allocation history`}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -527,8 +534,8 @@ function PipeSection({gaps,periods,cw}:{gaps:PipelineGapRow[];periods:PeriodHead
   const[open,setOpen]=useState(false);if(!gaps.length)return null;
   return(<div style={{marginTop:"16px",border:"1.5px dashed #c4b5fd",borderRadius:"12px",overflow:"hidden"}}>
     <div style={{padding:"10px 16px",background:"rgba(124,58,237,0.04)",display:"flex",alignItems:"center",gap:"10px",cursor:"pointer"}} onClick={()=>setOpen(o=>!o)}>
-      <div style={{flex:1}}><div style={{fontSize:"13px",fontWeight:700,color:"#7c3aed"}}>Pipeline projects — capacity gap analysis</div><div style={{fontSize:"11px",color:"#94a3b8"}}>{gaps.length} project{gaps.length>1?"s":""}</div></div>
-      <span style={{fontSize:"14px",color:"#94a3b8",transform:open?"rotate(180deg)":"rotate(0)",transition:"transform 0.2s",display:"inline-block"}}>▾</span>
+      <div style={{flex:1}}><div style={{fontSize:"13px",fontWeight:700,color:"#7c3aed"}}>Pipeline projects - capacity gap analysis</div><div style={{fontSize:"11px",color:"#94a3b8"}}>{gaps.length} project{gaps.length>1?"s":""}</div></div>
+      <span style={{fontSize:"14px",color:"#94a3b8",transform:open?"rotate(180deg)":"rotate(0)",transition:"transform 0.2s",display:"inline-block"}}>v</span>
     </div>
     {open&&<div style={{padding:"12px 16px"}}>
       <div style={{display:"flex",marginBottom:"8px"}}><div style={{width:PERSON_COL,minWidth:PERSON_COL,flexShrink:0}}/><PHeaders periods={periods} cw={cw}/></div>
@@ -546,7 +553,7 @@ function PipeSection({gaps,periods,cw}:{gaps:PipelineGapRow[];periods:PeriodHead
   </div>);
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// -- Main Component -----------------------------------------------------------
 export default function HeatmapClient({
   initialData, allPeople, allDepartments, allProjects, allRoles, allPMs, initialFilters, managerFilter,
 }:{
@@ -620,7 +627,6 @@ export default function HeatmapClient({
   const oa  = data.people.filter(p => p.peakUtilisationPct > 100).length;
   const td  = data.people.reduce((s, p) => s + p.summaryCells.reduce((ss, c) => ss + c.daysAllocated, 0), 0);
 
-  // Client-side search: filter by name, job title, department, project name/code/role
   const visiblePeople = search.trim()
     ? data.people.filter(p => {
         const q = search.toLowerCase();
@@ -635,7 +641,6 @@ export default function HeatmapClient({
       })
     : data.people;
 
-  // Build dropdown options
   const peopleOpts   = allPeople.map(p => ({ id: p.id, label: p.name, sub: p.jobTitle || p.department || "" }));
   const projectOpts  = allProjects.map(p => ({ id: p.id, label: p.title, sub: p.code || "", colour: p.colour }));
 
@@ -656,32 +661,29 @@ export default function HeatmapClient({
 
     <div className="hmr"><div className="hmi">
 
-      {/* Save error toast */}
       {saveErr && (
         <div style={{position:"fixed",bottom:"24px",left:"50%",transform:"translateX(-50%)",zIndex:3000,padding:"12px 20px",borderRadius:"10px",background:"#1e293b",color:"white",fontSize:"13px",fontWeight:600,boxShadow:"0 8px 24px rgba(0,0,0,0.2)",display:"flex",alignItems:"center",gap:"12px",animation:"slideUp 0.2s ease",fontFamily:"'DM Sans',sans-serif"}}>
-          <span style={{color:"#f87171"}}>⚠</span>{saveErr}
-          <button onClick={() => setSaveErr(null)} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"16px",padding:"0 0 0 4px",lineHeight:1}}>×</button>
+          <span style={{color:"#f87171"}}>!</span>{saveErr}
+          <button onClick={() => setSaveErr(null)} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"16px",padding:"0 0 0 4px",lineHeight:1}}>x</button>
         </div>
       )}
 
-      {/* Header */}
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:"24px",flexWrap:"wrap",gap:"12px"}}>
         <div>
           <h1 style={{fontSize:"22px",fontWeight:800,color:"#0f172a",margin:0,marginBottom:"4px"}}>Resource Heatmap</h1>
           <p style={{fontSize:"13px",color:"#94a3b8",margin:0}}>
-            {data.dateFrom ? new Date(data.dateFrom).toLocaleDateString("en-GB") : ""} to {data.dateTo ? new Date(data.dateTo).toLocaleDateString("en-GB") : ""} — {data.people.length} people — <span style={{color:"#00b8db"}}>{GL[data.granularity]} view</span>
+            {data.dateFrom ? new Date(data.dateFrom).toLocaleDateString("en-GB") : ""} to {data.dateTo ? new Date(data.dateTo).toLocaleDateString("en-GB") : ""} - {data.people.length} people - <span style={{color:"#00b8db"}}>{GL[data.granularity]} view</span>
             {loading && <span style={{marginLeft:"10px",display:"inline-block",width:"12px",height:"12px",borderRadius:"50%",border:"2px solid #e2e8f0",borderTopColor:"#00b8db",animation:"spin 0.6s linear infinite",verticalAlign:"middle"}}/>}
           </p>
         </div>
         <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
           <button type="button" onClick={() => setShowAI(s => !s)} style={{display:"inline-flex",alignItems:"center",gap:"6px",padding:"8px 14px",borderRadius:"8px",border:`1.5px solid ${showAI?"#00b8db":"#e2e8f0"}`,background:showAI?"rgba(0,184,219,0.1)":"white",color:showAI?"#00b8db":"#64748b",fontSize:"12px",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-            <span style={{fontSize:"14px"}}>✨</span> Ask AI
+            <span style={{fontSize:"14px"}}>*</span> Ask AI
           </button>
           <a href="/allocations/new" style={{display:"inline-flex",alignItems:"center",gap:"6px",padding:"8px 16px",borderRadius:"8px",background:"#00b8db",color:"white",fontSize:"13px",fontWeight:700,textDecoration:"none",boxShadow:"0 2px 10px rgba(0,184,219,0.3)"}}>+ Allocate resource</a>
         </div>
       </div>
 
-      {/* Stats */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"12px",marginBottom:"20px"}}>
         {[{l:"People",v:data.people.length,c:"#0f172a"},{l:"Avg util",v:`${avg}%`,c:avg>90?"#ef4444":avg>70?"#f59e0b":"#10b981"},{l:"Over-alloc",v:oa,c:oa>0?"#ef4444":"#10b981"},{l:"Total days",v:`${Math.round(td)}d`,c:"#0f172a"}].map(s=>(
           <div key={s.l} style={{background:"white",borderRadius:"10px",border:"1.5px solid #e2e8f0",padding:"12px 16px"}}>
@@ -691,7 +693,6 @@ export default function HeatmapClient({
         ))}
       </div>
 
-      {/* Controls */}
       <div style={{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap",marginBottom:"16px"}}>
         <GranToggle value={filters.granularity} onChange={g => setFilters(f => ({...f,granularity:g}))}/>
         <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
@@ -708,11 +709,9 @@ export default function HeatmapClient({
         </div>
       </div>
 
-      {/* Filter panel — clean dropdowns */}
       {showF && (
         <div style={{background:"white",border:"1.5px solid #e2e8f0",borderRadius:"12px",padding:"16px",marginBottom:"16px",display:"flex",flexDirection:"column",gap:"14px"}}>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:"16px"}}>
-            {/* People dropdown */}
             <MultiDropdown
               label="People"
               placeholder="All people"
@@ -727,8 +726,6 @@ export default function HeatmapClient({
                 </div>
               )}
             />
-
-            {/* Projects dropdown — sorted by code */}
             <MultiDropdown
               label="Project"
               placeholder="All projects"
@@ -746,8 +743,6 @@ export default function HeatmapClient({
                 </div>
               )}
             />
-
-            {/* Department chips */}
             {allDepartments.length > 0 && (
               <div>
                 <label style={{...MLS}}>Department</label>
@@ -760,8 +755,6 @@ export default function HeatmapClient({
                 </div>
               </div>
             )}
-
-            {/* Status */}
             <div>
               <label style={{...MLS}}>Project status</label>
               <div style={{display:"flex",gap:"6px"}}>
@@ -772,8 +765,6 @@ export default function HeatmapClient({
                 ))}
               </div>
             </div>
-
-            {/* Roles */}
             {allRoles.length > 0 && (
               <div>
                 <label style={{...MLS}}>Role</label>
@@ -787,7 +778,6 @@ export default function HeatmapClient({
               </div>
             )}
           </div>
-
           {managerFilter?.active && <div style={{padding:"8px 12px",borderRadius:"8px",background:"rgba(0,184,219,0.08)",border:"1.5px solid rgba(0,184,219,0.2)",display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:"11px",color:"#0e7490"}}><span><strong>Manager view:</strong> {managerFilter.directReportIds?.length ?? 0} direct reports</span><a href="/heatmap" style={{color:"#0e7490",fontWeight:700,textDecoration:"none"}}>Clear</a></div>}
           {afc > 0 && <button type="button" onClick={clr} style={{background:"none",border:"none",color:"#ef4444",fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:0,alignSelf:"flex-start"}}>Clear all filters</button>}
         </div>
@@ -795,10 +785,7 @@ export default function HeatmapClient({
 
       {ferr && <div style={{padding:"12px 16px",borderRadius:"9px",background:"#fef2f2",border:"1px solid #fecaca",color:"#dc2626",fontSize:"13px",marginBottom:"16px"}}>Failed to load: {ferr}</div>}
 
-      {/* Heatmap table */}
       <div className="hmc" style={{opacity:loading?0.7:1,transition:"opacity 0.2s"}}>
-
-        {/* Sticky header */}
         <div style={{padding:"12px 16px 10px",borderBottom:"1px solid #f1f5f9",position:"sticky",top:0,background:"white",zIndex:10}}>
           <div style={{display:"flex",alignItems:"flex-end",marginBottom:"8px"}}>
             <div style={{width:PERSON_COL,minWidth:PERSON_COL,flexShrink:0}}>
@@ -811,28 +798,25 @@ export default function HeatmapClient({
             </div>
             <div style={{overflow:"hidden",flex:1}}><PHeaders periods={data.periods} cw={cw}/></div>
           </div>
-
-          {/* Search bar */}
           <div style={{position:"relative"}}>
             <input
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search by name, project code, project name, role or department…"
+              placeholder="Search by name, project code, project name, role or department..."
               style={{width:"100%",boxSizing:"border-box",padding:"7px 32px 7px 32px",borderRadius:"8px",border:"1.5px solid #e2e8f0",fontSize:"12px",fontFamily:"inherit",color:"#0f172a",outline:"none",background:"#f8fafc"}}
               onFocus={e=>{e.target.style.borderColor="#00b8db";e.target.style.background="white";}}
               onBlur={e=>{e.target.style.borderColor="#e2e8f0";e.target.style.background="#f8fafc";}}
             />
-            <span style={{position:"absolute",left:"10px",top:"50%",transform:"translateY(-50%)",fontSize:"13px",color:"#94a3b8",pointerEvents:"none"}}>🔍</span>
-            {search && <button type="button" onClick={() => setSearch("")} style={{position:"absolute",right:"8px",top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"14px",lineHeight:1,padding:"2px 4px"}}>×</button>}
+            <span style={{position:"absolute",left:"10px",top:"50%",transform:"translateY(-50%)",fontSize:"13px",color:"#94a3b8",pointerEvents:"none"}}>S</span>
+            {search && <button type="button" onClick={() => setSearch("")} style={{position:"absolute",right:"8px",top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"14px",lineHeight:1,padding:"2px 4px"}}>x</button>}
           </div>
           {search && <div style={{marginTop:"3px",fontSize:"11px",color:"#94a3b8"}}>{visiblePeople.length} of {data.people.length} people match</div>}
         </div>
 
-        {/* Rows */}
         <div className="hmtw"><div className="hmti">
           {visiblePeople.length === 0
-            ? <div style={{padding:"48px 0",textAlign:"center",color:"#94a3b8",fontSize:"14px"}}>{loading ? "Loading…" : search ? "No people match your search." : "No people match the current filters."}</div>
+            ? <div style={{padding:"48px 0",textAlign:"center",color:"#94a3b8",fontSize:"14px"}}>{loading ? "Loading..." : search ? "No people match your search." : "No people match the current filters."}</div>
             : visiblePeople.map(p => (
                 <HeatmapPersonRow
                   key={p.personId} person={p} periods={data.periods} cw={cw}
@@ -843,9 +827,8 @@ export default function HeatmapClient({
           }
         </div></div>
 
-        {/* Legend */}
         <div className="hmleg">
-          {([{t:"low",l:"< 75% — available"},{t:"mid",l:"75-95% — busy"},{t:"high",l:"95-110% — at limit"},{t:"critical",l:"> 110% — over-allocated"}] as const).map(x => {
+          {([{t:"low",l:"< 75% - available"},{t:"mid",l:"75-95% - busy"},{t:"high",l:"95-110% - at limit"},{t:"critical",l:"> 110% - over-allocated"}] as const).map(x => {
             const c = UC[x.t];
             return <div key={x.t} className="hmli"><div style={{width:"12px",height:"12px",borderRadius:"3px",background:c.bg,border:`1px solid ${c.border}`}}/>{x.l}</div>;
           })}
@@ -855,7 +838,6 @@ export default function HeatmapClient({
             </div>
             Capacity exception (leave / public holiday)
           </div>
-          {/* Exception debug indicator */}
           {(data as any).exceptionCount > 0 && (
             <div className="hmli" style={{marginLeft:"auto",color:"#818cf8",fontSize:"10px"}}>
               {(data as any).exceptionCount} exception{(data as any).exceptionCount !== 1 ? "s" : ""} loaded
