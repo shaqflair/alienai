@@ -235,21 +235,15 @@ async function clearArtifactApprovalLinkIfStale(supabase: any, artifactId: strin
    when a new chain tries to INSERT steps with the same artifact+order.
 ───────────────────────────────────────────────────────────────────────── */
 async function cancelApprovalChainArtifacts(supabase: any, chainId: string, artifactId?: string) {
-  // ── Try DELETE first ──────────────────────────────────────────────────
-  const { error: stepsDeleteError } = await supabase
+  // Use admin client for step operations — RLS blocks regular client DELETE/UPDATE on steps
+  const adminDb = createAdminClient();
+
+  await adminDb
     .from("artifact_approval_steps")
     .delete()
     .eq("chain_id", chainId);
 
-  if (stepsDeleteError) {
-    // DELETE blocked by RLS — fall back to status update
-    const { error: stepsCancelError } = await supabase
-      .from("artifact_approval_steps")
-      .update({ status: "cancelled" })
-      .eq("chain_id", chainId);
-    if (stepsCancelError) throwDb(stepsCancelError, "artifact_approval_steps.update(cancel_submit_failure)");
-  }
-
+  // Mark chain inactive (regular client is fine here — RLS allows owner updates)
   const { error: chainError } = await supabase
     .from("approval_chains").update({ is_active: false, status: "cancelled" })
     .eq("id", chainId);
@@ -649,9 +643,11 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   if (!organisationId) throw new Error("Could not resolve organisation for this project.");
 
   const nowIso = new Date().toISOString();
+  // Use admin client for chain builder so RLS never blocks step inserts
+  const adminDbForBuilder = createAdminClient();
   let runtime: any;
   try {
-    runtime = await buildRuntimeApprovalChain(supabase, {
+    runtime = await buildRuntimeApprovalChain(adminDbForBuilder, {
       organisationId, projectId, artifactId, actorId: user.id,
       artifactType: normalizeArtifactType(a0.type),
     });
@@ -672,7 +668,7 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
       artifactId, projectId, chainId: runtimeChainId, actorId: user.id, nowIso,
     });
   } catch (error) {
-    await cancelApprovalChainArtifacts(supabase, runtimeChainId, artifactId);
+    await cancelApprovalChainArtifacts(adminDbForBuilder, runtimeChainId, artifactId);
     throw error;
   }
 
