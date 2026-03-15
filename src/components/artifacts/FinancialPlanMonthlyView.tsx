@@ -160,8 +160,10 @@ function QuarterRow({ label, months, monthlyData, lines, sym, collapsed, onToggl
     for (const lineId of lines.map(l => l.id)) {
       for (const mk of months) {
         const e = monthlyData[lineId]?.[mk];
-        budget += Number(e?.budget ?? 0) || 0;
-        actual += Number(e?.actual ?? 0) || 0;
+        budget   += Number(e?.budget   ?? 0) || 0;
+        // Only sum actuals for past months — future entries may carry projected
+        // values from applyActualsToMonthlyData that should not show as "actual"
+        if (isPastMonth(mk)) actual += Number(e?.actual ?? 0) || 0;
         forecast += Number(e?.forecast ?? 0) || 0;
       }
     }
@@ -171,12 +173,11 @@ function QuarterRow({ label, months, monthlyData, lines, sym, collapsed, onToggl
   const variance = totals.budget ? totals.forecast - totals.budget : null;
   const over = variance !== null && variance > 0;
   const util = totals.budget ? Math.round((totals.forecast / totals.budget) * 100) : null;
-  // Safe filtering with type guard for scopeKey property
-  const qSigs = signals.filter((s): s is Signal & { scopeKey: string } => 
-    s && typeof s === 'object' && 'scopeKey' in s && s.scopeKey === label
+  const qSigs = signals.filter((s): s is Signal & { scopeKey: string } =>
+    s && typeof s === "object" && "scopeKey" in s && s.scopeKey === label
   );
   const hasCritical = qSigs.some(s => s.severity === "critical");
-  const hasWarning = qSigs.some(s => s.severity === "warning");
+  const hasWarning  = qSigs.some(s => s.severity === "warning");
 
   const rowBg = hovered ? "#E8E8E4"
     : hasCritical ? P.redLt
@@ -301,12 +302,16 @@ export default function FinancialPlanMonthlyView({
     });
   }, [monthlyData, onMonthlyDataChange]);
 
+  // FIX 1: Only count actuals for past months. applyActualsToMonthlyData writes
+  // projected timesheet values into current/future month entries — these must not
+  // appear as "actual" in Grand Total rows or they inflate the actual total while
+  // the per-row actual cells (which also guard isPastMonth) show zero.
   const monthTotals = useMemo(() => {
     const result: Record<MonthKey, { budget: number; actual: number; forecast: number }> = {};
     for (const mk of monthKeys) {
       result[mk] = {
         budget:   sumMonths(lines, monthlyData, [mk], "budget"),
-        actual:   sumMonths(lines, monthlyData, [mk], "actual"),
+        actual:   isPastMonth(mk) ? sumMonths(lines, monthlyData, [mk], "actual") : 0,
         forecast: sumMonths(lines, monthlyData, [mk], "forecast"),
       };
     }
@@ -490,15 +495,14 @@ export default function FinancialPlanMonthlyView({
                 <th style={{ position: "sticky", left: 0, zIndex: 30, background: "#F7F7F5", padding: "4px 10px", borderRight: `1px solid ${P.borderMd}`, borderBottom: `1px solid ${P.border}` }} />
                 {quarters.flatMap(q =>
                   q.months.map(mk => {
-                    const month = Number(mk.split("-")[1]);
-                    const year  = Number(mk.split("-")[0]);
+                    const month     = Number(mk.split("-")[1]);
+                    const year      = Number(mk.split("-")[0]);
                     const isCurrent = isCurrentMonth(mk);
                     const isPast    = isPastMonth(mk);
-                    // Safe filtering with type guard
-                    const mSigs     = signals.filter((s): s is Signal & { scope: string; scopeKey: string } => 
-                      s && typeof s === 'object' && 'scope' in s && 'scopeKey' in s && s.scope === "month" && s.scopeKey === mk
+                    const mSigs     = signals.filter((s): s is Signal & { scope: string; scopeKey: string } =>
+                      s && typeof s === "object" && "scope" in s && "scopeKey" in s && s.scope === "month" && s.scopeKey === mk
                     );
-                    const hasCrit   = mSigs.some(s => s.severity === "critical");
+                    const hasCrit = mSigs.some(s => s.severity === "critical");
                     return (
                       <th key={mk} colSpan={3} style={{ padding: "5px 4px", textAlign: "center", borderRight: `1px solid ${P.border}`, borderBottom: `1px solid ${P.border}`, background: isCurrent ? "#E8F0F8" : hasCrit ? P.redLt : isPast ? "#F9F9F7" : "#F7F7F5", opacity: isPast && !isCurrent ? 0.75 : 1 }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
@@ -559,7 +563,7 @@ export default function FinancialPlanMonthlyView({
                     const lineFctTotal = q.months.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.forecast) || 0), 0);
                     const lineBudTotal = q.months.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.budget) || 0), 0);
                     const isOver = lineBudTotal > 0 && lineFctTotal > lineBudTotal;
-                    const rowBg = li % 2 === 0 ? P.surface : "#FAFAF8";
+                    const rowBg  = li % 2 === 0 ? P.surface : "#FAFAF8";
 
                     return (
                       <tr key={`${q.label}-${line.id}`} style={{ background: rowBg, borderBottom: `1px solid ${P.border}` }}>
@@ -569,9 +573,9 @@ export default function FinancialPlanMonthlyView({
                           </span>
                         </td>
                         {q.months.flatMap(mk => {
-                          const e = monthlyData[line.id]?.[mk] ?? emptyEntry();
+                          const e      = monthlyData[line.id]?.[mk] ?? emptyEntry();
                           const locked = isPastMonth(mk);
-                          const fOver = e.budget && Number(e.forecast) > Number(e.budget);
+                          const fOver  = e.budget && Number(e.forecast) > Number(e.budget);
                           return [
                             <td key={`${mk}-b`} style={{ borderBottom: `1px solid ${P.border}`, background: "#F2F8FF", minWidth: 56 }}>
                               <MoneyInput value={e.budget} onChange={v => updateEntry(line.id, mk, { budget: v })} sym={sym} locked={readOnly} highlight="blue" />
@@ -597,7 +601,7 @@ export default function FinancialPlanMonthlyView({
                         Q Total
                       </td>
                       {q.months.flatMap(mk => {
-                        const t = monthTotals[mk];
+                        const t     = monthTotals[mk];
                         const fOver = t.budget && t.forecast > t.budget;
                         return [
                           <td key={`${mk}-tb`} style={{ padding: "5px 6px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: P.navy, background: "#E8F0F8", fontVariantNumeric: "tabular-nums" }}>{t.budget ? fmtK(t.budget, sym) : "—"}</td>,
@@ -617,7 +621,7 @@ export default function FinancialPlanMonthlyView({
                         Δ Movement
                       </td>
                       {q.months.flatMap(mk => {
-                        const mv = forecastMovement[mk];
+                        const mv      = forecastMovement[mk];
                         const hasMove = mv !== null && mv !== 0;
                         return [
                           <td key={`${mk}-mv1`} style={{ background: "#FDFAF2", borderBottom: `1px solid #F0E8C0` }} />,
@@ -641,17 +645,17 @@ export default function FinancialPlanMonthlyView({
               // ── Quarterly view ──
               : quarters.map((q, qi) => {
                   const qBudget   = sumMonths(lines, monthlyData, q.months, "budget");
+                  // Only count actuals for past months — consistent with monthly view cell locking
                   const qActual   = sumMonths(lines, monthlyData, q.months.filter(isPastMonth), "actual");
                   const qForecast = sumMonths(lines, monthlyData, q.months, "forecast");
                   const qVariance = qBudget ? qForecast - qBudget : 0;
                   const qUtil     = qBudget ? Math.round((qForecast / qBudget) * 100) : null;
                   const over      = qBudget > 0 && qForecast > qBudget;
-                  // Safe filtering with type guard
-                  const qSigs     = signals.filter((s): s is Signal & { scopeKey: string } => 
-                    s && typeof s === 'object' && 'scopeKey' in s && s.scopeKey === q.label
+                  const qSigs     = signals.filter((s): s is Signal & { scopeKey: string } =>
+                    s && typeof s === "object" && "scopeKey" in s && s.scopeKey === q.label
                   );
-                  const qCrit     = qSigs.some(s => s.severity === "critical");
-                  const rowBg     = qCrit ? P.redLt : qi % 2 === 0 ? P.surface : "#FAFAF8";
+                  const qCrit = qSigs.some(s => s.severity === "critical");
+                  const rowBg = qCrit ? P.redLt : qi % 2 === 0 ? P.surface : "#FAFAF8";
 
                   return (
                     <tr key={q.label} style={{ background: rowBg, borderBottom: `1px solid ${P.border}` }}>
@@ -687,7 +691,7 @@ export default function FinancialPlanMonthlyView({
               </td>
               {viewMode === "monthly"
                 ? monthKeys.flatMap(mk => {
-                    const t = monthTotals[mk];
+                    const t     = monthTotals[mk];
                     const fOver = t.budget && t.forecast > t.budget;
                     return [
                       <td key={`ft-${mk}-b`} style={{ padding: "7px 6px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: P.navy, background: "#E8F0F8", fontVariantNumeric: "tabular-nums" }}>{t.budget ? fmtK(t.budget, sym) : "—"}</td>,
@@ -697,7 +701,8 @@ export default function FinancialPlanMonthlyView({
                   })
                 : quarters.flatMap(q => {
                     const qB = sumMonths(lines, monthlyData, q.months, "budget");
-                    const qA = sumMonths(lines, monthlyData, q.months, "actual");
+                    // FIX 2: Grand Total quarterly actual — match tbody filter (past months only)
+                    const qA = sumMonths(lines, monthlyData, q.months.filter(isPastMonth), "actual");
                     const qF = sumMonths(lines, monthlyData, q.months, "forecast");
                     const qV = qB ? qF - qB : 0;
                     const qU = qB ? Math.round((qF / qB) * 100) : null;
