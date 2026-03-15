@@ -8,14 +8,14 @@ import { redirect } from "next/navigation";
 // -- Constants ----------------------------------------------------------------
 
 const BRIEFING_TTL_HOURS = 24;
-const BRIEFING_MODEL      = "gpt-4o";
+const BRIEFING_MODEL     = "gpt-4o";
 
 // -- Types --------------------------------------------------------------------
 
 export type BriefingSection = {
   summary:             string;
   on_track:            string[];
-  needs_attention:      { item: string; priority: "high" | "medium" }[];
+  needs_attention:     { item: string; priority: "high" | "medium" }[];
   biggest_risk:        string;
   recommended_actions: string[];
 };
@@ -100,8 +100,8 @@ async function fetchOpenRaidItems(supabase: any, projectId: string) {
 }
 
 async function fetchUpcomingMilestones(supabase: any, projectId: string) {
-  const today        = new Date();
-  const twoWeeks     = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const today       = new Date();
+  const twoWeeks    = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
   const twoWeeksAgo = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
 
   const { data: milestones, error: msErr } = await supabase
@@ -300,11 +300,11 @@ export function buildDailyBriefingFallback(data: {
   });
 
   const on_track: string[] = [];
-  if (data.raidItems.length === 0)                          on_track.push("No open RAID items requiring immediate action");
-  if (overdue.length === 0)                                 on_track.push("No overdue milestones in the next 14 days");
+  if (data.raidItems.length === 0)                         on_track.push("No open RAID items requiring immediate action");
+  if (overdue.length === 0)                                on_track.push("No overdue milestones in the next 14 days");
   if (rag === "GREEN" || (health != null && health >= 80)) on_track.push(`Health score tracking at ${health != null ? `${health}%` : rag}`);
-  if (data.artifactActivity.length > 0)                    on_track.push("Recent governance activity is recorded");
-  if (on_track.length === 0)                               on_track.push("Project is active in the system");
+  if (data.artifactActivity.length > 0)                   on_track.push("Recent governance activity is recorded");
+  if (on_track.length === 0)                              on_track.push("Project is active in the system");
 
   const needs_attention: { item: string; priority: "high" | "medium" }[] = [];
   if (highRaids.length > 0) {
@@ -320,7 +320,7 @@ export function buildDailyBriefingFallback(data: {
     });
   }
   const soonMs = data.milestones.filter((m: any) => {
-    const due           = new Date(safeStr(m.due_date));
+    const due         = new Date(safeStr(m.due_date));
     const inSevenDays = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     return !isNaN(due.getTime()) && due >= new Date() && due <= inSevenDays;
   });
