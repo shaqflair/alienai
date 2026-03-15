@@ -555,18 +555,31 @@ export default function WeeklyReportEditor({
     </button>
   );
 
+  const taStyle: React.CSSProperties = { ...S.textarea, minHeight: "unset", height: "auto", overflowY: "hidden", resize: "none", lineHeight: 1.55, padding: "7px 10px" };
+
+  const AutoTA = ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) => {
+    const ref = React.useRef<HTMLTextAreaElement>(null);
+    React.useEffect(() => { if (ref.current) { ref.current.style.height = "auto"; ref.current.style.height = ref.current.scrollHeight + "px"; } }, [value]);
+    return (
+      <textarea ref={ref} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={1}
+        style={{ ...taStyle, flex: 1, width: "100%" }}
+        onInput={(e) => { const t = e.currentTarget; t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; }}
+      />
+    );
+  };
+
   const ListEditor = ({ items, onChange, placeholder }: { items: Array<{ text: string }>; onChange: (v: Array<{ text: string }>) => void; placeholder: string }) => (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {items.length === 0 && <div style={{ fontSize: 12, color: "#c9d1d9", padding: "8px 0" }}>No items yet</div>}
       {items.map((it, idx) => (
-        <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#d0d7de", flexShrink: 0 }} />
+        <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#d0d7de", flexShrink: 0, marginTop: 10 }} />
           {readOnly
-            ? <span style={{ fontSize: 13, color: "#0d1117", flex: 1, lineHeight: 1.5 }}>{it.text}</span>
-            : <input value={it.text} onChange={(e) => { const next = items.slice(); next[idx] = { text: e.target.value }; onChange(next); }} style={{ ...S.input, flex: 1 }} placeholder={placeholder} />
+            ? <span style={{ fontSize: 13, color: "#0d1117", flex: 1, lineHeight: 1.55 }}>{it.text}</span>
+            : <AutoTA value={it.text} onChange={(v) => { const next = items.slice(); next[idx] = { text: v }; onChange(next); }} placeholder={placeholder} />
           }
           {!readOnly && (
-            <button type="button" onClick={() => onChange(items.filter((_, i) => i !== idx))} style={{ border: "none", background: "none", cursor: "pointer", color: "#c9d1d9", fontSize: 16, padding: "0 2px", lineHeight: 1 }}>×</button>
+            <button type="button" onClick={() => onChange(items.filter((_, i) => i !== idx))} style={{ border: "none", background: "none", cursor: "pointer", color: "#c9d1d9", fontSize: 16, padding: "0 2px", lineHeight: 1, marginTop: 6, flexShrink: 0 }}>×</button>
           )}
         </div>
       ))}
@@ -585,14 +598,14 @@ export default function WeeklyReportEditor({
         {safe.length === 0 && <div style={{ fontSize: 12, color: "#c9d1d9", padding: "8px 0" }}>No items yet</div>}
         {safe.map((it, idx) => (
           <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4, background: "#f6f8fa", borderRadius: 8, padding: "8px 10px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#d0d7de", flexShrink: 0 }} />
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#d0d7de", flexShrink: 0, marginTop: 10 }} />
               {readOnly
-                ? <span style={{ fontSize: 13, color: "#0d1117", flex: 1 }}>{it.text}</span>
-                : <input value={it.text} onChange={(e) => { const next = safe.slice(); next[idx] = { ...next[idx], text: e.target.value }; onChange(next); }} style={{ ...S.input, flex: 1, background: "#fff" }} placeholder={placeholderText} />
+                ? <span style={{ fontSize: 13, color: "#0d1117", flex: 1, lineHeight: 1.55 }}>{it.text}</span>
+                : <AutoTA value={it.text} onChange={(v) => { const next = safe.slice(); next[idx] = { ...next[idx], text: v }; onChange(next); }} placeholder={placeholderText} />
               }
               {!readOnly && (
-                <button type="button" onClick={() => onChange(safe.filter((_, i) => i !== idx))} style={{ border: "none", background: "none", cursor: "pointer", color: "#c9d1d9", fontSize: 16, padding: "0 2px", lineHeight: 1 }}>×</button>
+                <button type="button" onClick={() => onChange(safe.filter((_, i) => i !== idx))} style={{ border: "none", background: "none", cursor: "pointer", color: "#c9d1d9", fontSize: 16, padding: "0 2px", lineHeight: 1, marginTop: 6, flexShrink: 0 }}>×</button>
               )}
             </div>
             {!readOnly && (
@@ -804,3 +817,4 @@ export default function WeeklyReportEditor({
     </div>
   );
 }
+
