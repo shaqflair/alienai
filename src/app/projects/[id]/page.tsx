@@ -675,14 +675,12 @@ export default async function ProjectPage({
       {flash    && <div className="flash-ok"  style={{ marginBottom: 14 }}>{flash}</div>}
       {flashErr && <div className="flash-err" style={{ marginBottom: 14 }}>{flashErr}</div>}
 
-      {/* ── AI Daily Briefing ── */}
-      <div style={{ marginBottom: 16, borderRadius: "var(--r)", overflow: "hidden", border: "1px solid var(--border)" }}>
-        <ProjectDailyBriefing
-          projectId={projectUuid}
-          initialBriefing={cachedBriefing}
-          canRegenerate={canRegenerate}
-        />
-      </div>
+      {/* ── AI Daily Briefing (floating side panel) ── */}
+      <ProjectDailyBriefing
+        projectId={projectUuid}
+        initialBriefing={cachedBriefing}
+        canRegenerate={canRegenerate}
+      />
 
       {/* ── Action buttons (edit-mode) ── */}
       {canEdit && (
