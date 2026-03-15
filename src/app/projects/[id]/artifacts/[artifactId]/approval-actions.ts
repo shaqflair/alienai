@@ -7,7 +7,14 @@ import { createAdminClient } from "@/utils/supabase/admin";
 
 import { assertCharterReadyForSubmit } from "@/lib/charter/charter-validation";
 import { buildRuntimeApprovalChain } from "@/lib/server/approvals/runtime-chain-builder";
-import { notifyFirstStepApprovers } from "@/lib/server/notifications/approval-notifications";
+import {
+  notifyArtifactChangesRequested,
+  notifyArtifactFullyApproved,
+  notifyArtifactRejected,
+  notifyFirstStepApprovers,
+  notifyNextStepApprovers,
+} from "@/lib/server/notifications/approval-notifications";
+import { addApprovalComment } from "@/lib/server/approvals/comments";
 
 /* =========================================================
    Helpers
@@ -97,6 +104,7 @@ async function getArtifact(supabase: any, artifactId: string) {
       [
         "id",
         "project_id",
+        "organisation_id",
         "user_id",
         "type",
         "title",
@@ -148,6 +156,76 @@ async function writeAuditLog(
     after: args.after ?? null,
   });
   if (error) throwDb(error, "artifact_audit_log.insert");
+}
+
+async function getProjectNotificationContext(supabase: any, projectId: string) {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id, title, name, project_code")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  if (error) throwDb(error, "projects.select(notification_context)");
+  return (data as any) ?? null;
+}
+
+async function getUserDisplayName(supabase: any, userId: string): Promise<string | null> {
+  const uid = safeStr(userId).trim();
+  if (!uid) return null;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, user_id, full_name, display_name, name, email")
+    .or(`id.eq.${uid},user_id.eq.${uid}`)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[approval-actions] profile lookup failed:", error);
+    return null;
+  }
+
+  const resolved =
+    safeStr((data as any)?.full_name).trim() ||
+    safeStr((data as any)?.display_name).trim() ||
+    safeStr((data as any)?.name).trim() ||
+    safeStr((data as any)?.email).trim() ||
+    null;
+
+  return resolved;
+}
+
+async function addApprovalCommentSafe(
+  supabase: any,
+  args: {
+    organisationId?: string | null;
+    projectId: string;
+    artifactId: string;
+    chainId?: string | null;
+    stepId?: string | null;
+    authorUserId: string;
+    commentType: "approve" | "request_changes" | "reject" | "resubmit" | "general";
+    body?: string | null;
+    isPrivate?: boolean;
+  }
+) {
+  const body = safeStr(args.body).trim();
+  if (!body) return;
+
+  try {
+    await addApprovalComment(supabase, {
+      organisationId: args.organisationId ?? null,
+      projectId: args.projectId,
+      artifactId: args.artifactId,
+      chainId: args.chainId ?? null,
+      stepId: args.stepId ?? null,
+      authorUserId: args.authorUserId,
+      commentType: args.commentType,
+      body,
+      isPrivate: Boolean(args.isPrivate),
+    });
+  } catch (error) {
+    console.error("[approval-actions] approval comment insert failed:", error);
+  }
 }
 
 /* =========================================================
@@ -963,25 +1041,10 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     throw error;
   }
 
+  const project = await getProjectNotificationContext(supabase, projectId);
+  const submittedByName = await getUserDisplayName(supabase, user.id);
+
   try {
-    const { data: project } = await supabase
-      .from("projects")
-      .select("id, title, name, project_code")
-      .eq("id", projectId)
-      .maybeSingle();
-
-    const { data: me } = await supabase
-      .from("profiles")
-      .select("id, user_id, full_name, display_name, name")
-      .or(`id.eq.${user.id},user_id.eq.${user.id}`)
-      .maybeSingle();
-
-    const submittedByName =
-      safeStr((me as any)?.full_name).trim() ||
-      safeStr((me as any)?.display_name).trim() ||
-      safeStr((me as any)?.name).trim() ||
-      null;
-
     await notifyFirstStepApprovers(supabase, {
       projectId,
       artifactId,
@@ -993,6 +1056,19 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     });
   } catch (notifyErr) {
     console.error("[submitArtifactForApproval] notification failed:", notifyErr);
+  }
+
+  if (st === "changes_requested") {
+    await addApprovalCommentSafe(supabase, {
+      organisationId: safeStr((a0 as any)?.organisation_id || organisationId) || null,
+      projectId,
+      artifactId,
+      chainId: runtimeChainId,
+      stepId: null,
+      authorUserId: user.id,
+      commentType: "resubmit",
+      body: "Artifact updated and resubmitted for approval.",
+    });
   }
 
   await writeAuditLog(supabase, {
@@ -1032,7 +1108,7 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
    Approve / Request Changes / Reject
 ========================================================= */
 
-export async function approveStep(projectId: string, artifactId: string) {
+export async function approveStep(projectId: string, artifactId: string, comment?: string) {
   const { supabase, user } = await requireUser();
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
 
@@ -1071,8 +1147,21 @@ export async function approveStep(projectId: string, artifactId: string) {
   const nowIso = new Date().toISOString();
   const currentPos = getStepPosition(currentStep, steps);
   const nextStep = currentPos >= 0 ? steps[currentPos + 1] ?? null : null;
+  const project = await getProjectNotificationContext(supabase, projectId);
+  const actorDisplayName = await getUserDisplayName(supabase, user.id);
 
   await markStepApproved(supabase, currentStep.id, user.id, nowIso);
+
+  await addApprovalCommentSafe(supabase, {
+    organisationId: safeStr((a0 as any)?.organisation_id) || null,
+    projectId,
+    artifactId,
+    chainId: safeStr((chain as any)?.id) || null,
+    stepId: safeStr((currentStep as any)?.id) || null,
+    authorUserId: user.id,
+    commentType: "approve",
+    body: comment ?? null,
+  });
 
   if (nextStep?.id) {
     await activateStep(supabase, nextStep.id, nowIso);
@@ -1080,6 +1169,19 @@ export async function approveStep(projectId: string, artifactId: string) {
       artifactId,
       nextStepIndex: Math.max(0, currentPos + 1),
     });
+
+    try {
+      await notifyNextStepApprovers(supabase, {
+        artifactId,
+        artifactTitle: safeStr(a0.title).trim() || "Artifact",
+        artifactType: safeStr(a0.type).trim() || "artifact",
+        project: project ?? null,
+        projectFallbackRef: projectId,
+        approvedByName: actorDisplayName,
+      });
+    } catch (notifyErr) {
+      console.error("[approveStep] next-step notification failed:", notifyErr);
+    }
 
     await writeAuditLog(supabase, {
       project_id: projectId,
@@ -1117,6 +1219,20 @@ export async function approveStep(projectId: string, artifactId: string) {
   });
   await closeApprovalChain(supabase, chain.id, { status: "approved", actorId: user.id, nowIso });
 
+  try {
+    await notifyArtifactFullyApproved(supabase, {
+      artifactId,
+      artifactTitle: safeStr(a0.title).trim() || "Artifact",
+      artifactType: safeStr(a0.type).trim() || "artifact",
+      artifactAuthorUserId: safeStr(a0.user_id),
+      project: project ?? null,
+      projectFallbackRef: projectId,
+      approvedByName: actorDisplayName,
+    });
+  } catch (notifyErr) {
+    console.error("[approveStep] final-approval notification failed:", notifyErr);
+  }
+
   await writeAuditLog(supabase, {
     project_id: projectId,
     artifact_id: artifactId,
@@ -1152,8 +1268,8 @@ export async function approveStep(projectId: string, artifactId: string) {
   revalidatePath(`/projects/${projectId}/artifacts`);
 }
 
-export async function approveArtifact(projectId: string, artifactId: string) {
-  return approveStep(projectId, artifactId);
+export async function approveArtifact(projectId: string, artifactId: string, comment?: string) {
+  return approveStep(projectId, artifactId, comment);
 }
 
 export async function requestChangesArtifact(projectId: string, artifactId: string, reason?: string) {
@@ -1188,6 +1304,9 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
   }
 
   const nowIso = new Date().toISOString();
+  const project = await getProjectNotificationContext(supabase, projectId);
+  const actorDisplayName = await getUserDisplayName(supabase, user.id);
+
   const { error: upErr } = await supabase
     .from("artifacts")
     .update({
@@ -1210,6 +1329,32 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
       nowIso,
       reason: reason ?? null,
     });
+  }
+
+  await addApprovalCommentSafe(supabase, {
+    organisationId: safeStr((a0 as any)?.organisation_id) || null,
+    projectId,
+    artifactId,
+    chainId: safeStr((chain as any)?.id) || null,
+    stepId: safeStr((currentStep as any)?.id) || null,
+    authorUserId: user.id,
+    commentType: "request_changes",
+    body: reason ?? null,
+  });
+
+  try {
+    await notifyArtifactChangesRequested(supabase, {
+      artifactId,
+      artifactTitle: safeStr(a0.title).trim() || "Artifact",
+      artifactType: safeStr(a0.type).trim() || "artifact",
+      artifactAuthorUserId: safeStr(a0.user_id),
+      project: project ?? null,
+      projectFallbackRef: projectId,
+      requestedByName: actorDisplayName,
+      reason: reason ?? null,
+    });
+  } catch (notifyErr) {
+    console.error("[requestChangesArtifact] notification failed:", notifyErr);
   }
 
   await writeAuditLog(supabase, {
@@ -1268,6 +1413,9 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
   }
 
   const nowIso = new Date().toISOString();
+  const project = await getProjectNotificationContext(supabase, projectId);
+  const actorDisplayName = await getUserDisplayName(supabase, user.id);
+
   const { error: upErr } = await supabase
     .from("artifacts")
     .update({
@@ -1290,6 +1438,32 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
       nowIso,
       reason: reason ?? null,
     });
+  }
+
+  await addApprovalCommentSafe(supabase, {
+    organisationId: safeStr((a0 as any)?.organisation_id) || null,
+    projectId,
+    artifactId,
+    chainId: safeStr((chain as any)?.id) || null,
+    stepId: safeStr((currentStep as any)?.id) || null,
+    authorUserId: user.id,
+    commentType: "reject",
+    body: reason ?? null,
+  });
+
+  try {
+    await notifyArtifactRejected(supabase, {
+      artifactId,
+      artifactTitle: safeStr(a0.title).trim() || "Artifact",
+      artifactType: safeStr(a0.type).trim() || "artifact",
+      artifactAuthorUserId: safeStr(a0.user_id),
+      project: project ?? null,
+      projectFallbackRef: projectId,
+      rejectedByName: actorDisplayName,
+      reason: reason ?? null,
+    });
+  } catch (notifyErr) {
+    console.error("[rejectFinalArtifact] notification failed:", notifyErr);
   }
 
   await writeAuditLog(supabase, {
