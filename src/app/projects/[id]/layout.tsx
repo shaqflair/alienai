@@ -57,17 +57,13 @@ async function resolveProjectUuid(
   const raw = safeStr(identifier).trim();
   if (!raw) return { projectUuid: null, project: null };
   if (looksLikeUuid(raw)) return { projectUuid: raw, project: null };
-
   const normalized = normalizeProjectIdentifier(raw);
-
   for (const col of HUMAN_COL_CANDIDATES) {
     const { data, error } = await supabase
-      .from("projects")
-      .select("*")
+      .from("projects").select("*")
       .eq("organisation_id", organisationId)
       .eq(col, normalized)
       .maybeSingle();
-
     if (error) {
       if (isMissingColumnError(error.message, col)) continue;
       if (isInvalidInputSyntaxError(error)) continue;
@@ -75,7 +71,6 @@ async function resolveProjectUuid(
     }
     if (data?.id) return { projectUuid: String(data.id), project: data };
   }
-
   return { projectUuid: null, project: null };
 }
 
@@ -90,20 +85,16 @@ function bestProjectRole(rows: Array<{ role?: string | null }> | null | undefine
 
 async function getOrgMembership(supabase: any, organisationId: string, userId: string) {
   const { data, error } = await supabase
-    .from("organisation_members")
-    .select("role")
+    .from("organisation_members").select("role")
     .eq("organisation_id", organisationId)
     .eq("user_id", userId)
     .is("removed_at", null)
     .maybeSingle();
-
   if (error) {
-    if (String(error?.message || "").toLowerCase().includes("does not exist")) {
+    if (String(error?.message || "").toLowerCase().includes("does not exist"))
       return { isMember: false, isAdmin: false, role: "" };
-    }
     throw error;
   }
-
   const role = String(data?.role ?? "").toLowerCase();
   return { isMember: Boolean(role), isAdmin: role === "admin" || role === "owner", role };
 }
@@ -116,7 +107,6 @@ export default async function ProjectLayout({
   params: Promise<{ id?: string }>;
 }) {
   const supabase = await createClient();
-
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
@@ -125,13 +115,15 @@ export default async function ProjectLayout({
   const rawId = safeStr(_paramId).trim();
 
   if (!rawId) notFound();
+
+  // Reserved route segments — render children without project shell
   if (RESERVED.has(rawId.toLowerCase())) {
     return (
-      <main style={{ minHeight: "100vh", background: "#f6f8fa", fontFamily: "sans-serif" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 28px 64px" }}>
+      <div style={{ minHeight: "100vh", background: "#f6f8fa", fontFamily: "sans-serif" }}>
+        <div style={{ width: "100%", padding: "28px 32px 64px" }}>
           {children}
         </div>
-      </main>
+      </div>
     );
   }
 
@@ -145,13 +137,10 @@ export default async function ProjectLayout({
     if (!activeOrgId) notFound();
   }
 
-  // Resolve project UUID
   const resolved = await resolveProjectUuid(supabase, rawId, activeOrgId);
   if (!resolved?.projectUuid) notFound();
-
   const projectUuid = String(resolved.projectUuid);
 
-  // Fetch project data
   let project: any = resolved.project;
   if (!project) {
     const { data: p, error: pErr } = await supabase
@@ -160,7 +149,6 @@ export default async function ProjectLayout({
       .eq("id", projectUuid)
       .eq("organisation_id", activeOrgId)
       .maybeSingle();
-
     if (pErr) throw pErr;
     if (!p?.id) notFound();
     project = p;
@@ -168,12 +156,9 @@ export default async function ProjectLayout({
     if (String(project?.organisation_id ?? "") !== activeOrgId) notFound();
   }
 
-  // Auth: membership check
   const org = await getOrgMembership(supabase, activeOrgId, auth.user.id);
-
   const { data: memRows } = await supabase
-    .from("project_members")
-    .select("role, removed_at, is_active")
+    .from("project_members").select("role, removed_at, is_active")
     .eq("project_id", projectUuid)
     .eq("user_id", auth.user.id)
     .is("removed_at", null);
@@ -186,55 +171,41 @@ export default async function ProjectLayout({
   let switcherProjects: { id: string; title: string; project_code: string | null; colour: string | null }[] = [];
   try {
     const { data: myMems } = await supabase
-      .from("project_members")
-      .select("project_id")
+      .from("project_members").select("project_id")
       .eq("user_id", auth.user.id)
       .is("removed_at", null);
-
     const myIds = (myMems ?? []).map((r: any) => String(r.project_id)).filter(Boolean);
-
     if (myIds.length > 0) {
       const { data: switcherData } = await supabase
-        .from("projects")
-        .select("id, title, project_code, colour, status, deleted_at")
+        .from("projects").select("id, title, project_code, colour, status, deleted_at")
         .in("id", myIds)
         .eq("organisation_id", activeOrgId)
         .is("deleted_at", null)
         .order("title", { ascending: true })
         .limit(200);
-
       switcherProjects = (switcherData ?? []).filter(
         (p: any) => (p.status ?? "active").toLowerCase() !== "closed",
       );
     }
-  } catch {
-    // Non-fatal — switcher degrades to empty
-    switcherProjects = [];
-  }
+  } catch { switcherProjects = []; }
 
-  // Key artifacts for tab hrefs (SCHEDULE, WBS, FINANCIAL_PLAN, WEEKLY_REPORT)
+  // Key artifacts for tab hrefs
   let keyArtifacts: { id: string; type: string }[] = [];
   try {
     const { data: arts } = await supabase
-      .from("artifacts")
-      .select("id, type")
+      .from("artifacts").select("id, type")
       .eq("project_id", projectUuid)
       .in("type", ["SCHEDULE", "WBS", "FINANCIAL_PLAN", "WEEKLY_REPORT"])
       .order("created_at", { ascending: false })
       .limit(20);
     keyArtifacts = arts ?? [];
-  } catch {
-    keyArtifacts = [];
-  }
+  } catch { keyArtifacts = []; }
 
   const artifactHref = (type: string) => {
     const a = keyArtifacts.find((x) => x.type === type);
-    return a?.id
-      ? `/projects/${projectUuid}/artifacts/${a.id}`
-      : `/projects/${projectUuid}/artifacts`;
+    return a?.id ? `/projects/${projectUuid}/artifacts/${a.id}` : `/projects/${projectUuid}/artifacts`;
   };
 
-  // Derived values
   const projectTitle  = safeStr(project?.title ?? "Project") || "Project";
   const projectCode   = safeStr(project?.project_code ?? "").trim() || null;
   const projectColour = safeStr(project?.colour ?? "#22c55e") || "#22c55e";
@@ -255,8 +226,9 @@ export default async function ProjectLayout({
   ];
 
   return (
-    <main style={{ minHeight: "100vh", background: "#f6f8fa", fontFamily: "'Geist', -apple-system, sans-serif" }}>
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 28px 64px" }}>
+    // Full-width — no max-width cap, matches portfolio page
+    <div style={{ minHeight: "100vh", background: "#f6f8fa", fontFamily: "'Geist', -apple-system, sans-serif" }}>
+      <div style={{ width: "100%", padding: "28px 32px 64px" }}>
         <ProjectHeader
           projectId={projectUuid}
           projectTitle={projectTitle}
@@ -268,6 +240,6 @@ export default async function ProjectLayout({
         />
         {children}
       </div>
-    </main>
+    </div>
   );
 }

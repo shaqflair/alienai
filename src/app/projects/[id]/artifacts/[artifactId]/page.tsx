@@ -88,6 +88,17 @@ async function getProjectManagerNameBestEffort(supabase: any, projectId: string)
   return await readProfileName(fallbackUserId);
 }
 
+// -- Status pill config -------------------------------------------------------
+
+function statusConfig(status: string): { label: string; bg: string; color: string; dot: string } {
+  const s = String(status || "").toLowerCase();
+  if (s === "approved")          return { label: "Approved",   bg: "#dcfce7", color: "#15803d", dot: "#22c55e" };
+  if (s === "submitted")         return { label: "In review",  bg: "#dbeafe", color: "#1d4ed8", dot: "#3b82f6" };
+  if (s === "changes_requested") return { label: "Changes req",bg: "#fef3c7", color: "#b45309", dot: "#f59e0b" };
+  if (s === "rejected")          return { label: "Rejected",   bg: "#fee2e2", color: "#b91c1c", dot: "#ef4444" };
+  return                                { label: "Draft",       bg: "#f1f5f9", color: "#475569", dot: "#94a3b8" };
+}
+
 export default async function ArtifactDetailPage({
   params,
 }: {
@@ -124,23 +135,20 @@ export default async function ArtifactDetailPage({
 
   const roleLower     = String(myRole  || "").toLowerCase();
   const canEditByRole = roleLower === "owner" || roleLower === "editor";
-
-  const statusLower = String(status || "").toLowerCase();
-  const isDraftOrCR = statusLower === "draft" || statusLower === "changes_requested";
-  const isSubmitted = statusLower === "submitted";
-  const isCurrent   = (artifact as any)?.is_current !== false;
+  const statusLower   = String(status || "").toLowerCase();
+  const isDraftOrCR   = statusLower === "draft" || statusLower === "changes_requested";
+  const isSubmitted   = statusLower === "submitted";
+  const isCurrent     = (artifact as any)?.is_current !== false;
 
   const effectiveLockLayout =
     !!approvalEnabled &&
     (isSubmitted || statusLower === "approved" || statusLower === "rejected");
 
-  // FIX: financial plan now locks during approval like charter/closure
   const effectiveIsEditable =
     approvalEnabled && (charterMode || closureMode || financialPlanMode)
       ? canEditByRole && isDraftOrCR && !effectiveLockLayout && isCurrent
       : !!loaderIsEditable;
 
-  // FIX: financial plan can now submit for approval
   const canSubmitFromServer =
     !!approvalEnabled && !!(charterMode || closureMode || financialPlanMode) &&
     canEditByRole && isCurrent && isDraftOrCR && !effectiveLockLayout;
@@ -168,7 +176,7 @@ export default async function ArtifactDetailPage({
     projectTitleForSeed = projectTitleForSeed || safeStr(projectTitle).trim();
   }
 
-  // -- Server actions -------------------------------------------------------
+  // -- Server actions --------------------------------------------------------
 
   async function submitAction() {
     "use server";
@@ -238,301 +246,345 @@ export default async function ArtifactDetailPage({
 
   const jsonSaveAction = isFinancialPlan ? updateArtifactJsonSilent : updateArtifactJsonArgs;
 
-  // -- Financial plan: clean full-width layout ------------------------------
+  // -- Shared header component -----------------------------------------------
+  const sc         = statusConfig(status);
+  const artifactTitle = safeStr((artifact as any).title || displayType((artifact as any).type) || "Artifact");
+  const artifactType  = displayType((artifact as any).type);
 
-  if (isFinancialPlan) {
-    return (
-      <main className="w-full min-h-screen bg-[#F7F7F5]">
-        {/* Slim top bar */}
-        <div className="sticky top-0 z-30 flex items-center justify-between gap-4 px-6 py-3 bg-white border-b border-gray-200">
-          <Link
-            href={`/projects/${projectRefForPaths}/artifacts`}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-sky-700 hover:text-sky-900 underline underline-offset-4"
-          >
-            &larr; Back to Artifacts
-          </Link>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-gray-500">
-              {safeStr((artifact as any).title || "Financial Plan")}
-            </span>
-            {approvalEnabled ? (
-              <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs ${pill.cls}`}>
-                {pill.label}
+  const ArtifactPageHeader = () => (
+    <>
+      <style>{`
+        .af-header {
+          background: #ffffff;
+          border: 1px solid #e8ecf0;
+          border-radius: 12px;
+          margin-bottom: 20px;
+          overflow: hidden;
+        }
+        .af-header-top {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 20px 24px 16px;
+          border-bottom: 1px solid #e8ecf0;
+          flex-wrap: wrap;
+        }
+        .af-title-area { flex: 1; min-width: 0; }
+        .af-breadcrumb {
+          display: flex; align-items: center; gap: 6px;
+          font-size: 12px; color: #8b949e; margin-bottom: 8px;
+        }
+        .af-breadcrumb a { color: #8b949e; text-decoration: none; }
+        .af-breadcrumb a:hover { color: #0d1117; }
+        .af-breadcrumb-sep { opacity: 0.4; }
+        .af-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .af-title {
+          font-size: 22px; font-weight: 700; color: #0d1117;
+          letter-spacing: -0.4px; line-height: 1.2; margin: 0;
+        }
+        .af-type-badge {
+          display: inline-flex; align-items: center;
+          padding: 3px 8px; border-radius: 6px;
+          font-size: 10px; font-weight: 600; letter-spacing: 0.05em;
+          text-transform: uppercase; font-family: ui-monospace, monospace;
+          background: #f6f8fa; color: #57606a; border: 1px solid #e8ecf0;
+          white-space: nowrap;
+        }
+        .af-status-badge {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 3px 10px; border-radius: 20px;
+          font-size: 11px; font-weight: 600;
+          white-space: nowrap;
+        }
+        .af-status-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .af-meta-row {
+          display: flex; align-items: center; gap: 14px;
+          margin-top: 10px; font-size: 12px; color: #8b949e; flex-wrap: wrap;
+        }
+        .af-meta-item { display: flex; align-items: center; gap: 4px; }
+        .af-meta-sep { opacity: 0.3; }
+        .af-tag {
+          display: inline-flex; align-items: center; gap: 4px;
+          padding: 2px 8px; border-radius: 20px;
+          font-size: 10px; font-weight: 600;
+        }
+        .af-actions {
+          display: flex; align-items: center; gap: 8px;
+          padding: 12px 24px; flex-wrap: wrap;
+          background: #fafbfc;
+        }
+        .af-btn {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 6px 12px; border-radius: 8px;
+          font-size: 12px; font-weight: 600;
+          border: 1px solid #e8ecf0; background: #ffffff;
+          color: #57606a; cursor: pointer; text-decoration: none;
+          font-family: inherit; transition: all 0.15s; white-space: nowrap;
+        }
+        .af-btn:hover { border-color: #d0d7de; background: #f6f8fa; color: #0d1117; }
+        .af-btn-primary {
+          background: #0d1117; border-color: #0d1117; color: #ffffff;
+        }
+        .af-btn-primary:hover { opacity: 0.88; }
+        .af-btn-success {
+          background: #16a34a; border-color: #16a34a; color: #ffffff;
+        }
+        .af-btn-success:hover { opacity: 0.88; }
+        .af-btn-amber {
+          background: #fff8e1; border-color: #f59e0b; color: #b45309;
+        }
+        .af-btn-amber:hover { background: #fef3c7; }
+        .af-btn-danger {
+          background: #fff5f5; border-color: #fecaca; color: #b91c1c;
+        }
+        .af-btn-danger:hover { background: #fee2e2; }
+        .af-title-input {
+          font-size: 22px; font-weight: 700; color: #0d1117;
+          letter-spacing: -0.4px; border: none; outline: none;
+          background: transparent; width: 100%; min-width: 200px;
+          font-family: inherit; padding: 0;
+        }
+        .af-title-input:focus {
+          background: #f6f8fa; border-radius: 6px; padding: 2px 8px;
+          outline: 2px solid #3b82f6; outline-offset: 2px;
+        }
+        .af-decide-grid {
+          display: grid; grid-template-columns: repeat(3,1fr); gap: 12px;
+          padding: 16px 24px; border-top: 1px solid #e8ecf0;
+        }
+        .af-decide-card {
+          border: 1px solid #e8ecf0; border-radius: 10px; padding: 14px;
+          background: #ffffff; display: flex; flex-direction: column; gap: 8px;
+        }
+        .af-decide-label { font-size: 13px; font-weight: 600; color: #0d1117; }
+        .af-decide-hint  { font-size: 11px; color: #8b949e; }
+        textarea.af-reason {
+          width: 100%; border: 1px solid #e8ecf0; border-radius: 8px;
+          padding: 8px 10px; font-size: 12px; color: #0d1117;
+          resize: none; font-family: inherit; background: #fafbfc;
+        }
+        textarea.af-reason:focus { outline: 2px solid #3b82f6; outline-offset: 1px; }
+        @media (max-width: 700px) {
+          .af-decide-grid { grid-template-columns: 1fr; }
+          .af-header-top { flex-direction: column; }
+        }
+      `}</style>
+
+      <div className="af-header">
+        {/* Top section: title + status */}
+        <div className="af-header-top">
+          <div className="af-title-area">
+            {/* Breadcrumb */}
+            <div className="af-breadcrumb">
+              <Link href={`/projects/${projectRefForPaths}/artifacts`}>Artifacts</Link>
+              <span className="af-breadcrumb-sep">/</span>
+              <span style={{ color: "#0d1117", fontWeight: 500 }}>{artifactType}</span>
+            </div>
+
+            {/* Title */}
+            <div className="af-title-row">
+              {canRenameTitle ? (
+                <form action={renameTitleAction} style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
+                  <input type="hidden" name="project_id" value={projectUuid!} />
+                  <input type="hidden" name="artifact_id" value={artifactId} />
+                  <input
+                    name="title"
+                    defaultValue={artifactTitle}
+                    className="af-title-input"
+                    placeholder="Artifact title..."
+                  />
+                  <button type="submit" className="af-btn af-btn-primary" style={{ flexShrink: 0 }}>
+                    Save
+                  </button>
+                </form>
+              ) : (
+                <h1 className="af-title">{artifactTitle}</h1>
+              )}
+              <span className="af-type-badge">{artifactType}</span>
+            </div>
+
+            {/* Meta row */}
+            <div className="af-meta-row">
+              {/* Status badge */}
+              <span className="af-status-badge" style={{ background: sc.bg, color: sc.color }}>
+                <span className="af-status-dot" style={{ background: sc.dot }} />
+                {sc.label}
               </span>
-            ) : (
-              <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-gray-50 border-gray-300 text-gray-700">
-                Living document
+
+              <span className="af-meta-sep">•</span>
+
+              {/* Current / not current */}
+              {isCurrent ? (
+                <span className="af-tag" style={{ background: "#dcfce7", color: "#15803d" }}>Current</span>
+              ) : (
+                <span className="af-tag" style={{ background: "#f1f5f9", color: "#64748b" }}>Not current</span>
+              )}
+
+              {approvalEnabled && isApprover && (
+                <>
+                  <span className="af-meta-sep">•</span>
+                  <span className="af-tag" style={{ background: "#ede9fe", color: "#7c3aed" }}>Approver</span>
+                </>
+              )}
+
+              <span className="af-meta-sep">•</span>
+              <span className="af-meta-item">
+                Role: <strong style={{ color: "#0d1117", marginLeft: 3 }}>{myRole}</strong>
               </span>
-            )}
-            <span className="text-gray-400">
-              Role: <span className="font-medium text-gray-700">{myRole}</span>
-            </span>
-            <span className="text-gray-400 text-xs">
-              Updated: <ClientDateTime value={(artifact as any).updated_at ?? (artifact as any).created_at} />
-            </span>
-          </div>
-        </div>
 
-        <div className="px-6 py-6">
+              <span className="af-meta-sep">•</span>
+              <span className="af-meta-item">
+                Updated: <ClientDateTime value={(artifact as any).updated_at ?? (artifact as any).created_at} />
+              </span>
 
-          {/* Approval bar -- financial plan */}
-          {approvalEnabled && (
-            <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4 space-y-3" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2 flex-wrap text-sm text-gray-600">
-                  {statusLower === "draft"             && "Draft -- ready to submit for approval."}
-                  {statusLower === "changes_requested" && "Changes requested -- update and resubmit."}
-                  {statusLower === "submitted"  &&  isAuthor  && "Awaiting approval -- you cannot approve your own plan."}
-                  {statusLower === "submitted"  && !isAuthor  &&  isApprover && "Submitted -- you can approve, request changes, or reject."}
-                  {statusLower === "submitted"  && !isAuthor  && !isApprover && "Awaiting approval."}
-                  {statusLower === "approved"   && <span className="text-green-700 font-semibold">Approved and baselined.</span>}
-                  {statusLower === "rejected"   && <span className="text-red-700   font-semibold">Rejected.</span>}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {canSubmitFromServer && (
-                    <form action={submitAction}>
-                      <button type="submit" className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
-                        {statusLower === "changes_requested" ? "Resubmit for approval" : "Submit for approval"}
-                      </button>
-                    </form>
-                  )}
-                  {canCreateRevision && (
-                    <form action={createRevisionAction}>
-                      <button type="submit" className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
-                        Create revision
-                      </button>
-                    </form>
-                  )}
-                </div>
-              </div>
-
-              {canDecide && statusLower === "submitted" && (
-                <div className="grid gap-3 md:grid-cols-3 pt-2 border-t border-gray-100">
-                  <form action={approveAction}>
-                    <button type="submit" className="w-full rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700">
-                      Approve
-                    </button>
-                  </form>
-                  <form action={requestChangesAction} className="space-y-2">
-                    <textarea name="reason" rows={2} placeholder="Reason for changes (optional)" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-900 resize-none" />
-                    <button type="submit" className="w-full rounded-xl border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100">
-                      Request changes
-                    </button>
-                  </form>
-                  <form action={rejectFinalAction} className="space-y-2">
-                    <textarea name="reason" rows={2} placeholder="Rejection reason (optional)" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-900 resize-none" />
-                    <button type="submit" className="w-full rounded-xl border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100">
-                      Reject
-                    </button>
-                  </form>
-                </div>
+              {mode === "schedule" && (projectStartDate || projectFinishDate) && (
+                <>
+                  <span className="af-meta-sep">•</span>
+                  <span className="af-meta-item">
+                    {projectStartDate || "—"} → {projectFinishDate || "—"}
+                  </span>
+                </>
               )}
             </div>
-          )}
-
-          <ArtifactDetailClientHost
-            projectId={projectUuid!}
-            artifactId={artifactId}
-            organisationId={activeOrgId ?? undefined}
-            mode={mode}
-            isEditable={effectiveIsEditable}
-            lockLayout={effectiveLockLayout}
-            charterInitial={charterInitial}
-            typedInitialJson={typedInitialJson}
-            rawContentJson={(artifact as any).content_json ?? null}
-            rawContentText={String((artifact as any).content ?? "")}
-            projectTitle={projectTitleForSeed || safeStr(projectTitle).trim()}
-            projectManagerName={projectManagerName}
-            projectStartDate={projectStartDate}
-            projectFinishDate={projectFinishDate}
-            latestWbsJson={null}
-            wbsArtifactId={null}
-            aiTargetType={aiTargetType}
-            aiTitle={aiTitle}
-            showAI={false}
-            showTimeline={false}
-            hideContentExportsRow={true}
-            legacyExports={legacyExports}
-            approvalEnabled={!!approvalEnabled}
-            canSubmitOrResubmit={canSubmitFromServer}
-            approvalStatus={status ?? null}
-            submitForApprovalAction={submitAction}
-            updateArtifactJsonAction={jsonSaveAction}
-          />
-        </div>
-      </main>
-    );
-  }
-
-  // -- All other artifact types: original layout ----------------------------
-
-  return (
-    <main className="mx-auto w-full max-w-[1600px] px-6 py-6 space-y-6 bg-white text-gray-950">
-      <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-700">
-        <Link
-          className="inline-flex items-center font-medium text-sky-700 underline underline-offset-4 hover:text-sky-900"
-          href={`/projects/${projectRefForPaths}/artifacts`}
-        >
-          &larr; Back to Artifacts
-        </Link>
-        <div className="flex flex-wrap items-center gap-3">
-          {approvalEnabled && isApprover ? (
-            <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-gray-100 border-gray-300 text-gray-900">
-              Approver
-            </span>
-          ) : null}
-          <span className="text-gray-700">
-            Role: <span className="font-medium text-gray-950">{myRole}</span>
-          </span>
-          {isCurrent ? (
-            <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-emerald-50 border-emerald-200 text-emerald-800">Current</span>
-          ) : (
-            <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-gray-50 border-gray-300 text-gray-700">Not current</span>
-          )}
-          {approvalEnabled ? (
-            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs ${pill.cls}`}>{pill.label}</span>
-          ) : (
-            <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs bg-gray-50 border-gray-300 text-gray-700">Living document</span>
-          )}
-        </div>
-      </div>
-
-      <header className="space-y-3">
-        {canRenameTitle ? (
-          <form action={renameTitleAction} className="flex flex-wrap gap-3 items-center">
-            <input type="hidden" name="project_id" value={projectUuid!} />
-            <input type="hidden" name="artifact_id" value={artifactId} />
-            <input
-              name="title"
-              defaultValue={String((artifact as any).title ?? "")}
-              className="w-full md:w-[720px] text-2xl font-semibold border border-gray-300 rounded-2xl px-4 py-3 text-gray-950 placeholder:text-gray-400 bg-white"
-              placeholder="Artifact title..."
-            />
-            <button type="submit" className="px-5 py-3 rounded-2xl bg-black text-white text-sm font-medium hover:opacity-90">
-              Save name
-            </button>
-          </form>
-        ) : (
-          <h1 className="text-3xl font-semibold text-gray-950">
-            {(artifact as any).title || (artifact as any).type || "Artifact"}
-          </h1>
-        )}
-        <div className="text-sm text-gray-700 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center rounded-lg border border-gray-300 px-3 py-1 bg-gray-50 text-gray-900">
-            Type: <span className="ml-1 font-mono">{displayType((artifact as any).type)}</span>
-          </span>
-          <span className="opacity-40">&bull;</span>
-          <span>
-            Updated: <ClientDateTime value={(artifact as any).updated_at ?? (artifact as any).created_at} />
-          </span>
-          {mode === "schedule" && (projectStartDate || projectFinishDate) ? (
-            <>
-              <span className="opacity-40">&bull;</span>
-              <span>
-                Project dates:{" "}
-                <span className="font-mono">{projectStartDate || "\u2014"}</span> &rarr;{" "}
-                <span className="font-mono">{projectFinishDate || "\u2014"}</span>
-              </span>
-            </>
-          ) : null}
-        </div>
-      </header>
-
-      <section className="border border-gray-300 rounded-3xl bg-white p-6 space-y-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="text-sm text-gray-700">
-            {!approvalEnabled
-              ? effectiveIsEditable
-                ? "Editable: owners/editors can update this living document."
-                : "View-only."
-              : effectiveIsEditable
-              ? "Editable: owners/editors can update and submit/resubmit."
-              : isSubmitted
-              ? isAuthor
-                ? "Submitted: waiting for another approver (you cannot approve your own artifact)."
-                : isApprover
-                ? "Submitted: you can approve, request changes (CR) or reject final."
-                : "Submitted: waiting for approval."
-              : statusLower === "changes_requested"
-              ? "Changes requested (CR): owners/editors update, then resubmit."
-              : statusLower === "approved"
-              ? "Approved + baselined."
-              : statusLower === "rejected"
-              ? "Rejected (final)."
-              : "View-only."}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href={`/projects/${projectRefForPaths}/change`}
-              className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900"
-            >
-              Change Control
-            </Link>
-            {!isCurrent && canEditByRole ? (
-              <form action={makeCurrentAction}>
-                <button className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900" type="submit">
-                  Make current
-                </button>
-              </form>
-            ) : null}
-            {approvalEnabled && canSubmitNonCharter && !(charterMode || closureMode || financialPlanMode) ? (
+
+          {/* Right side: submit / revision buttons */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", flexShrink: 0 }}>
+            {canSubmitFromServer && (
               <form action={submitAction}>
-                <button className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900" type="submit">
+                <button type="submit" className="af-btn af-btn-primary">
                   {statusLower === "changes_requested" ? "Resubmit for approval" : "Submit for approval"}
                 </button>
               </form>
-            ) : null}
-            {approvalEnabled && canCreateRevision ? (
-              <form action={createRevisionAction}>
-                <button className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900" type="submit">
-                  Create revision
+            )}
+            {approvalEnabled && canSubmitNonCharter && !(charterMode || closureMode || financialPlanMode) && (
+              <form action={submitAction}>
+                <button type="submit" className="af-btn af-btn-primary">
+                  {statusLower === "changes_requested" ? "Resubmit for approval" : "Submit for approval"}
                 </button>
               </form>
-            ) : null}
-            <Link
-              href={`/projects/${projectRefForPaths}/governance`}
-              className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900"
-            >
-              Delivery Governance
-            </Link>
-            <Link
-              href="/governance"
-              className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900"
-            >
-              Governance KB
-            </Link>
-            {!changeRequestsMode ? (
-              <Link
-                href={`/projects/${projectRefForPaths}/artifacts/${artifactId}/compare`}
-                className="px-4 py-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900"
-              >
-                Compare versions
-              </Link>
-            ) : null}
+            )}
+            {canCreateRevision && (
+              <form action={createRevisionAction}>
+                <button type="submit" className="af-btn">Create revision</button>
+              </form>
+            )}
+            {!isCurrent && canEditByRole && (
+              <form action={makeCurrentAction}>
+                <button type="submit" className="af-btn">Make current</button>
+              </form>
+            )}
           </div>
         </div>
 
-        {approvalEnabled && canDecide ? (
-          <div className="grid gap-3 md:grid-cols-3">
-            <form action={approveAction} className="border border-gray-300 rounded-2xl p-4 space-y-2 bg-white">
-              <div className="font-medium text-gray-950">Approve</div>
-              <div className="text-xs text-gray-600">Final approval promotes baseline.</div>
-              <button className="px-4 py-2 rounded-xl bg-black text-white text-sm" type="submit">Approve</button>
-            </form>
-            <form action={requestChangesAction} className="border border-gray-300 rounded-2xl p-4 space-y-2 bg-white">
-              <div className="font-medium text-gray-950">Request Changes (CR)</div>
-              <textarea name="reason" rows={3} className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-950" required />
-              <button className="px-4 py-2 rounded-xl border border-gray-300 text-gray-900 text-sm hover:bg-gray-50" type="submit">Request changes</button>
-            </form>
-            <form action={rejectFinalAction} className="border border-gray-300 rounded-2xl p-4 space-y-2 bg-white">
-              <div className="font-medium text-gray-950">Reject (Final)</div>
-              <textarea name="reason" rows={2} className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-950" />
-              <input name="confirm" className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-950" placeholder='Type "REJECT" to confirm' required />
-              <button className="px-4 py-2 rounded-xl border border-gray-300 text-gray-900 text-sm hover:bg-gray-50" type="submit">Reject final</button>
-            </form>
+        {/* Action toolbar */}
+        <div className="af-actions">
+          <Link href={`/projects/${projectRefForPaths}/change`} className="af-btn">Change Control</Link>
+          <Link href={`/projects/${projectRefForPaths}/governance`} className="af-btn">Governance</Link>
+          {!changeRequestsMode && (
+            <Link href={`/projects/${projectRefForPaths}/artifacts/${artifactId}/compare`} className="af-btn">
+              Compare versions
+            </Link>
+          )}
+
+          {/* Approval status message */}
+          {approvalEnabled && (
+            <span style={{ marginLeft: "auto", fontSize: 12, color: "#8b949e" }}>
+              {statusLower === "draft"             && "Draft — ready to submit."}
+              {statusLower === "changes_requested" && "Changes requested — update and resubmit."}
+              {statusLower === "submitted" && isAuthor  && "Submitted — awaiting another approver."}
+              {statusLower === "submitted" && !isAuthor && isApprover && "Submitted — you can decide below."}
+              {statusLower === "submitted" && !isAuthor && !isApprover && "Submitted — awaiting approval."}
+              {statusLower === "approved"  && <span style={{ color: "#15803d", fontWeight: 600 }}>Approved and baselined.</span>}
+              {statusLower === "rejected"  && <span style={{ color: "#b91c1c", fontWeight: 600 }}>Rejected.</span>}
+            </span>
+          )}
+        </div>
+
+        {/* Approver decision panel */}
+        {approvalEnabled && canDecide && statusLower === "submitted" && (
+          <div className="af-decide-grid">
+            <div className="af-decide-card">
+              <div className="af-decide-label">Approve</div>
+              <div className="af-decide-hint">Promotes to approved baseline.</div>
+              <form action={approveAction}>
+                <button type="submit" className="af-btn af-btn-success" style={{ width: "100%" }}>
+                  Approve
+                </button>
+              </form>
+            </div>
+            <div className="af-decide-card">
+              <div className="af-decide-label">Request Changes</div>
+              <form action={requestChangesAction} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <textarea name="reason" rows={2} className="af-reason" placeholder="Reason (optional)" />
+                <button type="submit" className="af-btn af-btn-amber">Request changes</button>
+              </form>
+            </div>
+            <div className="af-decide-card">
+              <div className="af-decide-label">Reject (Final)</div>
+              <form action={rejectFinalAction} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <textarea name="reason" rows={2} className="af-reason" placeholder="Rejection reason (optional)" />
+                <input
+                  name="confirm"
+                  className="af-reason"
+                  style={{ resize: "none" }}
+                  placeholder='Type "REJECT" to confirm'
+                  required
+                />
+                <button type="submit" className="af-btn af-btn-danger">Reject final</button>
+              </form>
+            </div>
           </div>
-        ) : null}
-      </section>
+        )}
+      </div>
+    </>
+  );
+
+  // -- Financial plan layout -------------------------------------------------
+
+  if (isFinancialPlan) {
+    return (
+      <div className="w-full min-h-screen" style={{ background: "#f6f8fa" }}>
+        <ArtifactPageHeader />
+        <ArtifactDetailClientHost
+          projectId={projectUuid!}
+          artifactId={artifactId}
+          organisationId={activeOrgId ?? undefined}
+          mode={mode}
+          isEditable={effectiveIsEditable}
+          lockLayout={effectiveLockLayout}
+          charterInitial={charterInitial}
+          typedInitialJson={typedInitialJson}
+          rawContentJson={(artifact as any).content_json ?? null}
+          rawContentText={String((artifact as any).content ?? "")}
+          projectTitle={projectTitleForSeed || safeStr(projectTitle).trim()}
+          projectManagerName={projectManagerName}
+          projectStartDate={projectStartDate}
+          projectFinishDate={projectFinishDate}
+          latestWbsJson={null}
+          wbsArtifactId={null}
+          aiTargetType={aiTargetType}
+          aiTitle={aiTitle}
+          showAI={false}
+          showTimeline={false}
+          hideContentExportsRow={true}
+          legacyExports={legacyExports}
+          approvalEnabled={!!approvalEnabled}
+          canSubmitOrResubmit={canSubmitFromServer}
+          approvalStatus={status ?? null}
+          submitForApprovalAction={submitAction}
+          updateArtifactJsonAction={jsonSaveAction}
+        />
+      </div>
+    );
+  }
+
+  // -- All other artifact types ----------------------------------------------
+
+  return (
+    <div className="w-full" style={{ background: "#f6f8fa" }}>
+      <ArtifactPageHeader />
 
       <ArtifactDetailClientHost
         projectId={projectUuid!}
@@ -567,29 +619,47 @@ export default async function ArtifactDetailPage({
         updateArtifactJsonAction={jsonSaveAction}
       />
 
+      {/* Fallback text editor for unrecognised types */}
       {!isWeeklyReport && !isFinancialPlan && !changeRequestsMode &&
        !charterMode && !stakeholderMode && !wbsMode && !scheduleMode &&
        !closureMode && effectiveIsEditable ? (
-        <section className="border border-gray-300 rounded-2xl bg-white p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="font-medium text-gray-950">Content</div>
-            <div className="text-xs text-gray-500">Fallback editor</div>
+        <div style={{
+          marginTop: 16, background: "#ffffff", border: "1px solid #e8ecf0",
+          borderRadius: 12, padding: 24,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#0d1117" }}>Content</span>
+            <span style={{ fontSize: 11, color: "#8b949e" }}>Fallback editor</span>
           </div>
-          <form action={updateArtifact} className="grid gap-4">
+          <form action={updateArtifact} style={{ display: "grid", gap: 14 }}>
             <input type="hidden" name="project_id" value={projectUuid!} />
             <input type="hidden" name="artifact_id" value={artifactId} />
-            <label className="grid gap-2">
-              <span className="text-sm font-medium text-gray-950">Title</span>
-              <input name="title" defaultValue={String((artifact as any).title ?? "")} className="border border-gray-300 rounded-xl px-3 py-2 text-gray-950" />
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: "#0d1117" }}>Title</span>
+              <input
+                name="title"
+                defaultValue={String((artifact as any).title ?? "")}
+                style={{ border: "1px solid #e8ecf0", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#0d1117", fontFamily: "inherit" }}
+              />
             </label>
-            <label className="grid gap-2">
-              <span className="text-sm font-medium text-gray-950">Content</span>
-              <textarea name="content" rows={14} defaultValue={String((artifact as any).content ?? "")} className="border border-gray-300 rounded-xl px-3 py-2 font-mono text-sm text-gray-950" />
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: "#0d1117" }}>Content</span>
+              <textarea
+                name="content"
+                rows={14}
+                defaultValue={String((artifact as any).content ?? "")}
+                style={{ border: "1px solid #e8ecf0", borderRadius: 8, padding: "8px 12px", fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#0d1117", resize: "vertical" }}
+              />
             </label>
-            <button type="submit" className="w-fit px-4 py-2 rounded-xl bg-black text-white text-sm">Save changes</button>
+            <button
+              type="submit"
+              style={{ width: "fit-content", padding: "8px 16px", borderRadius: 8, background: "#0d1117", color: "#ffffff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+            >
+              Save changes
+            </button>
           </form>
-        </section>
+        </div>
       ) : null}
-    </main>
+    </div>
   );
 }
