@@ -340,7 +340,7 @@ export default async function ProjectPage({
     changeRequestsResult,
     keyArtifactsResult,
     orgMembersBaseResult,
-    spendResult,              // ← new: actual spend from project_spend
+    spendResult,
   ] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
     supabase
@@ -415,7 +415,6 @@ export default async function ProjectPage({
   const keyArtifacts     = keyArtifactsResult.status === "fulfilled" ? keyArtifactsResult.value.data ?? [] : [];
   const orgMembersBase   = orgMembersBaseResult.status === "fulfilled" ? orgMembersBaseResult.value.data ?? [] : [];
 
-  // Sum actual spend
   const spendRows = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
   const spentAmount = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
   const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
@@ -443,8 +442,6 @@ export default async function ProjectPage({
     _profile: profileMap.get(m.user_id) ?? {},
   }));
 
-  /* ─── Health score (shared scorer — stays in sync with portfolio) ─── */
-
   const health: HealthResult = computeHealthFromData({
     milestones:           milestones as any[],
     raidItems:            raidItems as any[],
@@ -467,8 +464,6 @@ export default async function ProjectPage({
   const budgetDetail     = health.detail.budget;
   const govDetail        = health.detail.governance;
 
-  /* ─── rest of page data ─── */
-
   let switcherProjects: { id: string; title: string; project_code: string | null; colour: string | null }[] = [];
   if (myProjectMembershipsResult.status === "fulfilled") {
     const myIds = (myProjectMembershipsResult.value.data ?? []).map((r: any) => String(r.project_id));
@@ -488,9 +483,9 @@ export default async function ProjectPage({
     }
   }
 
-  const pmUserId       = safeStr((project as any)?.pm_user_id ?? (project as any)?.project_manager_id ?? "").trim();
-  const storedPmName   = safeStr((project as any)?.pm_name).trim();
-  let resolvedPmName   = storedPmName;
+  const pmUserId         = safeStr((project as any)?.pm_user_id ?? (project as any)?.project_manager_id ?? "").trim();
+  const storedPmName     = safeStr((project as any)?.pm_name).trim();
+  let resolvedPmName     = storedPmName;
   let resolvedPmJobTitle = "";
 
   if (pmUserId) {
@@ -535,11 +530,11 @@ export default async function ProjectPage({
     };
   }).filter((x: any) => x.userId);
 
-  const projectTitle    = safeStr(project?.title ?? "Project") || "Project";
-  const projectCode     = safeStr(project?.project_code ?? "").trim();
-  const projectColour   = safeStr(project?.colour ?? "#22c55e");
-  const projectStatus   = safeStr(project?.status ?? "active");
-  const isActive        = projectStatus.toLowerCase() !== "closed";
+  const projectTitle      = safeStr(project?.title ?? "Project") || "Project";
+  const projectCode       = safeStr(project?.project_code ?? "").trim();
+  const projectColour     = safeStr(project?.colour ?? "#22c55e");
+  const projectStatus     = safeStr(project?.status ?? "active");
+  const isActive          = projectStatus.toLowerCase() !== "closed";
   const projectRefForUrls = projectUuid;
 
   const flash    = flashText(sp?.msg, sp?.conflicts);
@@ -579,7 +574,6 @@ export default async function ProjectPage({
     { id: "weekly",     label: "Weekly Report",  href: artifactHref("WEEKLY_REPORT") },
   ];
 
-  // Budget tooltip text
   const budgetTooltip = budgetDetail.budgetAmount != null
     ? `${formatCurrency(budgetDetail.spentAmount)} spent of ${formatCurrency(budgetDetail.budgetAmount!)} approved budget` +
       ` (${budgetDetail.utilisationPct}% used).` +
@@ -704,6 +698,43 @@ export default async function ProjectPage({
           font-family: 'Geist', sans-serif; cursor: pointer; transition: opacity 0.15s;
         }
         .pm-save-btn:hover { opacity: 0.85; }
+        .crumb-back {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 10px;
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--text-2);
+          text-decoration: none;
+          font-size: 13px;
+          font-weight: 600;
+          transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+          white-space: nowrap;
+        }
+        .crumb-back:hover {
+          color: var(--text-1);
+          background: var(--surface-2);
+          border-color: var(--border-2);
+          box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        }
+        .crumb-link {
+          color: var(--text-3);
+          text-decoration: none;
+          transition: color 0.15s;
+        }
+        .crumb-link:hover {
+          color: var(--text-2);
+        }
+        .project-title-link {
+          color: inherit;
+          text-decoration: none;
+        }
+        .project-title-link:hover {
+          text-decoration: underline;
+          text-underline-offset: 3px;
+        }
         @media (max-width: 960px) {
           .stat-grid { grid-template-columns: repeat(2,1fr) !important; }
           .two-col   { grid-template-columns: 1fr !important; }
@@ -736,12 +767,23 @@ export default async function ProjectPage({
 
           {/* ── breadcrumb + switcher ── */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-3)", fontWeight: 500 }}>
-              <Link href="/projects" style={{ color: "var(--text-3)", textDecoration: "none" }}>Projects</Link>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                <path d="m9 18 6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <span style={{ color: "var(--text-1)", fontWeight: 600 }}>{projectTitle}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <Link href="/projects" className="crumb-back" aria-label="Back to projects">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="m15 18-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Back
+              </Link>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-3)", fontWeight: 500 }}>
+                <Link href="/projects" className="crumb-link">Projects</Link>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="m9 18 6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <Link href={`/projects/${projectRefForUrls}`} className="crumb-link" style={{ color: "var(--text-1)", fontWeight: 600 }}>
+                  {projectTitle}
+                </Link>
+              </div>
             </div>
 
             <div className="sw-wrap" tabIndex={0} style={{ outline: "none" }}>
@@ -786,7 +828,11 @@ export default async function ProjectPage({
             <div style={{ padding: "22px 28px 0" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                 <span style={{ width: 10, height: 10, borderRadius: "50%", background: projectColour, display: "inline-block", flexShrink: 0 }}/>
-                <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)", letterSpacing: "-0.3px", margin: 0 }}>{projectTitle}</h1>
+                <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)", letterSpacing: "-0.3px", margin: 0 }}>
+                  <Link href={`/projects/${projectRefForUrls}`} className="project-title-link">
+                    {projectTitle}
+                  </Link>
+                </h1>
                 {projectCode && (
                   <span style={{ padding: "2px 9px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#f6f8fa", color: "var(--text-3)", border: "1px solid var(--border)", fontFamily: "'Geist Mono', monospace" }}>
                     {projectCode}
