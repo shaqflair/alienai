@@ -24,6 +24,7 @@ import {
 } from "./approval-actions";
 import { displayType } from "./_lib/artifact-detail-utils";
 import { loadArtifactDetail } from "./_lib/loadArtifactDetail";
+import FinancialPlanAuditTrail from "@/components/artifacts/FinancialPlanAuditTrail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -446,17 +447,14 @@ export default async function ArtifactDetailPage({
       `}</style>
 
       <div className="af-header">
-        {/* Top section: title + status */}
         <div className="af-header-top">
           <div className="af-title-area">
-            {/* Breadcrumb */}
             <div className="af-breadcrumb">
               <Link href={`/projects/${projectRefForPaths}/artifacts`}>Artifacts</Link>
               <span className="af-breadcrumb-sep">/</span>
               <span style={{ color: "#0d1117", fontWeight: 500 }}>{artifactType}</span>
             </div>
 
-            {/* Title */}
             <div className="af-title-row">
               {canRenameTitle ? (
                 <form action={renameTitleAction} style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
@@ -478,17 +476,14 @@ export default async function ArtifactDetailPage({
               <span className="af-type-badge">{artifactType}</span>
             </div>
 
-            {/* Meta row */}
             <div className="af-meta-row">
-              {/* Status badge */}
               <span className="af-status-badge" style={{ background: sc.bg, color: sc.color }}>
                 <span className="af-status-dot" style={{ background: sc.dot }} />
                 {sc.label}
               </span>
 
-              <span className="af-meta-sep">•</span>
+              <span className="af-meta-sep">*</span>
 
-              {/* Current / not current */}
               {isCurrent ? (
                 <span className="af-tag" style={{ background: "#dcfce7", color: "#15803d" }}>Current</span>
               ) : (
@@ -497,33 +492,32 @@ export default async function ArtifactDetailPage({
 
               {approvalEnabled && isApprover && (
                 <>
-                  <span className="af-meta-sep">•</span>
+                  <span className="af-meta-sep">*</span>
                   <span className="af-tag" style={{ background: "#ede9fe", color: "#7c3aed" }}>Approver</span>
                 </>
               )}
 
-              <span className="af-meta-sep">•</span>
+              <span className="af-meta-sep">*</span>
               <span className="af-meta-item">
                 Role: <strong style={{ color: "#0d1117", marginLeft: 3 }}>{myRole}</strong>
               </span>
 
-              <span className="af-meta-sep">•</span>
+              <span className="af-meta-sep">*</span>
               <span className="af-meta-item">
                 Updated: <ClientDateTime value={(artifact as any).updated_at ?? (artifact as any).created_at} />
               </span>
 
               {mode === "schedule" && (projectStartDate || projectFinishDate) && (
                 <>
-                  <span className="af-meta-sep">•</span>
+                  <span className="af-meta-sep">*</span>
                   <span className="af-meta-item">
-                    {projectStartDate || "—"} → {projectFinishDate || "—"}
+                    {projectStartDate || "---"} to {projectFinishDate || "---"}
                   </span>
                 </>
               )}
             </div>
           </div>
 
-          {/* Right side: submit / revision buttons */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", flexShrink: 0 }}>
             {canSubmitFromServer && (
               <form action={submitAction}>
@@ -552,7 +546,6 @@ export default async function ArtifactDetailPage({
           </div>
         </div>
 
-        {/* Action toolbar */}
         <div className="af-actions">
           <Link href={`/projects/${projectRefForPaths}/change`} className="af-btn">Change Control</Link>
           <Link href={`/projects/${projectRefForPaths}/governance`} className="af-btn">Governance</Link>
@@ -562,21 +555,19 @@ export default async function ArtifactDetailPage({
             </Link>
           )}
 
-          {/* Approval status message */}
           {approvalEnabled && (
             <span style={{ marginLeft: "auto", fontSize: 12, color: "#8b949e" }}>
-              {statusLower === "draft"             && "Draft — ready to submit."}
-              {statusLower === "changes_requested" && "Changes requested — update and resubmit."}
-              {statusLower === "submitted" && isAuthor  && "Submitted — awaiting another approver."}
-              {statusLower === "submitted" && !isAuthor && isApprover && "Submitted — you can decide below."}
-              {statusLower === "submitted" && !isAuthor && !isApprover && "Submitted — awaiting approval."}
+              {statusLower === "draft"             && "Draft - ready to submit."}
+              {statusLower === "changes_requested" && "Changes requested - update and resubmit."}
+              {statusLower === "submitted" && isAuthor    && "Submitted - awaiting another approver."}
+              {statusLower === "submitted" && !isAuthor && isApprover  && "Submitted - you can decide below."}
+              {statusLower === "submitted" && !isAuthor && !isApprover && "Submitted - awaiting approval."}
               {statusLower === "approved"  && <span style={{ color: "#15803d", fontWeight: 600 }}>Approved and baselined.</span>}
               {statusLower === "rejected"  && <span style={{ color: "#b91c1c", fontWeight: 600 }}>Rejected.</span>}
             </span>
           )}
         </div>
 
-        {/* Approver decision panel */}
         {approvalEnabled && canDecide && statusLower === "submitted" && (
           <div className="af-decide-grid">
             <div className="af-decide-card">
@@ -656,6 +647,12 @@ export default async function ArtifactDetailPage({
           submitForApprovalAction={submitAction}
           updateArtifactJsonAction={jsonSaveAction}
         />
+        <div style={{ marginTop: 24, padding: 24, background: "white", borderRadius: 12, border: "1px solid #e2e8f0" }}>
+          <FinancialPlanAuditTrail
+            projectId={projectUuid!}
+            artifactId={artifactId}
+          />
+        </div>
       </div>
     );
   }
@@ -670,7 +667,6 @@ export default async function ArtifactDetailPage({
           <span>{decodeURIComponent(actionError)}</span>
         </div>
       )}
-      {/* Weekly report has its own complete sticky header/toolbar — skip ours */}
       {!isWeeklyReport && <ArtifactPageHeader />}
 
       <ArtifactDetailClientHost
@@ -706,7 +702,6 @@ export default async function ArtifactDetailPage({
         updateArtifactJsonAction={jsonSaveAction}
       />
 
-      {/* Fallback text editor for unrecognised types */}
       {!isWeeklyReport && !isFinancialPlan && !changeRequestsMode &&
        !charterMode && !stakeholderMode && !wbsMode && !scheduleMode &&
        !closureMode && effectiveIsEditable ? (
