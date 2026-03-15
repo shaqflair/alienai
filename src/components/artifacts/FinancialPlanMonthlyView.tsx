@@ -248,8 +248,8 @@ type Props = {
 };
 
 const FY_START_OPTIONS = [
-  { value: 1,  label: "Jan ? Calendar year" },
-  { value: 4,  label: "Apr ? UK / NHS" },
+  { value: 1,  label: "Jan -- Calendar year" },
+  { value: 4,  label: "Apr -- UK / NHS" },
   { value: 7,  label: "Jul" },
   { value: 10, label: "Oct" },
 ];
@@ -461,7 +461,7 @@ export default function FinancialPlanMonthlyView({
       </div>
 
       {/* -- Table -- */}
-      <div style={{ border: `1px solid ${P.borderMd}`, overflow: "hidden", maxHeight: "70vh", overflowY: "auto", overflowX: "auto" }}>
+      <div style={{ border: `1px solid ${P.borderMd}`, maxHeight: "70vh", overflowY: "auto", overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", background: P.surface, minWidth: `${200 + monthKeys.length * 168 + 90}px` }}>
 
           {/* -- THEAD -- */}
