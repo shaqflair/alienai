@@ -464,7 +464,7 @@ function HeatmapPersonRow({person,periods,cw,expanded,onToggle,onCell}:{person:P
     <div style={{borderBottom:"1px solid #f1f5f9"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 0",cursor:"pointer",background:expanded?"rgba(0,184,219,0.02)":"transparent"}} onClick={onToggle}>
         <div style={{width:PERSON_COL,minWidth:PERSON_COL,flexShrink:0,display:"flex",alignItems:"center",gap:"8px",paddingRight:"12px"}}>
-          <span style={{fontSize:"12px",color:"#94a3b8",transform:expanded?"rotate(90deg)":"rotate(0)",transition:"transform 0.2s",display:"inline-block",width:"14px",flexShrink:0}}>></span>
+          <span style={{fontSize:"12px",color:"#94a3b8",transform:expanded?"rotate(90deg)":"rotate(0)",transition:"transform 0.2s",display:"inline-block",width:"14px",flexShrink:0}}>{">"}</span>
           <Avatar name={person.fullName} size={28}/>
           <div style={{minWidth:0,flex:1}}>
             <div style={{fontSize:"13px",fontWeight:600,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{person.fullName}</div>
