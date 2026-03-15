@@ -153,7 +153,7 @@ async function getOrgMembership(supabase: any, organisationId: string, userId: s
   return { isMember: Boolean(role), isAdmin: role === "admin" || role === "owner", role };
 }
 
-// ── Server actions (used by action buttons rendered in this page) ────────────
+// ── Server actions ────────────────────────────────────────────────────────────
 
 async function convertPipelineToConfirmed(formData: FormData) {
   "use server";
@@ -253,7 +253,7 @@ async function assignPmAction(formData: FormData) {
   redirect(`${returnTo}?msg=pm_assigned`);
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function ProjectPage({
   params,
@@ -402,7 +402,6 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid)
       .is("deleted_at", null)
       .limit(100000),
-    // Fast DB read — no AI call, never blocks render
     getCachedBriefing(projectUuid),
   ]);
 
@@ -422,7 +421,7 @@ export default async function ProjectPage({
   const spentAmount = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
   const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
 
-  // ── Profile map (for PM name resolution + org members) ───────────────────
+  // ── Profile map ───────────────────────────────────────────────────────────
   let profileMap = new Map<string, any>();
   if (orgMembersBase.length > 0) {
     const userIds = (orgMembersBase as any[]).map((m: any) => m.user_id).filter(Boolean);
@@ -443,7 +442,7 @@ export default async function ProjectPage({
     _profile: profileMap.get(m.user_id) ?? {},
   }));
 
-  // ── Switcher projects ──────────────────────────────────────────────────────
+  // ── Switcher projects ─────────────────────────────────────────────────────
   let switcherProjects: { id: string; title: string; project_code: string | null; colour: string | null }[] = [];
   if (myProjectMembershipsResult.status === "fulfilled") {
     const myIds = (myProjectMembershipsResult.value.data ?? []).map((r: any) => String(r.project_id));
@@ -585,10 +584,8 @@ export default async function ProjectPage({
     : "No approved budget set on this project.";
 
   // ── Render ────────────────────────────────────────────────────────────────
-  // NOTE: No <main> wrapper here — layout.tsx owns the outer shell,
-  // breadcrumb, project switcher, header card and tabs via ProjectHeader.
   return (
-    <>
+    <div style={{ maxWidth: 1200, margin: "0 auto", width: "100%" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap');
         *, *::before, *::after { box-sizing: border-box; }
@@ -682,7 +679,7 @@ export default async function ProjectPage({
         canRegenerate={canRegenerate}
       />
 
-      {/* ── Action buttons (edit-mode) ── */}
+      {/* ── Action buttons ── */}
       {canEdit && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
           <a href={`/allocations/new?project_id=${projectUuid}&return_to=/projects/${projectRefForUrls}`} className="action-btn primary">
@@ -703,7 +700,7 @@ export default async function ProjectPage({
         </div>
       )}
 
-      {/* ── stat cards ── */}
+      {/* ── Stat cards ── */}
       <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 16 }}>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: "#dcfce7" }}>📊</div>
@@ -739,7 +736,7 @@ export default async function ProjectPage({
         </div>
       </div>
 
-      {/* ── description + health card ── */}
+      {/* ── Description + health ── */}
       <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, marginBottom: 16 }}>
         <div className="card" style={{ padding: "24px" }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 12 }}>Project Description</h3>
@@ -855,7 +852,7 @@ export default async function ProjectPage({
         </div>
       </div>
 
-      {/* ── resource panel ── */}
+      {/* ── Resource panel ── */}
       {resource && (
         <div className="card" style={{ padding: "24px", marginBottom: 16 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
@@ -936,6 +933,6 @@ export default async function ProjectPage({
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
