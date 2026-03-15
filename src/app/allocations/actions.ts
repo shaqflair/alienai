@@ -4,6 +4,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
+import { writeAllocationAudit, buildCreatedPayload, buildUpdatedDiff } from "@/lib/audit/allocation-audit";
 
 /* =========================
    Utilities
@@ -69,6 +70,48 @@ async function getMyProjectRole(
   return (roles[0] as any) || "";
 }
 
+// Resolve org_id for a project (for audit log)
+async function getOrgIdForProject(supabase: any, projectId: string): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from("projects")
+      .select("organisation_id")
+      .eq("id", projectId)
+      .maybeSingle();
+    return data?.organisation_id ? String(data.organisation_id) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Resolve person display name (for audit log - non-fatal)
+async function getPersonName(supabase: any, personId: string): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("user_id", personId)
+      .maybeSingle();
+    return data?.full_name ? String(data.full_name) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Resolve project title + code (for audit log - non-fatal)
+async function getProjectMeta(supabase: any, projectId: string): Promise<{ title: string | null; code: string | null }> {
+  try {
+    const { data } = await supabase
+      .from("projects")
+      .select("title, project_code")
+      .eq("id", projectId)
+      .maybeSingle();
+    return { title: data?.title ?? null, code: data?.project_code ?? null };
+  } catch {
+    return { title: null, code: null };
+  }
+}
+
 /* =========================
    createAllocation
 ========================= */
@@ -125,6 +168,35 @@ export async function createAllocation(formData: FormData) {
   };
   const conflictCount = result?.conflicts?.length ?? 0;
 
+  // -- Audit (non-blocking) --------------------------------------------------
+  const [orgId, personName, projMeta] = await Promise.all([
+    getOrgIdForProject(supabase, project_id),
+    getPersonName(supabase, person_id),
+    getProjectMeta(supabase, project_id),
+  ]);
+  if (orgId) {
+    void writeAllocationAudit({
+      organisationId: orgId,
+      projectId:      project_id,
+      personId:       person_id,
+      actorId:        user.id,
+      action:         "allocation.created",
+      after: buildCreatedPayload({
+        personName,
+        projectTitle:   projMeta.title,
+        projectCode:    projMeta.code,
+        startDate:      start_date!,
+        endDate:        end_date!,
+        daysPerWeek:    days_per_week,
+        weeksInserted:  result.inserted,
+        conflictCount,
+        roleOnProject:  role_on_project,
+        allocationType: allocation_type,
+      }),
+    });
+  }
+  // -------------------------------------------------------------------------
+
   revalidatePath("/allocations");
   revalidatePath(`/projects/${project_id}`);
   revalidatePath("/heatmap");
@@ -159,6 +231,16 @@ export async function deleteAllocation(formData: FormData) {
   if (role !== "owner" && role !== "editor")
     redirect(`${return_to}${qs({ err: "no_permission" })}`);
 
+  // Fetch before state for audit
+  let beforeRows: any[] = [];
+  try {
+    let q = supabase.from("allocations").select("week_start_date, days_allocated, allocation_type")
+      .eq("person_id", person_id).eq("project_id", project_id);
+    if (week) q = q.eq("week_start_date", week);
+    const { data } = await q.limit(200);
+    beforeRows = data ?? [];
+  } catch { /* non-fatal */ }
+
   let query = supabase
     .from("allocations")
     .delete()
@@ -169,6 +251,27 @@ export async function deleteAllocation(formData: FormData) {
 
   const { error } = await query;
   if (error) throwDb(error, "allocations.delete");
+
+  // -- Audit --
+  const orgId = await getOrgIdForProject(supabase, project_id);
+  if (orgId) {
+    void writeAllocationAudit({
+      organisationId: orgId,
+      projectId:      project_id,
+      personId:       person_id,
+      actorId:        user.id,
+      action:         week ? "allocation.week_deleted" : "allocation.deleted",
+      before: {
+        weeks_affected: beforeRows.length,
+        week:           week ?? null,
+        rows:           beforeRows.slice(0, 20),
+        summary: week
+          ? `Week ${week} removed`
+          : `All ${beforeRows.length} allocation weeks removed`,
+      },
+    });
+  }
+  // -------------------------------------------------------------------------
 
   revalidatePath("/allocations");
   revalidatePath(`/projects/${project_id}`);
@@ -200,6 +303,18 @@ export async function updateAllocationWeek(formData: FormData) {
   if (role !== "owner" && role !== "editor")
     redirect(`${return_to}${qs({ err: "no_permission" })}`);
 
+  // Fetch before state for audit
+  let prevDays: number | null = null;
+  try {
+    const { data } = await supabase.from("allocations")
+      .select("days_allocated")
+      .eq("person_id", person_id)
+      .eq("project_id", project_id)
+      .eq("week_start_date", week_start_date)
+      .maybeSingle();
+    prevDays = data?.days_allocated ?? null;
+  } catch { /* non-fatal */ }
+
   if (days_allocated === 0) {
     const { error } = await supabase
       .from("allocations")
@@ -224,6 +339,27 @@ export async function updateAllocationWeek(formData: FormData) {
     if (error) throwDb(error, "allocations.upsert");
   }
 
+  // -- Audit --
+  const orgId = await getOrgIdForProject(supabase, project_id);
+  if (orgId) {
+    void writeAllocationAudit({
+      organisationId: orgId,
+      projectId:      project_id,
+      personId:       person_id,
+      actorId:        user.id,
+      action:         days_allocated === 0 ? "allocation.week_deleted" : "allocation.week_updated",
+      before: prevDays !== null ? { week: week_start_date, days_allocated: prevDays } : null,
+      after:  days_allocated > 0 ? {
+        week:          week_start_date,
+        days_allocated,
+        summary:       prevDays !== null
+          ? `${prevDays}d ? ${days_allocated}d on week ${week_start_date}`
+          : `${days_allocated}d set for week ${week_start_date}`,
+      } : { week: week_start_date, days_allocated: 0, summary: `Week ${week_start_date} cleared` },
+    });
+  }
+  // -------------------------------------------------------------------------
+
   revalidatePath("/allocations");
   revalidatePath(`/projects/${project_id}`);
   revalidatePath("/heatmap");
@@ -233,13 +369,6 @@ export async function updateAllocationWeek(formData: FormData) {
 
 /* =========================
    updateAllocation
-
-   FIX 1 (original): Only delete/replace weeks WITHIN the new date range —
-   prevents wiping allocations outside the edited window.
-
-   FIX 2 (this PR): Use upsert not insert so that if any week_start_date
-   survives the delete step (timezone edge-case, RLS, concurrent request),
-   we don't crash with a unique-constraint violation — we overwrite cleanly.
 ========================= */
 
 export async function updateAllocation(formData: FormData): Promise<{ ok: true }> {
@@ -264,6 +393,29 @@ export async function updateAllocation(formData: FormData): Promise<{ ok: true }
   if (role !== "owner" && role !== "editor")
     throw new Error("You don't have permission to edit this allocation.");
 
+  // Fetch before state (first existing week gives us the old pattern)
+  let prevStart:   string | null = null;
+  let prevEnd:     string | null = null;
+  let prevDpw:     number | null = null;
+  let prevRole:    string | null = null;
+  let prevType:    string | null = null;
+  try {
+    const { data: existingRows } = await supabase
+      .from("allocations")
+      .select("week_start_date, days_allocated, allocation_type, role_on_project")
+      .eq("person_id", person_id)
+      .eq("project_id", project_id)
+      .order("week_start_date", { ascending: true })
+      .limit(200);
+    if (existingRows && existingRows.length > 0) {
+      prevStart = existingRows[0].week_start_date;
+      prevEnd   = existingRows[existingRows.length - 1].week_start_date;
+      prevDpw   = existingRows[0].days_allocated;
+      prevRole  = existingRows[0].role_on_project ?? null;
+      prevType  = existingRows[0].allocation_type ?? null;
+    }
+  } catch { /* non-fatal */ }
+
   // Build new weekly rows
   const rows: {
     person_id:       string;
@@ -277,7 +429,6 @@ export async function updateAllocation(formData: FormData): Promise<{ ok: true }
   const start = new Date(new_start + "T00:00:00Z");
   const end   = new Date(new_end   + "T00:00:00Z");
 
-  // Snap start to Monday
   const day = start.getUTCDay();
   if (day !== 1) start.setUTCDate(start.getUTCDate() + (day === 0 ? -6 : 1 - day));
 
@@ -297,7 +448,6 @@ export async function updateAllocation(formData: FormData): Promise<{ ok: true }
   if (rows.length === 0)
     throw new Error("No weeks found in the selected date range.");
 
-  // Only delete the specific weeks we are about to replace
   const weekKeys = rows.map(r => r.week_start_date);
 
   const { error: delErr } = await supabase
@@ -309,12 +459,30 @@ export async function updateAllocation(formData: FormData): Promise<{ ok: true }
 
   if (delErr) throw new Error(`Failed to clear existing weeks: ${delErr.message}`);
 
-  // ✅ upsert — idempotent if any row survived the delete above
   const { error: insErr } = await supabase
     .from("allocations")
     .upsert(rows, { onConflict: "person_id,project_id,week_start_date" });
 
   if (insErr) throw new Error(`Failed to save allocation: ${insErr.message}`);
+
+  // -- Audit --
+  const orgId = await getOrgIdForProject(supabase, project_id);
+  if (orgId) {
+    const diff = buildUpdatedDiff(
+      { startDate: prevStart ?? new_start, endDate: prevEnd ?? new_end, daysPerWeek: prevDpw ?? days_per_week, roleOnProject: prevRole, allocationType: prevType },
+      { startDate: new_start, endDate: new_end, daysPerWeek: days_per_week, weeksUpdated: rows.length, roleOnProject: null, allocationType: alloc_type }
+    );
+    void writeAllocationAudit({
+      organisationId: orgId,
+      projectId:      project_id,
+      personId:       person_id,
+      actorId:        user.id,
+      action:         "allocation.updated",
+      before:         diff.before,
+      after:          diff.after,
+    });
+  }
+  // -------------------------------------------------------------------------
 
   revalidatePath(`/projects/${project_id}`);
   revalidatePath("/heatmap");
@@ -340,6 +508,20 @@ export async function deleteAllocationDirect(formData: FormData): Promise<{ ok: 
   if (role !== "owner" && role !== "editor")
     throw new Error("You don't have permission to remove this allocation.");
 
+  // Fetch before state for audit
+  let beforeRows: any[] = [];
+  let totalDays = 0;
+  try {
+    const { data } = await supabase.from("allocations")
+      .select("week_start_date, days_allocated, allocation_type")
+      .eq("person_id", person_id)
+      .eq("project_id", project_id)
+      .order("week_start_date", { ascending: true })
+      .limit(200);
+    beforeRows = data ?? [];
+    totalDays  = beforeRows.reduce((s: number, r: any) => s + (Number(r.days_allocated) || 0), 0);
+  } catch { /* non-fatal */ }
+
   const { error } = await supabase
     .from("allocations")
     .delete()
@@ -347,6 +529,33 @@ export async function deleteAllocationDirect(formData: FormData): Promise<{ ok: 
     .eq("project_id", project_id);
 
   if (error) throw new Error(`Failed to remove allocation: ${error.message}`);
+
+  // -- Audit --
+  const [orgId, personName, projMeta] = await Promise.all([
+    getOrgIdForProject(supabase, project_id),
+    getPersonName(supabase, person_id),
+    getProjectMeta(supabase, project_id),
+  ]);
+  if (orgId) {
+    void writeAllocationAudit({
+      organisationId: orgId,
+      projectId:      project_id,
+      personId:       person_id,
+      actorId:        user.id,
+      action:         "allocation.deleted",
+      before: {
+        person_name:    personName,
+        project_title:  projMeta.title,
+        project_code:   projMeta.code,
+        weeks_removed:  beforeRows.length,
+        total_days:     totalDays,
+        first_week:     beforeRows[0]?.week_start_date ?? null,
+        last_week:      beforeRows[beforeRows.length - 1]?.week_start_date ?? null,
+        summary: `Removed all ${beforeRows.length} weeks (${totalDays}d total) for ${personName ?? person_id}`,
+      },
+    });
+  }
+  // -------------------------------------------------------------------------
 
   revalidatePath(`/projects/${project_id}`);
   revalidatePath("/heatmap");
