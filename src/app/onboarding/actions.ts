@@ -206,9 +206,9 @@ export async function inviteTeamAction(formData: FormData) {
         .single();
 
       if (invErr) {
-        if ((invErr as any)?.code === "23505") { 
-            errors.push(`${email}: already invited`); 
-            continue; 
+        if ((invErr as any)?.code === "23505") {
+          errors.push(`${email}: already invited`);
+          continue;
         }
         errors.push(`${email}: ${invErr.message}`);
         continue;
@@ -236,4 +236,70 @@ export async function inviteTeamAction(formData: FormData) {
 
   revalidatePath("/onboarding");
   return { sent, errors };
+}
+
+/* =============================================================================
+    PROFILE SETUP (ProfileSetupForm)
+============================================================================= */
+export async function saveOnboardingProfile(formData: FormData) {
+  const sb = await createClient();
+  const { data: { user }, error: authErr } = await sb.auth.getUser();
+  if (authErr) throw new Error(authErr.message);
+  if (!user)   throw new Error("Not authenticated");
+
+  const fullName       = safeStr(formData.get("full_name")).trim();
+  const jobTitle       = safeStr(formData.get("job_title")).trim();
+  const department     = safeStr(formData.get("department")).trim();
+  const employmentType = safeStr(formData.get("employment_type")).trim() || "full_time";
+  const location       = safeStr(formData.get("location")).trim();
+  const bio            = safeStr(formData.get("bio")).trim();
+  const lineManagerId  = safeStr(formData.get("line_manager_id")).trim();
+
+  if (!fullName) throw new Error("Full name is required.");
+  if (!jobTitle) throw new Error("Job title is required.");
+
+  const patch: Record<string, any> = {
+    full_name:           fullName,
+    job_title:           jobTitle,
+    department:          department     || null,
+    employment_type:     employmentType,
+    location:            location       || null,
+    bio:                 bio            || null,
+    line_manager_id:     lineManagerId  || null,
+    onboarding_complete: true,
+    updated_at:          new Date().toISOString(),
+  };
+
+  // Upsert with user_id as conflict target
+  const { error: upsertErr } = await sb
+    .from("profiles")
+    .upsert({ user_id: user.id, ...patch }, { onConflict: "user_id" });
+
+  if (upsertErr) {
+    // Fallback: plain update by user_id
+    const { error: updErr } = await sb
+      .from("profiles")
+      .update(patch)
+      .eq("user_id", user.id);
+
+    if (updErr) {
+      // Final fallback: some schemas use id instead of user_id
+      const { error: updErr2 } = await sb
+        .from("profiles")
+        .update(patch)
+        .eq("id", user.id);
+
+      if (updErr2) throw new Error(`Profile save failed: ${updErr2.message}`);
+    }
+  }
+
+  // Update auth display name (non-fatal)
+  try {
+    await sb.auth.updateUser({ data: { full_name: fullName } });
+  } catch {
+    // ignore
+  }
+
+  revalidatePath("/");
+  revalidatePath("/onboarding");
 }
