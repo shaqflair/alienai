@@ -1833,7 +1833,235 @@ export async function POST(req: Request) {
         model: assessment.model,
       });
     }
+// ── PATCH: delivery_report handler ─────────────────────────────────────────
+// Insert this block in src/app/api/ai/events/route.ts POST handler
+// LOCATION: after the weekly_report_narrative block, before the knownTypes check
+// i.e. replace:
+//   const knownTypes = [
+//     "artifact_due",
+//     "delivery_report",
+//     ...
+// with this block + the knownTypes array
 
+    if (eventType === "delivery_report") {
+      if (!projectUuid) {
+        return jsonNoStore({ ok: false, error: "Missing project id for delivery_report" }, { status: 400 });
+      }
+
+      try {
+        const { artifactId, period, windowDays: wdRaw, derivedRag, healthContext } = (payload ?? {}) as any;
+
+        const windowDays = parseWindowDays(wdRaw, 7);
+        const from = startOfUtcDay(new Date());
+        const weekAgo = new Date(from.getTime() - windowDays * 24 * 60 * 60 * 1000);
+        const to = endOfUtcWindow(from, windowDays);
+
+        // Load recent milestones
+        const { data: msData } = await supabase
+          .from("schedule_milestones")
+          .select("id,milestone_name,end_date,status,critical_path_flag,source_artifact_id")
+          .eq("project_id", projectUuid)
+          .order("end_date", { ascending: true })
+          .limit(50);
+
+        const msRows = Array.isArray(msData) ? (msData as any[]) : [];
+
+        // Load open RAID items
+        const { data: raidData } = await supabase
+          .from("raid_items")
+          .select("id,type,title,status,due_date,owner_label,priority")
+          .eq("project_id", projectUuid)
+          .not("status", "eq", "closed")
+          .order("due_date", { ascending: true })
+          .limit(30);
+
+        const raidRows = Array.isArray(raidData) ? (raidData as any[]) : [];
+
+        // Load recent change requests
+        const { data: chData } = await supabase
+          .from("change_requests")
+          .select("id,title,status,delivery_status,decision_status,updated_at")
+          .eq("project_id", projectUuid)
+          .order("updated_at", { ascending: false })
+          .limit(10);
+
+        const chRows = Array.isArray(chData) ? (chData as any[]) : [];
+
+        // Build period dates
+        const periodFrom = period?.from ?? weekAgo.toISOString().split("T")[0];
+        const periodTo = period?.to ?? from.toISOString().split("T")[0];
+
+        // Categorise milestones
+        const msCompleted = msRows
+          .filter((m: any) => {
+            const st = safeLower(m?.status);
+            return (st === "done" || st === "completed") && parseDueToUtcDate(m?.end_date)! >= weekAgo;
+          })
+          .slice(0, 5);
+
+        const msDue = msRows
+          .filter((m: any) => {
+            const st = safeLower(m?.status);
+            const due = parseDueToUtcDate(m?.end_date);
+            return st !== "done" && st !== "completed" && st !== "closed" && due && inWindow(due, from, to);
+          })
+          .slice(0, 8);
+
+        const msForReport = msRows.slice(0, 12).map((m: any) => ({
+          name: safeStr(m?.milestone_name).trim() || "Milestone",
+          due: safeStr(m?.end_date).split("T")[0] || null,
+          status: safeStr(m?.status).trim() || "on_track",
+          critical: !!m?.critical_path_flag,
+        }));
+
+        // Build RAG from derivedRag or healthContext
+        const rag = (derivedRag === "red" || derivedRag === "amber" || derivedRag === "green")
+          ? derivedRag
+          : "green";
+
+        // Changes for report
+        const changesForReport = chRows.slice(0, 5).map((c: any) => ({
+          title: safeStr(c?.title).trim() || "Change request",
+          status: safeStr(c?.decision_status ?? c?.delivery_status ?? c?.status).trim() || "review",
+        }));
+
+        // RAID for report
+        const raidForReport = raidRows.slice(0, 5).map((r: any) => ({
+          title: safeStr(r?.title).trim() || "RAID item",
+          type: safeStr(r?.type).trim() || "risk",
+          status: safeStr(r?.status).trim() || "open",
+          priority: safeStr(r?.priority).trim() || "medium",
+        }));
+
+        // Try AI generation first
+        let aiGenerated = false;
+        let headline = "";
+        let narrative = "";
+        let delivered: Array<{ text: string }> = [];
+        let planNextWeek: Array<{ text: string }> = [];
+        let resourceSummary: Array<{ text: string }> = [];
+        let keyDecisions: Array<{ text: string; link: null }> = [];
+        let blockers: Array<{ text: string; link: null }> = [];
+
+        try {
+          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+          const ragLabel = rag === "red" ? "Red — Critical" : rag === "amber" ? "Amber — At Risk" : "Green — On Track";
+          const msCompletedNames = msCompleted.map((m: any) => safeStr(m?.milestone_name).trim()).filter(Boolean);
+          const msDueNames = msDue.map((m: any) => `${safeStr(m?.milestone_name).trim()} (due ${safeStr(m?.end_date).split("T")[0]})`).filter(Boolean);
+          const highRaid = raidRows.filter((r: any) => safeLower(r?.priority) === "high").slice(0, 3);
+
+          const userPrompt = `Project: ${meta.project_name ?? "Project"}${meta.project_code ? ` (${meta.project_code})` : ""}
+PM: ${meta.project_manager_name ?? "Project Manager"}
+Period: ${periodFrom} to ${periodTo}
+RAG Status: ${ragLabel}
+${healthContext ? `\nHealth context:\n${healthContext}` : ""}
+${msCompletedNames.length ? `\nMilestones completed this period:\n${msCompletedNames.map((n: string) => `- ${n}`).join("\n")}` : ""}
+${msDueNames.length ? `\nMilestones due next ${windowDays} days:\n${msDueNames.map((n: string) => `- ${n}`).join("\n")}` : ""}
+${highRaid.length ? `\nHigh-priority RAID items:\n${highRaid.map((r: any) => `- ${safeStr(r?.title).trim()}`).join("\n")}` : ""}
+
+Generate the weekly delivery report. Return ONLY valid JSON:
+{
+  "headline": "One sentence headline max 12 words",
+  "narrative": "3-4 sentence executive narrative, no bullets",
+  "delivered": [{"text": "past-tense item"}],
+  "planNextWeek": [{"text": "future-tense item"}],
+  "resourceSummary": [{"text": "resource note"}],
+  "keyDecisions": [{"text": "decision", "link": null}],
+  "blockers": [{"text": "blocker description", "link": null}]
+}`;
+
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            max_tokens: 900,
+            temperature: 0.3,
+            response_format: { type: "json_object" },
+            messages: [
+              {
+                role: "system",
+                content: "You are a senior project delivery manager. Write concise, factual weekly reports for a PMO. Return only valid JSON with the requested fields.",
+              },
+              { role: "user", content: userPrompt },
+            ],
+          });
+
+          const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
+          headline = safeStr(parsed.headline).trim();
+          narrative = safeStr(parsed.narrative).trim();
+          delivered = Array.isArray(parsed.delivered) ? parsed.delivered : [];
+          planNextWeek = Array.isArray(parsed.planNextWeek) ? parsed.planNextWeek : [];
+          resourceSummary = Array.isArray(parsed.resourceSummary) ? parsed.resourceSummary : [];
+          keyDecisions = Array.isArray(parsed.keyDecisions) ? parsed.keyDecisions : [];
+          blockers = Array.isArray(parsed.blockers) ? parsed.blockers : [];
+          aiGenerated = true;
+        } catch {
+          // Rule-based fallback
+          const ragLabel = rag === "red" ? "Critical" : rag === "amber" ? "At Risk" : "On Track";
+          const name = meta.project_name ?? "Project";
+          headline = `${name} — ${ragLabel}`;
+          narrative = `${name} is currently ${ragLabel.toLowerCase()}. ${raidRows.length > 0 ? `There are ${raidRows.length} open RAID items requiring attention.` : "No critical blockers identified."} ${msDue.length > 0 ? `${msDue.length} milestone(s) are due in the coming period.` : "No milestones due immediately."} The team continues to work towards delivery objectives.`;
+          delivered = msCompleted.slice(0, 3).map((m: any) => ({ text: `Completed milestone: ${safeStr(m?.milestone_name).trim()}` }));
+          if (!delivered.length) delivered = [{ text: "Continued delivery activities and progress on planned work items." }];
+          planNextWeek = msDue.slice(0, 3).map((m: any) => ({ text: `Deliver milestone: ${safeStr(m?.milestone_name).trim()}` }));
+          if (!planNextWeek.length) planNextWeek = [{ text: "Continue progress on planned work items and milestone delivery." }];
+          resourceSummary = [{ text: "Team resources allocated as planned. No capacity issues identified." }];
+          keyDecisions = [];
+          blockers = raidRows
+            .filter((r: any) => safeLower(r?.priority) === "high")
+            .slice(0, 2)
+            .map((r: any) => ({ text: safeStr(r?.title).trim(), link: null }));
+        }
+
+        // Build the canonical report object the client parser expects
+        const report = {
+          version: 1,
+          project: {
+            id: projectUuid,
+            code: meta.project_code ?? null,
+            name: meta.project_name ?? null,
+            managerName: meta.project_manager_name ?? null,
+            managerEmail: meta.project_manager_email ?? null,
+          },
+          period: { from: periodFrom, to: periodTo },
+          summary: {
+            rag,
+            headline: headline || `${meta.project_name ?? "Project"} — Weekly Update`,
+            narrative: narrative || "Weekly delivery update.",
+          },
+          delivered,
+          planNextWeek,
+          milestones: msForReport,
+          changes: changesForReport,
+          raid: raidForReport,
+          resourceSummary,
+          keyDecisions,
+          blockers,
+          metrics: {},
+          meta: {
+            generated_at: new Date().toISOString(),
+            aiGenerated,
+            model: aiGenerated ? "gpt-4o-mini" : "rule-based-fallback-v1",
+          },
+        };
+
+        return jsonNoStore({
+          ok: true,
+          eventType: "delivery_report",
+          project_id: projectUuid,
+          project_code: meta.project_code,
+          project_name: meta.project_name,
+          // All three keys the client parser checks for
+          report,
+          delivery_report: report,
+          content_json: report,
+        });
+      } catch (e: any) {
+        return jsonNoStore(
+          { ok: false, error: e?.message ?? "delivery_report generation failed" },
+          { status: 500 }
+        );
+      }
+    }
     const knownTypes = [
       "artifact_due",
       "delivery_report",

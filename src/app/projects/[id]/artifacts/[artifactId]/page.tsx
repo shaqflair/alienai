@@ -584,7 +584,8 @@ export default async function ArtifactDetailPage({
 
   return (
     <div className="w-full" style={{ background: "#f6f8fa" }}>
-      <ArtifactPageHeader />
+      {/* Weekly report has its own complete sticky header/toolbar — skip ours */}
+      {!isWeeklyReport && <ArtifactPageHeader />}
 
       <ArtifactDetailClientHost
         projectId={projectUuid!}
