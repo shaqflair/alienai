@@ -240,12 +240,15 @@ export async function inviteTeamAction(formData: FormData) {
 
 /* =============================================================================
     PROFILE SETUP (ProfileSetupForm)
+    Returns { ok, error? } instead of throwing so the real error message
+    survives Next.js production mode (which strips thrown error messages).
 ============================================================================= */
-export async function saveOnboardingProfile(formData: FormData) {
+export async function saveOnboardingProfile(
+  formData: FormData
+): Promise<{ ok: boolean; error?: string }> {
   const sb = await createClient();
   const { data: { user }, error: authErr } = await sb.auth.getUser();
-  if (authErr) throw new Error(authErr.message);
-  if (!user)   throw new Error("Not authenticated");
+  if (authErr || !user) return { ok: false, error: "Not authenticated" };
 
   const fullName       = safeStr(formData.get("full_name")).trim();
   const jobTitle       = safeStr(formData.get("job_title")).trim();
@@ -255,51 +258,65 @@ export async function saveOnboardingProfile(formData: FormData) {
   const bio            = safeStr(formData.get("bio")).trim();
   const lineManagerId  = safeStr(formData.get("line_manager_id")).trim();
 
-  if (!fullName) throw new Error("Full name is required.");
-  if (!jobTitle) throw new Error("Job title is required.");
+  if (!fullName) return { ok: false, error: "Full name is required." };
+  if (!jobTitle) return { ok: false, error: "Job title is required." };
 
-  const patch: Record<string, any> = {
-    full_name:           fullName,
-    job_title:           jobTitle,
-    department:          department     || null,
-    employment_type:     employmentType,
-    location:            location       || null,
-    bio:                 bio            || null,
-    line_manager_id:     lineManagerId  || null,
-    onboarding_complete: true,
-    updated_at:          new Date().toISOString(),
+  // Core fields — always safe to write
+  const corePatch: Record<string, any> = {
+    full_name:  fullName,
+    job_title:  jobTitle,
+    updated_at: new Date().toISOString(),
   };
 
-  // Upsert with user_id as conflict target
-  const { error: upsertErr } = await sb
-    .from("profiles")
-    .upsert({ user_id: user.id, ...patch }, { onConflict: "user_id" });
+  // Extended fields — added progressively so missing columns don't block save
+  const extendedFields: Record<string, any> = {
+    department:          department    || null,
+    employment_type:     employmentType,
+    location:            location      || null,
+    bio:                 bio           || null,
+    line_manager_id:     lineManagerId || null,
+    onboarding_complete: true,
+  };
 
-  if (upsertErr) {
-    // Fallback: plain update by user_id
-    const { error: updErr } = await sb
+  // Try full patch first
+  const fullPatch = { ...corePatch, ...extendedFields };
+
+  async function tryUpdate(patch: Record<string, any>): Promise<string | null> {
+    // Try upsert by user_id
+    const { error: e1 } = await sb
       .from("profiles")
-      .update(patch)
-      .eq("user_id", user.id);
+      .upsert({ user_id: user!.id, ...patch }, { onConflict: "user_id" });
+    if (!e1) return null;
 
-    if (updErr) {
-      // Final fallback: some schemas use id instead of user_id
-      const { error: updErr2 } = await sb
-        .from("profiles")
-        .update(patch)
-        .eq("id", user.id);
+    // Fallback: update by user_id
+    const { error: e2 } = await sb
+      .from("profiles").update(patch).eq("user_id", user!.id);
+    if (!e2) return null;
 
-      if (updErr2) throw new Error(`Profile save failed: ${updErr2.message}`);
-    }
+    // Fallback: update by id
+    const { error: e3 } = await sb
+      .from("profiles").update(patch).eq("id", user!.id);
+    if (!e3) return null;
+
+    return e3.message;
   }
+
+  // Attempt 1: full patch
+  let errMsg = await tryUpdate(fullPatch);
+
+  // Attempt 2: core only (in case extended columns don't exist yet)
+  if (errMsg) {
+    errMsg = await tryUpdate(corePatch);
+  }
+
+  if (errMsg) return { ok: false, error: `Profile save failed: ${errMsg}` };
 
   // Update auth display name (non-fatal)
   try {
     await sb.auth.updateUser({ data: { full_name: fullName } });
-  } catch {
-    // ignore
-  }
+  } catch { /* ignore */ }
 
   revalidatePath("/");
   revalidatePath("/onboarding");
+  return { ok: true };
 }

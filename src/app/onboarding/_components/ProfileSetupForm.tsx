@@ -1,13 +1,12 @@
+//src/app/onboarding/_components/ProfileSetupForm.tsx
 "use client";
 
 import { useState, useTransition } from "react";
 import { saveOnboardingProfile } from "../actions";
 
-/* -- Types ----------------------------------------------------------------- */
 type EmploymentType = "full_time" | "part_time" | "contractor";
 type ManagerOption  = { user_id: string; full_name: string; job_title: string | null; department: string | null };
 
-/* -- Helpers matching existing wizard style -------------------------------- */
 function Section({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
@@ -56,17 +55,16 @@ const DEPTS = [
   "Commercial","Operations","HR","Legal","Marketing","PMO","Other",
 ];
 
-/* -- Manager search -------------------------------------------------------- */
 function ManagerSearch({
   value, onChange,
 }: {
   value: { id: string; name: string };
   onChange: (id: string, name: string) => void;
 }) {
-  const [q, setQ]           = useState(value.name);
-  const [opts, setOpts]     = useState<ManagerOption[]>([]);
-  const [open, setOpen]     = useState(false);
-  const [busy, setBusy]     = useState(false);
+  const [q, setQ]       = useState(value.name);
+  const [opts, setOpts] = useState<ManagerOption[]>([]);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   async function search(term: string) {
     if (term.trim().length < 2) { setOpts([]); return; }
@@ -119,7 +117,7 @@ function ManagerSearch({
                 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>{o.full_name}</div>
                 <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
-                  {[o.job_title, o.department].filter(Boolean).join(" \u00b7 ")}
+                  {[o.job_title, o.department].filter(Boolean).join(" · ")}
                 </div>
               </button>
             ))}
@@ -130,7 +128,6 @@ function ManagerSearch({
   );
 }
 
-/* -- Steps ----------------------------------------------------------------- */
 const STEPS = ["Your details", "Your organisation", "Finish"];
 
 function StepDetails({
@@ -258,12 +255,12 @@ function StepFinish({
           Profile summary
         </div>
         {[
-          ["Name",        name],
-          ["Job title",   jobTitle],
-          ["Department",  dept],
-          ["Employment",  employmentType.replace("_"," ")],
-          ["Location",    location || "Not set"],
-          ["Line manager",managerName || "Not set"],
+          ["Name",         name],
+          ["Job title",    jobTitle],
+          ["Department",   dept],
+          ["Employment",   employmentType.replace("_"," ")],
+          ["Location",     location || "Not set"],
+          ["Line manager", managerName || "Not set"],
         ].map(([label, val]) => (
           <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 12 }}>
             <span style={{ color: "#94a3b8" }}>{label}</span>
@@ -298,21 +295,17 @@ function StepFinish({
   );
 }
 
-export default function ProfileSetupForm({
-  initialName,
-}: {
-  initialName: string;
-}) {
-  const [step, setStep]       = useState(0);
-  const [name, setName]       = useState(initialName);
-  const [jobTitle, setJobTitle]         = useState("");
-  const [dept, setDept]                 = useState("");
+export default function ProfileSetupForm({ initialName }: { initialName: string }) {
+  const [step, setStep]             = useState(0);
+  const [name, setName]             = useState(initialName);
+  const [jobTitle, setJobTitle]     = useState("");
+  const [dept, setDept]             = useState("");
   const [employmentType, setEmploymentType] = useState<EmploymentType>("full_time");
-  const [location, setLocation]         = useState("");
-  const [bio, setBio]                   = useState("");
-  const [manager, setManagerState]      = useState({ id: "", name: "" });
-  const [error, setError]               = useState<string | null>(null);
-  const [pending, startTransition]      = useTransition();
+  const [location, setLocation]     = useState("");
+  const [bio, setBio]               = useState("");
+  const [manager, setManagerState]  = useState({ id: "", name: "" });
+  const [error, setError]           = useState<string | null>(null);
+  const [pending, startTransition]  = useTransition();
 
   function setManager(id: string, name: string) {
     setManagerState({ id, name });
@@ -326,16 +319,17 @@ export default function ProfileSetupForm({
     fd.set("department",      dept.trim());
     fd.set("employment_type", employmentType);
     fd.set("location",        location.trim());
-    fd.set("bio",              bio.trim());
+    fd.set("bio",             bio.trim());
     fd.set("line_manager_id", manager.id);
 
     startTransition(async () => {
-      try {
-        await saveOnboardingProfile(fd);
-        window.location.href = "/";
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to save profile");
+      // Server action returns { ok, error? } — never throws in prod
+      const result = await saveOnboardingProfile(fd);
+      if (!result?.ok) {
+        setError(result?.error ?? "Failed to save profile. Please try again.");
+        return;
       }
+      window.location.href = "/";
     });
   }
 
@@ -382,7 +376,7 @@ export default function ProfileSetupForm({
         )}
 
         <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
-          Complete your profile &middot; Step {step + 1} of {STEPS.length}
+          Complete your profile · Step {step + 1} of {STEPS.length}
         </div>
       </div>
     </div>
