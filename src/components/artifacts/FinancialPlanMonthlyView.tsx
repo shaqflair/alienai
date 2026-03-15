@@ -618,7 +618,7 @@ export default function FinancialPlanMonthlyView({
                   const movementRow = (
                     <tr key={`${q.label}-movement`} style={{ background: "#FDFAF2", borderBottom: `1px solid #E8E0C0` }}>
                       <td style={{ position: "sticky", left: 0, zIndex: 10, padding: "4px 10px 4px 22px", borderRight: `1px solid #E8E0C0`, background: "#FDFAF2", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.amber, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                        u{203a} Movement
+                        {"›"} Movement
                       </td>
                       {q.months.flatMap(mk => {
                         const mv      = forecastMovement[mk];
@@ -753,3 +753,4 @@ export default function FinancialPlanMonthlyView({
     </div>
   );
 }
+
