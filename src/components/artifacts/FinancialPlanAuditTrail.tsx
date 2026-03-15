@@ -1,23 +1,40 @@
+// src/components/artifacts/FinancialPlanAuditTrail.tsx
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
 
-/* -------------------------------------------------------------
+/* ?????????????????????????????????????????????????????????????
    TYPES
-------------------------------------------------------------- */
+????????????????????????????????????????????????????????????? */
 type AuditEntry = {
-  id:           string;
-  action:       string;
-  actor_id:     string | null;
-  actor_name?: string | null;
-  before:       any;
-  after:        any;
-  created_at:   string;
+  id:          string;
+  action:      string;           // derived from section/items
+  actor_id:    string | null;
+  actor_name?: string | null;    // actor_email from route
+  before:      any;
+  after:       any;
+  summaries:   string[];         // grouped summaries from route
+  item_count:  number;
+  items:       any[];            // raw items in the group
+  created_at:  string;
 };
 
-/* -------------------------------------------------------------
+// Infer a financial_plan.* action from a content event group
+function inferAction(ev: any): string {
+  const items: any[] = ev.items ?? [];
+  const summaries: string[] = ev.summaries ?? [];
+  const all = [...summaries, ev.title ?? ""].join(" ").toLowerCase();
+  if (all.includes("line added")   || all.includes("added"))   return "financial_plan.line_added";
+  if (all.includes("line removed") || all.includes("deleted")) return "financial_plan.line_deleted";
+  if (all.includes("budget"))                                  return "financial_plan.budget_changed";
+  if (all.includes("line updated") || all.includes("edited"))  return "financial_plan.line_edited";
+  if (all.includes("export"))                                  return "financial_plan.exported";
+  return "financial_plan.saved";
+}
+
+/* ?????????????????????????????????????????????????????????????
    ACTION CONFIG
-------------------------------------------------------------- */
+????????????????????????????????????????????????????????????? */
 const ACTION_CFG: Record<string, { label: string; icon: string; color: string; bg: string; border: string }> = {
   "financial_plan.saved":           { label: "Saved",           icon: "??", color: "#475569", bg: "#f8fafc", border: "#e2e8f0" },
   "financial_plan.line_added":      { label: "Line added",      icon: "?", color: "#059669", bg: "#f0fdf4", border: "#bbf7d0" },
@@ -44,9 +61,9 @@ function cfgFor(action: string) {
   };
 }
 
-/* -------------------------------------------------------------
+/* ?????????????????????????????????????????????????????????????
    FORMATTERS
-------------------------------------------------------------- */
+????????????????????????????????????????????????????????????? */
 function fmtDateTime(iso: string) {
   try {
     return new Intl.DateTimeFormat("en-GB", {
@@ -75,33 +92,38 @@ function fmtCurrency(n: number | null | undefined): string {
   return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(n);
 }
 
-/* -------------------------------------------------------------
+/* ?????????????????????????????????????????????????????????????
    DIFF DETAIL PANEL
-------------------------------------------------------------- */
+????????????????????????????????????????????????????????????? */
 function DiffDetail({ entry }: { entry: AuditEntry }) {
-  const after  = entry.after  as any;
-  const before = entry.before as any;
+  // Summaries come from the grouped event; items hold individual diffs
+  const summaries = entry.summaries ?? [];
+  const items     = entry.items     ?? [];
 
-  if (!after && !before) return null;
+  // Pull financial plan diff from first content item's after field
+  const firstItem  = items.find((i: any) => i.kind === "content") ?? items[0];
+  const after      = firstItem?.after  ?? entry.after  ?? null;
+  const before     = firstItem?.before ?? entry.before ?? null;
 
-  const summary      = after?.summary;
-  const linesAdded   = Array.isArray(after?.linesAdded)   ? after.linesAdded   : [];
-  const linesEdited  = Array.isArray(after?.linesEdited)  ? after.linesEdited  : [];
+  const linesAdded  = Array.isArray(after?.linesAdded)  ? after.linesAdded  : [];
+  const linesEdited = Array.isArray(after?.linesEdited) ? after.linesEdited : [];
   const budgetBefore = before?.budget ?? null;
   const budgetAfter  = after?.budget  ?? null;
   const budgetChanged = budgetBefore !== budgetAfter && (budgetBefore != null || budgetAfter != null);
 
-  // Approval-specific before/after
-  const approvalBefore = before?.approval_status;
-  const approvalAfter  = after?.approval_status;
-  const reason         = after?.reason ?? before?.rejection_reason ?? null;
+  // Approval items
+  const approvalItems = items.filter((i: any) => i.kind === "approval");
+  const reason = after?.reason ?? before?.rejection_reason ?? null;
+
+  const hasContent = summaries.length > 0 || linesAdded.length > 0 || linesEdited.length > 0 || budgetChanged || approvalItems.length > 0;
+  if (!hasContent) return null;
 
   return (
     <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-      {/* Summary badge */}
-      {summary && (
-        <div style={{ fontSize: 11, color: "#64748b", fontStyle: "italic" }}>{summary}</div>
-      )}
+      {/* Summaries from grouped events */}
+      {summaries.map((s, i) => (
+        <div key={i} style={{ fontSize: 11, color: "#64748b", fontStyle: "italic" }}>{s}</div>
+      ))}
 
       {/* Budget change */}
       {budgetChanged && (
@@ -134,35 +156,31 @@ function DiffDetail({ entry }: { entry: AuditEntry }) {
         </div>
       ))}
 
-      {/* Approval status change */}
-      {approvalBefore && approvalAfter && approvalBefore !== approvalAfter && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-          <span style={{ color: "#94a3b8", textTransform: "capitalize" }}>{approvalBefore}</span>
-          <span style={{ color: "#94a3b8" }}>?</span>
-          <span style={{ fontWeight: 700, color: "#0f172a", textTransform: "capitalize" }}>{approvalAfter}</span>
+      {/* Approval steps */}
+      {approvalItems.map((ai: any, i: number) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+          <span style={{ color: "#94a3b8" }}>{ai.action_label ?? ai.action}</span>
+          {ai.step_name && <span style={{ color: "#64748b" }}>· {ai.step_name}</span>}
         </div>
-      )}
+      ))}
 
-      {/* Rejection reason */}
       {reason && (
-        <div style={{ fontSize: 11, color: "#dc2626", fontStyle: "italic" }}>
-          Reason: {reason}
-        </div>
+        <div style={{ fontSize: 11, color: "#dc2626", fontStyle: "italic" }}>Reason: {reason}</div>
       )}
     </div>
   );
 }
 
-/* -------------------------------------------------------------
+/* ?????????????????????????????????????????????????????????????
    ENTRY ROW
-------------------------------------------------------------- */
+????????????????????????????????????????????????????????????? */
 function EntryRow({ entry, expanded, onToggle }: {
   entry: AuditEntry;
   expanded: boolean;
   onToggle: () => void;
 }) {
   const cfg  = cfgFor(entry.action);
-  const hasDetail = !!(entry.after || entry.before);
+  const hasDetail = entry.item_count > 0 || entry.summaries?.length > 0;
 
   return (
     <div style={{
@@ -193,9 +211,9 @@ function EntryRow({ entry, expanded, onToggle }: {
             )}
           </div>
           {/* Summary line */}
-          {entry.after?.summary && !expanded && (
+          {entry.summaries?.length > 0 && !expanded && (
             <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {entry.after.summary}
+              {entry.summaries[0]}
             </div>
           )}
         </div>
@@ -224,9 +242,9 @@ function EntryRow({ entry, expanded, onToggle }: {
   );
 }
 
-/* -------------------------------------------------------------
+/* ?????????????????????????????????????????????????????????????
    FILTER BAR
-------------------------------------------------------------- */
+????????????????????????????????????????????????????????????? */
 type FilterType = "all" | "changes" | "approval" | "exports";
 
 const FILTER_GROUPS: Record<FilterType, string[]> = {
@@ -236,9 +254,9 @@ const FILTER_GROUPS: Record<FilterType, string[]> = {
   exports:  ["financial_plan.exported"],
 };
 
-/* -------------------------------------------------------------
+/* ?????????????????????????????????????????????????????????????
    MAIN COMPONENT
-------------------------------------------------------------- */
+????????????????????????????????????????????????????????????? */
 export default function FinancialPlanAuditTrail({
   projectId,
   artifactId,
@@ -259,13 +277,31 @@ export default function FinancialPlanAuditTrail({
     setLoading(true);
     setError(null);
     try {
+      // Existing route: src/app/api/artifacts/audit/route.ts
+      // Uses artifact_id query param; returns { ok, events[] } grouped by request_id / minute
       const res = await fetch(
-        `/api/artifacts/${encodeURIComponent(artifactId)}/audit?projectId=${encodeURIComponent(projectId)}&limit=100`,
+        `/api/artifacts/audit?artifact_id=${encodeURIComponent(artifactId)}`,
         { cache: "no-store" }
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load audit trail");
-      setEntries(Array.isArray(json.entries) ? json.entries : []);
+      // Flatten grouped events into individual items for our timeline
+      const rawEvents: any[] = Array.isArray(json.events) ? json.events : [];
+      const flat: AuditEntry[] = rawEvents.map((ev: any) => ({
+        id:          String(ev.group_key ?? ev.created_at),
+        action:      ev.section === "approval"
+                       ? (ev.items?.[0]?.action ?? ev.title ?? "approval")
+                       : inferAction(ev),
+        actor_id:    ev.actor_id   ?? null,
+        actor_name:  ev.actor_email ?? null,
+        before:      ev.items?.[0]?.before  ?? null,
+        after:       ev.items?.[0]?.after   ?? null,
+        summaries:   ev.summaries ?? [],
+        item_count:  ev.item_count ?? 1,
+        items:       ev.items ?? [],
+        created_at:  ev.created_at,
+      }));
+      setEntries(flat);
     } catch (e: any) {
       setError(e?.message ?? "Could not load audit trail");
     } finally {
@@ -314,7 +350,12 @@ export default function FinancialPlanAuditTrail({
         <p style={S.title}>Audit trail</p>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button type="button" onClick={load} title="Refresh" style={{ ...S.filterBtn(false), padding: "4px 8px" }}>?</button>
-          <span style={{ fontSize: 11, color: "#94a3b8" }}>{filtered.length} event{filtered.length !== 1 ? "s" : ""}</span>
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>
+            {filtered.length} event{filtered.length !== 1 ? "s" : ""}
+            {filtered.reduce((s, e) => s + (e.item_count ?? 1), 0) > filtered.length
+              ? ` (${filtered.reduce((s, e) => s + (e.item_count ?? 1), 0)} actions)`
+              : ""}
+          </span>
         </div>
       </div>
 
