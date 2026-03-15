@@ -659,7 +659,6 @@ export default function ProjectCharterEditorFormLazy({
     }
   }
 
-  /* Status dot — warm tones */
   const StatusDot = ({ state }: { state: typeof autosaveState }) => {
     const configs = {
       idle:   { color: "#7a6a4a", bg: "#f5f0e8", label: "Saved",    pulse: false },
@@ -678,11 +677,29 @@ export default function ProjectCharterEditorFormLazy({
     );
   };
 
-  const submitWired = !!submitForApprovalAction;
+  const approvalStatusLower = String(approvalStatus || "").toLowerCase().trim();
+  const showSubmitAction =
+    approvalEnabled &&
+    canSubmitOrResubmit &&
+    (approvalStatusLower === "draft" || approvalStatusLower === "changes_requested");
+
+  const submitWired = !!submitForApprovalAction && showSubmitAction;
   const submitLabel =
-    String(approvalStatus || "").toLowerCase() === "changes_requested" ? "Resubmit for approval" : "Submit for approval";
-  const submitDisabled = !submitWired || !canSubmitOrResubmit || readOnly || lockLayout || isPending;
-  const submitDisabledReason = !submitWired ? "Submit action is not wired." : !canSubmitOrResubmit ? "You can't submit right now." : readOnly ? "View-only mode." : lockLayout ? "Layout is locked." : isPending ? "Please wait..." : "";
+    approvalStatusLower === "changes_requested" ? "Resubmit for approval" : "Submit for approval";
+  const submitDisabled =
+    !submitWired || !showSubmitAction || readOnly || lockLayout || isPending;
+  const submitDisabledReason =
+    !showSubmitAction
+      ? "Submit is only available in Draft or Changes Requested status."
+      : !submitWired
+        ? "Submit action is not wired."
+        : readOnly
+          ? "View-only mode."
+          : lockLayout
+            ? "Layout is locked."
+            : isPending
+              ? "Please wait..."
+              : "";
 
   async function generateFullCharter() {
     if (!canEdit) return;
@@ -848,10 +865,8 @@ export default function ProjectCharterEditorFormLazy({
         }
       `}</style>
 
-      {/* ── Gold top bar ──────────────────────────────── */}
       <div className="charter-gold-border h-1.5 w-full rounded-t-xl" />
 
-      {/* ── Header card ───────────────────────────────── */}
       <div
         className="rounded-xl overflow-hidden shadow-sm"
         style={{
@@ -859,12 +874,9 @@ export default function ProjectCharterEditorFormLazy({
           border: "1px solid #e8e2d6",
         }}
       >
-        {/* Title row */}
         <div className="px-8 pt-8 pb-6 border-b border-[#e8e2d6]">
           <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
-            {/* Left: Title + meta */}
             <div className="space-y-3">
-              {/* Eyebrow */}
               <div className="flex items-center gap-3">
                 <div className="h-px w-8 bg-[#c9b99a]" />
                 <span className="text-[10px] font-bold uppercase tracking-[0.3em]" style={{ color: "#a08e6c", fontFamily: "'DM Sans', sans-serif" }}>
@@ -906,11 +918,9 @@ export default function ProjectCharterEditorFormLazy({
               <LegacyLinks legacy={legacyExports ?? null} />
             </div>
 
-            {/* Right: Actions */}
             <div className="flex flex-wrap items-center gap-3">
               <StatusDot state={autosaveState} />
 
-              {/* Save */}
               <button
                 type="button"
                 className="charter-btn"
@@ -922,8 +932,7 @@ export default function ProjectCharterEditorFormLazy({
                 Save
               </button>
 
-              {/* Submit */}
-              {approvalEnabled && (
+              {approvalEnabled && showSubmitAction && (
                 submitWired ? (
                   <form action={submitForApprovalAction as any}>
                     <button type="submit" className="charter-btn-primary" disabled={submitDisabled} title={submitDisabled ? submitDisabledReason : undefined}>
@@ -939,7 +948,6 @@ export default function ProjectCharterEditorFormLazy({
                 )
               )}
 
-              {/* Export */}
               {mounted ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -977,7 +985,6 @@ export default function ProjectCharterEditorFormLazy({
           </div>
         </div>
 
-        {/* Autosave error */}
         {autosaveError && (
           <div className="px-8 py-4 border-b border-[#e8e2d6]">
             <div className="charter-error-bar">
@@ -996,7 +1003,6 @@ export default function ProjectCharterEditorFormLazy({
           </div>
         )}
 
-        {/* PM Brief */}
         {canEdit && (
           <div className="px-8 py-6 border-b border-[#e8e2d6]">
             <div
@@ -1063,7 +1069,6 @@ export default function ProjectCharterEditorFormLazy({
           </div>
         )}
 
-        {/* Footer meta */}
         <div className="px-8 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="text-[11px] font-medium" style={{ color: "#a08e6c", fontFamily: "'DM Mono', monospace" }}>
             {lastSavedIso ? <>Last saved {fmtWhenLocal(lastSavedIso)}</> : "—"}
@@ -1086,7 +1091,6 @@ export default function ProjectCharterEditorFormLazy({
         )}
       </div>
 
-      {/* ── Editor Body ───────────────────────────────── */}
       <div
         className="rounded-xl overflow-hidden shadow-sm"
         style={{
@@ -1134,7 +1138,6 @@ export default function ProjectCharterEditorFormLazy({
         )}
       </div>
 
-      {/* Gold bottom bar */}
       <div className="charter-gold-border h-1 w-full rounded-b-xl" />
 
       {DEV ? <CharterV2DebugPanel value={v2ForSave} /> : null}

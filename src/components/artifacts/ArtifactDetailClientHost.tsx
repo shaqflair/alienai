@@ -397,6 +397,13 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const isCharterV2 = mode === "charter" && artifactVersion >= 2;
   const isFinancialPlan = mode === "financial_plan";
 
+  const approvalStatusLower = String(approvalStatus ?? "").trim().toLowerCase();
+
+  const allowSubmitInEditor =
+    !!approvalEnabled &&
+    !!canSubmitOrResubmit &&
+    (approvalStatusLower === "draft" || approvalStatusLower === "changes_requested");
+
   const hideContentExportsRow =
     mode === "charter" || mode === "closure" || mode === "weekly_report" || isFinancialPlan
       ? true
@@ -494,9 +501,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 projectManagerName={projectManagerName ?? undefined}
                 legacyExports={effectiveLegacyExports}
                 approvalEnabled={!!approvalEnabled}
-                canSubmitOrResubmit={!!canSubmitOrResubmit}
+                canSubmitOrResubmit={allowSubmitInEditor}
                 approvalStatus={approvalStatus ?? null}
-                submitForApprovalAction={submitForApprovalAction}
+                submitForApprovalAction={allowSubmitInEditor ? submitForApprovalAction : null}
               />
             ) : mode === "stakeholder" ? (
               <StakeholderRegisterEditor

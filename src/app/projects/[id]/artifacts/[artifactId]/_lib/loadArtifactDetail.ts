@@ -41,6 +41,7 @@ const ARTIFACT_SELECT = [
   "locked_at",
   "locked_by",
   "approval_status",
+  "approval_chain_id",
   "approved_by",
   "approved_at",
   "rejected_by",
@@ -86,11 +87,17 @@ function isWeeklyReportType(type: any) {
   if (typeof _isWeeklyReportType === "function") return _isWeeklyReportType(type);
   const t = safeLower(type);
   return [
-    "weekly_report", "weekly report", "weekly",
-    "weekly_status", "weekly status",
-    "weekly_update", "weekly update",
-    "delivery_report", "delivery report",
-    "status_report", "status report",
+    "weekly_report",
+    "weekly report",
+    "weekly",
+    "weekly_status",
+    "weekly status",
+    "weekly_update",
+    "weekly update",
+    "delivery_report",
+    "delivery report",
+    "status_report",
+    "status report",
   ].includes(t);
 }
 
@@ -104,7 +111,6 @@ function normalizeArtifactTypeForUi(type: any) {
 }
 
 async function resolveMyRole(supabase: any, projectUuid: string, userId: string) {
-  // 1) legacy: project_members
   const { data: pm } = await supabase
     .from("project_members")
     .select("role, is_active")
@@ -120,7 +126,6 @@ async function resolveMyRole(supabase: any, projectUuid: string, userId: string)
     return role as "owner" | "editor" | "viewer";
   }
 
-  // 2) new: org membership
   const { data: proj } = await supabase
     .from("projects")
     .select("organisation_id")
@@ -142,10 +147,15 @@ async function resolveMyRole(supabase: any, projectUuid: string, userId: string)
 
   const orgRole = safeLower(om.role || "member");
   const effective =
-    orgRole === "admin"  ? "owner"  :
-    orgRole === "owner"  ? "owner"  :
-    orgRole === "editor" ? "editor" :
-    orgRole === "member" ? "editor" : "viewer";
+    orgRole === "admin"
+      ? "owner"
+      : orgRole === "owner"
+        ? "owner"
+        : orgRole === "editor"
+          ? "editor"
+          : orgRole === "member"
+            ? "editor"
+            : "viewer";
 
   return effective as "owner" | "editor" | "viewer";
 }
@@ -160,9 +170,9 @@ async function findCanonicalProjectCharterArtifact(
     .select("id, type, is_current, updated_at, version")
     .eq("project_id", projectUuid)
     .eq("type", CANONICAL_PROJECT_CHARTER_TYPE)
-    .order("is_current",  { ascending: false })
-    .order("updated_at",  { ascending: false })
-    .order("version",     { ascending: false })
+    .order("is_current", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .order("version", { ascending: false })
     .limit(1);
 
   if (excludeArtifactId) query = query.neq("id", excludeArtifactId);
@@ -172,10 +182,174 @@ async function findCanonicalProjectCharterArtifact(
   return data ?? null;
 }
 
+function stepSortValue(step: any) {
+  const n = Number(step?.step_order ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function sortApprovalSteps(rows: any[]) {
+  return [...rows].sort((a, b) => {
+    const ao = stepSortValue(a);
+    const bo = stepSortValue(b);
+    if (ao !== bo) return ao - bo;
+
+    const ad = safeStr(a?.created_at);
+    const bd = safeStr(b?.created_at);
+    if (ad && bd && ad !== bd) return ad < bd ? -1 : 1;
+
+    return safeStr(a?.id).localeCompare(safeStr(b?.id));
+  });
+}
+
+function getCurrentStep(rows: any[]) {
+  const sorted = sortApprovalSteps(rows);
+
+  return (
+    sorted.find((s) => s?.is_active === true) ??
+    sorted.find((s) => {
+      const st = safeLower(s?.status);
+      return st === "active" || st === "current" || st === "in_progress" || st === "pending_approval";
+    }) ??
+    sorted.find((s) => {
+      const st = safeLower(s?.status);
+      return st === "pending" || st === "submitted" || st === "not_started";
+    }) ??
+    null
+  );
+}
+
+async function resolveApprovalDecisionState(
+  supabase: any,
+  args: {
+    artifactId: string;
+    userId: string;
+    myRole: "owner" | "editor" | "viewer";
+    isAuthor: boolean;
+    approvalEnabled: boolean;
+    status: string;
+  }
+) {
+  const statusLower = safeLower(args.status);
+
+  if (!args.approvalEnabled || statusLower !== "submitted") {
+    return {
+      isApprover: false,
+      canDecide: false,
+      activeChainId: null as string | null,
+      currentStepId: null as string | null,
+      currentStepStatus: null as string | null,
+    };
+  }
+
+  const { data: activeChain, error: chainErr } = await supabase
+    .from("approval_chains")
+    .select("id, is_active, status")
+    .eq("artifact_id", args.artifactId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (chainErr || !activeChain?.id) {
+    return {
+      isApprover: false,
+      canDecide: false,
+      activeChainId: null,
+      currentStepId: null,
+      currentStepStatus: null,
+    };
+  }
+
+  const { data: stepRows, error: stepsErr } = await supabase
+    .from("artifact_approval_steps")
+    .select("*")
+    .eq("chain_id", activeChain.id);
+
+  if (stepsErr || !Array.isArray(stepRows) || stepRows.length === 0) {
+    const roleFallbackIsApprover = args.myRole === "owner" && !args.isAuthor;
+    return {
+      isApprover: roleFallbackIsApprover,
+      canDecide: roleFallbackIsApprover,
+      activeChainId: safeStr(activeChain.id),
+      currentStepId: null,
+      currentStepStatus: null,
+    };
+  }
+
+  const currentStep = getCurrentStep(stepRows);
+  if (!currentStep?.id) {
+    const roleFallbackIsApprover = args.myRole === "owner" && !args.isAuthor;
+    return {
+      isApprover: roleFallbackIsApprover,
+      canDecide: roleFallbackIsApprover,
+      activeChainId: safeStr(activeChain.id),
+      currentStepId: null,
+      currentStepStatus: null,
+    };
+  }
+
+  const { data: approverRows, error: approversErr } = await supabase
+    .from("approval_step_approvers")
+    .select("*")
+    .eq("step_id", currentStep.id);
+
+  if (approversErr) {
+    const roleFallbackIsApprover = args.myRole === "owner" && !args.isAuthor;
+    return {
+      isApprover: roleFallbackIsApprover,
+      canDecide: roleFallbackIsApprover,
+      activeChainId: safeStr(activeChain.id),
+      currentStepId: safeStr(currentStep.id),
+      currentStepStatus: safeLower(currentStep.status),
+    };
+  }
+
+  const rows = Array.isArray(approverRows) ? approverRows : [];
+
+  const matchedApprover =
+    rows.find((r: any) => safeStr(r?.user_id).trim() === args.userId) ??
+    rows.find((r: any) => safeStr(r?.approver_user_id).trim() === args.userId) ??
+    rows.find((r: any) => safeStr(r?.delegate_user_id).trim() === args.userId) ??
+    null;
+
+  const approverStatus = safeLower(
+    (matchedApprover as any)?.status ??
+      (matchedApprover as any)?.decision_status ??
+      ""
+  );
+
+  const stepStatus = safeLower(currentStep?.status);
+  const stepOpen =
+    stepStatus === "pending" ||
+    stepStatus === "active" ||
+    stepStatus === "current" ||
+    stepStatus === "in_progress" ||
+    stepStatus === "pending_approval" ||
+    stepStatus === "submitted" ||
+    stepStatus === "not_started";
+
+  const approverStillOpen =
+    !approverStatus ||
+    approverStatus === "pending" ||
+    approverStatus === "active" ||
+    approverStatus === "assigned" ||
+    approverStatus === "not_started";
+
+  const isAssignedApprover = !!matchedApprover;
+  const roleFallbackIsApprover = rows.length === 0 && args.myRole === "owner" && !args.isAuthor;
+  const isApprover = isAssignedApprover || roleFallbackIsApprover;
+  const canDecide = !args.isAuthor && isApprover && stepOpen && (isAssignedApprover ? approverStillOpen : true);
+
+  return {
+    isApprover,
+    canDecide,
+    activeChainId: safeStr(activeChain.id) || null,
+    currentStepId: safeStr(currentStep.id) || null,
+    currentStepStatus: stepStatus || null,
+  };
+}
+
 export async function loadArtifactDetail(params: Promise<{ id?: string; artifactId?: string }>) {
   const supabase = await createClient();
 
-  // 1) Auth
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
@@ -189,7 +363,6 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
 
   const projectIdentifier = String(projectIdentifierRaw).trim();
 
-  // 2) Resolve project UUID
   const resolved = await resolveProjectUuidFast(supabase, projectIdentifier);
   let projectUuid: string | null = resolved.projectUuid;
 
@@ -199,14 +372,12 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     projectUuid = String(a0.project_id);
   }
 
-  // 3) Membership gate
   const myRoleResolved = await resolveMyRole(supabase, projectUuid!, auth.user.id);
   if (!myRoleResolved) notFound();
 
   const myRole = myRoleResolved;
   const canEditByRole = myRole === "owner" || myRole === "editor";
 
-  // WBS lookup (parallel)
   const wbsPromise = supabase
     .from("artifacts")
     .select("id, content_json, updated_at, type, is_current")
@@ -217,7 +388,6 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     .limit(1)
     .maybeSingle();
 
-  // 4) Fetch project + artifact in parallel
   const projectPromise = (async () => {
     if (resolved.project && String((resolved.project as any)?.id || "") === projectUuid) return resolved.project;
     const { data: p } = await supabase.from("projects").select(PROJECT_META_SELECT).eq("id", projectUuid).maybeSingle();
@@ -236,7 +406,6 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   const { data: artifactRaw, error: artErr } = artifactRes as any;
   if (artErr || !artifactRaw) notFound();
 
-  // 4b) Canonicalize legacy PID
   if (isLegacyPidType(artifactRaw.type)) {
     const canonicalCharter = await findCanonicalProjectCharterArtifact(supabase, projectUuid!, artifactRaw.id);
     if (canonicalCharter?.id) {
@@ -250,13 +419,11 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     type: normalizeArtifactTypeForUi(artifactRaw.type),
   };
 
-  // 5) Canonical redirect
   const canonicalProjectCode = safeStr((project as any)?.project_code).trim();
   if (canonicalProjectCode && projectIdentifier !== canonicalProjectCode) {
     redirect(`/projects/${canonicalProjectCode}/artifacts/${artifactId}`);
   }
 
-  // 6) Specialized module redirects
   if (isRAIDType(artifact.type)) {
     redirect(`/projects/${canonicalProjectCode || projectUuid}/raid?fromArtifact=${artifactId}`);
   }
@@ -264,71 +431,82 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     redirect(`/projects/${canonicalProjectCode || projectUuid}/lessons?fromArtifact=${artifactId}`);
   }
 
-  // 7) Modes + approval scope
-  const projectTitle      = safeStr((project as any)?.title ?? (project as any)?.name ?? "").trim();
-  const clientName        = safeStr((project as any)?.client_name ?? "").trim();
-  const projectStartDate  = safeStr((project as any)?.start_date  ?? "").trim() || null;
+  const projectTitle = safeStr((project as any)?.title ?? (project as any)?.name ?? "").trim();
+  const clientName = safeStr((project as any)?.client_name ?? "").trim();
+  const projectStartDate = safeStr((project as any)?.start_date ?? "").trim() || null;
   const projectFinishDate = safeStr((project as any)?.finish_date ?? "").trim() || null;
 
-  const charterMode        = isProjectCharterType(artifact.type);
-  const closureMode        = isProjectClosureReportType(artifact.type);
-  const stakeholderMode    = isStakeholderRegisterType(artifact.type);
-  const wbsMode            = isWbsType(artifact.type);
-  const scheduleMode       = isScheduleType(artifact.type);
+  const charterMode = isProjectCharterType(artifact.type);
+  const closureMode = isProjectClosureReportType(artifact.type);
+  const stakeholderMode = isStakeholderRegisterType(artifact.type);
+  const wbsMode = isWbsType(artifact.type);
+  const scheduleMode = isScheduleType(artifact.type);
   const changeRequestsMode = isChangeRequestsType(artifact.type);
-  const weeklyMode         = isWeeklyReportType(artifact.type);
-  const financialPlanMode  = isFinancialPlanType(artifact.type);
+  const weeklyMode = isWeeklyReportType(artifact.type);
+  const financialPlanMode = isFinancialPlanType(artifact.type);
 
-  // FIX: Financial Plan is now approval-governed alongside Charter and Closure
   const approvalEnabled = charterMode || closureMode || financialPlanMode;
 
-  const mode = charterMode        ? "charter"
-    : stakeholderMode             ? "stakeholder"
-    : wbsMode                     ? "wbs"
-    : scheduleMode                ? "schedule"
-    : changeRequestsMode          ? "change_requests"
-    : closureMode                 ? "closure"
-    : weeklyMode                  ? "weekly_report"
-    : financialPlanMode           ? "financial_plan"
-    : "fallback";
+  const mode = charterMode
+    ? "charter"
+    : stakeholderMode
+      ? "stakeholder"
+      : wbsMode
+        ? "wbs"
+        : scheduleMode
+          ? "schedule"
+          : changeRequestsMode
+            ? "change_requests"
+            : closureMode
+              ? "closure"
+              : weeklyMode
+                ? "weekly_report"
+                : financialPlanMode
+                  ? "financial_plan"
+                  : "fallback";
 
-  // 8) Status + permissions
   const status = derivedStatus(artifact);
-  const pill   = statusPill(status);
+  const pill = statusPill(status);
 
-  const isAuthor   = safeStr(artifact.user_id) === auth.user.id;
-  const isApprover = approvalEnabled ? myRole === "owner" : false;
-
-  // Treat NULL as "current"
+  const isAuthor = safeStr(artifact.user_id) === auth.user.id;
   const isCurrent = (artifact as any)?.is_current !== false;
 
   const isEditable = approvalEnabled
     ? canEditByRole && !artifact.is_locked && (status === "draft" || status === "changes_requested") && isCurrent
     : weeklyMode
-    ? canEditByRole
-    : canEditByRole;
+      ? canEditByRole
+      : canEditByRole;
 
-  const lockLayout = approvalEnabled && (
-    status === "submitted" || status === "approved" || status === "rejected"
-  );
+  const lockLayout =
+    approvalEnabled && (status === "submitted" || status === "approved" || status === "rejected");
 
   const canSubmitOrResubmit =
     approvalEnabled && isEditable && isCurrent && (status === "draft" || status === "changes_requested");
 
-  const canDecide = approvalEnabled && status === "submitted" && isApprover && !isAuthor;
+  const approvalDecisionState = await resolveApprovalDecisionState(supabase, {
+    artifactId: String(artifact.id),
+    userId: auth.user.id,
+    myRole,
+    isAuthor,
+    approvalEnabled,
+    status,
+  });
+
+  const isApprover = approvalDecisionState.isApprover;
+  const canDecide = approvalDecisionState.canDecide;
 
   const canRenameTitle =
-    canEditByRole && !artifact.is_locked && (!approvalEnabled || status === "draft" || status === "changes_requested");
+    canEditByRole &&
+    !artifact.is_locked &&
+    (!approvalEnabled || status === "draft" || status === "changes_requested");
 
-  const canCreateRevision = approvalEnabled && isApprover && isCurrent && status === "approved";
+  const canCreateRevision = approvalEnabled && canEditByRole && isCurrent && status === "approved";
 
-  // 9) Content prep
   const charterInitialRaw = ensureCharterV2Stored(getCharterInitialRaw(artifact));
-  const charterInitial    = forceProjectTitleIntoCharter(charterInitialRaw, projectTitle, clientName);
-  const typedInitialJson  = getTypedInitialJson(artifact);
+  const charterInitial = forceProjectTitleIntoCharter(charterInitialRaw, projectTitle, clientName);
+  const typedInitialJson = getTypedInitialJson(artifact);
 
-  // 10) WBS helpers for schedule
-  const wbsRow        = (wbsRes as any)?.data ?? null;
+  const wbsRow = (wbsRes as any)?.data ?? null;
   const wbsArtifactId = wbsRow?.id ? String(wbsRow.id) : null;
   const latestWbsJson = scheduleMode ? (wbsRow?.content_json ?? null) : null;
 
@@ -357,10 +535,16 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     canRenameTitle,
     canCreateRevision,
 
+    activeApprovalChainId: approvalDecisionState.activeChainId,
+    currentApprovalStepId: approvalDecisionState.currentStepId,
+    currentApprovalStepStatus: approvalDecisionState.currentStepStatus,
+
     mode,
 
     aiTargetType: normalizeArtifactTypeForUi((artifact as any)?.type ?? ""),
-    aiTitle: safeStr((artifact as any)?.title ?? "") || normalizeArtifactTypeForUi((artifact as any)?.type ?? ""),
+    aiTitle:
+      safeStr((artifact as any)?.title ?? "") ||
+      normalizeArtifactTypeForUi((artifact as any)?.type ?? ""),
 
     charterInitial,
     typedInitialJson,
