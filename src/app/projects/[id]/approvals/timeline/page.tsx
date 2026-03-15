@@ -1,6 +1,6 @@
-﻿// src/app/projects/[id]/approvals/timeline/page.tsx
-import "server-only";
+﻿import "server-only";
 
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import ApprovalTimeline from "@/components/approvals/ApprovalTimeline";
@@ -138,6 +138,16 @@ async function resolveProject(
   return { projectUuid: null, project: null, projectHumanId: "" };
 }
 
+async function loadProjectTitle(supabase: any, projectUuid: string) {
+  const { data } = await supabase
+    .from("projects")
+    .select("id,title,project_code")
+    .eq("id", projectUuid)
+    .maybeSingle();
+
+  return data ?? null;
+}
+
 export default async function ApprovalTimelinePage({
   params,
   searchParams,
@@ -181,17 +191,7 @@ export default async function ApprovalTimelinePage({
   const artifactId = safeStr(sp?.artifactId).trim() || null;
   const changeId = safeStr(sp?.changeId).trim() || null;
 
-  const project =
-    resolved.project ??
-    (
-      await supabase
-        .from("projects")
-        .select("id,title,project_code")
-        .eq("id", projectUuid)
-        .maybeSingle()
-    ).data ??
-    null;
-
+  const project = resolved.project ?? (await loadProjectTitle(supabase, projectUuid));
   const projectCodeLabel =
     toProjectCodeLabel((project as any)?.project_code) ||
     safeStr(resolved.projectHumanId).trim();
@@ -200,22 +200,50 @@ export default async function ApprovalTimelinePage({
     projectCodeLabel ||
     safeStr((project as any)?.title ?? projectUuid).trim();
 
+  const pageTitle = artifactId
+    ? "Artifact Approval Timeline"
+    : changeId
+      ? "Change Request Approval Timeline"
+      : "Approvals Timeline";
+
+  const pageSubtitle = artifactId
+    ? "Review approval activity for this artifact."
+    : changeId
+      ? "Review approval activity for this change request."
+      : "Review approval activity across this project.";
+
+  const backHref = changeId
+    ? `/projects/${encodeURIComponent(routeId)}/change/${encodeURIComponent(changeId)}`
+    : artifactId
+      ? `/projects/${encodeURIComponent(routeId)}/artifacts/${encodeURIComponent(artifactId)}`
+      : `/projects/${encodeURIComponent(routeId)}/approvals`;
+
+  const backLabel = changeId
+    ? "Back to change request"
+    : artifactId
+      ? "Back to artifact"
+      : "Back to approvals";
+
   return (
     <div className="p-6">
-      <div className="mb-4">
-        <div className="text-lg font-semibold text-slate-900">Approvals</div>
-
-        <div className="text-sm text-slate-600">
-          Timeline view (project:{" "}
-          <span className="font-medium">{projectCodeLabel || projectHeadingLabel}</span>)
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-lg font-semibold text-slate-900">{pageTitle}</div>
+          <div className="mt-1 text-sm text-slate-600">{pageSubtitle}</div>
+          <div className="mt-2 text-[11px] text-slate-500">
+            Scope:{" "}
+            <span className="font-medium text-slate-700">
+              {projectCodeLabel || projectHeadingLabel}
+            </span>
+          </div>
         </div>
-      </div>
 
-      <div className="mb-4 text-[11px] text-slate-500">
-        Scope:{" "}
-        <span className="font-medium text-slate-700">
-          {projectCodeLabel || projectHeadingLabel}
-        </span>
+        <Link
+          href={backHref}
+          className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+        >
+          {backLabel}
+        </Link>
       </div>
 
       <ApprovalTimeline
@@ -223,6 +251,7 @@ export default async function ApprovalTimelinePage({
         projectCode={projectCodeLabel || null}
         artifactId={artifactId}
         changeId={changeId}
+        title={pageTitle}
       />
     </div>
   );

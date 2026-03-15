@@ -10,6 +10,8 @@ import {
   UserCog,
   FileCheck,
   RefreshCcw,
+  FolderKanban,
+  GitBranch,
 } from "lucide-react";
 
 type TimelineEvent = {
@@ -27,9 +29,7 @@ type TimelineEvent = {
 };
 
 type Props = {
-  /** internal UUID still allowed for API fallback */
   projectId?: string | null;
-  /** preferred human-readable project code, e.g. P-00012 */
   projectCode?: string | null;
   artifactId?: string | null;
   changeId?: string | null;
@@ -115,12 +115,45 @@ function prettyMeta(meta: any) {
     const keys = Object.keys(json || {});
     if (!keys.length) return null;
     const slim: Record<string, any> = {};
-    for (const k of keys.slice(0, 6)) slim[k] = json[k];
+    for (const k of keys.slice(0, 8)) slim[k] = json[k];
     return JSON.stringify(slim, null, 2);
   } catch {
     const s = safeStr(meta);
-    return s.length > 600 ? s.slice(0, 600) + "…" : s;
+    return s.length > 1000 ? s.slice(0, 1000) + "…" : s;
   }
+}
+
+function getPrimaryEntityLabel(ev: TimelineEvent) {
+  if (safeStr(ev.change_id).trim()) return "Change request";
+  if (safeStr(ev.artifact_id).trim()) return "Artifact";
+  return "Approval";
+}
+
+function getPrimaryEntityId(ev: TimelineEvent) {
+  return safeStr(ev.change_id).trim() || safeStr(ev.artifact_id).trim() || "";
+}
+
+function getMetaValue(meta: any, keys: string[]) {
+  try {
+    const obj = typeof meta === "string" ? JSON.parse(meta) : meta;
+    if (!obj || typeof obj !== "object") return "";
+    for (const k of keys) {
+      const v = obj?.[k];
+      if (v != null && String(v).trim()) return String(v).trim();
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+function inferStepLabel(ev: TimelineEvent) {
+  const fromMeta =
+    getMetaValue(ev.meta, ["step_name", "step_label", "current_step", "approval_role", "role"]) ||
+    "";
+  if (fromMeta) return fromMeta;
+  if (safeStr(ev.step_id).trim()) return `Step ${safeStr(ev.step_id).trim().slice(0, 8)}`;
+  return "";
 }
 
 async function apiGet(url: string) {
@@ -148,6 +181,8 @@ export default function ApprovalTimeline({
   const cleanProjectId = safeStr(projectId).trim();
   const cleanProjectCode = normaliseProjectCode(projectCode || "");
   const projectLabel = cleanProjectCode || "Project";
+
+  const scopeMode = changeId ? "change" : artifactId ? "artifact" : "project";
 
   const query = useMemo(() => {
     const p = new URLSearchParams();
@@ -189,19 +224,47 @@ export default function ApprovalTimeline({
     return Array.from(m.entries());
   }, [events]);
 
+  const stats = useMemo(() => {
+    let approved = 0;
+    let rejected = 0;
+    let requested = 0;
+    let submitted = 0;
+    for (const ev of events) {
+      const a = safeStr(ev.action_type).toLowerCase();
+      if (a.includes("approved")) approved += 1;
+      else if (a.includes("rejected")) rejected += 1;
+      else if (a.includes("request") || a.includes("returned")) requested += 1;
+      else if (a.includes("submitted")) submitted += 1;
+    }
+    return { total: events.length, approved, rejected, requested, submitted };
+  }, [events]);
+
   return (
     <div className={className}>
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-slate-900">{title}</div>
           <div className="mt-1 text-xs text-slate-600">
             Forensic history of submissions, decisions, delegation, escalations, and SLA events.
           </div>
-          {cleanProjectCode ? (
-            <div className="mt-1 text-[11px] text-slate-500">
-              Scope: <span className="font-medium text-slate-700">{projectLabel}</span>
-            </div>
-          ) : null}
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1">
+              <FolderKanban className="h-3.5 w-3.5" />
+              {projectLabel}
+            </span>
+            {scopeMode === "artifact" && artifactId ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1">
+                <FileCheck className="h-3.5 w-3.5" />
+                Artifact {artifactId.slice(0, 8)}
+              </span>
+            ) : null}
+            {scopeMode === "change" && changeId ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1">
+                <GitBranch className="h-3.5 w-3.5" />
+                Change {changeId.slice(0, 8)}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <button
@@ -212,6 +275,25 @@ export default function ApprovalTimeline({
           <RefreshCcw className="h-4 w-4" />
           Refresh
         </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">Events</div>
+          <div className="mt-1 text-xl font-semibold text-slate-900">{stats.total}</div>
+        </div>
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+          <div className="text-[11px] uppercase tracking-wide text-emerald-700">Approved</div>
+          <div className="mt-1 text-xl font-semibold text-emerald-900">{stats.approved}</div>
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+          <div className="text-[11px] uppercase tracking-wide text-amber-700">Changes requested</div>
+          <div className="mt-1 text-xl font-semibold text-amber-900">{stats.requested}</div>
+        </div>
+        <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-4">
+          <div className="text-[11px] uppercase tracking-wide text-rose-700">Rejected</div>
+          <div className="mt-1 text-xl font-semibold text-rose-900">{stats.rejected}</div>
+        </div>
       </div>
 
       <div className="mt-4 rounded-xl border border-slate-200 bg-white">
@@ -247,6 +329,9 @@ export default function ApprovalTimeline({
                       const actor = ev.actor_name || (ev.actor_user_id ? "User" : "System");
                       const role = ev.actor_role ? ` · ${ev.actor_role}` : "";
                       const isLastInGroup = idx === items.length - 1;
+                      const entityLabel = getPrimaryEntityLabel(ev);
+                      const entityId = getPrimaryEntityId(ev);
+                      const stepLabel = inferStepLabel(ev);
 
                       return (
                         <div key={ev.id} className="relative pl-9">
@@ -281,8 +366,20 @@ export default function ApprovalTimeline({
                               </div>
                             </div>
 
+                            <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                                {entityLabel}
+                                {entityId ? ` · ${entityId.slice(0, 8)}` : ""}
+                              </span>
+                              {stepLabel ? (
+                                <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                                  {stepLabel}
+                                </span>
+                              ) : null}
+                            </div>
+
                             {ev.comment ? (
-                              <div className="mt-2 whitespace-pre-wrap text-sm text-slate-800">
+                              <div className="mt-3 whitespace-pre-wrap text-sm text-slate-800">
                                 {ev.comment}
                               </div>
                             ) : null}
@@ -307,8 +404,7 @@ export default function ApprovalTimeline({
             </div>
 
             <div className="mt-6 border-t border-slate-200 pt-4 text-[11px] text-slate-500">
-              Tip: Add SLA events (for example <span className="font-medium">sla-breached</span>) and escalation events to unlock
-              Approval Risk panels in the cockpit.
+              Tip: add SLA and escalation events consistently to strengthen Governance Intelligence and executive approval-risk signals.
             </div>
           </div>
         )}
