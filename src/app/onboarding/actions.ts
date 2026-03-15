@@ -31,6 +31,18 @@ export async function saveOnboardingProfile(
     if (!fullName) return { ok: false, error: "Full name is required." };
     if (!jobTitle)  return { ok: false, error: "Job title is required." };
 
+    // Resolve active org for this user
+    const { data: memRow } = await supabase
+      .from("organisation_members")
+      .select("organisation_id")
+      .eq("user_id", userId)
+      .is("removed_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const activeOrgId = memRow?.organisation_id ?? null;
+
     // profiles.id must equal auth user id (FK to auth.users.id)
     const profilePatch: Record<string, any> = {
       id:                   userId,
@@ -43,6 +55,7 @@ export async function saveOnboardingProfile(
       location:             location || null,
       bio:                  bio || null,
       line_manager_id:      lineManagerId || null,
+      active_organisation_id: activeOrgId,
       is_active:            true,
       include_in_capacity:  true,
       default_capacity_days: 5,
