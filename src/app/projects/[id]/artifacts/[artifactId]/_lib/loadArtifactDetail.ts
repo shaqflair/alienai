@@ -66,6 +66,7 @@ const LEGACY_PROJECT_CHARTER_TYPES = ["PID"];
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
+
 function safeLower(x: any) {
   return safeStr(x).trim().toLowerCase();
 }
@@ -216,6 +217,121 @@ function getCurrentStep(rows: any[]) {
     }) ??
     null
   );
+}
+
+async function resolveOrganisationApproverAccess(
+  supabase: any,
+  args: { projectUuid: string; artifactId: string; userId: string }
+) {
+  const { data: projectOrg, error: projectOrgErr } = await supabase
+    .from("projects")
+    .select("organisation_id")
+    .eq("id", args.projectUuid)
+    .maybeSingle();
+
+  if (projectOrgErr) {
+    return {
+      hasOrgAccess: false,
+      hasApproverAccess: false,
+      chainId: null as string | null,
+      stepId: null as string | null,
+    };
+  }
+
+  const organisationId = safeStr((projectOrg as any)?.organisation_id).trim();
+  if (!organisationId) {
+    return {
+      hasOrgAccess: false,
+      hasApproverAccess: false,
+      chainId: null,
+      stepId: null,
+    };
+  }
+
+  const { data: orgMember, error: orgErr } = await supabase
+    .from("organisation_members")
+    .select("user_id, removed_at")
+    .eq("organisation_id", organisationId)
+    .eq("user_id", args.userId)
+    .is("removed_at", null)
+    .maybeSingle();
+
+  const hasOrgAccess = !orgErr && !!orgMember;
+  if (!hasOrgAccess) {
+    return {
+      hasOrgAccess: false,
+      hasApproverAccess: false,
+      chainId: null,
+      stepId: null,
+    };
+  }
+
+  const { data: activeChain, error: chainErr } = await supabase
+    .from("approval_chains")
+    .select("id")
+    .eq("artifact_id", args.artifactId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (chainErr || !activeChain?.id) {
+    return {
+      hasOrgAccess: true,
+      hasApproverAccess: false,
+      chainId: null,
+      stepId: null,
+    };
+  }
+
+  const { data: stepRows, error: stepsErr } = await supabase
+    .from("artifact_approval_steps")
+    .select("*")
+    .eq("chain_id", activeChain.id);
+
+  if (stepsErr || !Array.isArray(stepRows) || stepRows.length === 0) {
+    return {
+      hasOrgAccess: true,
+      hasApproverAccess: false,
+      chainId: safeStr(activeChain.id) || null,
+      stepId: null,
+    };
+  }
+
+  const currentStep = getCurrentStep(stepRows);
+  if (!currentStep?.id) {
+    return {
+      hasOrgAccess: true,
+      hasApproverAccess: false,
+      chainId: safeStr(activeChain.id) || null,
+      stepId: null,
+    };
+  }
+
+  const { data: approverRows, error: approversErr } = await supabase
+    .from("approval_step_approvers")
+    .select("*")
+    .eq("step_id", currentStep.id);
+
+  if (approversErr || !Array.isArray(approverRows)) {
+    return {
+      hasOrgAccess: true,
+      hasApproverAccess: false,
+      chainId: safeStr(activeChain.id) || null,
+      stepId: safeStr(currentStep.id) || null,
+    };
+  }
+
+  const matched =
+    approverRows.find((r: any) => safeStr(r?.user_id).trim() === args.userId) ??
+    approverRows.find((r: any) => safeStr(r?.approver_user_id).trim() === args.userId) ??
+    approverRows.find((r: any) => safeStr(r?.delegate_user_id).trim() === args.userId) ??
+    null;
+
+  return {
+    hasOrgAccess: true,
+    hasApproverAccess: !!matched,
+    chainId: safeStr(activeChain.id) || null,
+    stepId: safeStr(currentStep.id) || null,
+  };
 }
 
 async function resolveApprovalDecisionState(
@@ -373,9 +489,18 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   }
 
   const myRoleResolved = await resolveMyRole(supabase, projectUuid!, auth.user.id);
-  if (!myRoleResolved) notFound();
+  const organisationApproverAccess = await resolveOrganisationApproverAccess(supabase, {
+    projectUuid: projectUuid!,
+    artifactId,
+    userId: auth.user.id,
+  });
 
-  const myRole = myRoleResolved;
+  if (!myRoleResolved && !organisationApproverAccess.hasApproverAccess) notFound();
+
+  const myRole =
+    myRoleResolved ??
+    ("viewer" as "owner" | "editor" | "viewer");
+
   const canEditByRole = myRole === "owner" || myRole === "editor";
 
   const wbsPromise = supabase
@@ -535,8 +660,8 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     canRenameTitle,
     canCreateRevision,
 
-    activeApprovalChainId: approvalDecisionState.activeChainId,
-    currentApprovalStepId: approvalDecisionState.currentStepId,
+    activeApprovalChainId: approvalDecisionState.activeChainId ?? organisationApproverAccess.chainId,
+    currentApprovalStepId: approvalDecisionState.currentStepId ?? organisationApproverAccess.stepId,
     currentApprovalStepStatus: approvalDecisionState.currentStepStatus,
 
     mode,
