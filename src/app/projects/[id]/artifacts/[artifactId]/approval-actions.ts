@@ -609,32 +609,40 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     );
   }
 
-  // ── FIX: Delete orphaned steps ─────────────────────────────────────────
-  // Even after cancelling/deleting chains, steps may remain if they were
-  // created without a chain_id, or if the DELETE was blocked by RLS.
-  // The unique constraint artifact_approval_steps_unique_order fires when
-  // buildRuntimeApprovalChain tries to INSERT steps with the same order slot.
-  // Deleting all non-approved steps for this artifact clears those slots.
+  // ── FIX: Delete orphaned steps via chain_id ───────────────────────────
+  // artifact_approval_steps does NOT have an artifact_id column — steps are
+  // linked by chain_id only. Fetch ALL chains for this artifact (active or
+  // not) then delete their non-approved steps so order slots are freed.
+  // This is what causes the artifact_approval_steps_unique_order violation.
   {
-    const { data: orphanSteps } = await supabase
-      .from("artifact_approval_steps").select("id")
-      .eq("artifact_id", artifactId)
-      .not("status", "eq", "approved");
+    const { data: allChainsForArtifact } = await supabase
+      .from("approval_chains")
+      .select("id")
+      .eq("artifact_id", artifactId);
 
-    if (orphanSteps && (orphanSteps as any[]).length > 0) {
-      const orphanIds = (orphanSteps as any[]).map((s: any) => safeStr(s?.id).trim()).filter(Boolean);
+    const chainIdsToClean: string[] = (allChainsForArtifact ?? [])
+      .map((c: any) => safeStr(c?.id).trim())
+      .filter(Boolean);
 
-      const { error: orphanDeleteErr } = await supabase
-        .from("artifact_approval_steps").delete().in("id", orphanIds);
+    for (const cid of chainIdsToClean) {
+      // Delete non-approved steps to free their order slots
+      const { error: delErr } = await supabase
+        .from("artifact_approval_steps")
+        .delete()
+        .eq("chain_id", cid)
+        .neq("status", "approved");
 
-      if (orphanDeleteErr) {
-        // Non-fatal: try a status update instead
-        console.warn("[submitArtifactForApproval] orphan step delete failed:", orphanDeleteErr.message);
-        await supabase.from("artifact_approval_steps").update({ status: "cancelled" }).in("id", orphanIds);
+      if (delErr) {
+        // DELETE blocked by RLS — fall back to cancelled status
+        await supabase
+          .from("artifact_approval_steps")
+          .update({ status: "cancelled" })
+          .eq("chain_id", cid)
+          .neq("status", "approved");
       }
     }
   }
-  // ── End orphan step cleanup ────────────────────────────────────────────
+  // ── End orphaned step cleanup ───────────────────────────────────────────
 
   const organisationId = await getOrganisationIdForProject(supabase, projectId);
   if (!organisationId) throw new Error("Could not resolve organisation for this project.");
