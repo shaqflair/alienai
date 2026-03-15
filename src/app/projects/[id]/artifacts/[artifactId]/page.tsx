@@ -273,11 +273,11 @@ export default async function ArtifactDetailPage({
         .af-title-area { flex: 1; min-width: 0; }
         .af-breadcrumb {
           display: flex; align-items: center; gap: 6px;
-          font-size: 12px; color: #8b949e; margin-bottom: 8px;
+          font-size: 12px; color: #57606a; margin-bottom: 8px;
         }
-        .af-breadcrumb a { color: #8b949e; text-decoration: none; }
-        .af-breadcrumb a:hover { color: #0d1117; }
-        .af-breadcrumb-sep { opacity: 0.4; }
+        .af-breadcrumb a { color: #57606a; text-decoration: none; font-weight: 500; }
+        .af-breadcrumb a:hover { color: #0d1117; text-decoration: underline; }
+        .af-breadcrumb-sep { opacity: 0.5; color: #57606a; }
         .af-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .af-title {
           font-size: 22px; font-weight: 700; color: #0d1117;
@@ -300,10 +300,10 @@ export default async function ArtifactDetailPage({
         .af-status-dot { width: 6px; height: 6px; border-radius: 50%; }
         .af-meta-row {
           display: flex; align-items: center; gap: 14px;
-          margin-top: 10px; font-size: 12px; color: #8b949e; flex-wrap: wrap;
+          margin-top: 10px; font-size: 12px; color: #57606a; flex-wrap: wrap;
         }
-        .af-meta-item { display: flex; align-items: center; gap: 4px; }
-        .af-meta-sep { opacity: 0.3; }
+        .af-meta-item { display: flex; align-items: center; gap: 4px; color: #57606a; }
+        .af-meta-sep { opacity: 0.4; color: #57606a; }
         .af-tag {
           display: inline-flex; align-items: center; gap: 4px;
           padding: 2px 8px; border-radius: 20px;

@@ -803,6 +803,29 @@ export default function WeeklyReportEditor({
           </div>
         </div>
 
+        {/* ── Panels row ── */}
+        <div style={{
+          background: "#ffffff", borderRadius: 12,
+          padding: "14px 20px", display: "flex",
+          alignItems: "center", justifyContent: "space-between", gap: 16,
+          border: "1px solid #e8ecf0",
+        }}>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 600, color: "#0d1117", margin: "0 0 2px" }}>Panels</p>
+            <p style={{ fontSize: 12, color: "#57606a", margin: 0 }}>
+              Open panels only when you need them — keeps this page snappy.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <button type="button" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: 8, border: "1px solid #e8ecf0", background: "#f6f8fa", fontSize: 13, fontWeight: 600, color: "#0d1117", cursor: "pointer", fontFamily: "inherit" }}>
+              Milestones
+            </button>
+            <button type="button" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: 8, border: "1px solid #e8ecf0", background: "#f6f8fa", fontSize: 13, fontWeight: 600, color: "#0d1117", cursor: "pointer", fontFamily: "inherit" }}>
+              RAID &amp; Changes
+            </button>
+          </div>
+        </div>
+
       </div>
 
       {/* ── History drawer ── */}
@@ -817,4 +840,3 @@ export default function WeeklyReportEditor({
     </div>
   );
 }
-
