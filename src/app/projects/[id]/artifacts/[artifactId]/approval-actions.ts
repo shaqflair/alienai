@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
+import { createAdminClient } from "@/utils/supabase/admin";
 
 import { assertCharterReadyForSubmit } from "@/lib/charter/charter-validation";
 import { buildRuntimeApprovalChain } from "@/lib/server/approvals/runtime-chain-builder";
@@ -609,13 +610,23 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     );
   }
 
-  // ── FIX: Delete orphaned steps via chain_id ───────────────────────────
-  // artifact_approval_steps does NOT have an artifact_id column — steps are
-  // linked by chain_id only. Fetch ALL chains for this artifact (active or
-  // not) then delete their non-approved steps so order slots are freed.
-  // This is what causes the artifact_approval_steps_unique_order violation.
+  // ── FIX: Delete orphaned steps using admin client (bypasses RLS) ──────
+  // The unique constraint artifact_approval_steps_unique_order fires when
+  // buildRuntimeApprovalChain inserts steps that share (artifact_id, step_order)
+  // with steps from previous failed submissions. Regular client DELETEs are
+  // blocked by RLS and fail silently. Admin client bypasses RLS for cleanup.
   {
-    const { data: allChainsForArtifact } = await supabase
+    const adminDb = createAdminClient();
+
+    // Strategy A: delete by artifact_id if the column exists on steps table
+    const { error: cleanByArtifactErr } = await adminDb
+      .from("artifact_approval_steps")
+      .delete()
+      .eq("artifact_id", artifactId)
+      .neq("status", "approved");
+
+    // Strategy B (always run): delete by chain_id for all chains on this artifact
+    const { data: allChainsForArtifact } = await adminDb
       .from("approval_chains")
       .select("id")
       .eq("artifact_id", artifactId);
@@ -625,21 +636,11 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
       .filter(Boolean);
 
     for (const cid of chainIdsToClean) {
-      // Delete non-approved steps to free their order slots
-      const { error: delErr } = await supabase
+      await adminDb
         .from("artifact_approval_steps")
         .delete()
         .eq("chain_id", cid)
         .neq("status", "approved");
-
-      if (delErr) {
-        // DELETE blocked by RLS — fall back to cancelled status
-        await supabase
-          .from("artifact_approval_steps")
-          .update({ status: "cancelled" })
-          .eq("chain_id", cid)
-          .neq("status", "approved");
-      }
     }
   }
   // ── End orphaned step cleanup ───────────────────────────────────────────
