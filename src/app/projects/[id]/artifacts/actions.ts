@@ -5,15 +5,12 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 import { ARTIFACT_TYPES, type ArtifactType } from "@/lib/artifact-types";
+import { auditFinancialPlanSave } from "@/lib/audit/financial-plan-audit";
 
 /* =========================
    Constants
 ========================= */
 
-/**
- * Only these artifact types can be created, cloned, or deleted via the board.
- * All others are managed by dedicated editors or external processes.
- */
 const BOARD_MANAGEABLE_TYPES = new Set([
   "PROJECT_CHARTER",
   "PROJECT_CLOSURE_REPORT",
@@ -32,12 +29,13 @@ function isBoardManageableType(type: string): boolean {
   return BOARD_MANAGEABLE_TYPES.has(String(type ?? "").trim().toUpperCase());
 }
 
-/**
- * Converts uppercase type (e.g. "PROJECT_CHARTER") to the lowercase snake_case
- * value expected by the artifact_type column constraint (e.g. "project_charter").
- */
 function toArtifactType(raw: string): string {
   return raw.toLowerCase();
+}
+
+function isFinancialPlanType(type: string): boolean {
+  const t = String(type ?? "").toLowerCase().trim();
+  return t === "financial_plan" || t === "financial plan";
 }
 
 function normStr(x: any) {
@@ -45,9 +43,9 @@ function normStr(x: any) {
 }
 
 function throwDb(error: any, label: string): never {
-  const code = error?.code ?? "";
-  const msg = error?.message ?? "";
-  const hint = error?.hint ?? "";
+  const code    = error?.code    ?? "";
+  const msg     = error?.message ?? "";
+  const hint    = error?.hint    ?? "";
   const details = error?.details ?? "";
   throw new Error(
     `[${label}] ${code} ${msg}${hint ? ` | hint: ${hint}` : ""}${details ? ` | details: ${details}` : ""}`
@@ -72,7 +70,7 @@ async function requireRole(
   });
   if (error) throwDb(error, "rpc.get_effective_project_role");
 
-  const row = Array.isArray(data) ? data[0] : data;
+  const row  = Array.isArray(data) ? data[0] : data;
   const role = String(row?.effective_role ?? "").toLowerCase();
 
   if (!allowed.includes(role as any)) {
@@ -91,37 +89,37 @@ async function loadArtifact(supabase: any, artifactId: string) {
     .single();
 
   if (error) throwDb(error, "artifacts.loadArtifact");
-  if (!data) throw new Error("Artifact not found");
+  if (!data)  throw new Error("Artifact not found");
   return data as any;
 }
 
 async function auditBestEffort(
   supabase: any,
   input: {
-    project_id: string;
-    artifact_id: string | null;
-    actor_user_id: string;
-    actor_email?: string | null;
-    action: string;
-    from_status?: string | null;
-    to_status?: string | null;
+    project_id:       string;
+    artifact_id:      string | null;
+    actor_user_id:    string;
+    actor_email?:     string | null;
+    action:           string;
+    from_status?:     string | null;
+    to_status?:       string | null;
     from_is_current?: boolean | null;
-    to_is_current?: boolean | null;
-    meta?: any;
+    to_is_current?:   boolean | null;
+    meta?:            any;
   }
 ) {
   try {
     const { error } = await supabase.from("artifact_audit").insert({
-      project_id: input.project_id,
-      artifact_id: input.artifact_id,
-      actor_user_id: input.actor_user_id,
-      actor_email: input.actor_email ?? null,
-      action: input.action,
-      from_status: input.from_status ?? null,
-      to_status: input.to_status ?? null,
+      project_id:      input.project_id,
+      artifact_id:     input.artifact_id,
+      actor_user_id:   input.actor_user_id,
+      actor_email:     input.actor_email     ?? null,
+      action:          input.action,
+      from_status:     input.from_status     ?? null,
+      to_status:       input.to_status       ?? null,
       from_is_current: input.from_is_current ?? null,
-      to_is_current: input.to_is_current ?? null,
-      meta: input.meta ?? {},
+      to_is_current:   input.to_is_current   ?? null,
+      meta:            input.meta            ?? {},
     });
     void error;
   } catch {
@@ -165,16 +163,15 @@ function canEditArtifactRow(a: any) {
 
 /* =========================
    CREATE
-   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
 export async function createArtifact(formData: FormData) {
   const projectId = normStr(formData.get("project_id"));
-  const rawType = normStr(formData.get("type")).toUpperCase();
-  const content = String(formData.get("content") ?? "");
+  const rawType   = normStr(formData.get("type")).toUpperCase();
+  const content   = String(formData.get("content") ?? "");
 
   if (!projectId) throw new Error("Missing project_id");
-  if (!rawType) throw new Error("Missing type");
+  if (!rawType)   throw new Error("Missing type");
   if (!isArtifactType(rawType)) throw new Error("Invalid artifact type");
   if (!isBoardManageableType(rawType)) {
     throw new Error(
@@ -198,29 +195,29 @@ export async function createArtifact(formData: FormData) {
 
   if (existing?.id) {
     const rootId = String(existing.root_artifact_id ?? existing.id);
-    const nextV = await nextVersionForRoot(supabase, rootId, Number(existing.version ?? 1));
+    const nextV  = await nextVersionForRoot(supabase, rootId, Number(existing.version ?? 1));
 
     await demoteCurrentForProjectType(supabase, projectId, rawType);
 
     const { data: inserted, error: insErr } = await supabase
       .from("artifacts")
       .insert({
-        project_id: projectId,
-        user_id: user.id,
-        type: rawType,
-        artifact_type: toArtifactType(rawType),
-        content: content || (existing.content ?? ""),
-        content_json: existing.content_json ?? null,
-        approval_status: "draft",
-        is_locked: false,
-        version: nextV,
-        is_current: true,
-        is_baseline: false,
-        root_artifact_id: rootId,
-        parent_artifact_id: existing.id,
-        revision_type: "revise",
-        revision_reason: "New draft created",
-        updated_at: new Date().toISOString(),
+        project_id:        projectId,
+        user_id:           user.id,
+        type:              rawType,
+        artifact_type:     toArtifactType(rawType),
+        content:           content || (existing.content ?? ""),
+        content_json:      existing.content_json ?? null,
+        approval_status:   "draft",
+        is_locked:         false,
+        version:           nextV,
+        is_current:        true,
+        is_baseline:       false,
+        root_artifact_id:  rootId,
+        parent_artifact_id:existing.id,
+        revision_type:     "revise",
+        revision_reason:   "New draft created",
+        updated_at:        new Date().toISOString(),
       })
       .select("id")
       .single();
@@ -228,15 +225,15 @@ export async function createArtifact(formData: FormData) {
     if (insErr) throwDb(insErr, "artifacts.create.insertRevision");
 
     await auditBestEffort(supabase, {
-      project_id: projectId,
-      artifact_id: inserted.id,
-      actor_user_id: user.id,
-      actor_email: user.email,
-      action: "create_revision_from_current",
-      from_status: String(existing.approval_status ?? "draft"),
-      to_status: "draft",
+      project_id:      projectId,
+      artifact_id:     inserted.id,
+      actor_user_id:   user.id,
+      actor_email:     user.email,
+      action:          "create_revision_from_current",
+      from_status:     String(existing.approval_status ?? "draft"),
+      to_status:       "draft",
       from_is_current: true,
-      to_is_current: true,
+      to_is_current:   true,
       meta: { type: rawType, from_artifact_id: existing.id, to_artifact_id: inserted.id, version: nextV },
     });
 
@@ -249,20 +246,20 @@ export async function createArtifact(formData: FormData) {
   const { data: inserted, error } = await supabase
     .from("artifacts")
     .insert({
-      project_id: projectId,
-      user_id: user.id,
-      type: rawType,
-      artifact_type: toArtifactType(rawType),
+      project_id:      projectId,
+      user_id:         user.id,
+      type:            rawType,
+      artifact_type:   toArtifactType(rawType),
       content,
-      content_json: null,
+      content_json:    null,
       approval_status: "draft",
-      is_locked: false,
-      version: 1,
-      is_current: true,
-      is_baseline: false,
-      root_artifact_id: null,
-      parent_artifact_id: null,
-      updated_at: new Date().toISOString(),
+      is_locked:       false,
+      version:         1,
+      is_current:      true,
+      is_baseline:     false,
+      root_artifact_id:    null,
+      parent_artifact_id:  null,
+      updated_at:          new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -270,21 +267,19 @@ export async function createArtifact(formData: FormData) {
   if (error) throwDb(error, "artifacts.create.insert");
 
   const { error: upErr } = await supabase
-    .from("artifacts")
-    .update({ root_artifact_id: inserted.id })
-    .eq("id", inserted.id);
+    .from("artifacts").update({ root_artifact_id: inserted.id }).eq("id", inserted.id);
   if (upErr) throwDb(upErr, "artifacts.create.backfill_root");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
-    artifact_id: inserted.id,
+    project_id:    projectId,
+    artifact_id:   inserted.id,
     actor_user_id: user.id,
-    actor_email: user.email,
-    action: "create_artifact",
-    from_status: null,
-    to_status: "draft",
+    actor_email:   user.email,
+    action:        "create_artifact",
+    from_status:   null,
+    to_status:     "draft",
     from_is_current: null,
-    to_is_current: true,
+    to_is_current:   true,
     meta: { type: rawType, version: 1 },
   });
 
@@ -298,16 +293,16 @@ export async function createArtifact(formData: FormData) {
 
 export async function updateArtifact(formData: FormData) {
   const artifactId = normStr(formData.get("artifact_id"));
-  const projectId = normStr(formData.get("project_id"));
-  const content = String(formData.get("content") ?? "");
+  const projectId  = normStr(formData.get("project_id"));
+  const content    = String(formData.get("content") ?? "");
 
   if (!artifactId) throw new Error("Missing artifact_id");
-  if (!projectId) throw new Error("Missing project_id");
+  if (!projectId)  throw new Error("Missing project_id");
 
   const { supabase, user } = await requireUser();
   await requireRole(supabase, projectId, ["owner", "editor"]);
 
-  const a = await loadArtifact(supabase, artifactId);
+  const a    = await loadArtifact(supabase, artifactId);
   if (String(a.project_id ?? "") !== projectId) throw new Error("Project mismatch");
 
   const edit = canEditArtifactRow(a);
@@ -321,15 +316,15 @@ export async function updateArtifact(formData: FormData) {
   if (error) throwDb(error, "artifacts.update");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
-    artifact_id: artifactId,
-    actor_user_id: user.id,
-    actor_email: user.email,
-    action: "update_content",
-    from_status: edit.status,
-    to_status: edit.status,
+    project_id:      projectId,
+    artifact_id:     artifactId,
+    actor_user_id:   user.id,
+    actor_email:     user.email,
+    action:          "update_content",
+    from_status:     edit.status,
+    to_status:       edit.status,
     from_is_current: Boolean(a.is_current),
-    to_is_current: Boolean(a.is_current),
+    to_is_current:   Boolean(a.is_current),
     meta: { before_len: String(a.content ?? "").length, after_len: content.length },
   });
 
@@ -341,29 +336,26 @@ export async function updateArtifact(formData: FormData) {
 ========================= */
 
 export async function updateArtifactJson(formData: FormData) {
-  const projectId = normStr(formData.get("project_id"));
+  const projectId  = normStr(formData.get("project_id"));
   const artifactId = normStr(formData.get("artifact_id"));
-  const jsonStr = normStr(formData.get("content_json"));
+  const jsonStr    = normStr(formData.get("content_json"));
 
-  if (!projectId) throw new Error("Missing project_id");
+  if (!projectId)  throw new Error("Missing project_id");
   if (!artifactId) throw new Error("Missing artifact_id");
-  if (!jsonStr) throw new Error("Missing content_json");
+  if (!jsonStr)    throw new Error("Missing content_json");
 
   const { supabase, user } = await requireUser();
   await requireRole(supabase, projectId, ["owner", "editor"]);
 
-  const a = await loadArtifact(supabase, artifactId);
+  const a    = await loadArtifact(supabase, artifactId);
   if (String(a.project_id ?? "") !== projectId) throw new Error("Project mismatch");
 
   const edit = canEditArtifactRow(a);
   if (!edit.ok) throw new Error(edit.reason);
 
   let parsed: any;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch {
-    throw new Error("content_json must be valid JSON.");
-  }
+  try { parsed = JSON.parse(jsonStr); }
+  catch { throw new Error("content_json must be valid JSON."); }
 
   const { error } = await supabase
     .from("artifacts")
@@ -373,15 +365,15 @@ export async function updateArtifactJson(formData: FormData) {
   if (error) throwDb(error, "artifacts.updateArtifactJson");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
-    artifact_id: artifactId,
-    actor_user_id: user.id,
-    actor_email: user.email,
-    action: "update_content_json",
-    from_status: edit.status,
-    to_status: edit.status,
+    project_id:      projectId,
+    artifact_id:     artifactId,
+    actor_user_id:   user.id,
+    actor_email:     user.email,
+    action:          "update_content_json",
+    from_status:     edit.status,
+    to_status:       edit.status,
     from_is_current: Boolean(a.is_current),
-    to_is_current: Boolean(a.is_current),
+    to_is_current:   Boolean(a.is_current),
     meta: { json_bytes: jsonStr.length },
   });
 
@@ -395,7 +387,7 @@ export async function updateArtifactJson(formData: FormData) {
 export async function getArtifactDiff(artifactId: string) {
   const { supabase } = await requireUser();
 
-  const a = await loadArtifact(supabase, artifactId);
+  const a         = await loadArtifact(supabase, artifactId);
   const projectId = String(a.project_id ?? "");
   await requireRole(supabase, projectId, ["owner", "editor", "viewer"]);
 
@@ -413,21 +405,14 @@ export async function getArtifactDiff(artifactId: string) {
   let parent: any = null;
   if (a.parent_artifact_id) {
     const { data: p } = await supabase
-      .from("artifacts")
-      .select("id,content,version")
-      .eq("id", a.parent_artifact_id)
-      .single();
+      .from("artifacts").select("id,content,version").eq("id", a.parent_artifact_id).single();
     parent = p ?? null;
   }
 
   return {
     artifact: { id: a.id, content: a.content ?? "", version: a.version ?? null },
-    baseline: baseline
-      ? { id: baseline.id, content: baseline.content ?? "", version: baseline.version ?? null }
-      : null,
-    parent: parent
-      ? { id: parent.id, content: parent.content ?? "", version: parent.version ?? null }
-      : null,
+    baseline: baseline ? { id: baseline.id, content: baseline.content ?? "", version: baseline.version ?? null } : null,
+    parent:   parent   ? { id: parent.id,   content: parent.content   ?? "", version: parent.version   ?? null } : null,
   };
 }
 
@@ -436,29 +421,25 @@ export async function getArtifactDiff(artifactId: string) {
 ========================= */
 
 export async function generateArtifactAI(formData: FormData) {
-  const projectId = normStr(formData.get("project_id"));
+  const projectId  = normStr(formData.get("project_id"));
   const artifactId = normStr(formData.get("artifact_id"));
-  const prompt = String(formData.get("prompt") ?? "").trim();
+  const prompt     = String(formData.get("prompt") ?? "").trim();
 
-  if (!projectId) throw new Error("Missing project_id");
+  if (!projectId)  throw new Error("Missing project_id");
   if (!artifactId) throw new Error("Missing artifact_id");
 
   const { supabase, user } = await requireUser();
   await requireRole(supabase, projectId, ["owner", "editor"]);
 
-  const a = await loadArtifact(supabase, artifactId);
+  const a    = await loadArtifact(supabase, artifactId);
   if (String(a.project_id ?? "") !== projectId) throw new Error("Project mismatch");
 
   const edit = canEditArtifactRow(a);
   if (!edit.ok) throw new Error(edit.reason);
 
-  const stamp = new Date().toISOString();
-  const header = `\n\n---\nAI Draft (${stamp})\n`;
-  const ptxt = prompt ? `Prompt: ${prompt}\n\n` : "Prompt: (none)\n\n";
-  const body = `[AI output placeholder]\n- Add your model call in generateArtifactAI()\n`;
-
+  const stamp  = new Date().toISOString();
   const before = String(a.content ?? "");
-  const after = before + header + ptxt + body;
+  const after  = before + `\n\n---\nAI Draft (${stamp})\n` + (prompt ? `Prompt: ${prompt}\n\n` : "") + "[AI output placeholder]\n";
 
   const { error } = await supabase
     .from("artifacts")
@@ -468,15 +449,15 @@ export async function generateArtifactAI(formData: FormData) {
   if (error) throwDb(error, "artifacts.generateArtifactAI.update");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
-    artifact_id: artifactId,
-    actor_user_id: user.id,
-    actor_email: user.email,
-    action: "generate_ai",
-    from_status: edit.status,
-    to_status: edit.status,
+    project_id:      projectId,
+    artifact_id:     artifactId,
+    actor_user_id:   user.id,
+    actor_email:     user.email,
+    action:          "generate_ai",
+    from_status:     edit.status,
+    to_status:       edit.status,
     from_is_current: Boolean(a.is_current),
-    to_is_current: Boolean(a.is_current),
+    to_is_current:   Boolean(a.is_current),
     meta: { prompt: prompt || null, before_len: before.length, after_len: after.length },
   });
 
@@ -488,42 +469,42 @@ export async function generateArtifactAI(formData: FormData) {
 ========================= */
 
 export async function reviseArtifact(formData: FormData) {
-  const artifactId = normStr(formData.get("artifact_id"));
+  const artifactId      = normStr(formData.get("artifact_id"));
   const revision_reason = normStr(formData.get("revision_reason")) || "Revision created";
-  const revision_type = normStr(formData.get("revision_type")) || "material";
+  const revision_type   = normStr(formData.get("revision_type"))   || "material";
 
   if (!artifactId) throw new Error("Missing artifact_id");
 
   const { supabase, user } = await requireUser();
 
-  const src = await loadArtifact(supabase, artifactId);
+  const src       = await loadArtifact(supabase, artifactId);
   const projectId = String(src.project_id ?? "");
   await requireRole(supabase, projectId, ["owner", "editor"]);
 
   const rootId = String(src.root_artifact_id ?? src.id);
-  const nextV = await nextVersionForRoot(supabase, rootId, Number(src.version ?? 1));
+  const nextV  = await nextVersionForRoot(supabase, rootId, Number(src.version ?? 1));
 
   await demoteCurrentForProjectType(supabase, projectId, String(src.type ?? ""));
 
   const { data: inserted, error: insErr } = await supabase
     .from("artifacts")
     .insert({
-      project_id: projectId,
-      user_id: user.id,
-      type: src.type,
-      artifact_type: src.artifact_type ?? toArtifactType(String(src.type ?? "")),
-      content: src.content ?? "",
-      content_json: src.content_json ?? null,
-      approval_status: "draft",
-      is_locked: false,
-      root_artifact_id: rootId,
+      project_id:         projectId,
+      user_id:            user.id,
+      type:               src.type,
+      artifact_type:      src.artifact_type ?? toArtifactType(String(src.type ?? "")),
+      content:            src.content      ?? "",
+      content_json:       src.content_json ?? null,
+      approval_status:    "draft",
+      is_locked:          false,
+      root_artifact_id:   rootId,
       parent_artifact_id: src.id,
-      version: nextV,
-      is_current: true,
-      is_baseline: false,
+      version:            nextV,
+      is_current:         true,
+      is_baseline:        false,
       revision_reason,
       revision_type,
-      updated_at: new Date().toISOString(),
+      updated_at:         new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -531,15 +512,15 @@ export async function reviseArtifact(formData: FormData) {
   if (insErr) throwDb(insErr, "artifacts.revise.insert");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
-    artifact_id: inserted.id,
-    actor_user_id: user.id,
-    actor_email: user.email,
-    action: "create_revision",
-    from_status: String(src.approval_status ?? "draft"),
-    to_status: "draft",
+    project_id:      projectId,
+    artifact_id:     inserted.id,
+    actor_user_id:   user.id,
+    actor_email:     user.email,
+    action:          "create_revision",
+    from_status:     String(src.approval_status ?? "draft"),
+    to_status:       "draft",
     from_is_current: Boolean(src.is_current),
-    to_is_current: true,
+    to_is_current:   true,
     meta: { from: src.id, to: inserted.id, version: nextV, revision_type, revision_reason },
   });
 
@@ -553,11 +534,11 @@ export async function reviseArtifact(formData: FormData) {
 
 export async function restoreArtifactVersion(formData: FormData) {
   const projectId = normStr(formData.get("project_id"));
-  const targetId = normStr(formData.get("target_artifact_id"));
-  const reason = normStr(formData.get("reason")) || "Restored a previous version";
+  const targetId  = normStr(formData.get("target_artifact_id"));
+  const reason    = normStr(formData.get("reason")) || "Restored a previous version";
 
   if (!projectId) throw new Error("Missing project_id");
-  if (!targetId) throw new Error("Missing target_artifact_id");
+  if (!targetId)  throw new Error("Missing target_artifact_id");
 
   const { supabase, user } = await requireUser();
   await requireRole(supabase, projectId, ["owner", "editor"]);
@@ -565,31 +546,31 @@ export async function restoreArtifactVersion(formData: FormData) {
   const target = await loadArtifact(supabase, targetId);
   if (String(target.project_id ?? "") !== projectId) throw new Error("Project mismatch");
 
-  const type = String(target.type ?? "");
+  const type   = String(target.type ?? "");
   const rootId = String(target.root_artifact_id ?? target.id);
-  const nextV = await nextVersionForRoot(supabase, rootId, Number(target.version ?? 1));
+  const nextV  = await nextVersionForRoot(supabase, rootId, Number(target.version ?? 1));
 
   await demoteCurrentForProjectType(supabase, projectId, type);
 
   const { data: inserted, error: insErr } = await supabase
     .from("artifacts")
     .insert({
-      project_id: projectId,
-      user_id: user.id,
+      project_id:         projectId,
+      user_id:            user.id,
       type,
-      artifact_type: target.artifact_type ?? toArtifactType(type),
-      content: target.content ?? "",
-      content_json: target.content_json ?? null,
-      approval_status: "draft",
-      is_locked: false,
-      version: nextV,
-      is_current: true,
-      is_baseline: false,
-      root_artifact_id: rootId,
+      artifact_type:      target.artifact_type ?? toArtifactType(type),
+      content:            target.content      ?? "",
+      content_json:       target.content_json ?? null,
+      approval_status:    "draft",
+      is_locked:          false,
+      version:            nextV,
+      is_current:         true,
+      is_baseline:        false,
+      root_artifact_id:   rootId,
       parent_artifact_id: target.id,
-      revision_type: "restore",
-      revision_reason: reason,
-      updated_at: new Date().toISOString(),
+      revision_type:      "restore",
+      revision_reason:    reason,
+      updated_at:         new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -597,15 +578,15 @@ export async function restoreArtifactVersion(formData: FormData) {
   if (insErr) throwDb(insErr, "artifacts.restore.insert");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
-    artifact_id: inserted.id,
-    actor_user_id: user.id,
-    actor_email: user.email,
-    action: "restore_version",
-    from_status: String(target.approval_status ?? "draft"),
-    to_status: "draft",
+    project_id:      projectId,
+    artifact_id:     inserted.id,
+    actor_user_id:   user.id,
+    actor_email:     user.email,
+    action:          "restore_version",
+    from_status:     String(target.approval_status ?? "draft"),
+    to_status:       "draft",
     from_is_current: Boolean(target.is_current),
-    to_is_current: true,
+    to_is_current:   true,
     meta: { restored_from: target.id, to: inserted.id, version: nextV, reason },
   });
 
@@ -622,16 +603,15 @@ export async function lockArtifact(artifactId: string) {
 
   const { supabase, user } = await requireUser();
 
-  const a = await loadArtifact(supabase, artifactId);
+  const a         = await loadArtifact(supabase, artifactId);
   const projectId = String(a.project_id ?? "");
   await requireRole(supabase, projectId, ["owner", "editor"]);
 
   const st = String(a.approval_status ?? "draft").toLowerCase();
-  if (!Boolean(a.is_current)) throw new Error("Only current version can be submitted.");
-  if (Boolean(a.is_locked)) throw new Error("Already locked/submitted.");
-  if (!(st === "draft" || st === "changes_requested")) {
+  if (!Boolean(a.is_current))   throw new Error("Only current version can be submitted.");
+  if (Boolean(a.is_locked))     throw new Error("Already locked/submitted.");
+  if (!(st === "draft" || st === "changes_requested"))
     throw new Error("Only Draft / Changes Requested can be submitted.");
-  }
 
   const { error } = await supabase
     .from("artifacts")
@@ -641,15 +621,15 @@ export async function lockArtifact(artifactId: string) {
   if (error) throwDb(error, "artifacts.lockArtifact");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
-    artifact_id: artifactId,
-    actor_user_id: user.id,
-    actor_email: user.email,
-    action: "submit_for_approval",
-    from_status: st,
-    to_status: "submitted",
+    project_id:      projectId,
+    artifact_id:     artifactId,
+    actor_user_id:   user.id,
+    actor_email:     user.email,
+    action:          "submit_for_approval",
+    from_status:     st,
+    to_status:       "submitted",
     from_is_current: Boolean(a.is_current),
-    to_is_current: Boolean(a.is_current),
+    to_is_current:   Boolean(a.is_current),
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
@@ -664,7 +644,7 @@ export async function approveArtifact(artifactId: string) {
 
   const { supabase, user } = await requireUser();
 
-  const a = await loadArtifact(supabase, artifactId);
+  const a         = await loadArtifact(supabase, artifactId);
   const projectId = String(a.project_id ?? "");
   await requireRole(supabase, projectId, ["owner"]);
 
@@ -674,36 +654,26 @@ export async function approveArtifact(artifactId: string) {
   const rootId = String(a.root_artifact_id ?? a.id);
 
   const { error: unsetErr } = await supabase
-    .from("artifacts")
-    .update({ is_baseline: false })
-    .eq("root_artifact_id", rootId)
-    .eq("is_baseline", true);
-
+    .from("artifacts").update({ is_baseline: false })
+    .eq("root_artifact_id", rootId).eq("is_baseline", true);
   if (unsetErr) throwDb(unsetErr, "artifacts.approveArtifact.unsetBaseline");
 
   const { error } = await supabase
     .from("artifacts")
-    .update({
-      approval_status: "approved",
-      is_locked: true,
-      is_baseline: true,
-      is_current: true,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ approval_status: "approved", is_locked: true, is_baseline: true, is_current: true, updated_at: new Date().toISOString() })
     .eq("id", artifactId);
-
   if (error) throwDb(error, "artifacts.approveArtifact");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
-    artifact_id: artifactId,
-    actor_user_id: user.id,
-    actor_email: user.email,
-    action: "approve",
-    from_status: st,
-    to_status: "approved",
+    project_id:      projectId,
+    artifact_id:     artifactId,
+    actor_user_id:   user.id,
+    actor_email:     user.email,
+    action:          "approve",
+    from_status:     st,
+    to_status:       "approved",
     from_is_current: Boolean(a.is_current),
-    to_is_current: true,
+    to_is_current:   true,
     meta: { promote_baseline: true, root_id: rootId },
   });
 
@@ -711,7 +681,7 @@ export async function approveArtifact(artifactId: string) {
 }
 
 /* =========================
-   REJECT -> changes_requested (unlock)
+   REJECT -> changes_requested
 ========================= */
 
 export async function rejectArtifact(artifactId: string, reason: string) {
@@ -719,7 +689,7 @@ export async function rejectArtifact(artifactId: string, reason: string) {
 
   const { supabase, user } = await requireUser();
 
-  const a = await loadArtifact(supabase, artifactId);
+  const a         = await loadArtifact(supabase, artifactId);
   const projectId = String(a.project_id ?? "");
   await requireRole(supabase, projectId, ["owner"]);
 
@@ -730,27 +700,20 @@ export async function rejectArtifact(artifactId: string, reason: string) {
 
   const { error } = await supabase
     .from("artifacts")
-    .update({
-      approval_status: "changes_requested",
-      is_locked: false,
-      revision_reason: msg,
-      revision_type: "review",
-      updated_at: new Date().toISOString(),
-    })
+    .update({ approval_status: "changes_requested", is_locked: false, revision_reason: msg, revision_type: "review", updated_at: new Date().toISOString() })
     .eq("id", artifactId);
-
   if (error) throwDb(error, "artifacts.rejectArtifact");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
-    artifact_id: artifactId,
-    actor_user_id: user.id,
-    actor_email: user.email,
-    action: "reject",
-    from_status: st,
-    to_status: "changes_requested",
+    project_id:      projectId,
+    artifact_id:     artifactId,
+    actor_user_id:   user.id,
+    actor_email:     user.email,
+    action:          "reject",
+    from_status:     st,
+    to_status:       "changes_requested",
     from_is_current: Boolean(a.is_current),
-    to_is_current: Boolean(a.is_current),
+    to_is_current:   Boolean(a.is_current),
     meta: { reason: msg },
   });
 
@@ -762,10 +725,10 @@ export async function rejectArtifact(artifactId: string, reason: string) {
 ========================= */
 
 export async function setArtifactCurrent(args: { projectId: string; artifactId: string }) {
-  const projectId = normStr(args?.projectId);
+  const projectId  = normStr(args?.projectId);
   const artifactId = normStr(args?.artifactId);
 
-  if (!projectId) throw new Error("Missing project_id");
+  if (!projectId)  throw new Error("Missing project_id");
   if (!artifactId) throw new Error("Missing artifact_id");
 
   const { supabase, user } = await requireUser();
@@ -780,17 +743,16 @@ export async function setArtifactCurrent(args: { projectId: string; artifactId: 
     .from("artifacts")
     .update({ is_current: true, updated_at: new Date().toISOString() })
     .eq("id", artifactId);
-
   if (error) throwDb(error, "artifacts.setArtifactCurrent");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
-    artifact_id: artifactId,
-    actor_user_id: user.id,
-    actor_email: user.email,
-    action: "set_current",
+    project_id:      projectId,
+    artifact_id:     artifactId,
+    actor_user_id:   user.id,
+    actor_email:     user.email,
+    action:          "set_current",
     from_is_current: Boolean(a.is_current),
-    to_is_current: true,
+    to_is_current:   true,
   });
 
   revalidatePath(`/projects/${projectId}/artifacts`);
@@ -802,15 +764,15 @@ export async function setArtifactCurrent(args: { projectId: string; artifactId: 
 ========================= */
 
 export async function createArtifactRevision(args: {
-  artifactId: string;
-  projectId?: string;
+  artifactId:      string;
+  projectId?:      string;
   revisionReason?: string;
-  revisionType?: string;
+  revisionType?:   string;
 }): Promise<{ newArtifactId: string }> {
   const fd = new FormData();
-  fd.set("artifact_id", normStr(args?.artifactId));
+  fd.set("artifact_id",    normStr(args?.artifactId));
   fd.set("revision_reason", normStr(args?.revisionReason) || "Revision created");
-  fd.set("revision_type", normStr(args?.revisionType) || "material");
+  fd.set("revision_type",   normStr(args?.revisionType)   || "material");
 
   const newArtifactId = await reviseArtifact(fd);
   return { newArtifactId };
@@ -821,14 +783,14 @@ export async function createArtifactRevision(args: {
 ========================= */
 
 export async function updateArtifactJsonArgs(args: {
-  projectId: string;
-  artifactId: string;
+  projectId:   string;
+  artifactId:  string;
   contentJson: any;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const fd = new FormData();
-    fd.set("project_id", normStr(args?.projectId));
-    fd.set("artifact_id", normStr(args?.artifactId));
+    fd.set("project_id",   normStr(args?.projectId));
+    fd.set("artifact_id",  normStr(args?.artifactId));
     fd.set("content_json", JSON.stringify(args?.contentJson ?? {}));
 
     await updateArtifactJson(fd);
@@ -839,14 +801,15 @@ export async function updateArtifactJsonArgs(args: {
 }
 
 /* =========================
-   UPDATE JSON SILENT (financial plan auto-save)
-   Skips revalidatePath — prevents Next.js router refresh from
-   swallowing click events during the 800ms debounce window.
+   UPDATE JSON SILENT
+   Used by the Financial Plan editor (debounced auto-save).
+   Skips revalidatePath to avoid router refresh during typing.
+   Writes a diff-based entry to artifact_audit_log for Financial Plans.
 ========================= */
 
 export async function updateArtifactJsonSilent(args: {
-  projectId: string;
-  artifactId: string;
+  projectId:   string;
+  artifactId:  string;
   contentJson: any;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -854,15 +817,43 @@ export async function updateArtifactJsonSilent(args: {
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) return { ok: false, error: "Unauthorized" };
 
+    const pId = normStr(args?.projectId);
+    const aId = normStr(args?.artifactId);
+
+    // Fetch current state BEFORE overwriting (for diff + type check)
+    const { data: existing } = await supabase
+      .from("artifacts")
+      .select("content_json, type, artifact_type")
+      .eq("id", aId)
+      .maybeSingle();
+
+    const beforeJson = (existing as any)?.content_json ?? null;
+    const rawType    = String((existing as any)?.type ?? (existing as any)?.artifact_type ?? "");
+    const isFinPlan  = isFinancialPlanType(rawType);
+
+    // Write the save
     const { error } = await supabase
       .from("artifacts")
       .update({
         content_json: args.contentJson ?? {},
-        updated_at: new Date().toISOString(),
+        updated_at:   new Date().toISOString(),
       })
-      .eq("id", normStr(args?.artifactId));
+      .eq("id", aId);
 
     if (error) return { ok: false, error: error.message };
+
+    // Financial plan audit — non-blocking, uses admin client to bypass RLS
+    if (isFinPlan && pId && aId && auth.user.id) {
+      void auditFinancialPlanSave({
+        projectId:  pId,
+        artifactId: aId,
+        actorId:    auth.user.id,
+        beforeJson,
+        afterJson:  args.contentJson,
+        useAdmin:   true,
+      });
+    }
+
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Save failed" };
@@ -871,7 +862,6 @@ export async function updateArtifactJsonSilent(args: {
 
 /* =========================
    CLONE ARTIFACT
-   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
 export async function cloneArtifact(
@@ -896,29 +886,29 @@ export async function cloneArtifact(
     }
 
     const rootId = String(src.root_artifact_id ?? src.id);
-    const nextV = await nextVersionForRoot(supabase, rootId, Number(src.version ?? 1));
+    const nextV  = await nextVersionForRoot(supabase, rootId, Number(src.version ?? 1));
 
     await demoteCurrentForProjectType(supabase, projectRef, String(src.type ?? ""));
 
     const { data: inserted, error: insErr } = await supabase
       .from("artifacts")
       .insert({
-        project_id: projectRef,
-        user_id: user.id,
-        type: src.type,
-        artifact_type: src.artifact_type ?? toArtifactType(String(src.type ?? "")),
-        content: src.content ?? "",
-        content_json: src.content_json ?? null,
-        approval_status: "draft",
-        is_locked: false,
-        version: nextV,
-        is_current: true,
-        is_baseline: false,
-        root_artifact_id: rootId,
+        project_id:         projectRef,
+        user_id:            user.id,
+        type:               src.type,
+        artifact_type:      src.artifact_type ?? toArtifactType(String(src.type ?? "")),
+        content:            src.content      ?? "",
+        content_json:       src.content_json ?? null,
+        approval_status:    "draft",
+        is_locked:          false,
+        version:            nextV,
+        is_current:         true,
+        is_baseline:        false,
+        root_artifact_id:   rootId,
         parent_artifact_id: src.id,
-        revision_type: "clone",
-        revision_reason: "Cloned",
-        updated_at: new Date().toISOString(),
+        revision_type:      "clone",
+        revision_reason:    "Cloned",
+        updated_at:         new Date().toISOString(),
       })
       .select("id")
       .single();
@@ -934,12 +924,11 @@ export async function cloneArtifact(
 
 /* =========================
    DELETE DRAFT ARTIFACT
-   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
 export async function deleteDraftArtifact(args: {
   artifactId: string;
-  projectId: string;
+  projectId:  string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const { supabase, user } = await requireUser();
@@ -957,7 +946,7 @@ export async function deleteDraftArtifact(args: {
       };
     }
 
-    const st = String(a.approval_status ?? "draft").toLowerCase();
+    const st      = String(a.approval_status ?? "draft").toLowerCase();
     const isDraft = st === "" || st === "draft" || st === "new";
     if (!isDraft || Boolean(a.is_locked) || Boolean(a.is_baseline)) {
       return { ok: false, error: "Only unlocked draft artifacts can be deleted." };
@@ -971,15 +960,15 @@ export async function deleteDraftArtifact(args: {
     if (error) return { ok: false, error: error.message };
 
     await auditBestEffort(supabase, {
-      project_id: normStr(args?.projectId),
-      artifact_id: normStr(args?.artifactId),
-      actor_user_id: user.id,
-      actor_email: user.email,
-      action: "delete_draft",
-      from_status: st,
-      to_status: "deleted",
+      project_id:      normStr(args?.projectId),
+      artifact_id:     normStr(args?.artifactId),
+      actor_user_id:   user.id,
+      actor_email:     user.email,
+      action:          "delete_draft",
+      from_status:     st,
+      to_status:       "deleted",
       from_is_current: Boolean(a.is_current),
-      to_is_current: false,
+      to_is_current:   false,
     });
 
     revalidatePath(`/projects/${args.projectId}/artifacts`);
@@ -996,25 +985,25 @@ export async function deleteDraftArtifact(args: {
 export async function renameArtifactTitle(formData: FormData): Promise<void>;
 export async function renameArtifactTitle(args: {
   artifactId: string;
-  projectId: string;
-  title: string;
+  projectId:  string;
+  title:      string;
 }): Promise<{ ok: boolean; error?: string }>;
 export async function renameArtifactTitle(
   input: FormData | { artifactId: string; projectId: string; title: string }
 ): Promise<void | { ok: boolean; error?: string }> {
   try {
     let artifactId: string;
-    let projectId: string;
-    let title: string;
+    let projectId:  string;
+    let title:      string;
 
     if (input instanceof FormData) {
       artifactId = normStr(input.get("artifact_id"));
-      projectId = normStr(input.get("project_id"));
-      title = normStr(input.get("title"));
+      projectId  = normStr(input.get("project_id"));
+      title      = normStr(input.get("title"));
     } else {
       artifactId = normStr(input.artifactId);
-      projectId = normStr(input.projectId);
-      title = normStr(input.title);
+      projectId  = normStr(input.projectId);
+      title      = normStr(input.title);
     }
 
     const { supabase } = await requireUser();
@@ -1041,11 +1030,11 @@ export async function renameArtifactTitle(
 }
 
 /* =========================
-   SET ARTIFACT CURRENT ACTION (alias used by ArtifactBoardClient)
+   SET ARTIFACT CURRENT ACTION (alias)
 ========================= */
 
 export async function setArtifactCurrentAction(args: {
-  projectId: string;
+  projectId:  string;
   artifactId: string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
