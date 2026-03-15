@@ -365,23 +365,35 @@ export async function buildRuntimeApprovalChain(
     throw new Error("Approval chain created but no steps returned.");
   }
 
-  // 6. Sort returned rows explicitly — Supabase does not guarantee insert().select() order
-  const orderedSteps = [...insertedSteps].sort(
-    (a: any, b: any) => Number(a?.step_order ?? 0) - Number(b?.step_order ?? 0)
-  );
+// 6. Re-fetch steps from DB to guarantee FK-safe rows
+const { data: persistedSteps, error: refetchErr } = await supabase
+  .from("artifact_approval_steps")
+  .select("id, step_order")
+  .eq("artifact_id", args.artifactId)
+  .order("step_order", { ascending: true });
 
-  const insertedStepIdByOrder = new Map<number, string>();
+if (refetchErr) {
+  throw new Error(`artifact_approval_steps refetch failed: ${refetchErr.message}`);
+}
 
-  for (const step of orderedSteps) {
-    const stepId = safeStr((step as any)?.id).trim();
-    const stepOrder = Number((step as any)?.step_order ?? 0);
+const orderedSteps = persistedSteps ?? [];
 
-    if (!stepId || !Number.isFinite(stepOrder) || stepOrder < 1) {
-      throw new Error("Invalid approval step returned from insert.");
-    }
+if (!orderedSteps.length) {
+  throw new Error("Approval steps missing after insert.");
+}
 
-    insertedStepIdByOrder.set(stepOrder, stepId);
+const insertedStepIdByOrder = new Map<number, string>();
+
+for (const step of orderedSteps) {
+  const stepId = safeStr(step?.id).trim();
+  const stepOrder = Number(step?.step_order ?? 0);
+
+  if (!stepId || !Number.isFinite(stepOrder) || stepOrder < 1) {
+    throw new Error("Invalid approval step returned from DB.");
   }
+
+  insertedStepIdByOrder.set(stepOrder, stepId);
+}
 
   // 7. Resolve approver emails once
   const allUserIds = Array.from(
