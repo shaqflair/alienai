@@ -29,20 +29,20 @@ export async function saveOnboardingProfile(
     const lineManagerId  = safeStr(formData.get("line_manager_id")).trim();
 
     if (!fullName) return { ok: false, error: "Full name is required." };
-    if (!jobTitle) return { ok: false, error: "Job title is required." };
+    if (!jobTitle)  return { ok: false, error: "Job title is required." };
 
-    // Match the actual profiles schema exactly -- no onboarding_complete column
+    // profiles.id must equal auth user id (FK to auth.users.id)
     const profilePatch: Record<string, any> = {
+      id:                   userId,
       user_id:              userId,
       full_name:            fullName,
-      job_title:            jobTitle || null,
       email:                auth.user.email ?? null,
+      job_title:            jobTitle || null,
       department:           department || null,
       employment_type:      employmentType,
       location:             location || null,
       bio:                  bio || null,
       line_manager_id:      lineManagerId || null,
-      // Required non-nullable columns with safe defaults
       is_active:            true,
       include_in_capacity:  true,
       default_capacity_days: 5,
@@ -59,7 +59,6 @@ export async function saveOnboardingProfile(
       return { ok: false, error: `Profile save failed: ${upsertErr.message}` };
     }
 
-    // Update auth display name (non-fatal)
     try {
       await supabase.auth.updateUser({ data: { full_name: fullName } });
     } catch {
