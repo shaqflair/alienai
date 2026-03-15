@@ -24,44 +24,29 @@ type WeeklyReportV1 = {
   delivered: Array<{ text: string }>;
   milestones: Array<{ name: string; due: string | null; status: string | null; critical?: boolean }>;
   changes: Array<{ title: string; status: string | null; link?: string | null }>;
-  raid: Array<{
-    title: string;
-    type?: string | null;
-    status?: string | null;
-    due?: string | null;
-    owner?: string | null;
-  }>;
+  raid: Array<{ title: string; type?: string | null; status?: string | null; due?: string | null; owner?: string | null }>;
   planNextWeek: Array<{ text: string }>;
   resourceSummary?: Array<{ text: string }>;
   keyDecisions?: Array<{ text: string; link?: string | null }>;
   blockers?: Array<{ text: string; link?: string | null }>;
-  metrics?: { milestonesDone?: number; wbsDone?: number; changesClosed?: number; raidClosed?: number };
-  meta?: { generated_at?: string; sources?: any };
+  metrics?: Record<string, any>;
+  meta?: Record<string, any>;
 };
 
-type UpdateArtifactJsonArgs = {
-  artifactId: string;
-  projectId: string;
-  contentJson: any;
-};
+type UpdateArtifactJsonArgs = { artifactId: string; projectId: string; contentJson: any };
 type UpdateArtifactJsonResult = { ok: boolean; error?: string };
 
-/* ── NEW: Project health props passed in from the server page ── */
 export type ProjectHealthProps = {
-  /** 0-100 composite health score */
   healthScore: number | null;
   scheduleHealth: number | null;
   raidHealth: number | null;
   budgetHealth: number | null;
   governanceHealth: number | null;
-  /** Human-readable detail strings surfaced in health tooltips */
   scheduleDetail?: { total: number; overdue: number; critical: number; avgSlipDays: number };
   raidDetail?: { total: number; highRisk: number; overdue: number };
   budgetDetail?: { budgetDays: number | null; allocatedDays: number; utilisationPct: number | null };
   governanceDetail?: { pendingApprovalCount: number; openChangeRequests: number };
-  /** Pre-built resource summary lines from the resource plan */
   resourceLines?: string[];
-  /** Project finish date for context */
   finishDate?: string | null;
 };
 
@@ -69,9 +54,7 @@ export type ProjectHealthProps = {
    UTILS
 ═══════════════════════════════════════════════════════════════ */
 
-function safeStr(x: any) {
-  return String(x ?? "").trim();
-}
+function safeStr(x: any) { return String(x ?? "").trim(); }
 
 function isoDate(d: Date) {
   const yyyy = d.getFullYear();
@@ -80,17 +63,11 @@ function isoDate(d: Date) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function isIsoYmd(x: any) {
-  return typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x.trim());
-}
-
 function fmtUkDate(iso: string | null | undefined) {
   const v = safeStr(iso);
-  if (!isIsoYmd(v)) return v || "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return v || "";
   const d = new Date(`${v}T00:00:00Z`);
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit", month: "short", year: "numeric", timeZone: "UTC",
-  }).format(d);
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(d);
 }
 
 function defaultModel(): WeeklyReportV1 {
@@ -112,9 +89,7 @@ function parseMaybeJson(x: any) {
   if (typeof x === "string") {
     const s = x.trim();
     if (!s) return null;
-    if (s.startsWith("{") || s.startsWith("[")) {
-      try { return JSON.parse(s); } catch { return null; }
-    }
+    if (s.startsWith("{") || s.startsWith("[")) { try { return JSON.parse(s); } catch { return null; } }
   }
   return null;
 }
@@ -162,65 +137,23 @@ function normalizeWeeklyReportV1(x: any, fallback?: WeeklyReportV1): WeeklyRepor
     const focusRows = Array.isArray(x?.nextPeriodFocus?.rows) ? x.nextPeriodFocus.rows : [];
     const delivered = deliveredRows.filter((r: any) => r?.type === "data").map((r: any) => safeStr((r?.cells ?? [])[0] ?? "")).filter(Boolean).map((t: string) => ({ text: t }));
     const planNextWeek = focusRows.filter((r: any) => r?.type === "data").map((r: any) => safeStr((r?.cells ?? [])[0] ?? "")).filter(Boolean).map((t: string) => ({ text: t }));
-    const blockersText = safeStr(x?.operationalBlockers || "");
-    const blockers = blockersText.split("\n").map((t: string) => safeStr(t)).filter(Boolean).map((t: string) => ({ text: t, link: null as string | null }));
-    return {
-      version: 1, project: extractedProject ?? fb.project,
-      period: { from: safeStr(x?.periodFrom) || fb.period.from, to: safeStr(x?.periodTo) || fb.period.to },
-      summary: { rag, headline: safeStr(x?.executiveSummary?.headline) || fb.summary.headline, narrative: safeStr(x?.executiveSummary?.narrative) || fb.summary.narrative },
-      delivered, milestones: Array.isArray(x?.milestones) ? x.milestones : fb.milestones,
-      changes: Array.isArray(x?.changes) ? x.changes : fb.changes,
-      raid: Array.isArray(x?.raid) ? x.raid : fb.raid, planNextWeek,
-      resourceSummary: Array.isArray(x?.resourceSummary) ? x.resourceSummary : fb.resourceSummary ?? [],
-      keyDecisions: Array.isArray(x?.keyDecisions) ? x.keyDecisions : fb.keyDecisions ?? [],
-      blockers, metrics: x?.metrics && typeof x.metrics === "object" ? x.metrics : fb.metrics,
-      meta: x?.meta && typeof x.meta === "object" ? x.meta : fb.meta,
-    };
+    const blockers = safeStr(x?.operationalBlockers || "").split("\n").map((t: string) => safeStr(t)).filter(Boolean).map((t: string) => ({ text: t, link: null as string | null }));
+    return { version: 1, project: extractedProject ?? fb.project, period: { from: safeStr(x?.periodFrom) || fb.period.from, to: safeStr(x?.periodTo) || fb.period.to }, summary: { rag, headline: safeStr(x?.executiveSummary?.headline) || fb.summary.headline, narrative: safeStr(x?.executiveSummary?.narrative) || fb.summary.narrative }, delivered, milestones: Array.isArray(x?.milestones) ? x.milestones : fb.milestones, changes: Array.isArray(x?.changes) ? x.changes : fb.changes, raid: Array.isArray(x?.raid) ? x.raid : fb.raid, planNextWeek, resourceSummary: Array.isArray(x?.resourceSummary) ? x.resourceSummary : fb.resourceSummary ?? [], keyDecisions: Array.isArray(x?.keyDecisions) ? x.keyDecisions : fb.keyDecisions ?? [], blockers, metrics: x?.metrics && typeof x.metrics === "object" ? x.metrics : fb.metrics, meta: x?.meta && typeof x.meta === "object" ? x.meta : fb.meta };
   }
 
   if (x?.version === 1 && x?.period && x?.sections) {
     const sec = x.sections || {};
     const exec = sec.executive_summary || {};
-    const completed = Array.isArray(sec.completed_this_period) ? sec.completed_this_period : [];
-    const nextFocus = Array.isArray(sec.next_period_focus) ? sec.next_period_focus : [];
-    const resource = Array.isArray(sec.resource_summary) ? sec.resource_summary : [];
-    const decisions = Array.isArray(sec.key_decisions_taken) ? sec.key_decisions_taken : [];
-    const blockersArr = Array.isArray(sec.operational_blockers) ? sec.operational_blockers : [];
-    const delivered = completed.map((it: any) => safeStr(it?.text || it?.title || it)).filter(Boolean).map((t: string) => ({ text: t }));
-    const planNextWeek = nextFocus.map((it: any) => safeStr(it?.text || it?.title || it)).filter(Boolean).map((t: string) => ({ text: t }));
-    const resourceSummary = resource.map((it: any) => safeStr(it?.text || it?.title || it)).filter(Boolean).map((t: string) => ({ text: t }));
-    const keyDecisions = decisions.map((it: any) => { const text = safeStr(it?.text || it?.title || it); if (!text) return null; return { text, link: safeStr(it?.link).trim() || null }; }).filter(Boolean) as Array<{ text: string; link?: string | null }>;
-    const operationalBlockers = blockersArr.map((it: any) => { const text = safeStr(it?.text || it?.title || it); if (!text) return null; return { text, link: safeStr(it?.link).trim() || null }; }).filter(Boolean) as Array<{ text: string; link?: string | null }>;
     const ragRaw = safeStr(exec?.rag).toLowerCase();
     const rag: Rag = ragRaw === "red" ? "red" : ragRaw === "amber" ? "amber" : "green";
-    return {
-      version: 1, project: extractedProject ?? fb.project,
-      period: { from: safeStr(x?.period?.from) || fb.period.from, to: safeStr(x?.period?.to) || fb.period.to },
-      summary: { rag, headline: safeStr(exec?.headline) || "Weekly delivery update", narrative: safeStr(exec?.narrative) || "Summary of progress, risks, and next steps." },
-      delivered, planNextWeek, resourceSummary, keyDecisions, blockers: operationalBlockers,
-      milestones: Array.isArray(x?.lists?.milestones) ? x.lists.milestones : fb.milestones,
-      changes: Array.isArray(x?.lists?.changes) ? x.lists.changes : fb.changes,
-      raid: Array.isArray(x?.lists?.raid) ? x.lists.raid : fb.raid,
-      metrics: x?.metrics && typeof x.metrics === "object" ? x.metrics : fb.metrics,
-      meta: x?.meta && typeof x.meta === "object" ? x.meta : fb.meta,
-    };
+    const mapArr = (arr: any[]) => arr.map((it: any) => safeStr(it?.text || it?.title || it)).filter(Boolean).map((t: string) => ({ text: t }));
+    const mapLink = (arr: any[]) => arr.map((it: any) => { const text = safeStr(it?.text || it?.title || it); if (!text) return null; return { text, link: safeStr(it?.link).trim() || null }; }).filter(Boolean) as Array<{ text: string; link?: string | null }>;
+    return { version: 1, project: extractedProject ?? fb.project, period: { from: safeStr(x?.period?.from) || fb.period.from, to: safeStr(x?.period?.to) || fb.period.to }, summary: { rag, headline: safeStr(exec?.headline) || "Weekly delivery update", narrative: safeStr(exec?.narrative) || "Summary of progress, risks, and next steps." }, delivered: mapArr(Array.isArray(sec.completed_this_period) ? sec.completed_this_period : []), planNextWeek: mapArr(Array.isArray(sec.next_period_focus) ? sec.next_period_focus : []), resourceSummary: mapArr(Array.isArray(sec.resource_summary) ? sec.resource_summary : []), keyDecisions: mapLink(Array.isArray(sec.key_decisions_taken) ? sec.key_decisions_taken : []), blockers: mapLink(Array.isArray(sec.operational_blockers) ? sec.operational_blockers : []), milestones: Array.isArray(x?.lists?.milestones) ? x.lists.milestones : fb.milestones, changes: Array.isArray(x?.lists?.changes) ? x.lists.changes : fb.changes, raid: Array.isArray(x?.lists?.raid) ? x.lists.raid : fb.raid, metrics: x?.metrics && typeof x.metrics === "object" ? x.metrics : fb.metrics, meta: x?.meta && typeof x.meta === "object" ? x.meta : fb.meta };
   }
 
   if (x?.version === 1 && x?.period && x?.summary) {
     const v = x as WeeklyReportV1;
-    return {
-      ...v, project: extractProjectFromAny(v) ?? fb.project,
-      delivered: Array.isArray(v.delivered) ? v.delivered : [],
-      milestones: Array.isArray(v.milestones) ? v.milestones : [],
-      changes: Array.isArray(v.changes) ? v.changes : [],
-      raid: Array.isArray(v.raid) ? v.raid : [],
-      planNextWeek: Array.isArray(v.planNextWeek) ? v.planNextWeek : [],
-      resourceSummary: Array.isArray((v as any)?.resourceSummary) ? (v as any).resourceSummary : [],
-      keyDecisions: Array.isArray((v as any)?.keyDecisions) ? (v as any).keyDecisions : [],
-      blockers: Array.isArray((v as any)?.blockers) ? (v as any).blockers : [],
-      metrics: v.metrics && typeof v.metrics === "object" ? v.metrics : {},
-      meta: v.meta && typeof v.meta === "object" ? v.meta : {},
-    };
+    return { ...v, project: extractProjectFromAny(v) ?? fb.project, delivered: Array.isArray(v.delivered) ? v.delivered : [], milestones: Array.isArray(v.milestones) ? v.milestones : [], changes: Array.isArray(v.changes) ? v.changes : [], raid: Array.isArray(v.raid) ? v.raid : [], planNextWeek: Array.isArray(v.planNextWeek) ? v.planNextWeek : [], resourceSummary: Array.isArray((v as any)?.resourceSummary) ? (v as any).resourceSummary : [], keyDecisions: Array.isArray((v as any)?.keyDecisions) ? (v as any).keyDecisions : [], blockers: Array.isArray((v as any)?.blockers) ? (v as any).blockers : [], metrics: v.metrics && typeof v.metrics === "object" ? v.metrics : {}, meta: v.meta && typeof v.meta === "object" ? v.meta : {} };
   }
   return null;
 }
@@ -230,15 +163,12 @@ async function downloadViaFetch(url: string, filename: string) {
   if (!res.ok) throw new Error(`Export failed (${res.status})`);
   const blob = await res.blob();
   const objectUrl = URL.createObjectURL(blob);
-  try {
-    const a = document.createElement("a");
-    a.href = objectUrl; a.download = filename;
-    document.body.appendChild(a); a.click(); a.remove();
-  } finally { URL.revokeObjectURL(objectUrl); }
+  try { const a = document.createElement("a"); a.href = objectUrl; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); }
+  finally { URL.revokeObjectURL(objectUrl); }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   HEALTH → RAG DERIVATION
+   HEALTH UTILS
 ═══════════════════════════════════════════════════════════════ */
 
 function deriveRagFromHealth(healthScore: number | null): Rag {
@@ -249,391 +179,152 @@ function deriveRagFromHealth(healthScore: number | null): Rag {
 }
 
 function buildResourceLines(health: ProjectHealthProps): string[] {
+  if (health.resourceLines && health.resourceLines.length > 0) return health.resourceLines;
   const lines: string[] = [];
-
-  if (health.resourceLines && health.resourceLines.length > 0) {
-    return health.resourceLines;
-  }
-
   const { budgetDetail, scheduleDetail } = health;
-
   if (budgetDetail?.utilisationPct != null) {
     const { allocatedDays, budgetDays, utilisationPct } = budgetDetail;
-    const trend =
-      utilisationPct <= 90 ? "on track"
-      : utilisationPct <= 100 ? "approaching budget limit"
-      : "over budget";
-    lines.push(
-      `${allocatedDays}d allocated of ${budgetDays ?? "?"}d budget (${utilisationPct}% utilisation) — ${trend}.`
-    );
+    const trend = utilisationPct <= 90 ? "on track" : utilisationPct <= 100 ? "approaching budget limit" : "over budget";
+    lines.push(`${allocatedDays}d allocated of ${budgetDays ?? "?"}d budget (${utilisationPct}% utilisation) — ${trend}.`);
   }
-
   if (scheduleDetail?.total != null && scheduleDetail.total > 0) {
     const { total, overdue, critical, avgSlipDays } = scheduleDetail;
-    if (overdue > 0) {
-      lines.push(
-        `${overdue} of ${total} milestone${total !== 1 ? "s" : ""} overdue${critical > 0 ? `, ${critical} on critical path` : ""}. Average baseline slip: ${avgSlipDays}d.`
-      );
-    } else {
-      lines.push(`All ${total} milestones on track.`);
-    }
+    if (overdue > 0) lines.push(`${overdue} of ${total} milestone${total !== 1 ? "s" : ""} overdue${critical > 0 ? `, ${critical} on critical path` : ""}. Average baseline slip: ${avgSlipDays}d.`);
+    else lines.push(`All ${total} milestones on track.`);
   }
-
   return lines;
 }
 
 function buildHealthContext(health: ProjectHealthProps): string {
-  const ragLabel = deriveRagFromHealth(health.healthScore);
-  const lines: string[] = [
-    `Overall health score: ${health.healthScore ?? "unknown"}% (RAG: ${ragLabel.toUpperCase()})`,
-  ];
-
-  if (health.scheduleHealth != null) {
-    const d = health.scheduleDetail;
-    lines.push(
-      `Schedule health: ${health.scheduleHealth}%${d ? ` — ${d.total} milestones, ${d.overdue} overdue, avg slip ${d.avgSlipDays}d` : ""}.`
-    );
-  }
-  if (health.raidHealth != null) {
-    const d = health.raidDetail;
-    lines.push(
-      `RAID health: ${health.raidHealth}%${d ? ` — ${d.total} open items, ${d.highRisk} high-risk, ${d.overdue} past due` : ""}.`
-    );
-  }
-  if (health.budgetHealth != null) {
-    const d = health.budgetDetail;
-    lines.push(
-      `Budget health: ${health.budgetHealth}%${d?.utilisationPct != null ? ` — ${d.utilisationPct}% utilisation (${d.allocatedDays}d of ${d.budgetDays ?? "?"}d)` : ""}.`
-    );
-  }
-  if (health.governanceHealth != null) {
-    const d = health.governanceDetail;
-    lines.push(
-      `Governance health: ${health.governanceHealth}%${d ? ` — ${d.pendingApprovalCount} pending approvals, ${d.openChangeRequests} open change requests` : ""}.`
-    );
-  }
-  if (health.finishDate) {
-    lines.push(`Project delivery deadline: ${health.finishDate}.`);
-  }
+  const rag = deriveRagFromHealth(health.healthScore);
+  const lines: string[] = [`Overall health score: ${health.healthScore ?? "unknown"}% (RAG: ${rag.toUpperCase()})`];
+  if (health.scheduleHealth != null) { const d = health.scheduleDetail; lines.push(`Schedule health: ${health.scheduleHealth}%${d ? ` — ${d.total} milestones, ${d.overdue} overdue, avg slip ${d.avgSlipDays}d` : ""}.`); }
+  if (health.raidHealth != null) { const d = health.raidDetail; lines.push(`RAID health: ${health.raidHealth}%${d ? ` — ${d.total} open items, ${d.highRisk} high-risk, ${d.overdue} past due` : ""}.`); }
+  if (health.budgetHealth != null) { const d = health.budgetDetail; lines.push(`Budget health: ${health.budgetHealth}%${d?.utilisationPct != null ? ` — ${d.utilisationPct}% utilisation (${d.allocatedDays}d of ${d.budgetDays ?? "?"}d)` : ""}.`); }
+  if (health.governanceHealth != null) { const d = health.governanceDetail; lines.push(`Governance health: ${health.governanceHealth}%${d ? ` — ${d.pendingApprovalCount} pending approvals, ${d.openChangeRequests} open change requests` : ""}.`); }
+  if (health.finishDate) lines.push(`Project delivery deadline: ${health.finishDate}.`);
   return lines.join("\n");
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DESIGN TOKENS
+   RAG CONFIG
 ═══════════════════════════════════════════════════════════════ */
 
-const RAG_CONFIG = {
-  green: {
-    bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700",
-    dot: "bg-emerald-500", glow: "shadow-[0_0_0_1px_rgba(16,185,129,0.08)]",
-    label: "On Track", ring: "ring-emerald-500/20",
-  },
-  amber: {
-    bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700",
-    dot: "bg-amber-500", glow: "shadow-[0_0_0_1px_rgba(245,158,11,0.08)]",
-    label: "At Risk", ring: "ring-amber-500/20",
-  },
-  red: {
-    bg: "bg-rose-50", border: "border-rose-200", text: "text-rose-700",
-    dot: "bg-rose-500", glow: "shadow-[0_0_0_1px_rgba(244,63,94,0.08)]",
-    label: "Critical", ring: "ring-rose-500/20",
-  },
-} as const;
+const RAG: Record<Rag, { bg: string; border: string; text: string; dot: string; label: string; iconBg: string }> = {
+  green: { bg: "#f0fdf4", border: "#bbf7d0", text: "#15803d", dot: "#16a34a", label: "On Track",  iconBg: "#16a34a" },
+  amber: { bg: "#fffbeb", border: "#fde68a", text: "#b45309", dot: "#f59e0b", label: "At Risk",   iconBg: "#f59e0b" },
+  red:   { bg: "#fff5f5", border: "#fecaca", text: "#b91c1c", dot: "#ef4444", label: "Critical",  iconBg: "#ef4444" },
+};
 
-function cx(...a: Array<string | false | null | undefined>) {
-  return a.filter(Boolean).join(" ");
-}
-
-const INPUT_CLS =
-  "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-900 placeholder-gray-400 outline-none transition-all focus:border-gray-400 focus:ring-2 focus:ring-gray-200 disabled:bg-gray-50 disabled:text-gray-500";
+const SECTION_COLORS: Record<string, string> = {
+  "1": "#0d1117", "2": "#16a34a", "3": "#3b82f6",
+  "4": "#8b5cf6", "5": "#f59e0b", "6": "#ef4444", "7": "#64748b",
+};
 
 /* ═══════════════════════════════════════════════════════════════
-   ICONS
-═══════════════════════════════════════════════════════════════ */
-
-const IconSpark = () => (
-  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 3v18M3 12h18M5.636 5.636l12.728 12.728M18.364 5.636L5.636 18.364" />
-  </svg>
-);
-
-const IconSync = () => (
-  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-    <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-  </svg>
-);
-
-const IconSave = () => (
-  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
-    <polyline points="17 21 17 13 7 13 7 21" />
-    <polyline points="7 3 7 8 15 8" />
-  </svg>
-);
-
-const IconPdf = () => (
-  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-  </svg>
-);
-
-const IconPpt = () => (
-  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-    <line x1="8" y1="21" x2="16" y2="21" />
-    <line x1="12" y1="17" x2="12" y2="21" />
-  </svg>
-);
-
-const IconWord = () => (
-  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-    <line x1="9" y1="13" x2="9" y2="17" />
-    <line x1="15" y1="13" x2="15" y2="17" />
-    <line x1="9" y1="15" x2="15" y2="15" />
-  </svg>
-);
-
-const IconPlus = () => (
-  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-    <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-  </svg>
-);
-
-const IconX = () => (
-  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-  </svg>
-);
-
-const IconLink = () => (
-  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
-    <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
-  </svg>
-);
-
-const IconHistory = () => (
-  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 3v6h6" />
-    <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
-    <path d="M12 7v5l4 2" />
-  </svg>
-);
-
-const IconArrowLeft = () => (
-  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M19 12H5M12 19l-7-7 7-7" />
-  </svg>
-);
-
-const Spinner = ({ className }: { className?: string }) => (
-  <svg className={cx("animate-spin", className || "w-4 h-4")} viewBox="0 0 24 24" fill="none">
-    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-20" />
-    <path d="M12 2a10 10 0 019.95 9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-  </svg>
-);
-
-/* ═══════════════════════════════════════════════════════════════
-   HEALTH BADGE
-═══════════════════════════════════════════════════════════════ */
-
-function HealthBadge({ health }: { health: ProjectHealthProps }) {
-  if (health.healthScore == null) return null;
-  const rag = deriveRagFromHealth(health.healthScore);
-  const cfg = RAG_CONFIG[rag];
-  return (
-    <span className={cx(
-      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border",
-      cfg.bg, cfg.border, cfg.text,
-    )}>
-      <span className={cx("w-2 h-2 rounded-full", cfg.dot)} />
-      Project health: {health.healthScore}%
-    </span>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   REPORT HISTORY DRAWER
+   HISTORY DRAWER
 ═══════════════════════════════════════════════════════════════ */
 
 type HistoryItem = {
-  artifactId: string;
-  title: string | null;
+  artifactId: string; title: string | null;
   period: { from: string; to: string } | null;
-  rag: Rag | null;
-  headline: string | null;
-  savedAt: string;
-  contentJson: any;
+  rag: Rag | null; headline: string | null;
+  savedAt: string; contentJson: any;
 };
 
 function fmtSavedAt(iso: string): string {
   if (!iso) return "";
-  try {
-    return new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit", month: "short", year: "numeric",
-      hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC",
-    }).format(new Date(iso));
-  } catch { return iso; }
+  try { return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }).format(new Date(iso)); }
+  catch { return iso; }
 }
 
-function HistoryPreviewSection({ label, items }: { label: string; items: Array<{ text: string }> }) {
-  if (!items?.length) return null;
-  return (
-    <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">{label}</p>
-      <ul className="space-y-1">
-        {items.map((it, i) => (
-          <li key={i} className="flex items-start gap-2 text-[13px] text-gray-700">
-            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
-            {it.text}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function ReportHistoryDrawer({
-  isOpen, onClose, reports, loading, error, onLoadReport,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  reports: HistoryItem[];
-  loading: boolean;
-  error: string | null;
+function ReportHistoryDrawer({ isOpen, onClose, reports, loading, error, onLoadReport }: {
+  isOpen: boolean; onClose: () => void; reports: HistoryItem[];
+  loading: boolean; error: string | null;
   onLoadReport: (contentJson: any, periodLabel: string) => void;
 }) {
   const [preview, setPreview] = useState<HistoryItem | null>(null);
-
   useEffect(() => { if (!isOpen) setPreview(null); }, [isOpen]);
-
   if (!isOpen) return null;
 
   const cj = preview?.contentJson as WeeklyReportV1 | null;
-  const previewRag = preview?.rag ? RAG_CONFIG[preview.rag] : RAG_CONFIG.green;
-  const previewPeriod = preview?.period
-    ? `${fmtUkDate(preview.period.from)} — ${fmtUkDate(preview.period.to)}`
-    : "Unknown period";
+  const previewRag = preview?.rag ? RAG[preview.rag] : RAG.green;
+  const previewPeriod = preview?.period ? `${fmtUkDate(preview.period.from)} — ${fmtUkDate(preview.period.to)}` : "Unknown period";
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm" onClick={onClose} aria-hidden />
-      <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col overflow-hidden">
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 shrink-0">
-          {preview ? (
-            <button type="button" onClick={() => setPreview(null)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors" title="Back to list">
-              <IconArrowLeft />
+      <div style={{ position: "fixed", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.2)", backdropFilter: "blur(2px)" }} onClick={onClose} />
+      <div style={{ position: "fixed", right: 0, top: 0, bottom: 0, zIndex: 50, width: "100%", maxWidth: 420, background: "#ffffff", boxShadow: "-4px 0 32px rgba(0,0,0,0.1)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 20px", borderBottom: "1px solid #e8ecf0", flexShrink: 0 }}>
+          {preview && (
+            <button type="button" onClick={() => setPreview(null)} style={{ padding: 6, borderRadius: 8, border: "1px solid #e8ecf0", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
             </button>
-          ) : null}
-          <div className="flex-1 min-w-0">
-            <h2 className="text-[14px] font-semibold text-gray-900">{preview ? "Report preview" : "Report history"}</h2>
-            {preview && <p className="text-[12px] text-gray-500 truncate">{previewPeriod}</p>}
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 14, fontWeight: 600, color: "#0d1117", margin: 0 }}>{preview ? "Report preview" : "Report history"}</p>
+            {preview && <p style={{ fontSize: 12, color: "#8b949e", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{previewPeriod}</p>}
           </div>
-          <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
-            <IconX />
+          <button type="button" onClick={onClose} style={{ padding: 6, borderRadius: 8, border: "1px solid #e8ecf0", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
-
-        <div className="flex-1 overflow-y-auto">
+        <div style={{ flex: 1, overflowY: "auto" }}>
           {!preview && (
-            <div className="p-4 space-y-2">
-              {loading && (
-                <div className="flex items-center justify-center py-16 gap-3 text-gray-400">
-                  <Spinner className="w-5 h-5" />
-                  <span className="text-[13px]">Loading history…</span>
-                </div>
-              )}
-              {error && !loading && (
-                <div className="px-4 py-3 rounded-xl bg-rose-50 border border-rose-200 text-[13px] text-rose-700">{error}</div>
-              )}
-              {!loading && !error && reports.length === 0 && (
-                <div className="py-16 text-center">
-                  <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3"><IconHistory /></div>
-                  <p className="text-[14px] font-medium text-gray-700 mb-1">No previous reports</p>
-                  <p className="text-[13px] text-gray-400">Saved reports will appear here.</p>
-                </div>
-              )}
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              {loading && <div style={{ textAlign: "center", padding: "40px 0", color: "#8b949e", fontSize: 13 }}>Loading history…</div>}
+              {error && !loading && <div style={{ padding: "12px 14px", borderRadius: 10, background: "#fff5f5", border: "1px solid #fecaca", fontSize: 13, color: "#b91c1c" }}>{error}</div>}
+              {!loading && !error && reports.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: "#8b949e", fontSize: 13 }}>No previous reports saved.</div>}
               {!loading && reports.map((r) => {
-                const cfg = r.rag ? RAG_CONFIG[r.rag] : RAG_CONFIG.green;
+                const cfg = r.rag ? RAG[r.rag] : RAG.green;
                 const periodLabel = r.period ? `${fmtUkDate(r.period.from)} — ${fmtUkDate(r.period.to)}` : r.title || "Report";
                 return (
-                  <button key={r.artifactId} type="button" onClick={() => setPreview(r)} className="w-full text-left rounded-xl border border-gray-100 hover:border-gray-200 bg-white hover:bg-gray-50 p-4 transition-all group">
-                    <div className="flex items-start gap-3">
-                      <div className={cx("w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5", cfg.bg, `ring-1 ${cfg.ring}`)}>
-                        <span className={cx("w-2.5 h-2.5 rounded-full", cfg.dot)} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-violet-700 transition-colors">{periodLabel}</p>
-                        {r.headline && <p className="text-[12px] text-gray-500 mt-0.5 line-clamp-2 leading-relaxed">{r.headline}</p>}
-                        <p className="text-[11px] text-gray-400 mt-1.5 font-medium">Saved {fmtSavedAt(r.savedAt)}</p>
-                      </div>
-                      <svg className="w-4 h-4 text-gray-300 group-hover:text-violet-400 transition-colors shrink-0 mt-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M9 18l6-6-6-6" />
-                      </svg>
+                  <button key={r.artifactId} type="button" onClick={() => setPreview(r)} style={{ width: "100%", textAlign: "left", borderRadius: 10, border: "1px solid #e8ecf0", background: "#fff", padding: "12px 14px", cursor: "pointer", display: "flex", alignItems: "flex-start", gap: 12 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: cfg.bg, border: `1px solid ${cfg.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: cfg.dot }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: "#0d1117", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{periodLabel}</p>
+                      {r.headline && <p style={{ fontSize: 12, color: "#8b949e", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.headline}</p>}
+                      <p style={{ fontSize: 11, color: "#8b949e", margin: "4px 0 0" }}>Saved {fmtSavedAt(r.savedAt)}</p>
                     </div>
                   </button>
                 );
               })}
             </div>
           )}
-
           {preview && cj && (
-            <div className="p-5 space-y-5">
-              <div className={cx("rounded-xl p-4 border", previewRag.bg, previewRag.border)}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className={cx("w-2.5 h-2.5 rounded-full shrink-0", previewRag.dot)} />
-                  <span className={cx("text-[12px] font-semibold uppercase tracking-wide", previewRag.text)}>{previewRag.label}</span>
+            <div style={{ padding: "20px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ borderRadius: 10, padding: "12px 14px", background: previewRag.bg, border: `1px solid ${previewRag.border}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: previewRag.dot }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: previewRag.text }}>{previewRag.label}</span>
                 </div>
-                {cj.summary?.headline && <p className="text-[14px] font-semibold text-gray-800 leading-snug">{cj.summary.headline}</p>}
+                {cj.summary?.headline && <p style={{ fontSize: 14, fontWeight: 600, color: "#0d1117", margin: 0, lineHeight: 1.4 }}>{cj.summary.headline}</p>}
               </div>
-              {cj.summary?.narrative && (
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Executive summary</p>
-                  <p className="text-[13px] text-gray-700 leading-relaxed">{cj.summary.narrative}</p>
-                </div>
-              )}
-              <HistoryPreviewSection label="Completed this week" items={cj.delivered ?? []} />
-              <HistoryPreviewSection label="Planned next week" items={cj.planNextWeek ?? []} />
-              <HistoryPreviewSection label="Key decisions" items={(cj.keyDecisions ?? []) as any} />
-              <HistoryPreviewSection label="Blockers" items={(cj.blockers ?? []) as any} />
-              <HistoryPreviewSection label="Resource summary" items={cj.resourceSummary ?? []} />
-              {cj.milestones?.length ? (
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Milestones</p>
-                  <div className="space-y-1">
-                    {cj.milestones.map((m, i) => (
-                      <div key={i} className="flex items-center gap-2 text-[13px] text-gray-700">
-                        <span className={cx("w-1.5 h-1.5 rounded-full shrink-0", m.status === "done" ? "bg-green-500" : m.status === "at_risk" ? "bg-amber-500" : "bg-gray-300")} />
-                        <span className="flex-1 truncate">{m.name}</span>
-                        {m.due && <span className="text-[11px] text-gray-400 shrink-0">{fmtUkDate(m.due)}</span>}
-                      </div>
-                    ))}
+              {cj.summary?.narrative && <p style={{ fontSize: 13, color: "#57606a", lineHeight: 1.65, margin: 0 }}>{cj.summary.narrative}</p>}
+              {(["delivered", "planNextWeek", "keyDecisions", "blockers", "resourceSummary"] as const).map((key) => {
+                const items = (cj as any)[key] as Array<{ text: string }> | undefined;
+                if (!items?.length) return null;
+                const labels: Record<string, string> = { delivered: "Completed this week", planNextWeek: "Planned next week", keyDecisions: "Key decisions", blockers: "Blockers", resourceSummary: "Resource summary" };
+                return (
+                  <div key={key}>
+                    <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "#8b949e", margin: "0 0 6px" }}>{labels[key]}</p>
+                    <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
+                      {items.map((it, i) => <li key={i} style={{ fontSize: 13, color: "#57606a" }}>{safeStr(it?.text ?? it)}</li>)}
+                    </ul>
                   </div>
-                </div>
-              ) : null}
+                );
+              })}
             </div>
           )}
         </div>
-
         {preview && (
-          <div className="px-5 py-4 border-t border-gray-100 shrink-0 bg-white">
-            <button
-              type="button"
-              onClick={() => {
-                const label = preview.period
-                  ? `${fmtUkDate(preview.period.from)} — ${fmtUkDate(preview.period.to)}`
-                  : preview.title || "this report";
-                onLoadReport(preview.contentJson, label);
-              }}
-              className="w-full py-2.5 px-4 rounded-xl text-[13px] font-semibold bg-violet-600 text-white hover:bg-violet-700 transition-colors shadow-sm"
-            >
+          <div style={{ padding: "14px 20px", borderTop: "1px solid #e8ecf0", background: "#fff", flexShrink: 0 }}>
+            <button type="button" onClick={() => { const label = preview.period ? `${fmtUkDate(preview.period.from)} — ${fmtUkDate(preview.period.to)}` : preview.title || "this report"; onLoadReport(preview.contentJson, label); }} style={{ width: "100%", padding: "10px 0", borderRadius: 10, background: "#7c3aed", border: "none", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
               Load into editor
             </button>
-            <p className="text-center text-[11px] text-gray-400 mt-2">This will replace your current unsaved changes</p>
+            <p style={{ textAlign: "center", fontSize: 11, color: "#8b949e", margin: "6px 0 0" }}>This will replace your current unsaved changes</p>
           </div>
         )}
       </div>
@@ -646,540 +337,462 @@ function ReportHistoryDrawer({
 ═══════════════════════════════════════════════════════════════ */
 
 export default function WeeklyReportEditor({
-  projectId,
-  artifactId,
-  initialJson,
-  readOnly,
-  updateArtifactJsonAction,
-  health,
+  projectId, artifactId, initialJson, readOnly, updateArtifactJsonAction, health,
 }: {
-  projectId: string;
-  artifactId: string;
-  initialJson: any;
-  readOnly: boolean;
+  projectId: string; artifactId: string; initialJson: any; readOnly: boolean;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
   health?: ProjectHealthProps;
 }) {
   const seed = useMemo<WeeklyReportV1>(() => {
     const parsed = parseMaybeJson(initialJson);
-    const coerced = normalizeWeeklyReportV1(parsed, defaultModel());
-    return coerced ?? defaultModel();
+    return normalizeWeeklyReportV1(parsed, defaultModel()) ?? defaultModel();
   }, [initialJson]);
 
   const [model, setModel] = useState<WeeklyReportV1>(seed);
-  const [busyGen, setBusyGen] = useState(false);
+  const [busyGen, setBusyGen]   = useState(false);
   const [busySave, setBusySave] = useState(false);
-  const [busyPdf, setBusyPdf] = useState(false);
-  const [busyPpt, setBusyPpt] = useState(false);
+  const [busyPdf, setBusyPdf]   = useState(false);
+  const [busyPpt, setBusyPpt]   = useState(false);
   const [busyWord, setBusyWord] = useState(false);
   const [busySync, setBusySync] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const [syncMsg, setSyncMsg] = useState<string | null>(null);
-
-  const [showHistory, setShowHistory] = useState(false);
-  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [err, setErr]           = useState<string | null>(null);
+  const [saveMsg, setSaveMsg]   = useState<string | null>(null);
+  const [syncMsg, setSyncMsg]   = useState<string | null>(null);
+  const [showHistory, setShowHistory]       = useState(false);
+  const [historyItems, setHistoryItems]     = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyErr, setHistoryErr] = useState<string | null>(null);
+  const [historyErr, setHistoryErr]         = useState<string | null>(null);
 
-  const initialSnapshot = useRef<string>(JSON.stringify(seed));
-  const lastArtifactIdRef = useRef<string>("");
-  const autoSyncedRef = useRef(false);
+  const snapshot    = useRef<string>(JSON.stringify(seed));
+  const lastIdRef   = useRef<string>("");
+  const autoSynced  = useRef(false);
 
   useEffect(() => {
-    if (artifactId && lastArtifactIdRef.current && lastArtifactIdRef.current !== artifactId) {
-      setModel(seed);
-      initialSnapshot.current = JSON.stringify(seed);
-      setErr(null); setSaveMsg(null); setSyncMsg(null);
-      autoSyncedRef.current = false;
+    if (artifactId && lastIdRef.current && lastIdRef.current !== artifactId) {
+      setModel(seed); snapshot.current = JSON.stringify(seed);
+      setErr(null); setSaveMsg(null); setSyncMsg(null); autoSynced.current = false;
     }
-    lastArtifactIdRef.current = artifactId;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    lastIdRef.current = artifactId;
   }, [artifactId, seed]);
 
   useEffect(() => {
-    const isDirty = JSON.stringify(model) !== initialSnapshot.current;
-    if (!isDirty) {
-      setModel(seed);
-      initialSnapshot.current = JSON.stringify(seed);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (JSON.stringify(model) === snapshot.current) { setModel(seed); snapshot.current = JSON.stringify(seed); }
   }, [seed]);
 
   useEffect(() => {
-    if (autoSyncedRef.current) return;
-    if (!health) return;
-    if (readOnly) return;
-    const isDefaultNarrative = model.summary.narrative === "Summary of progress, risks, and next steps.";
-    const isDefaultHeadline = model.summary.headline === "Weekly delivery update";
-    const hasNoResources = (model.resourceSummary ?? []).length === 0;
-    if (isDefaultNarrative && isDefaultHeadline && hasNoResources) {
-      autoSyncedRef.current = true;
-      applyHealthSync(false);
+    if (autoSynced.current || !health || readOnly) return;
+    if (model.summary.narrative === "Summary of progress, risks, and next steps." && model.summary.headline === "Weekly delivery update" && (model.resourceSummary ?? []).length === 0) {
+      autoSynced.current = true;
+      void applyHealthSync(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [health, model.summary.narrative, model.summary.headline]);
+  }, [health]);
 
-  const dirty = JSON.stringify(model) !== initialSnapshot.current;
+  const dirty = JSON.stringify(model) !== snapshot.current;
 
   function setField(path: string, value: any) {
     setModel((prev) => {
       const next: any = { ...prev };
       const parts = path.split(".");
       let cur: any = next;
-      for (let i = 0; i < parts.length - 1; i++) {
-        const k = parts[i];
-        cur[k] = cur[k] && typeof cur[k] === "object" ? { ...cur[k] } : {};
-        cur = cur[k];
-      }
+      for (let i = 0; i < parts.length - 1; i++) { const k = parts[i]; cur[k] = cur[k] && typeof cur[k] === "object" ? { ...cur[k] } : {}; cur = cur[k]; }
       cur[parts[parts.length - 1]] = value;
       return next;
     });
   }
 
-  /* ═══════════════════════════════════════════════════════════════
-     SYNC FROM PROJECT HEALTH
-  ═══════════════════════════════════════════════════════════════ */
+  // ── Health sync ──────────────────────────────────────────────────────────
 
   async function applyHealthSync(showToast = true) {
     if (!health) return;
-    setBusySync(true);
-    setErr(null);
+    setBusySync(true); setErr(null);
     try {
-      const derivedRag = deriveRagFromHealth(health.healthScore);
+      const derivedRag   = deriveRagFromHealth(health.healthScore);
       const resourceLines = buildResourceLines(health);
       const healthContext = buildHealthContext(health);
       let headline  = model.summary.headline;
       let narrative = model.summary.narrative;
       try {
-        const res = await fetch("/api/ai/events", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            eventType: "weekly_report_narrative",
-            projectId,
-            payload: {
-              artifactId, period: model.period, ragStatus: derivedRag, healthContext,
-              projectName: model.project?.name ?? "", projectCode: model.project?.code ?? "",
-              managerName: model.project?.managerName ?? "",
-            },
-          }),
-        });
+        const res = await fetch("/api/ai/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventType: "weekly_report_narrative", projectId, payload: { artifactId, period: model.period, ragStatus: derivedRag, healthContext, projectName: model.project?.name ?? "", projectCode: model.project?.code ?? "", managerName: model.project?.managerName ?? "" } }) });
         const json = await res.json().catch(() => ({}));
         if (res.ok && json?.ok) {
-          setModel((prev) => ({
-            ...prev,
-            summary: {
-              ...prev.summary, rag: derivedRag,
-              headline:  safeStr(json.headline)  || prev.summary.headline,
-              narrative: safeStr(json.narrative) || prev.summary.narrative,
-            },
-            delivered:       json.delivered?.length       ? json.delivered       : prev.delivered,
-            planNextWeek:    json.planNextWeek?.length     ? json.planNextWeek    : prev.planNextWeek,
-            resourceSummary: json.resourceSummary?.length  ? json.resourceSummary : resourceLines.map((t) => ({ text: t })),
-            keyDecisions:    json.keyDecisions?.length     ? json.keyDecisions    : prev.keyDecisions,
-            blockers:        json.blockers?.length         ? json.blockers        : prev.blockers,
-          }));
-          if (showToast) {
-            setSyncMsg(`Synced from project health (${health.healthScore ?? "?"}% → ${derivedRag.toUpperCase()}).`);
-            setTimeout(() => setSyncMsg(null), 4000);
-          }
+          setModel((prev) => ({ ...prev, summary: { ...prev.summary, rag: derivedRag, headline: safeStr(json.headline) || prev.summary.headline, narrative: safeStr(json.narrative) || prev.summary.narrative }, delivered: json.delivered?.length ? json.delivered : prev.delivered, planNextWeek: json.planNextWeek?.length ? json.planNextWeek : prev.planNextWeek, resourceSummary: json.resourceSummary?.length ? json.resourceSummary : resourceLines.map((t) => ({ text: t })), keyDecisions: json.keyDecisions?.length ? json.keyDecisions : prev.keyDecisions, blockers: json.blockers?.length ? json.blockers : prev.blockers }));
+          if (showToast) { setSyncMsg(`Synced from project health (${health.healthScore ?? "?"}% → ${derivedRag.toUpperCase()}).`); setTimeout(() => setSyncMsg(null), 4000); }
           return;
         }
         headline  = buildFallbackHeadline(health, derivedRag, model);
         narrative = buildFallbackNarrative(health, derivedRag, model);
-      } catch {
-        headline  = buildFallbackHeadline(health, derivedRag, model);
-        narrative = buildFallbackNarrative(health, derivedRag, model);
-      }
-      setModel((prev) => ({
-        ...prev,
-        summary: { ...prev.summary, rag: derivedRag, headline, narrative },
-        resourceSummary: resourceLines.map((t) => ({ text: t })),
-      }));
-      if (showToast) {
-        setSyncMsg(`Synced from project health (${health.healthScore ?? "?"}% → ${derivedRag.toUpperCase()}).`);
-        setTimeout(() => setSyncMsg(null), 4000);
-      }
-    } catch (e: any) {
-      setErr(e?.message ?? "Sync failed");
-    } finally {
-      setBusySync(false);
-    }
+      } catch { headline = buildFallbackHeadline(health, derivedRag, model); narrative = buildFallbackNarrative(health, derivedRag, model); }
+      setModel((prev) => ({ ...prev, summary: { ...prev.summary, rag: derivedRag, headline, narrative }, resourceSummary: resourceLines.map((t) => ({ text: t })) }));
+      if (showToast) { setSyncMsg(`Synced from project health (${health.healthScore ?? "?"}% → ${derivedRag.toUpperCase()}).`); setTimeout(() => setSyncMsg(null), 4000); }
+    } catch (e: any) { setErr(e?.message ?? "Sync failed"); }
+    finally { setBusySync(false); }
   }
 
   function buildFallbackHeadline(h: ProjectHealthProps, rag: Rag, m: WeeklyReportV1): string {
     const projLabel = safeStr(m.project?.name || m.project?.code) || "Project";
-    const ragLabel = rag === "green" ? "On Track" : rag === "amber" ? "At Risk" : "Critical";
-    return `${projLabel} — ${ragLabel} (${h.healthScore ?? "?"}% health)`;
+    return `${projLabel} — ${rag === "green" ? "On Track" : rag === "amber" ? "At Risk" : "Critical"} (${h.healthScore ?? "?"}% health)`;
   }
 
   function buildFallbackNarrative(h: ProjectHealthProps, rag: Rag, m: WeeklyReportV1): string {
-    const ragDesc =
-      rag === "green" ? "The project is progressing well and remains on track for delivery."
-      : rag === "amber" ? "The project has some areas of concern that require attention to maintain the delivery timeline."
-      : "The project is in a critical state. Immediate executive attention is required to address blockers and restore the delivery trajectory.";
+    const ragDesc = rag === "green" ? "The project is progressing well and remains on track for delivery." : rag === "amber" ? "The project has some areas of concern that require attention to maintain the delivery timeline." : "The project is in a critical state. Immediate executive attention is required.";
     const parts: string[] = [ragDesc];
-    if (h.scheduleHealth != null && h.scheduleDetail) {
-      const { overdue, total, critical, avgSlipDays } = h.scheduleDetail;
-      if (overdue > 0) {
-        parts.push(`Schedule health is at ${h.scheduleHealth}% with ${overdue} of ${total} milestone${total !== 1 ? "s" : ""} overdue${critical > 0 ? `, including ${critical} on the critical path` : ""}. Average baseline slip is ${avgSlipDays} day${avgSlipDays !== 1 ? "s" : ""}.`);
-      } else {
-        parts.push(`All ${total} schedule milestone${total !== 1 ? "s" : ""} are on track.`);
-      }
-    }
-    if (h.raidHealth != null && h.raidDetail) {
-      const { highRisk, total } = h.raidDetail;
-      if (highRisk > 0) parts.push(`${highRisk} of ${total} open RAID item${total !== 1 ? "s" : ""} are rated high-risk and are being actively managed.`);
-    }
-    if (h.budgetDetail?.utilisationPct != null) {
-      const pct = h.budgetDetail.utilisationPct;
-      if (pct > 100) parts.push(`Budget utilisation is at ${pct}%, exceeding the approved envelope. A budget review is recommended.`);
-      else if (pct > 90) parts.push(`Budget utilisation is at ${pct}%, approaching the approved limit. Close monitoring is in place.`);
-    }
-    if (h.governanceDetail) {
-      const { pendingApprovalCount, openChangeRequests } = h.governanceDetail;
-      if (pendingApprovalCount > 0 || openChangeRequests > 0) {
-        const items: string[] = [];
-        if (pendingApprovalCount > 0) items.push(`${pendingApprovalCount} approval${pendingApprovalCount !== 1 ? "s" : ""} pending`);
-        if (openChangeRequests > 0) items.push(`${openChangeRequests} open change request${openChangeRequests !== 1 ? "s" : ""}`);
-        parts.push(`Governance: ${items.join(" and ")}.`);
-      }
-    }
+    if (h.scheduleHealth != null && h.scheduleDetail) { const { overdue, total, critical, avgSlipDays } = h.scheduleDetail; if (overdue > 0) parts.push(`Schedule health is at ${h.scheduleHealth}% with ${overdue} of ${total} milestone${total !== 1 ? "s" : ""} overdue${critical > 0 ? `, including ${critical} on the critical path` : ""}. Average baseline slip is ${avgSlipDays} day${avgSlipDays !== 1 ? "s" : ""}.`); else parts.push(`All ${total} schedule milestone${total !== 1 ? "s" : ""} are on track.`); }
+    if (h.raidHealth != null && h.raidDetail) { const { highRisk, total } = h.raidDetail; if (highRisk > 0) parts.push(`${highRisk} of ${total} open RAID item${total !== 1 ? "s" : ""} are rated high-risk and are being actively managed.`); }
     if (h.finishDate) parts.push(`Delivery deadline: ${h.finishDate}.`);
     return parts.join(" ");
   }
 
-  /* ═══════════════════════════════════════════════════════════════
-     GENERATE
-  ═══════════════════════════════════════════════════════════════ */
+  // ── Generate ─────────────────────────────────────────────────────────────
 
   async function generate() {
     setErr(null); setSaveMsg(null); setBusyGen(true);
     try {
-      const res = await fetch("/api/ai/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          eventType: "delivery_report", projectId,
-          payload: {
-            artifactId, period: model.period, windowDays: 7,
-            healthContext: health ? buildHealthContext(health) : undefined,
-            derivedRag: health ? deriveRagFromHealth(health.healthScore) : undefined,
-          },
-        }),
-      });
+      const res = await fetch("/api/ai/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventType: "delivery_report", projectId, payload: { artifactId, period: model.period, windowDays: 7, healthContext: health ? buildHealthContext(health) : undefined, derivedRag: health ? deriveRagFromHealth(health.healthScore) : undefined } }) });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Generate failed");
       const reportRaw = json?.report || json?.delivery_report || json?.ai?.report || json?.content_json;
       const report = normalizeWeeklyReportV1(parseMaybeJson(reportRaw), model);
       if (!report) throw new Error("Generator returned an unexpected payload shape.");
-      const mergedProject: WeeklyReportProject = {
-        ...(report.project ?? {}),
-        id: (report.project?.id ?? safeStr(json?.project_id)) ?? null,
-        code: (report.project?.code ?? safeStr(json?.project_code)) ?? null,
-        name: (report.project?.name ?? safeStr(json?.project_name)) ?? null,
-        managerName: (report.project?.managerName ?? safeStr(json?.project_manager_name)) ?? null,
-        managerEmail: (report.project?.managerEmail ?? safeStr(json?.project_manager_email)) ?? null,
-      };
+      const mergedProject: WeeklyReportProject = { ...(report.project ?? {}), id: report.project?.id ?? safeStr(json?.project_id) ?? null, code: report.project?.code ?? safeStr(json?.project_code) ?? null, name: report.project?.name ?? safeStr(json?.project_name) ?? null, managerName: report.project?.managerName ?? safeStr(json?.project_manager_name) ?? null, managerEmail: report.project?.managerEmail ?? safeStr(json?.project_manager_email) ?? null };
       const finalRag = health ? deriveRagFromHealth(health.healthScore) : report.summary.rag;
-      const finalResources =
-        report.resourceSummary && report.resourceSummary.length > 0 ? report.resourceSummary
-        : health ? buildResourceLines(health).map((t) => ({ text: t })) : [];
-      const nextModel: WeeklyReportV1 = {
-        ...report, project: mergedProject,
-        summary: { ...report.summary, rag: finalRag },
-        resourceSummary: finalResources,
-        meta: {
-          ...(report.meta ?? {}), generated_at: new Date().toISOString(),
-          sources: {
-            ...(report.meta?.sources ?? {}),
-            snapshot: {
-              period: report.period, rag: finalRag, healthScore: health?.healthScore ?? null,
-              milestones: Array.isArray(report.milestones)
-                ? report.milestones.map((m) => ({ name: safeStr(m?.name), due: safeStr(m?.due) || null, status: safeStr(m?.status) || null, critical: !!m?.critical }))
-                : [],
-            },
-          },
-        },
-      };
-      setModel(nextModel);
-    } catch (e: any) {
-      setErr(e?.message ?? "Generate failed");
-    } finally {
-      setBusyGen(false);
-    }
+      const finalResources = report.resourceSummary && report.resourceSummary.length > 0 ? report.resourceSummary : health ? buildResourceLines(health).map((t) => ({ text: t })) : [];
+      setModel({ ...report, project: mergedProject, summary: { ...report.summary, rag: finalRag }, resourceSummary: finalResources, meta: { ...(report.meta ?? {}), generated_at: new Date().toISOString() } });
+    } catch (e: any) { setErr(e?.message ?? "Generate failed"); }
+    finally { setBusyGen(false); }
   }
 
-  /* ═══════════════════════════════════════════════════════════════
-     SAVE / EXPORT
-  ═══════════════════════════════════════════════════════════════ */
+  // ── Save ─────────────────────────────────────────────────────────────────
 
   async function save() {
     setErr(null); setSaveMsg(null);
     if (readOnly) return;
-    if (!updateArtifactJsonAction) { setErr("Save action not wired. Pass updateArtifactJsonAction from the server host."); return; }
+    if (!updateArtifactJsonAction) { setErr("Save action not wired."); return; }
     setBusySave(true);
     try {
       const res = await updateArtifactJsonAction({ artifactId, projectId, contentJson: model });
       if (!res?.ok) throw new Error(res?.error || "Save failed");
-      initialSnapshot.current = JSON.stringify(model);
+      snapshot.current = JSON.stringify(model);
       setSaveMsg("Saved.");
-    } catch (e: any) {
-      setErr(e?.message ?? "Save failed");
-    } finally {
-      setBusySave(false);
-    }
+    } catch (e: any) { setErr(e?.message ?? "Save failed"); }
+    finally { setBusySave(false); }
   }
 
   async function exportPdf() {
-    setErr(null); setSaveMsg(null); setBusyPdf(true);
-    try {
-      const url = `/api/artifacts/weekly-report/export/pdf?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}&includeDraft=1`;
-      const fn = `Weekly Report - ${safeStr(model.project?.code) || "Project"} - ${model.period.from}_to_${model.period.to}.pdf`;
-      await downloadViaFetch(url, fn);
-    } catch (e: any) {
-      setErr(e?.message ?? "PDF export failed");
-    } finally {
-      setBusyPdf(false);
-    }
+    setErr(null); setBusyPdf(true);
+    try { await downloadViaFetch(`/api/artifacts/weekly-report/export/pdf?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}&includeDraft=1`, `Weekly Report - ${safeStr(model.project?.code) || "Project"} - ${model.period.from}_to_${model.period.to}.pdf`); }
+    catch (e: any) { setErr(e?.message ?? "PDF export failed"); }
+    finally { setBusyPdf(false); }
   }
 
   async function exportPpt() {
-    setErr(null); setSaveMsg(null); setBusyPpt(true);
-    try {
-      const url = `/api/artifacts/weekly-report/export/ppt?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}&includeDraft=1`;
-      const fn = `Weekly Report - ${safeStr(model.project?.code) || "Project"} - ${model.period.from}_to_${model.period.to}.pptx`;
-      await downloadViaFetch(url, fn);
-    } catch (e: any) {
-      setErr(e?.message ?? "PPT export failed");
-    } finally {
-      setBusyPpt(false);
-    }
+    setErr(null); setBusyPpt(true);
+    try { await downloadViaFetch(`/api/artifacts/weekly-report/export/ppt?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}&includeDraft=1`, `Weekly Report - ${safeStr(model.project?.code) || "Project"} - ${model.period.from}_to_${model.period.to}.pptx`); }
+    catch (e: any) { setErr(e?.message ?? "PPT export failed"); }
+    finally { setBusyPpt(false); }
   }
 
   async function exportWord() {
-    setErr(null); setSaveMsg(null); setBusyWord(true);
-    try {
-      const url = `/api/artifacts/weekly-report/export/word?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}&includeDraft=1`;
-      const fn = `Weekly Report - ${safeStr(model.project?.code) || "Project"} - ${model.period.from}_to_${model.period.to}.docx`;
-      await downloadViaFetch(url, fn);
-    } catch (e: any) {
-      setErr(e?.message ?? "Word export failed");
-    } finally {
-      setBusyWord(false);
-    }
+    setErr(null); setBusyWord(true);
+    try { await downloadViaFetch(`/api/artifacts/weekly-report/export/word?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}&includeDraft=1`, `Weekly Report - ${safeStr(model.project?.code) || "Project"} - ${model.period.from}_to_${model.period.to}.docx`); }
+    catch (e: any) { setErr(e?.message ?? "Word export failed"); }
+    finally { setBusyWord(false); }
   }
-
-  /* ── History ── */
 
   async function openHistory() {
     setHistoryErr(null); setShowHistory(true); setHistoryLoading(true);
     try {
-      const url = `/api/artifacts/weekly-report/history?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}&limit=50`;
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch(`/api/artifacts/weekly-report/history?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}&limit=50`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (!json?.ok) throw new Error(json?.error || "Failed to load history");
       setHistoryItems(Array.isArray(json.reports) ? json.reports : []);
-    } catch (e: any) {
-      setHistoryErr(e?.message ?? "Could not load report history");
-    } finally {
-      setHistoryLoading(false);
-    }
+    } catch (e: any) { setHistoryErr(e?.message ?? "Could not load report history"); }
+    finally { setHistoryLoading(false); }
   }
 
   function loadHistoryItem(contentJson: any, periodLabel: string) {
     const parsed = normalizeWeeklyReportV1(contentJson, model);
     if (!parsed) { setErr("Could not load that report — the data format was not recognised."); return; }
-    setModel(parsed);
-    initialSnapshot.current = JSON.stringify(parsed);
-    setShowHistory(false);
-    setSaveMsg(`Loaded report: ${periodLabel}. Save to keep it.`);
+    setModel(parsed); snapshot.current = JSON.stringify(parsed);
+    setShowHistory(false); setSaveMsg(`Loaded report: ${periodLabel}. Save to keep it.`);
   }
 
-  /* ── Derived display values ── */
+  // ── Derived display ───────────────────────────────────────────────────────
 
-  const rag = RAG_CONFIG[model.summary.rag];
-  const periodUk = `${fmtUkDate(model.period.from)} \u2014 ${fmtUkDate(model.period.to)}`;
-  const projName = safeStr(model.project?.name);
-  const projCode = safeStr(model.project?.code);
-  const pmName = safeStr(model.project?.managerName);
+  const rag       = RAG[model.summary.rag];
+  const periodUk  = `${fmtUkDate(model.period.from)} — ${fmtUkDate(model.period.to)}`;
+  const projName  = safeStr(model.project?.name);
+  const projCode  = safeStr(model.project?.code);
+  const pmName    = safeStr(model.project?.managerName);
 
-  /* ═══════════════════════════════════════════════════════════════
-     RENDER
-  ═══════════════════════════════════════════════════════════════ */
+  // ── Styles ────────────────────────────────────────────────────────────────
 
-  return (
-    <div className="min-h-screen bg-[#fafaf9]">
+  const S = {
+    page:    { minHeight: "100vh", background: "#f6f8fa", fontFamily: "'Geist', -apple-system, sans-serif" } as React.CSSProperties,
+    header:  { background: "#ffffff", borderBottom: "1px solid #e8ecf0", padding: "14px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, position: "sticky" as const, top: 0, zIndex: 30 },
+    iconBox: { width: 44, height: 44, borderRadius: 12, background: rag.iconBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } as React.CSSProperties,
+    dot:     { width: 14, height: 14, borderRadius: "50%", background: "#fff" } as React.CSSProperties,
+    title:   { fontSize: 18, fontWeight: 700, color: "#0d1117", margin: 0, letterSpacing: "-0.3px" },
+    subtitle:{ fontSize: 13, color: "#8b949e", margin: 0, display: "flex", alignItems: "center", gap: 6 } as React.CSSProperties,
+    dot3:    { width: 3, height: 3, borderRadius: "50%", background: "#d0d7de", display: "inline-block" },
+    codePill:{ fontSize: 11, fontFamily: "ui-monospace, monospace", background: "#f6f8fa", color: "#57606a", padding: "2px 7px", borderRadius: 4, border: "1px solid #e8ecf0" },
+    unsaved: { fontSize: 11, color: "#b45309", background: "#fef3c7", padding: "2px 7px", borderRadius: 4 },
+    actions: { display: "flex", alignItems: "center", gap: 6 } as React.CSSProperties,
+    body:    { maxWidth: 960, margin: "0 auto", padding: "28px 28px 64px", display: "flex", flexDirection: "column" as const, gap: 16 },
+    card:    { background: "#ffffff", borderRadius: 16, padding: "24px 28px" } as React.CSSProperties,
+    lbl:     { fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase" as const, color: "#8b949e", marginBottom: 6, display: "block" },
+    input:   { width: "100%", background: "#f6f8fa", border: "1px solid #e8ecf0", borderRadius: 8, padding: "9px 12px", fontSize: 13, color: "#0d1117", fontFamily: "inherit", outline: "none", boxSizing: "border-box" as const },
+    textarea:{ width: "100%", background: "#f6f8fa", border: "1px solid #e8ecf0", borderRadius: 8, padding: "9px 12px", fontSize: 13, color: "#0d1117", fontFamily: "inherit", outline: "none", resize: "vertical" as const, lineHeight: 1.65, boxSizing: "border-box" as const },
+    select:  { width: "100%", background: "#f6f8fa", border: "1px solid #e8ecf0", borderRadius: 8, padding: "9px 12px", fontSize: 13, color: "#0d1117", fontFamily: "inherit", outline: "none", appearance: "none" as const, cursor: "pointer" },
+    numBadge:(n: string, color: string): React.CSSProperties => ({ width: 28, height: 28, borderRadius: 8, background: color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#fff", flexShrink: 0 }),
+    sectionHdr:{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 } as React.CSSProperties,
+    sectionTitle:{ fontSize: 15, fontWeight: 700, color: "#0d1117", letterSpacing: "-0.2px" },
+    countPill:{ marginLeft: "auto", fontSize: 11, color: "#8b949e", background: "#f6f8fa", padding: "2px 9px", borderRadius: 20, border: "1px solid #e8ecf0" },
+  };
 
-      {/* ── STICKY HEADER ── */}
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-gray-200/60">
-        <div className="max-w-5xl mx-auto px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+  const Btn = ({ label, busy, onClick, disabled, style }: { label: string; busy?: boolean; onClick: () => void; disabled?: boolean; style?: React.CSSProperties }) => (
+    <button type="button" onClick={onClick} disabled={disabled || busy} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 8, border: "1px solid #e8ecf0", background: "#fff", fontSize: 13, fontWeight: 600, color: "#57606a", cursor: "pointer", fontFamily: "inherit", opacity: (disabled || busy) ? 0.45 : 1, whiteSpace: "nowrap" as const, ...style }}>
+      {busy ? "…" : label}
+    </button>
+  );
 
-            {/* Left: Title cluster */}
-            <div className="flex items-center gap-4 min-w-0">
-              <div className={cx("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", "ring-2", rag.ring, rag.bg)}>
-                <div className={cx("w-3 h-3 rounded-full", rag.dot)} />
-              </div>
-              <div className="min-w-0">
-                <h1 className="text-[15px] font-semibold text-gray-900 tracking-tight truncate">Weekly Report</h1>
-                <div className="flex items-center gap-2 text-[12px] text-gray-500">
-                  <span className="font-mono">{periodUk}</span>
-                  {projCode && (<><span className="text-gray-300">&middot;</span><span className="font-medium text-gray-600">{projCode}</span></>)}
-                  {dirty && (<><span className="text-gray-300">&middot;</span><span className="text-amber-600 font-medium">Unsaved</span></>)}
-                </div>
-              </div>
-            </div>
+  const ListEditor = ({ items, onChange, placeholder }: { items: Array<{ text: string }>; onChange: (v: Array<{ text: string }>) => void; placeholder: string }) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {items.length === 0 && <div style={{ fontSize: 12, color: "#c9d1d9", padding: "8px 0" }}>No items yet</div>}
+      {items.map((it, idx) => (
+        <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#d0d7de", flexShrink: 0 }} />
+          {readOnly
+            ? <span style={{ fontSize: 13, color: "#0d1117", flex: 1, lineHeight: 1.5 }}>{it.text}</span>
+            : <input value={it.text} onChange={(e) => { const next = items.slice(); next[idx] = { text: e.target.value }; onChange(next); }} style={{ ...S.input, flex: 1 }} placeholder={placeholder} />
+          }
+          {!readOnly && (
+            <button type="button" onClick={() => onChange(items.filter((_, i) => i !== idx))} style={{ border: "none", background: "none", cursor: "pointer", color: "#c9d1d9", fontSize: 16, padding: "0 2px", lineHeight: 1 }}>×</button>
+          )}
+        </div>
+      ))}
+      {!readOnly && (
+        <button type="button" onClick={() => onChange(items.concat([{ text: "" }]))} style={{ fontSize: 12, color: "#8b949e", background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: "4px 0", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+          + Add item
+        </button>
+      )}
+    </div>
+  );
 
-            {/* Right: Actions */}
-            <div className="flex items-center gap-2">
-              <ActionBtn icon={<IconPdf />} label="PDF" busy={busyPdf} onClick={exportPdf} />
-              <ActionBtn icon={<IconPpt />} label="PPT" busy={busyPpt} onClick={exportPpt} />
-              <ActionBtn icon={<IconWord />} label="Word" busy={busyWord} onClick={exportWord} />
-              <ActionBtn icon={<IconHistory />} label="History" onClick={openHistory} title="Browse and restore previous weekly reports" />
-              <div className="w-px h-6 bg-gray-200 mx-1" />
-              {health && !readOnly && (
-                <ActionBtn
-                  icon={busySync ? <Spinner /> : <IconSync />}
-                  label={busySync ? "Syncing\u2026" : "Sync health"}
-                  busy={busySync}
-                  onClick={() => applyHealthSync(true)}
-                  disabled={busySync}
-                  title="Derive RAG, resources and narrative from live project health data"
-                />
+  const LinkListEditor = ({ items, onChange, placeholderText }: { items: Array<{ text: string; link?: string | null }>; onChange: (v: Array<{ text: string; link?: string | null }>) => void; placeholderText: string }) => {
+    const safe = Array.isArray(items) ? items : [];
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {safe.length === 0 && <div style={{ fontSize: 12, color: "#c9d1d9", padding: "8px 0" }}>No items yet</div>}
+        {safe.map((it, idx) => (
+          <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4, background: "#f6f8fa", borderRadius: 8, padding: "8px 10px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#d0d7de", flexShrink: 0 }} />
+              {readOnly
+                ? <span style={{ fontSize: 13, color: "#0d1117", flex: 1 }}>{it.text}</span>
+                : <input value={it.text} onChange={(e) => { const next = safe.slice(); next[idx] = { ...next[idx], text: e.target.value }; onChange(next); }} style={{ ...S.input, flex: 1, background: "#fff" }} placeholder={placeholderText} />
+              }
+              {!readOnly && (
+                <button type="button" onClick={() => onChange(safe.filter((_, i) => i !== idx))} style={{ border: "none", background: "none", cursor: "pointer", color: "#c9d1d9", fontSize: 16, padding: "0 2px", lineHeight: 1 }}>×</button>
               )}
-              <ActionBtn
-                icon={busyGen ? <Spinner /> : <IconSpark />}
-                label={busyGen ? "Generating\u2026" : "Generate"}
-                busy={busyGen}
-                onClick={generate}
-                disabled={readOnly || busyGen}
-                accent
-              />
-              <ActionBtn
-                icon={busySave ? <Spinner /> : <IconSave />}
-                label={busySave ? "Saving\u2026" : "Save"}
-                busy={busySave}
-                onClick={save}
-                disabled={readOnly || busySave || !dirty}
-                primary
-              />
+            </div>
+            {!readOnly && (
+              <input value={safeStr(it.link)} onChange={(e) => { const next = safe.slice(); next[idx] = { ...next[idx], link: e.target.value || null }; onChange(next); }} style={{ ...S.input, fontSize: 11, color: "#8b949e", background: "#fff", paddingLeft: 22 }} placeholder="Link (optional)" />
+            )}
+            {readOnly && it.link && <a href={it.link} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#3b82f6", textDecoration: "none", paddingLeft: 14 }}>↗ Open link</a>}
+          </div>
+        ))}
+        {!readOnly && (
+          <button type="button" onClick={() => onChange(safe.concat([{ text: "", link: null }]))} style={{ fontSize: 12, color: "#8b949e", background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: "4px 0", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+            + Add item
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  /* ── Render ── */
+  return (
+    <div style={S.page}>
+      {/* ── Header ── */}
+      <header style={S.header}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+          <div style={S.iconBox}><div style={S.dot} /></div>
+          <div style={{ minWidth: 0 }}>
+            <p style={S.title}>Weekly Report</p>
+            <div style={S.subtitle}>
+              <span>{periodUk}</span>
+              {projCode && (<><span style={S.dot3} /><span style={S.codePill}>{projCode}</span></>)}
+              {dirty && (<><span style={S.dot3} /><span style={S.unsaved}>Unsaved</span></>)}
             </div>
           </div>
+        </div>
+        <div style={S.actions}>
+          <Btn label={busyPdf  ? "…" : "PDF"}     onClick={exportPdf}   busy={busyPdf} />
+          <Btn label={busyPpt  ? "…" : "PPT"}     onClick={exportPpt}   busy={busyPpt} />
+          <Btn label={busyWord ? "…" : "Word"}     onClick={exportWord}  busy={busyWord} />
+          <Btn label="History"                     onClick={openHistory} />
+          {health && !readOnly && (
+            <Btn label={busySync ? "Syncing…" : "↻ Sync health"} onClick={() => void applyHealthSync(true)} busy={busySync} />
+          )}
+          <Btn label={busyGen ? "Generating…" : "✦ Generate"} onClick={generate} busy={busyGen} disabled={readOnly}
+            style={{ background: "#ede9fe", border: "1px solid #c4b5fd", color: "#6d28d9" }} />
+          <Btn label={busySave ? "Saving…" : "Save"} onClick={save} busy={busySave} disabled={readOnly || !dirty}
+            style={{ background: "#0d1117", border: "1px solid #0d1117", color: "#fff" }} />
         </div>
       </header>
 
-      {/* ── CONTENT ── */}
-      <main className="max-w-5xl mx-auto px-6 lg:px-8 py-8 space-y-6">
+      {/* ── Body ── */}
+      <div style={S.body}>
 
         {/* Banners */}
         {err && (
-          <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-rose-50 border border-rose-200 text-[13px] text-rose-700">
-            <span className="w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center text-[10px] font-bold shrink-0">!</span>
-            <span className="flex-1">{err}</span>
-            <button onClick={() => setErr(null)} className="p-1 rounded-md hover:bg-rose-100 transition-colors"><IconX /></button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderRadius: 10, background: "#fff5f5", border: "1px solid #fecaca", fontSize: 13, color: "#b91c1c" }}>
+            <span style={{ flex: 1 }}>{err}</span>
+            <button type="button" onClick={() => setErr(null)} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 16, color: "#b91c1c" }}>×</button>
           </div>
         )}
         {saveMsg && (
-          <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200 text-[13px] text-emerald-700">
-            <span className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-bold shrink-0">&check;</span>
-            <span className="flex-1">{saveMsg}</span>
-            <button onClick={() => setSaveMsg(null)} className="p-1 rounded-md hover:bg-emerald-100 transition-colors"><IconX /></button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderRadius: 10, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 13, color: "#15803d" }}>
+            <span style={{ flex: 1 }}>{saveMsg}</span>
+            <button type="button" onClick={() => setSaveMsg(null)} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 16, color: "#15803d" }}>×</button>
           </div>
         )}
         {syncMsg && (
-          <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-50 border border-blue-200 text-[13px] text-blue-700">
-            <span className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-[10px] font-bold shrink-0">↻</span>
-            <span className="flex-1">{syncMsg}</span>
-            <button onClick={() => setSyncMsg(null)} className="p-1 rounded-md hover:bg-blue-100 transition-colors"><IconX /></button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderRadius: 10, background: "#eff6ff", border: "1px solid #bfdbfe", fontSize: 13, color: "#1d4ed8" }}>
+            <span style={{ flex: 1 }}>{syncMsg}</span>
+            <button type="button" onClick={() => setSyncMsg(null)} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 16, color: "#1d4ed8" }}>×</button>
           </div>
         )}
 
-        {/* ── Project meta + Period + RAG ── */}
-        <Card>
-          <div className="flex items-start justify-between gap-6 flex-wrap">
-            <div className="space-y-3 flex-1 min-w-0">
-              {(projName || pmName) && (
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
-                  {projName && <span><span className="text-gray-400">Project</span>{" "}<span className="font-medium text-gray-800">{projName}</span></span>}
-                  {pmName && <span><span className="text-gray-400">PM</span>{" "}<span className="font-medium text-gray-800">{pmName}</span></span>}
-                </div>
-              )}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <FieldLabel label="Period from">
-                  <input type="date" value={model.period.from} onChange={(e) => setField("period.from", e.target.value)} disabled={readOnly} className={INPUT_CLS} />
-                </FieldLabel>
-                <FieldLabel label="Period to">
-                  <input type="date" value={model.period.to} onChange={(e) => setField("period.to", e.target.value)} disabled={readOnly} className={INPUT_CLS} />
-                </FieldLabel>
-                <FieldLabel label="RAG Status">
-                  <select value={model.summary.rag} onChange={(e) => setField("summary.rag", e.target.value as Rag)} disabled={readOnly} className={INPUT_CLS}>
-                    <option value="green">Green &mdash; On Track</option>
-                    <option value="amber">Amber &mdash; At Risk</option>
-                    <option value="red">Red &mdash; Critical</option>
-                  </select>
-                </FieldLabel>
+        {/* ── Card 1: Project meta + Period + RAG ── */}
+        <div style={S.card}>
+          {/* Project / PM row */}
+          {(projName || pmName) && (
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
+              <div>
+                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#8b949e", display: "block", marginBottom: 4 }}>Project</span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: "#0d1117" }}>{projName || "—"}</span>
               </div>
-              {health?.healthScore != null && (
-                <div className="flex items-center gap-2 pt-1 flex-wrap">
-                  <HealthBadge health={health} />
-                  {!readOnly && <span className="text-[11px] text-gray-400">RAG auto-derived from health score — override manually above if needed.</span>}
+              {pmName && (
+                <div style={{ textAlign: "right" }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#8b949e", display: "block", marginBottom: 4 }}>PM</span>
+                  <span style={{ fontSize: 18, fontWeight: 700, color: "#0d1117" }}>{pmName}</span>
                 </div>
               )}
             </div>
-            <div className={cx("shrink-0 px-4 py-3 rounded-xl border flex flex-col items-center gap-1.5 min-w-[100px]", rag.bg, rag.border, rag.glow)}>
-              <div className={cx("w-4 h-4 rounded-full", rag.dot)} />
-              <span className={cx("text-[11px] font-bold uppercase tracking-wider", rag.text)}>{rag.label}</span>
+          )}
+
+          {/* Period + RAG grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+            <div>
+              <span style={S.lbl}>Period from</span>
+              <input type="date" value={model.period.from} onChange={(e) => setField("period.from", e.target.value)} disabled={readOnly} style={S.input} />
+            </div>
+            <div>
+              <span style={S.lbl}>Period to</span>
+              <input type="date" value={model.period.to} onChange={(e) => setField("period.to", e.target.value)} disabled={readOnly} style={S.input} />
+            </div>
+            <div>
+              <span style={S.lbl}>RAG status</span>
+              <div style={{ position: "relative" }}>
+                <select value={model.summary.rag} onChange={(e) => setField("summary.rag", e.target.value as Rag)} disabled={readOnly} style={{ ...S.select, color: rag.text, fontWeight: 600 }}>
+                  <option value="green">Green — On Track</option>
+                  <option value="amber">Amber — At Risk</option>
+                  <option value="red">Red — Critical</option>
+                </select>
+              </div>
             </div>
           </div>
-        </Card>
 
-        {/* ── Executive Summary ── */}
-        <Card>
-          <SectionHeader number={1} title="Executive Summary" />
-          <div className="mt-4 space-y-3">
-            <FieldLabel label="Headline">
-              <input value={model.summary.headline} onChange={(e) => setField("summary.headline", e.target.value)} disabled={readOnly} className={INPUT_CLS} placeholder="One-line headline" />
-            </FieldLabel>
-            <FieldLabel label="Narrative">
-              <textarea value={model.summary.narrative} onChange={(e) => setField("summary.narrative", e.target.value)} disabled={readOnly} className={cx(INPUT_CLS, "min-h-[140px] resize-y")} placeholder="Executive summary — what happened this week, key highlights, blockers, decisions." />
-            </FieldLabel>
-          </div>
-        </Card>
-
-        {/* ── Delivered + Next Period ── */}
-        <div className="grid gap-6 md:grid-cols-2">
-          <Card>
-            <SectionHeader number={2} title="Completed This Period" count={model.delivered.length} color="emerald" />
-            <SectionList items={model.delivered.map((x) => x.text)} readOnly={readOnly} onChange={(items) => setModel((p) => ({ ...p, delivered: items.map((t) => ({ text: t })) }))} placeholder="What was delivered\u2026" />
-          </Card>
-          <Card>
-            <SectionHeader number={3} title="Next Period Focus" count={model.planNextWeek.length} color="blue" />
-            <SectionList items={model.planNextWeek.map((x) => x.text)} readOnly={readOnly} onChange={(items) => setModel((p) => ({ ...p, planNextWeek: items.map((t) => ({ text: t })) }))} placeholder="What\u2019s planned next\u2026" />
-          </Card>
-        </div>
-
-        {/* ── Resource + Decisions + Blockers ── */}
-        <div className="grid gap-6 md:grid-cols-3">
-          <Card>
-            <SectionHeader number={4} title="Resources" count={(model.resourceSummary ?? []).length} color="violet" />
-            {health?.budgetDetail && (model.resourceSummary ?? []).length > 0 && (
-              <p className="mt-2 text-[11px] text-gray-400 italic">Auto-populated from resource plan — edit as needed.</p>
+          {/* ON TRACK pill */}
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, marginTop: 16 }}>
+            {health?.healthScore != null && (
+              <span style={{ fontSize: 11, color: "#8b949e" }}>
+                Project health: <strong style={{ color: "#0d1117" }}>{health.healthScore}%</strong> — RAG auto-derived. Override above if needed.
+              </span>
             )}
-            <SectionList items={(model.resourceSummary ?? []).map((x) => x.text)} readOnly={readOnly} onChange={(items) => setModel((p) => ({ ...p, resourceSummary: items.map((t) => ({ text: t })) }))} placeholder="Resource note\u2026" />
-          </Card>
-          <Card>
-            <SectionHeader number={5} title="Key Decisions" count={(model.keyDecisions ?? []).length} color="amber" />
-            <SectionLinkList items={model.keyDecisions ?? []} readOnly={readOnly} onChange={(items) => setModel((p) => ({ ...p, keyDecisions: items }))} placeholderText="Decision\u2026" placeholderLink="Link (optional)" />
-          </Card>
-          <Card>
-            <SectionHeader number={6} title="Blockers" count={(model.blockers ?? []).length} color="rose" />
-            <SectionLinkList items={model.blockers ?? []} readOnly={readOnly} onChange={(items) => setModel((p) => ({ ...p, blockers: items }))} placeholderText="Blocker\u2026" placeholderLink="Link (optional)" />
-          </Card>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: rag.bg, border: `1px solid ${rag.border}`, borderRadius: 10, padding: "8px 16px" }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: rag.dot }} />
+              <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: rag.text }}>{rag.label}</span>
+            </div>
+          </div>
         </div>
-      </main>
 
+        {/* ── Card 2: Executive Summary ── */}
+        <div style={S.card}>
+          <div style={S.sectionHdr}>
+            <div style={S.numBadge("1", SECTION_COLORS["1"])}>1</div>
+            <span style={S.sectionTitle}>Executive Summary</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <span style={S.lbl}>Headline</span>
+              {readOnly
+                ? <p style={{ fontSize: 14, color: "#0d1117", margin: 0, lineHeight: 1.5 }}>{model.summary.headline}</p>
+                : <input value={model.summary.headline} onChange={(e) => setField("summary.headline", e.target.value)} style={S.input} placeholder="One-line headline…" />
+              }
+            </div>
+            <div>
+              <span style={S.lbl}>Narrative</span>
+              {readOnly
+                ? <p style={{ fontSize: 14, color: "#0d1117", margin: 0, lineHeight: 1.65 }}>{model.summary.narrative}</p>
+                : <textarea value={model.summary.narrative} onChange={(e) => setField("summary.narrative", e.target.value)} style={{ ...S.textarea, minHeight: 120 }} placeholder="Executive summary narrative…" />
+              }
+            </div>
+          </div>
+        </div>
+
+        {/* ── Cards 3-4: Completed + Next Period (two col) ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={S.card}>
+            <div style={S.sectionHdr}>
+              <div style={S.numBadge("2", SECTION_COLORS["2"])}>2</div>
+              <span style={S.sectionTitle}>Completed This Period</span>
+              <span style={S.countPill}>{model.delivered.length}</span>
+            </div>
+            <ListEditor items={model.delivered} onChange={(items) => setModel((p) => ({ ...p, delivered: items }))} placeholder="What was delivered…" />
+          </div>
+          <div style={S.card}>
+            <div style={S.sectionHdr}>
+              <div style={S.numBadge("3", SECTION_COLORS["3"])}>3</div>
+              <span style={S.sectionTitle}>Next Period Focus</span>
+              <span style={S.countPill}>{model.planNextWeek.length}</span>
+            </div>
+            <ListEditor items={model.planNextWeek} onChange={(items) => setModel((p) => ({ ...p, planNextWeek: items }))} placeholder="What's planned next…" />
+          </div>
+        </div>
+
+        {/* ── Cards 5-7: Resources + Decisions + Blockers (three col) ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+          <div style={S.card}>
+            <div style={S.sectionHdr}>
+              <div style={S.numBadge("4", SECTION_COLORS["4"])}>4</div>
+              <span style={S.sectionTitle}>Resources</span>
+              <span style={S.countPill}>{(model.resourceSummary ?? []).length}</span>
+            </div>
+            <ListEditor items={model.resourceSummary ?? []} onChange={(items) => setModel((p) => ({ ...p, resourceSummary: items }))} placeholder="Resource note…" />
+          </div>
+          <div style={S.card}>
+            <div style={S.sectionHdr}>
+              <div style={S.numBadge("5", SECTION_COLORS["5"])}>5</div>
+              <span style={S.sectionTitle}>Key Decisions</span>
+              <span style={S.countPill}>{(model.keyDecisions ?? []).length}</span>
+            </div>
+            <LinkListEditor items={model.keyDecisions ?? []} onChange={(items) => setModel((p) => ({ ...p, keyDecisions: items }))} placeholderText="Decision…" />
+          </div>
+          <div style={S.card}>
+            <div style={S.sectionHdr}>
+              <div style={S.numBadge("6", SECTION_COLORS["6"])}>6</div>
+              <span style={S.sectionTitle}>Blockers</span>
+              <span style={S.countPill}>{(model.blockers ?? []).length}</span>
+            </div>
+            <LinkListEditor items={model.blockers ?? []} onChange={(items) => setModel((p) => ({ ...p, blockers: items }))} placeholderText="Blocker…" />
+          </div>
+        </div>
+
+      </div>
+
+      {/* ── History drawer ── */}
       <ReportHistoryDrawer
         isOpen={showHistory}
         onClose={() => setShowHistory(false)}
@@ -1188,158 +801,6 @@ export default function WeeklyReportEditor({
         error={historyErr}
         onLoadReport={loadHistoryItem}
       />
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   DESIGN PRIMITIVES
-═══════════════════════════════════════════════════════════════ */
-
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-      {children}
-    </div>
-  );
-}
-
-function FieldLabel({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="grid gap-1.5">
-      <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function SectionHeader({ number, title, count, color = "gray" }: {
-  number: number; title: string; count?: number; color?: string;
-}) {
-  const dotColor: Record<string, string> = {
-    emerald: "bg-emerald-500", blue: "bg-blue-500", violet: "bg-violet-500",
-    amber: "bg-amber-500", rose: "bg-rose-500", gray: "bg-gray-400",
-  };
-  return (
-    <div className="flex items-center gap-3">
-      <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[11px] font-bold text-white ${dotColor[color] || dotColor.gray}`}>
-        {number}
-      </div>
-      <h2 className="text-[14px] font-semibold text-gray-900 tracking-tight">{title}</h2>
-      {count != null && (
-        <span className="ml-auto px-2 py-0.5 rounded-full bg-gray-100 text-[11px] font-semibold text-gray-500 tabular-nums">{count}</span>
-      )}
-    </div>
-  );
-}
-
-function ActionBtn({
-  icon, label, busy, onClick, disabled, primary, accent, title,
-}: {
-  icon: React.ReactNode; label: string; busy?: boolean; onClick: () => void;
-  disabled?: boolean; primary?: boolean; accent?: boolean; title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || busy}
-      title={title}
-      className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-        primary ? "bg-gray-900 text-white hover:bg-gray-800 shadow-sm"
-        : accent ? "bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100"
-        : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 shadow-sm"
-      }`}
-    >
-      {icon}
-      <span className="hidden sm:inline">{label}</span>
-    </button>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   LIST COMPONENTS
-═══════════════════════════════════════════════════════════════ */
-
-function SectionList({
-  items, readOnly, onChange, placeholder,
-}: {
-  items: string[]; readOnly: boolean; onChange: (items: string[]) => void; placeholder: string;
-}) {
-  return (
-    <div className="mt-4 space-y-2">
-      {items.length === 0 && <div className="py-6 text-center"><p className="text-[13px] text-gray-400">No items yet</p></div>}
-      {items.map((t, idx) => (
-        <div key={idx} className="group flex items-start gap-2">
-          <span className="mt-2.5 w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
-          <input
-            value={t} readOnly={readOnly}
-            onChange={(e) => { const next = items.slice(); next[idx] = e.target.value; onChange(next); }}
-            className={`${INPUT_CLS} flex-1`} placeholder={placeholder}
-          />
-          {!readOnly && (
-            <button type="button" onClick={() => onChange(items.filter((_, i) => i !== idx))} className="mt-1.5 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">
-              <IconX />
-            </button>
-          )}
-        </div>
-      ))}
-      {!readOnly && (
-        <button type="button" onClick={() => onChange(items.concat([""]))} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-all">
-          <IconPlus /> Add item
-        </button>
-      )}
-    </div>
-  );
-}
-
-function SectionLinkList({
-  items, readOnly, onChange, placeholderText, placeholderLink,
-}: {
-  items: Array<{ text: string; link?: string | null }>; readOnly: boolean;
-  onChange: (items: Array<{ text: string; link?: string | null }>) => void;
-  placeholderText: string; placeholderLink: string;
-}) {
-  const safeItems = Array.isArray(items) ? items : [];
-  return (
-    <div className="mt-4 space-y-3">
-      {safeItems.length === 0 && <div className="py-6 text-center"><p className="text-[13px] text-gray-400">No items yet</p></div>}
-      {safeItems.map((it, idx) => (
-        <div key={idx} className="group space-y-1.5 p-3 rounded-xl bg-gray-50/60 border border-gray-100 hover:border-gray-200 transition-colors">
-          <div className="flex items-start gap-2">
-            <input
-              value={it.text} readOnly={readOnly}
-              onChange={(e) => { const next = safeItems.slice(); next[idx] = { ...next[idx], text: e.target.value }; onChange(next); }}
-              className={`${INPUT_CLS} flex-1 bg-white`} placeholder={placeholderText}
-            />
-            {!readOnly && (
-              <button type="button" onClick={() => onChange(safeItems.filter((_, i) => i !== idx))} className="mt-1.5 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">
-                <IconX />
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400 shrink-0"><IconLink /></span>
-            <input
-              value={safeStr(it.link)} readOnly={readOnly}
-              onChange={(e) => { const next = safeItems.slice(); next[idx] = { ...next[idx], link: safeStr(e.target.value) || null }; onChange(next); }}
-              className={`${INPUT_CLS} flex-1 bg-white text-[12px]`} placeholder={placeholderLink}
-            />
-          </div>
-          {it.link && (
-            <div className="pl-5">
-              <a className="inline-flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-800 hover:underline font-medium transition-colors" href={it.link} target="_blank" rel="noreferrer">
-                <IconLink /> Open link
-              </a>
-            </div>
-          )}
-        </div>
-      ))}
-      {!readOnly && (
-        <button type="button" onClick={() => onChange(safeItems.concat([{ text: "", link: null }]))} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-all">
-          <IconPlus /> Add item
-        </button>
-      )}
     </div>
   );
 }
