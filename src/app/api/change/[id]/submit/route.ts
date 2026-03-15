@@ -11,6 +11,7 @@ import {
   safeStr,
   logChangeEvent,
 } from "@/lib/change/server-helpers";
+import { notifyFirstChangeStepApprovers } from "@/lib/server/notifications/approval-notifications";
 
 export const runtime = "nodejs";
 
@@ -211,7 +212,6 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
    Approval timeline helpers (best-effort)
 ========================================================= */
 
-/** Best-effort: get a nice actor name for timeline */
 async function resolveActorName(supabase: any, userId: string, fallbackEmail?: string | null) {
   try {
     const { data } = await supabase
@@ -234,10 +234,6 @@ async function resolveActorName(supabase: any, userId: string, fallbackEmail?: s
   }
 }
 
-/**
- * âœ… Approval timeline event into approval_events
- * Best-effort; never blocks.
- */
 async function insertApprovalEvent(
   supabase: any,
   row: {
@@ -281,7 +277,6 @@ async function insertApprovalEvent(
   }
 }
 
-/** Best-effort: show â€œwaiting for step X / approversâ€ on submit */
 async function getFirstPendingStepSummary(
   supabase: any,
   chainId: string
@@ -308,6 +303,46 @@ async function getFirstPendingStepSummary(
     };
   } catch {
     return null;
+  }
+}
+
+/* =========================================================
+   Notification helpers
+========================================================= */
+
+async function loadProjectForNotification(supabase: any, projectId: string) {
+  try {
+    const { data } = await supabase
+      .from("projects")
+      .select("id, title, project_code")
+      .eq("id", projectId)
+      .maybeSingle();
+
+    return data ?? { id: projectId, title: "Project", project_code: null };
+  } catch {
+    return { id: projectId, title: "Project", project_code: null };
+  }
+}
+
+async function loadChangeNotificationContext(supabase: any, changeId: string) {
+  try {
+    const { data } = await supabase
+      .from("change_requests")
+      .select("id, title, requester_id")
+      .eq("id", changeId)
+      .maybeSingle();
+
+    return {
+      title: safeStr((data as any)?.title).trim() || "Change Request",
+      requesterUserId: safeStr((data as any)?.requester_id).trim() || null,
+      changeType: "Change Request",
+    };
+  } catch {
+    return {
+      title: "Change Request",
+      requesterUserId: null,
+      changeType: "Change Request",
+    };
   }
 }
 
@@ -395,11 +430,6 @@ async function loadRulesForArtifact(
   return rows.filter((r) => Number.isFinite(r.step) && r.step >= 1 && inBand(amount, r.min_amount, r.max_amount));
 }
 
-/**
- * âœ… Canonical group expansion for YOUR schema:
- * - approver_groups / approver_group_members
- * - groupId is approver_groups.id
- */
 async function expandGroupMembersToUserIds(supabase: any, groupId: string): Promise<string[]> {
   const gid = safeStr(groupId).trim();
   if (!gid) return [];
@@ -501,10 +531,6 @@ async function getActiveChainIdForArtifact(supabase: any, artifactId: string): P
   return (data as any)?.id ? String((data as any).id) : null;
 }
 
-/**
- * âœ… Map user_ids -> organisation_members.id (canonical approver_member_id)
- * Falls back gracefully if mapping is missing.
- */
 async function mapUserIdsToOrgMemberIds(
   supabase: any,
   organisationId: string,
@@ -734,7 +760,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const requestId = requestId;
+    const requestId = randomUUID();
 
     type ChangeRow = {
       id: string;
@@ -789,12 +815,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       return jsonErr("This change is already decided", 400);
     }
 
-    // âœ… Idempotent: already submitted
     if (decision === "submitted") {
       return jsonOk({ item: { ...cr, delivery_status: cr?.delivery_status ?? null }, data: cr, already: "submitted" });
     }
 
-    // âœ… Only lane-gate when column exists (legacy-safe)
     if (!deliveryStatusMissing && fromLane !== "analysis") {
       return jsonErr("Only changes in Analysis can be submitted for approval.", 409);
     }
@@ -831,7 +855,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       artifactType: "change",
     });
 
-    // best-effort: first step summary (for timeline)
     const firstStep = await getFirstPendingStepSummary(supabase, chainId);
 
     await updateArtifactSubmitted(supabase, artifactId, chainId, user.id, now);
@@ -840,12 +863,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const patch: any = {
       delivery_status: toLaneDb(toLane),
       decision_status: "submitted",
-
       decision_at: null,
       decision_by: null,
       decision_role: null,
       decision_rationale: null,
-
       updated_at: now,
     };
 
@@ -925,7 +946,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       },
     });
 
-    // âœ… Approval timeline (submitted)
     await insertApprovalEvent(supabase, {
       organisation_id: organisationId,
       project_id: projectId,
@@ -951,6 +971,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         sla_started_at: now,
       },
     });
+
+    try {
+      const projectForNotification = await loadProjectForNotification(supabase, projectId);
+      const changeForNotification = await loadChangeNotificationContext(supabase, changeId);
+
+      await notifyFirstChangeStepApprovers(supabase, {
+        projectId,
+        changeId,
+        changeTitle: changeForNotification.title,
+        changeType: changeForNotification.changeType,
+        project: projectForNotification,
+        projectFallbackRef: projectId,
+        submittedByName: actorName ?? actorEmail ?? null,
+      });
+    } catch (notifyErr) {
+      console.error("[POST /api/change/:id/submit] first-step notification failed:", notifyErr);
+    }
 
     const resultItem = updated || cr;
     const finalItem = { ...resultItem, delivery_status: resultItem?.delivery_status ?? null };

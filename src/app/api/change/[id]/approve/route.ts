@@ -1,4 +1,3 @@
-// src/app/api/change/[id]/approve/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -13,6 +12,10 @@ import {
   recordArtifactApprovalDecision,
   recomputeApprovalState,
 } from "@/lib/change/server-helpers";
+import {
+  notifyNextChangeStepApprovers,
+  notifyChangeFullyApproved,
+} from "@/lib/server/notifications/approval-notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,7 +93,6 @@ function getUserAgent(req: Request): string | null {
   return ua || null;
 }
 
-/** Best-effort: resolve organisation_id for project */
 async function resolveOrganisationIdForProject(supabase: any, projectId: string): Promise<string | null> {
   try {
     const { data, error } = await supabase
@@ -107,10 +109,8 @@ async function resolveOrganisationIdForProject(supabase: any, projectId: string)
   }
 }
 
-/** Best-effort: get a nice actor name for timeline */
 async function resolveActorName(supabase: any, userId: string, fallbackEmail?: string | null) {
   try {
-    // Try common profile sources (ignore errors)
     const { data } = await supabase
       .from("profiles")
       .select("full_name, display_name, name, email")
@@ -131,7 +131,6 @@ async function resolveActorName(supabase: any, userId: string, fallbackEmail?: s
   }
 }
 
-/** Best-effort: approval audit log (legacy) */
 async function logApprovalAudit(
   supabase: any,
   req: Request,
@@ -174,7 +173,7 @@ async function logApprovalAudit(
     if (ins?.error) {
       const msg = safeStr(ins.error.message);
       if (!isMissingRelation(msg)) {
-        // swallow anyway (audit must never block approvals)
+        // swallow anyway
       }
     }
   } catch {
@@ -182,7 +181,6 @@ async function logApprovalAudit(
   }
 }
 
-/** Best-effort: Change timeline event */
 async function insertTimelineEvent(
   supabase: any,
   row: {
@@ -211,21 +209,13 @@ async function insertTimelineEvent(
     });
 
     if (ins.error && !isMissingRelation(safeStr(ins.error.message))) {
-      // best-effort: swallow
+      // swallow
     }
   } catch {
     // swallow
   }
 }
 
-/**
- * ✅ NEW: Approval timeline event into approval_events
- * Best-effort; never blocks approval flow.
- *
- * Expected columns:
- * id, organisation_id, project_id, artifact_id, change_id, step_id,
- * action_type, actor_user_id, actor_name, actor_role, comment, meta, created_at
- */
 async function insertApprovalEvent(
   supabase: any,
   row: {
@@ -261,7 +251,7 @@ async function insertApprovalEvent(
     if (ins?.error) {
       const msg = safeStr(ins.error.message);
       if (!isMissingRelation(msg)) {
-        // swallow anyway — timeline must never block approvals
+        // swallow
       }
     }
   } catch {
@@ -311,6 +301,41 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
   return resolved;
 }
 
+async function loadProjectForNotification(supabase: any, projectId: string) {
+  try {
+    const { data } = await supabase
+      .from("projects")
+      .select("id, title, project_code")
+      .eq("id", projectId)
+      .maybeSingle();
+    return data ?? { id: projectId, title: "Project", project_code: null };
+  } catch {
+    return { id: projectId, title: "Project", project_code: null };
+  }
+}
+
+async function loadChangeNotificationContext(supabase: any, changeId: string) {
+  try {
+    const { data } = await supabase
+      .from("change_requests")
+      .select("id, title, requester_id")
+      .eq("id", changeId)
+      .maybeSingle();
+
+    return {
+      title: safeStr((data as any)?.title).trim() || "Change Request",
+      requesterUserId: safeStr((data as any)?.requester_id).trim() || null,
+      changeType: "Change Request",
+    };
+  } catch {
+    return {
+      title: "Change Request",
+      requesterUserId: null,
+      changeType: "Change Request",
+    };
+  }
+}
+
 /* =========================================================
    Route
 ========================================================= */
@@ -330,7 +355,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const rawNote = safeStr(body?.note).trim();
     const note = rawNote ? rawNote.slice(0, 5000) : "";
 
-    // Load row safely (delivery_status may not exist)
     let cr: any = null;
     let deliveryStatusMissing = false;
 
@@ -364,18 +388,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const projectId = safeStr(cr?.project_id).trim();
     if (!projectId) return jsonErr("Missing project_id", 500);
 
-    // membership gate
     const memberRole = await requireProjectRole(supabase, projectId, user.id);
     if (!memberRole) return jsonErr("Forbidden", 403);
 
-    // best-effort org for timeline
     const organisationId = await resolveOrganisationIdForProject(supabase, projectId);
 
     const govStatus = safeStr(cr?.status).trim().toLowerCase();
     const decisionStatus = safeStr(cr?.decision_status).trim().toLowerCase();
     const fromLane = normalizeLane(cr?.delivery_status) || null;
 
-    // Idempotent
     if (decisionStatus === "approved" || govStatus === "approved" || govStatus === "in_progress") {
       return jsonOk({ item: cr, data: cr, already: "approved" });
     }
@@ -383,7 +404,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return jsonErr("Cannot approve a rejected change request.", 409);
     }
 
-    // must be submitted
     if (decisionStatus !== "submitted") {
       return jsonErr(
         `Cannot approve unless decision_status=submitted (current=${decisionStatus || "(null)"})`,
@@ -391,12 +411,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       );
     }
 
-    // strict lane gate if delivery_status column exists
     if (!deliveryStatusMissing && fromLane !== "review") {
       return jsonErr(`Cannot approve unless in Review lane (lane=${fromLane || "(null)"})`, 409);
     }
 
-    // ensure artifact_id exists
     const artifactId = await ensureArtifactIdForChangeRequest(supabase, cr);
     if (!artifactId) {
       return jsonErr(
@@ -405,7 +423,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       );
     }
 
-    // canonical approver check + pending step
     let pending: any;
     let onBehalfOf: string | null = null;
 
@@ -430,7 +447,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const actorName = await resolveActorName(supabase, user.id, actorEmail);
     const actorRoleLabel = onBehalfOf ? "delegate_approver" : "approver";
 
-    // record decision (idempotent per step+approver)
     await recordArtifactApprovalDecision({
       supabase,
       chainId: pending.chainId,
@@ -441,7 +457,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       reason: note || null,
     });
 
-    // recompute chain state
     const state = await recomputeApprovalState({
       supabase,
       artifactId,
@@ -451,7 +466,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     const now = new Date().toISOString();
 
-    // --- AUDIT: step approved (always log after decision insert) ---
     await logApprovalAudit(supabase, req, {
       request_id: requestId,
       project_id: projectId,
@@ -479,7 +493,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       },
     });
 
-    // --- TIMELINE: approved step ---
     await insertApprovalEvent(supabase, {
       organisation_id: organisationId,
       project_id: projectId,
@@ -507,7 +520,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       },
     });
 
-    // If not final yet, keep CR submitted/review; return refreshed row
     if (state.chainStatus !== "approved") {
       try {
         await logChangeEvent(supabase, {
@@ -548,6 +560,22 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         });
       } catch {}
 
+      try {
+        const projectForNotification = await loadProjectForNotification(supabase, projectId);
+        const changeForNotification = await loadChangeNotificationContext(supabase, id);
+
+        await notifyNextChangeStepApprovers(supabase, {
+          changeId: id,
+          changeTitle: changeForNotification.title,
+          changeType: changeForNotification.changeType,
+          project: projectForNotification,
+          projectFallbackRef: projectId,
+          approvedByName: actorName ?? actorEmail ?? null,
+        });
+      } catch (notifyErr) {
+        console.error("[POST /api/change/:id/approve] next-step notification failed:", notifyErr);
+      }
+
       const fresh = await supabase.from("change_requests").select("*").eq("id", id).maybeSingle();
       const item = fresh.data || cr;
 
@@ -576,31 +604,23 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       });
     }
 
-    // FINAL APPROVAL -> update CR row
     const toLane = "in_progress";
 
     const patchBase: any = {
-      // lifecycle after approval is execution
       status: "in_progress",
-
       decision_status: "approved",
       decision_rationale: note || null,
-
-      // effective approver (delegate-safe)
       decision_by: effectiveApproverUserId,
       decision_at: now,
       decision_role: onBehalfOf ? "delegate_final" : "chain_final",
-
       delivery_status: toLane,
       updated_at: now,
     };
 
-    // legacy compat
     let patch: any = { ...patchBase, approver_id: effectiveApproverUserId, approval_date: now };
 
     const first = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
 
-    // Retry stripping missing columns (legacy-safe)
     if (first.error) {
       const msg = safeStr(first.error.message);
 
@@ -652,7 +672,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         },
       });
 
-      // --- AUDIT: final approved ---
       await logApprovalAudit(supabase, req, {
         request_id: requestId,
         project_id: projectId,
@@ -676,7 +695,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         },
       });
 
-      // --- TIMELINE: final approved ---
       await insertApprovalEvent(supabase, {
         organisation_id: organisationId,
         project_id: projectId,
@@ -699,6 +717,25 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           decision_status: "approved",
         },
       });
+
+      try {
+        const projectForNotification = await loadProjectForNotification(supabase, projectId);
+        const changeForNotification = await loadChangeNotificationContext(supabase, id);
+
+        if (changeForNotification.requesterUserId) {
+          await notifyChangeFullyApproved(supabase, {
+            changeId: id,
+            changeTitle: changeForNotification.title,
+            changeType: changeForNotification.changeType,
+            changeAuthorUserId: changeForNotification.requesterUserId,
+            project: projectForNotification,
+            projectFallbackRef: projectId,
+            approvedByName: actorName ?? actorEmail ?? null,
+          });
+        }
+      } catch (notifyErr) {
+        console.error("[POST /api/change/:id/approve] final-approval notification failed:", notifyErr);
+      }
 
       await emitAiEvent(req, {
         projectId,
@@ -755,7 +792,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       },
     });
 
-    // --- AUDIT: final approved ---
     await logApprovalAudit(supabase, req, {
       request_id: requestId,
       project_id: projectId,
@@ -779,7 +815,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       },
     });
 
-    // --- TIMELINE: final approved ---
     await insertApprovalEvent(supabase, {
       organisation_id: organisationId,
       project_id: projectId,
@@ -802,6 +837,25 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         decision_status: "approved",
       },
     });
+
+    try {
+      const projectForNotification = await loadProjectForNotification(supabase, projectId);
+      const changeForNotification = await loadChangeNotificationContext(supabase, id);
+
+      if (changeForNotification.requesterUserId) {
+        await notifyChangeFullyApproved(supabase, {
+          changeId: id,
+          changeTitle: changeForNotification.title,
+          changeType: changeForNotification.changeType,
+          changeAuthorUserId: changeForNotification.requesterUserId,
+          project: projectForNotification,
+          projectFallbackRef: projectId,
+          approvedByName: actorName ?? actorEmail ?? null,
+        });
+      }
+    } catch (notifyErr) {
+      console.error("[POST /api/change/:id/approve] final-approval notification failed:", notifyErr);
+    }
 
     await emitAiEvent(req, {
       projectId,

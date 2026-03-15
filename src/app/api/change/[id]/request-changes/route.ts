@@ -1,4 +1,3 @@
-// src/app/api/change/[id]/request-changes/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -12,6 +11,7 @@ import {
   logChangeEvent,
 } from "@/lib/change/server-helpers";
 import { computeChangeAIFields } from "@/lib/change/ai-compute";
+import { notifyChangeChangesRequested } from "@/lib/server/notifications/approval-notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,7 +80,6 @@ function getRequestId(req: Request) {
   return h || randomUUID();
 }
 
-/** Best-effort: resolve organisation_id for project */
 async function resolveOrganisationIdForProject(supabase: any, projectId: string): Promise<string | null> {
   try {
     const { data, error } = await supabase
@@ -96,7 +95,6 @@ async function resolveOrganisationIdForProject(supabase: any, projectId: string)
   }
 }
 
-/** Best-effort: get a nice actor name for timeline */
 async function resolveActorName(supabase: any, userId: string, fallbackEmail?: string | null) {
   try {
     const { data } = await supabase
@@ -119,10 +117,6 @@ async function resolveActorName(supabase: any, userId: string, fallbackEmail?: s
   }
 }
 
-/**
- * ✅ Approval timeline event into approval_events
- * Best-effort; never blocks.
- */
 async function insertApprovalEvent(
   supabase: any,
   row: {
@@ -236,6 +230,41 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
   return resolved;
 }
 
+async function loadProjectForNotification(supabase: any, projectId: string) {
+  try {
+    const { data } = await supabase
+      .from("projects")
+      .select("id, title, project_code")
+      .eq("id", projectId)
+      .maybeSingle();
+    return data ?? { id: projectId, title: "Project", project_code: null };
+  } catch {
+    return { id: projectId, title: "Project", project_code: null };
+  }
+}
+
+async function loadChangeNotificationContext(supabase: any, changeId: string) {
+  try {
+    const { data } = await supabase
+      .from("change_requests")
+      .select("id, title, requester_id")
+      .eq("id", changeId)
+      .maybeSingle();
+
+    return {
+      title: safeStr((data as any)?.title).trim() || "Change Request",
+      requesterUserId: safeStr((data as any)?.requester_id).trim() || null,
+      changeType: "Change Request",
+    };
+  } catch {
+    return {
+      title: "Change Request",
+      requesterUserId: null,
+      changeType: "Change Request",
+    };
+  }
+}
+
 /**
  * POST /api/change/:id/request-changes
  * Body: { note?: string }
@@ -253,7 +282,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const body = await req.json().catch(() => ({}));
     const note = safeStr(body?.note).trim().slice(0, 5000);
 
-    // Load CR (delivery_status / artifact_id may not exist)
     let cr: any = null;
     let deliveryStatusMissing = false;
 
@@ -297,17 +325,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     if (!role) return jsonErr("Forbidden", 403);
     if (!isOwner(role)) return jsonErr("Forbidden", 403);
 
-    // ✅ Idempotent
     if (decisionStatus === "rework") {
       return jsonOk({ item: cr, data: cr, already: "rework" });
     }
 
-    // Only from submitted
     if (decisionStatus !== "submitted") {
       return jsonErr(`Cannot request changes when decision_status=${decisionStatus || "(null)"}`, 409);
     }
 
-    // Lane gate ONLY if lane exists
     if (!deliveryStatusMissing && fromLane && fromLane !== "review") {
       return jsonErr(`Only changes in Review can be sent back for rework (current lane=${fromLane}).`, 409);
     }
@@ -317,7 +342,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       return jsonErr("Missing artifact_id (Change Requests artifact). Create/backfill the project artifact first.", 409);
     }
 
-    // best-effort org + actor name for timeline
     const organisationId = await resolveOrganisationIdForProject(supabase, projectId);
     const actorEmail = safeStr((user as any)?.email ?? "").trim() || null;
     const actorName = await resolveActorName(supabase, user.id, actorEmail);
@@ -361,7 +385,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       updatedRow = first.data;
     }
 
-    // Audit (best effort)
     try {
       await logChangeEvent(
         supabase,
@@ -405,7 +428,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       },
     });
 
-    // ✅ Approval timeline (final “requested changes” decision)
     await insertApprovalEvent(supabase, {
       organisation_id: organisationId,
       project_id: projectId,
@@ -429,7 +451,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       },
     });
 
-    // AI compute (best-effort)
+    try {
+      const projectForNotification = await loadProjectForNotification(supabase, projectId);
+      const changeForNotification = await loadChangeNotificationContext(supabase, id);
+
+      if (changeForNotification.requesterUserId) {
+        await notifyChangeChangesRequested(supabase, {
+          changeId: id,
+          changeTitle: changeForNotification.title,
+          changeType: changeForNotification.changeType,
+          changeAuthorUserId: changeForNotification.requesterUserId,
+          project: projectForNotification,
+          projectFallbackRef: projectId,
+          requestedByName: actorName ?? actorEmail ?? null,
+          reason: note || null,
+        });
+      }
+    } catch (notifyErr) {
+      console.error("[POST /api/change/:id/request-changes] notification failed:", notifyErr);
+    }
+
     try {
       const computed = await computeChangeAIFields({ supabase, projectId, changeRow: updatedRow });
       await supabase

@@ -1,4 +1,3 @@
-// src/app/api/change/[id]/reject/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -13,6 +12,7 @@ import {
   recordArtifactApprovalDecision,
   recomputeApprovalState,
 } from "@/lib/change/server-helpers";
+import { notifyChangeRejected } from "@/lib/server/notifications/approval-notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,7 +90,6 @@ function getUserAgent(req: Request): string | null {
   return ua || null;
 }
 
-/** Best-effort: resolve organisation_id for project */
 async function resolveOrganisationIdForProject(supabase: any, projectId: string): Promise<string | null> {
   try {
     const { data, error } = await supabase
@@ -107,7 +106,6 @@ async function resolveOrganisationIdForProject(supabase: any, projectId: string)
   }
 }
 
-/** Best-effort: get a nice actor name for timeline */
 async function resolveActorName(supabase: any, userId: string, fallbackEmail?: string | null) {
   try {
     const { data } = await supabase
@@ -130,10 +128,6 @@ async function resolveActorName(supabase: any, userId: string, fallbackEmail?: s
   }
 }
 
-/**
- * ✅ Approval timeline event into approval_events
- * Best-effort; never blocks.
- */
 async function insertApprovalEvent(
   supabase: any,
   row: {
@@ -219,7 +213,7 @@ async function logApprovalAudit(
     if (ins?.error) {
       const msg = safeStr(ins.error.message);
       if (!isMissingRelation(msg)) {
-        // swallow anyway (audit must never block)
+        // swallow
       }
     }
   } catch {
@@ -255,7 +249,7 @@ async function insertTimelineEvent(
     });
 
     if (ins.error && !isMissingRelation(safeStr(ins.error.message))) {
-      // best-effort: swallow
+      // swallow
     }
   } catch {
     // swallow
@@ -304,6 +298,41 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
   return resolved;
 }
 
+async function loadProjectForNotification(supabase: any, projectId: string) {
+  try {
+    const { data } = await supabase
+      .from("projects")
+      .select("id, title, project_code")
+      .eq("id", projectId)
+      .maybeSingle();
+    return data ?? { id: projectId, title: "Project", project_code: null };
+  } catch {
+    return { id: projectId, title: "Project", project_code: null };
+  }
+}
+
+async function loadChangeNotificationContext(supabase: any, changeId: string) {
+  try {
+    const { data } = await supabase
+      .from("change_requests")
+      .select("id, title, requester_id")
+      .eq("id", changeId)
+      .maybeSingle();
+
+    return {
+      title: safeStr((data as any)?.title).trim() || "Change Request",
+      requesterUserId: safeStr((data as any)?.requester_id).trim() || null,
+      changeType: "Change Request",
+    };
+  } catch {
+    return {
+      title: "Change Request",
+      requesterUserId: null,
+      changeType: "Change Request",
+    };
+  }
+}
+
 /* =========================================================
    Route
 ========================================================= */
@@ -322,7 +351,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const rawNote = safeStr(body?.note).trim();
     const note = rawNote ? rawNote.slice(0, 5000) : "";
 
-    // Load row safely (delivery_status may not exist)
     let cr: any = null;
     let deliveryStatusMissing = false;
 
@@ -359,7 +387,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const role = await requireProjectRole(supabase, projectId, user.id);
     if (!role) return jsonErr("Forbidden", 403);
 
-    // best-effort org + actor name for timeline
     const organisationId = await resolveOrganisationIdForProject(supabase, projectId);
     const actorEmail = safeStr((user as any)?.email ?? "").trim() || null;
     const actorName = await resolveActorName(supabase, user.id, actorEmail);
@@ -368,7 +395,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const fromLane = normalizeLane(cr?.delivery_status) || null;
     const decisionStatus = safeStr(cr?.decision_status).trim().toLowerCase();
 
-    // Idempotent
     if (decisionStatus === "rejected" || govStatus === "rejected") {
       return jsonOk({ item: cr, data: cr, already: "rejected" });
     }
@@ -383,7 +409,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       );
     }
 
-    // strict lane gate if delivery_status column exists
     if (!deliveryStatusMissing && fromLane && fromLane !== "review") {
       return jsonErr(`Only changes in Review can be rejected (current lane=${fromLane}).`, 409);
     }
@@ -396,7 +421,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       );
     }
 
-    // Approver check + pending step
     let pending: any;
     let onBehalfOf: string | null = null;
 
@@ -419,7 +443,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const effectiveApproverUserId = onBehalfOf ?? user.id;
     const actorRoleLabel = onBehalfOf ? "delegate_approver" : "approver";
 
-    // Record rejected decision (idempotent)
     await recordArtifactApprovalDecision({
       supabase,
       chainId: pending.chainId,
@@ -430,7 +453,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       reason: note || null,
     });
 
-    // Recompute
     const state = await recomputeApprovalState({
       supabase,
       artifactId,
@@ -441,7 +463,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const now = new Date().toISOString();
     const toLane = "analysis";
 
-    // --- AUDIT: step rejected ---
     await logApprovalAudit(supabase, req, {
       request_id: requestId,
       project_id: projectId,
@@ -469,7 +490,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       },
     });
 
-    // --- TIMELINE: rejected step ---
     await insertApprovalEvent(supabase, {
       organisation_id: organisationId,
       project_id: projectId,
@@ -501,16 +521,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       status: "rejected",
       decision_status: "rejected",
       decision_rationale: note || null,
-
       decision_by: effectiveApproverUserId,
       decision_at: now,
       decision_role: onBehalfOf ? "delegate_final" : "chain_final",
-
       delivery_status: toLane,
       updated_at: now,
     };
 
-    // legacy columns (compat)
     let patch: any = { ...patchBase, approver_id: effectiveApproverUserId, approval_date: now };
 
     const first = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
@@ -570,7 +587,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         },
       });
 
-      // --- AUDIT: final rejected ---
       await logApprovalAudit(supabase, req, {
         request_id: requestId,
         project_id: projectId,
@@ -594,7 +610,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         },
       });
 
-      // --- TIMELINE: final rejected ---
       await insertApprovalEvent(supabase, {
         organisation_id: organisationId,
         project_id: projectId,
@@ -617,6 +632,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
           decision_status: "rejected",
         },
       });
+
+      try {
+        const projectForNotification = await loadProjectForNotification(supabase, projectId);
+        const changeForNotification = await loadChangeNotificationContext(supabase, id);
+
+        if (changeForNotification.requesterUserId) {
+          await notifyChangeRejected(supabase, {
+            changeId: id,
+            changeTitle: changeForNotification.title,
+            changeType: changeForNotification.changeType,
+            changeAuthorUserId: changeForNotification.requesterUserId,
+            project: projectForNotification,
+            projectFallbackRef: projectId,
+            rejectedByName: actorName ?? actorEmail ?? null,
+            reason: note || null,
+          });
+        }
+      } catch (notifyErr) {
+        console.error("[POST /api/change/:id/reject] notification failed:", notifyErr);
+      }
 
       await emitAiEvent(req, {
         projectId,
@@ -677,7 +712,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       },
     });
 
-    // --- AUDIT: final rejected ---
     await logApprovalAudit(supabase, req, {
       request_id: requestId,
       project_id: projectId,
@@ -701,7 +735,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       },
     });
 
-    // --- TIMELINE: final rejected ---
     await insertApprovalEvent(supabase, {
       organisation_id: organisationId,
       project_id: projectId,
@@ -724,6 +757,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         decision_status: "rejected",
       },
     });
+
+    try {
+      const projectForNotification = await loadProjectForNotification(supabase, projectId);
+      const changeForNotification = await loadChangeNotificationContext(supabase, id);
+
+      if (changeForNotification.requesterUserId) {
+        await notifyChangeRejected(supabase, {
+          changeId: id,
+          changeTitle: changeForNotification.title,
+          changeType: changeForNotification.changeType,
+          changeAuthorUserId: changeForNotification.requesterUserId,
+          project: projectForNotification,
+          projectFallbackRef: projectId,
+          rejectedByName: actorName ?? actorEmail ?? null,
+          reason: note || null,
+        });
+      }
+    } catch (notifyErr) {
+      console.error("[POST /api/change/:id/reject] notification failed:", notifyErr);
+    }
 
     await emitAiEvent(req, {
       projectId,
