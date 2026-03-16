@@ -44,6 +44,16 @@ function isMissingColumnError(errMsg: string, col: string) {
   );
 }
 
+function isMissingFunctionError(errMsg: string, fn: string) {
+  const m = String(errMsg || "").toLowerCase();
+  const f = fn.toLowerCase();
+  return (
+    (m.includes("function") && m.includes(f) && m.includes("does not exist")) ||
+    (m.includes("could not find the function") && m.includes(f)) ||
+    (m.includes("schema cache") && m.includes(f))
+  );
+}
+
 function lower(x: any) {
   return safeStr(x).trim().toLowerCase();
 }
@@ -609,6 +619,21 @@ async function closeApprovalChain(
    Delegate-safe approval helpers
 ========================================================= */
 
+type AtomicApproveRpcResult = {
+  ok?: boolean;
+  step_id?: string | null;
+  slot_id?: string | null;
+  decision_source?: "direct" | "delegated" | "system" | string | null;
+  step_status?: "pending" | "approved" | string | null;
+  chain_status?: "pending" | "approved" | string | null;
+  progressed?: boolean | null;
+  completed_chain?: boolean | null;
+  next_step_id?: string | null;
+  approved_count?: number | null;
+  pending_count?: number | null;
+  required_approvals?: number | null;
+};
+
 function isActiveDelegationNow(row: any, nowIso: string) {
   if (!row) return false;
   if (row?.is_active === false) return false;
@@ -675,16 +700,15 @@ async function markApproverSlotDecision(
     approverRowId: string;
     actorUserId: string;
     nowIso: string;
-    status: "approved" | "rejected" | "changes_requested";
+    status: "approved" | "rejected";
     actingAsDelegate: boolean;
   }
 ) {
   const patchPrimary = {
     status: args.status,
-    approved_at: args.status === "approved" ? args.nowIso : null,
     acted_at: args.nowIso,
-    acted_by_user_id: args.actorUserId,
-    decision_source: args.actingAsDelegate ? "delegate" : "owner",
+    acted_by: args.actorUserId,
+    decision_source: args.actingAsDelegate ? "delegated" : "direct",
   };
 
   const r1 = await supabase
@@ -698,25 +722,19 @@ async function markApproverSlotDecision(
   const msg1 = safeStr(r1.error?.message);
   const patchFallback: Record<string, any> = {
     status: args.status,
-    approved_at: args.status === "approved" ? args.nowIso : null,
     acted_at: args.nowIso,
   };
 
-  const missingActedBy = isMissingColumnError(msg1, "acted_by_user_id");
+  const missingActedBy = isMissingColumnError(msg1, "acted_by");
   const missingDecisionSource = isMissingColumnError(msg1, "decision_source");
   const missingActedAt = isMissingColumnError(msg1, "acted_at");
-  const missingApprovedAt = isMissingColumnError(msg1, "approved_at");
   const missingStatus = isMissingColumnError(msg1, "status");
 
-  if (missingActedBy || missingDecisionSource || missingActedAt || missingApprovedAt || missingStatus) {
+  if (missingActedBy || missingDecisionSource || missingActedAt || missingStatus) {
     if (missingActedAt) delete patchFallback.acted_at;
-    if (missingApprovedAt) delete patchFallback.approved_at;
     if (missingStatus) delete patchFallback.status;
 
-    const r2 = await supabase
-      .from("approval_step_approvers")
-      .update(patchFallback)
-      .eq("id", args.approverRowId);
+    const r2 = await supabase.from("approval_step_approvers").update(patchFallback).eq("id", args.approverRowId);
 
     if (r2.error) throwDb(r2.error, "approval_step_approvers.update(slot_decision_fallback)");
     return;
@@ -1111,6 +1129,43 @@ async function progressApprovalChain(
     approvalsCount: threshold,
     threshold,
   };
+}
+
+async function approveStepAtomic(
+  supabase: any,
+  args: {
+    stepId: string;
+    actorUserId: string;
+    comment?: string | null;
+  }
+): Promise<AtomicApproveRpcResult> {
+  const { data, error } = await supabase.rpc("approve_approval_step_atomic", {
+    p_step_id: args.stepId,
+    p_actor_user_id: args.actorUserId,
+    p_comment: safeStr(args.comment).trim() || null,
+  });
+
+  if (error) {
+    const msg = safeStr(error?.message);
+    if (isMissingFunctionError(msg, "approve_approval_step_atomic")) {
+      throw new Error(
+        "Approval hardening migration is not applied yet. Run the latest database migration before approving."
+      );
+    }
+    throwDb(error, "rpc.approve_approval_step_atomic");
+  }
+
+  const result = (data ?? null) as AtomicApproveRpcResult | null;
+  if (!result || result.ok !== true) {
+    throw new Error("Atomic approval failed.");
+  }
+  return result;
+}
+
+async function getStepById(supabase: any, stepId: string) {
+  const { data, error } = await supabase.from("artifact_approval_steps").select("*").eq("id", stepId).maybeSingle();
+  if (error) throwDb(error, "artifact_approval_steps.select(by_id)");
+  return (data as any) ?? null;
 }
 
 /* =========================================================
@@ -1610,15 +1665,11 @@ export async function approveStep(projectId: string, artifactId: string, comment
   const project = await getProjectNotificationContext(supabase, projectId);
   const actorDisplayName = await getUserDisplayName(supabase, user.id);
 
-  if (approverInfo.matchedApprover?.id) {
-    await markApproverSlotDecision(supabase, {
-      approverRowId: safeStr(approverInfo.matchedApprover.id),
-      actorUserId: user.id,
-      nowIso,
-      status: "approved",
-      actingAsDelegate: !!approverInfo.actingAsDelegate,
-    });
-  }
+  const atomic = await approveStepAtomic(supabase, {
+    stepId: safeStr(currentStep.id),
+    actorUserId: user.id,
+    comment: comment ?? null,
+  });
 
   await addApprovalCommentSafe(supabase, {
     organisationId: safeStr((a0 as any)?.organisation_id) || null,
@@ -1631,18 +1682,15 @@ export async function approveStep(projectId: string, artifactId: string, comment
     body: comment ?? null,
   });
 
-  const progression = await progressApprovalChain(supabase, {
-    artifactId,
-    chain,
-    steps,
-    currentStep,
-    currentPos,
-    actorId: user.id,
-    nowIso,
-    approverCount: approverInfo.approverCount,
-  });
+  const approvalsCount = Number.isFinite(Number(atomic.approved_count)) ? Number(atomic.approved_count) : null;
+  const threshold = Number.isFinite(Number(atomic.required_approvals))
+    ? Number(atomic.required_approvals)
+    : getStepMinApprovals(currentStep, approverInfo.approverCount);
 
-  if (!progression.stepClosed) {
+  const actedAsDelegate =
+    lower(atomic.decision_source) === "delegated" || !!approverInfo.actingAsDelegate;
+
+  if (lower(atomic.step_status) === "pending" && atomic.progressed !== true) {
     await writeApprovalAuditLogValidated(supabase, {
       projectId,
       artifactId,
@@ -1658,13 +1706,14 @@ export async function approveStep(projectId: string, artifactId: string, comment
       after: {
         approval_status: "submitted",
         step_status: "active",
-        approvals_count: progression.approvalsCount,
-        min_approvals: progression.threshold,
+        approvals_count: approvalsCount,
+        min_approvals: threshold,
         step_closed: false,
-        acted_as_delegate: !!approverInfo.actingAsDelegate,
+        acted_as_delegate: actedAsDelegate,
         delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
-        approval_slot_id: safeStr(approverInfo.matchedApprover?.id) || null,
+        approval_slot_id: safeStr(atomic.slot_id) || safeStr(approverInfo.matchedApprover?.id) || null,
         delegation_id: approverInfo.delegationId ?? null,
+        decision_source: safeStr(atomic.decision_source) || null,
       },
     });
 
@@ -1673,7 +1722,10 @@ export async function approveStep(projectId: string, artifactId: string, comment
     return;
   }
 
-  if (progression.nextStep?.id) {
+  if (safeStr(atomic.next_step_id).trim()) {
+    const nextStepId = safeStr(atomic.next_step_id).trim();
+    const nextStep = steps.find((s) => safeStr(s?.id) === nextStepId) ?? (await getStepById(supabase, nextStepId));
+
     try {
       await notifyNextStepApprovers(supabase, {
         artifactId,
@@ -1703,15 +1755,16 @@ export async function approveStep(projectId: string, artifactId: string, comment
       after: {
         approval_status: "submitted",
         step_status: "approved",
-        approvals_count: progression.approvalsCount,
-        min_approvals: progression.threshold,
-        next_step_id: progression.nextStep.id,
-        next_step_status: "active",
+        approvals_count: approvalsCount,
+        min_approvals: threshold,
+        next_step_id: nextStepId,
+        next_step_status: safeStr(nextStep?.status || "active"),
         approval_step_index: Math.max(0, currentPos + 1),
-        acted_as_delegate: !!approverInfo.actingAsDelegate,
+        acted_as_delegate: actedAsDelegate,
         delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
-        approval_slot_id: safeStr(approverInfo.matchedApprover?.id) || null,
+        approval_slot_id: safeStr(atomic.slot_id) || safeStr(approverInfo.matchedApprover?.id) || null,
         delegation_id: approverInfo.delegationId ?? null,
+        decision_source: safeStr(atomic.decision_source) || null,
       },
     });
 
@@ -1759,12 +1812,13 @@ export async function approveStep(projectId: string, artifactId: string, comment
       approved_at: nowIso,
       chain_closed: true,
       step_status: "approved",
-      approvals_count: progression.approvalsCount,
-      min_approvals: progression.threshold,
-      acted_as_delegate: !!approverInfo.actingAsDelegate,
+      approvals_count: approvalsCount,
+      min_approvals: threshold,
+      acted_as_delegate: actedAsDelegate,
       delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
-      approval_slot_id: safeStr(approverInfo.matchedApprover?.id) || null,
+      approval_slot_id: safeStr(atomic.slot_id) || safeStr(approverInfo.matchedApprover?.id) || null,
       delegation_id: approverInfo.delegationId ?? null,
+      decision_source: safeStr(atomic.decision_source) || null,
     },
   });
 
@@ -1831,7 +1885,7 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
       approverRowId: safeStr(approverInfo.matchedApprover.id),
       actorUserId: user.id,
       nowIso,
-      status: "changes_requested",
+      status: "rejected",
       actingAsDelegate: !!approverInfo.actingAsDelegate,
     });
   }
