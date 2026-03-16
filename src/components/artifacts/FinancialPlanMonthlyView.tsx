@@ -462,7 +462,7 @@ export default function FinancialPlanMonthlyView({
 
       {/* -- Table -- */}
       <div style={{ border: `1px solid ${P.borderMd}`, maxHeight: "70vh", overflowY: "auto", overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", background: P.surface, minWidth: `${200 + monthKeys.length * 168 + 120}px` }}>
+        <table style={{ borderCollapse: "collapse", background: P.surface, minWidth: `${200 + monthKeys.length * 180 + 200}px` }}>
 
           {/* -- THEAD -- */}
           <thead style={{ position: "sticky", top: 0, zIndex: 20 }}>
@@ -526,9 +526,9 @@ export default function FinancialPlanMonthlyView({
               <th style={{ position: "sticky", left: 0, zIndex: 30, background: "#F2F2EF", padding: "3px 10px", borderRight: `1px solid ${P.borderMd}`, borderBottom: `1px solid ${P.borderMd}` }} />
               {viewMode === "monthly"
                 ? quarters.flatMap(q => q.months.flatMap(mk => [
-                    <th key={`${mk}-b`} style={{ ...thBase, background: "#EEF4F9", color: P.navy, minWidth: 56 }}>BUD</th>,
-                    <th key={`${mk}-a`} style={{ ...thBase, background: P.violetLt, color: P.violet, minWidth: 56 }}>ACT</th>,
-                    <th key={`${mk}-f`} style={{ ...thBase, background: "#F0F7F3", color: P.green, borderRight: `1px solid ${P.border}`, minWidth: 56 }}>FCT</th>,
+                    <th key={`${mk}-b`} style={{ ...thBase, background: "#EEF4F9", color: P.navy, minWidth: 60 }}>BUD</th>,
+                    <th key={`${mk}-a`} style={{ ...thBase, background: P.violetLt, color: P.violet, minWidth: 60 }}>ACT</th>,
+                    <th key={`${mk}-f`} style={{ ...thBase, background: "#F0F7F3", color: P.green, borderRight: `1px solid ${P.border}`, minWidth: 60 }}>FCT</th>,
                   ]))
                 : quarters.flatMap(q => [
                     <th key={`${q.label}-b`} style={{ ...thBase, background: "#EEF4F9", color: P.navy, padding: "3px 6px" }}>Budget</th>,
@@ -577,10 +577,10 @@ export default function FinancialPlanMonthlyView({
                           const locked = isPastMonth(mk);
                           const fOver  = e.budget && Number(e.forecast) > Number(e.budget);
                           return [
-                            <td key={`${mk}-b`} style={{ borderBottom: `1px solid ${P.border}`, background: "#F2F8FF", minWidth: 56 }}>
+                            <td key={`${mk}-b`} style={{ borderBottom: `1px solid ${P.border}`, background: "#F2F8FF", minWidth: 60 }}>
                               <MoneyInput value={e.budget} onChange={v => updateEntry(line.id, mk, { budget: v })} sym={sym} locked={readOnly} highlight="blue" />
                             </td>,
-                            <td key={`${mk}-a`} style={{ borderBottom: `1px solid ${P.border}`, background: "#F9F7FF", minWidth: 56 }}>
+                            <td key={`${mk}-a`} style={{ borderBottom: `1px solid ${P.border}`, background: "#F9F7FF", minWidth: 60 }}>
                               <MoneyInput value={e.actual} onChange={v => updateEntry(line.id, mk, { actual: v })} sym={sym} locked={locked || readOnly} highlight="gray" />
                             </td>,
                             <td key={`${mk}-f`} style={{ borderBottom: `1px solid ${P.border}`, borderRight: `1px solid ${P.border}`, minWidth: 56, background: fOver ? "#FDF5F4" : "#F3FAF6" }}>
@@ -753,6 +753,7 @@ export default function FinancialPlanMonthlyView({
     </div>
   );
 }
+
 
 
 
