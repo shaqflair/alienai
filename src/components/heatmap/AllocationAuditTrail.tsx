@@ -1,4 +1,4 @@
-// src/components/heatmap/AllocationAuditTrail.tsx
+﻿// src/components/heatmap/AllocationAuditTrail.tsx
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
@@ -23,17 +23,17 @@ type AuditEntry = {
    ACTION CONFIG
 ------------------------------------------------------------- */
 const ACTION_CFG: Record<string, { label: string; icon: string; color: string; bg: string; border: string }> = {
-  "allocation.created":      { label: "Allocated",        icon: "?", color: "#059669", bg: "#f0fdf4", border: "#bbf7d0" },
-  "allocation.updated":      { label: "Updated",          icon: "??", color: "#d97706", bg: "#fffbeb", border: "#fde68a" },
-  "allocation.deleted":      { label: "Removed",          icon: "?",  color: "#dc2626", bg: "#fff5f5", border: "#fecaca" },
-  "allocation.week_updated": { label: "Week edited",      icon: "?", color: "#0891b2", bg: "#ecfeff", border: "#a5f3fc" },
-  "allocation.week_deleted": { label: "Week removed",     icon: "??", color: "#dc2626", bg: "#fff5f5", border: "#fecaca" },
+  "allocation.created":      { label: "Allocated",    icon: "."+"?", color: "#059669", bg: "#f0fdf4", border: "#bbf7d0" },
+  "allocation.updated":      { label: "Updated",          icon: "."~", color: "#d97706", bg: "#fffbeb", border: "#fde68a" },
+  "allocation.deleted":      { label: "Removed",      icon: "."-"?",  color: "#dc2626", bg: "#fff5f5", border: "#fecaca" },
+  "allocation.week_updated": { label: "Week edited",   icon: "."~"?", color: "#0891b2", bg: "#ecfeff", border: "#a5f3fc" },
+  "allocation.week_deleted": { label: "Week removed",     icon: "."~", color: "#dc2626", bg: "#fff5f5", border: "#fecaca" },
 };
 
 function cfgFor(action: string) {
   return ACTION_CFG[action] ?? {
     label: action.replace(/[._]/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
-    icon: "?", color: "#475569", bg: "#f8fafc", border: "#e2e8f0",
+    icon: "."?", color: "#475569", bg: "#f8fafc", border: "#e2e8f0",
   };
 }
 
@@ -94,7 +94,7 @@ function DiffDetail({ entry }: { entry: AuditEntry }) {
         <>
           {renderField("Person",     after.person_name)}
           {renderField("Project",    after.project_title ?? (after.project_code ? `${after.project_code}` : null))}
-          {renderField("Dates",      after.start_date && after.end_date ? `${after.start_date} ? ${after.end_date}` : null)}
+          {renderField("Dates",      after.start_date && after.end_date ? `${after.start_date} to ${after.end_date}` : null)}
           {renderField("Days/wk",    after.days_per_week)}
           {renderField("Weeks",      after.weeks_inserted)}
           {renderField("Total days", after.total_days)}
@@ -113,7 +113,7 @@ function DiffDetail({ entry }: { entry: AuditEntry }) {
             <div style={{ display: "flex", gap: 6, fontSize: 11 }}>
               <span style={{ color: "#94a3b8" }}>Start</span>
               <span style={{ color: "#dc2626", textDecoration: "line-through" }}>{before.start_date}</span>
-              <span style={{ color: "#94a3b8" }}>?</span>
+              <span style={{ color: "#94a3b8" }}>{"->"}</span>
               <span style={{ color: "#059669", fontWeight: 700 }}>{after.start_date}</span>
             </div>
           )}
@@ -121,7 +121,7 @@ function DiffDetail({ entry }: { entry: AuditEntry }) {
             <div style={{ display: "flex", gap: 6, fontSize: 11 }}>
               <span style={{ color: "#94a3b8" }}>End</span>
               <span style={{ color: "#dc2626", textDecoration: "line-through" }}>{before.end_date}</span>
-              <span style={{ color: "#94a3b8" }}>?</span>
+              <span style={{ color: "#94a3b8" }}>{"->"}</span>
               <span style={{ color: "#059669", fontWeight: 700 }}>{after.end_date}</span>
             </div>
           )}
@@ -129,7 +129,7 @@ function DiffDetail({ entry }: { entry: AuditEntry }) {
             <div style={{ display: "flex", gap: 6, fontSize: 11 }}>
               <span style={{ color: "#94a3b8" }}>Days/wk</span>
               <span style={{ color: "#dc2626", textDecoration: "line-through" }}>{before.days_per_week}</span>
-              <span style={{ color: "#94a3b8" }}>?</span>
+              <span style={{ color: "#94a3b8" }}>{"->"}</span>
               <span style={{ color: "#059669", fontWeight: 700 }}>{after.days_per_week}</span>
             </div>
           )}
@@ -142,7 +142,7 @@ function DiffDetail({ entry }: { entry: AuditEntry }) {
           {renderField("Person",       before.person_name)}
           {renderField("Weeks removed", before.weeks_removed)}
           {renderField("Total days",   before.total_days)}
-          {renderField("Period",       before.first_week && before.last_week ? `${before.first_week} ? ${before.last_week}` : null)}
+          {renderField("Period",       before.first_week && before.last_week ? `${before.first_week} to ${before.last_week}` : null)}
         </>
       )}
 
@@ -153,7 +153,7 @@ function DiffDetail({ entry }: { entry: AuditEntry }) {
             <div style={{ display: "flex", gap: 6, fontSize: 11 }}>
               <span style={{ color: "#94a3b8" }}>Days</span>
               <span style={{ color: "#dc2626", textDecoration: "line-through" }}>{before.days_allocated}d</span>
-              <span style={{ color: "#94a3b8" }}>?</span>
+              <span style={{ color: "#94a3b8" }}>{"->"}</span>
               <span style={{ color: "#059669", fontWeight: 700 }}>{after.days_allocated}d</span>
             </div>
           )}
@@ -210,7 +210,7 @@ function EntryRow({ entry, expanded, onToggle }: {
         </div>
         {hasDetail && (
           <span style={{ color: "#94a3b8", fontSize: 10, flexShrink: 0 }}>
-            {expanded ? "?" : "?"}
+            {expanded ? "^" : "v"}
           </span>
         )}
       </button>
@@ -318,7 +318,7 @@ export default function AllocationAuditTrail({
       {/* States */}
       {loading && (
         <div style={{ padding: "32px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>
-          Loading?
+          Loading...
         </div>
       )}
       {error && !loading && (
@@ -350,12 +350,13 @@ export default function AllocationAuditTrail({
       {totalPages > 1 && (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 14 }}>
           <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            style={{ ...S.filterBtn(false), opacity: page === 1 ? 0.4 : 1 }}>? Prev</button>
+            style={{ ...S.filterBtn(false), opacity: page === 1 ? 0.4 : 1 }}>{"<-"} Prev</button>
           <span style={{ fontSize: 11, color: "#64748b" }}>Page {page} of {totalPages}</span>
           <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            style={{ ...S.filterBtn(false), opacity: page === totalPages ? 0.4 : 1 }}>Next ?</button>
+            style={{ ...S.filterBtn(false), opacity: page === totalPages ? 0.4 : 1 }}>Next {"->"}  </button>
         </div>
       )}
     </div>
   );
 }
+
