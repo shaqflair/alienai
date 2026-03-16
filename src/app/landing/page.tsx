@@ -1,4 +1,6 @@
-﻿import type { Metadata } from "next";
+﻿// src/app/landing/page.tsx
+
+import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Aliena AI — The AI Governance Platform for Modern Programme Delivery",
@@ -14,7 +16,7 @@ function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 12 }}>
       <img
-        src="https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png"
+        src="https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png "
         alt="Aliena AI logo"
         width={imgSizes[size]}
         height={imgSizes[size]}
@@ -46,6 +48,162 @@ function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
         ))}
       </span>
     </span>
+  );
+}
+
+// Governance Graph Component - Self-contained
+function GovernanceGraph() {
+  const nodes = [
+    { id: 'programme', x: 50, y: 12, label: 'Programme', sublabel: 'Portfolio View', icon: '🏢', color: '#00B8DB', connections: ['pmo', 'finance', 'delivery'], health: 92 },
+    { id: 'pmo', x: 20, y: 32, label: 'PMO Hub', sublabel: 'Governance', icon: '👥', color: '#4DE3FF', connections: ['approvals', 'raid'], health: 88 },
+    { id: 'finance', x: 50, y: 32, label: 'Finance', sublabel: 'Budget', icon: '💰', color: '#22C55E', connections: ['variance', 'reporting'], health: 95 },
+    { id: 'delivery', x: 80, y: 32, label: 'Delivery', sublabel: 'Execution', icon: '📈', color: '#EAB308', connections: ['milestones', 'resources'], health: 78 },
+    { id: 'approvals', x: 10, y: 52, label: 'Approvals', sublabel: '4 Pending', icon: '✓', color: '#F97316', connections: ['ai'], health: 65 },
+    { id: 'raid', x: 30, y: 52, label: 'RAID', sublabel: '12 Active', icon: '⚠', color: '#EF4444', connections: ['ai'], health: 72 },
+    { id: 'variance', x: 45, y: 52, label: 'Variance', sublabel: '£1.2M', icon: '📊', color: '#F97316', connections: ['ai'], health: 58 },
+    { id: 'milestones', x: 65, y: 52, label: 'Milestones', sublabel: '3 At Risk', icon: '🎯', color: '#EAB308', connections: ['ai'], health: 81 },
+    { id: 'resources', x: 85, y: 52, label: 'Resources', sublabel: 'Overallocated', icon: '👤', color: '#EF4444', connections: ['ai'], health: 45 },
+    { id: 'ai', x: 50, y: 72, label: 'AI Brain', sublabel: 'Intelligence', icon: '🧠', color: '#A855F7', connections: ['reporting'], health: 99 },
+    { id: 'reporting', x: 50, y: 90, label: 'Executive Cockpit', sublabel: 'Unified View', icon: '📋', color: '#00B8DB', connections: [], health: 100 },
+  ];
+
+  const getHealthColor = (health: number) => {
+    if (health >= 80) return '#22C55E';
+    if (health >= 60) return '#EAB308';
+    return '#EF4444';
+  };
+
+  return (
+    <div className="governance-graph">
+      {/* Grid Background */}
+      <div className="graph-grid" />
+      
+      {/* SVG Connections */}
+      <svg className="graph-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <defs>
+          <marker id="arrow" markerWidth="3" markerHeight="3" refX="2.5" refY="1.5" orient="auto">
+            <polygon points="0 0, 3 1.5, 0 3" fill="#00B8DB" opacity="0.5" />
+          </marker>
+          <linearGradient id="connGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#00B8DB" stopOpacity="0.1" />
+            <stop offset="50%" stopColor="#00B8DB" stopOpacity="0.6" />
+            <stop offset="100%" stopColor="#00B8DB" stopOpacity="0.1" />
+          </linearGradient>
+        </defs>
+        
+        {/* Connection lines */}
+        {nodes.map((node) => 
+          node.connections.map((connId) => {
+            const target = nodes.find(n => n.id === connId);
+            if (!target) return null;
+            return (
+              <line
+                key={`${node.id}-${connId}`}
+                x1={node.x}
+                y1={node.y}
+                x2={target.x}
+                y2={target.y}
+                stroke="url(#connGradient)"
+                strokeWidth="0.3"
+                strokeDasharray="1,0.5"
+                markerEnd="url(#arrow)"
+              />
+            );
+          })
+        )}
+        
+        {/* Animated data packets */}
+        {nodes.map((node) => 
+          node.connections.map((connId, i) => {
+            const target = nodes.find(n => n.id === connId);
+            if (!target) return null;
+            return (
+              <circle key={`packet-${node.id}-${connId}`} r="0.4" fill="#4DE3FF" opacity="0.8">
+                <animate
+                  attributeName="cx"
+                  values={`${node.x};${target.x}`}
+                  dur={`${2 + i * 0.3}s`}
+                  repeatCount="indefinite"
+                />
+                <animate
+                  attributeName="cy"
+                  values={`${node.y};${target.y}`}
+                  dur={`${2 + i * 0.3}s`}
+                  repeatCount="indefinite"
+                />
+                <animate
+                  attributeName="opacity"
+                  values="0;1;0"
+                  dur={`${2 + i * 0.3}s`}
+                  repeatCount="indefinite"
+                />
+              </circle>
+            );
+          })
+        )}
+      </svg>
+
+      {/* Nodes */}
+      {nodes.map((node) => (
+        <div
+          key={node.id}
+          className={`graph-node ${node.id === 'ai' ? 'ai-node' : ''}`}
+          style={{ left: `${node.x}%`, top: `${node.y}%` }}
+        >
+          {/* Health ring */}
+          {node.health && (
+            <svg className="health-ring" viewBox="0 0 36 36">
+              <path
+                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                fill="none"
+                stroke={getHealthColor(node.health)}
+                strokeWidth="2"
+                strokeDasharray={`${node.health}, 100`}
+                strokeLinecap="round"
+                style={{ transform: 'rotate(-90deg)', transformOrigin: 'center' }}
+              />
+            </svg>
+          )}
+          
+          {/* AI Pulse effect */}
+          {node.id === 'ai' && (
+            <>
+              <div className="ai-pulse" />
+              <div className="ai-pulse" style={{ animationDelay: '0.5s' }} />
+            </>
+          )}
+          
+          {/* Node content */}
+          <div className="node-inner" style={{ borderColor: node.color }}>
+            <span className="node-icon">{node.icon}</span>
+          </div>
+          
+          {/* Labels */}
+          <div className="node-labels">
+            <div className="node-label">{node.label}</div>
+            <div className="node-sublabel">{node.sublabel}</div>
+            {node.health && (
+              <div className="node-health" style={{ color: getHealthColor(node.health) }}>
+                {node.health}%
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {/* Legend */}
+      <div className="graph-legend">
+        <div className="legend-title">HEALTH STATUS</div>
+        <div className="legend-item"><span className="dot green" /> Healthy (80%+)</div>
+        <div className="legend-item"><span className="dot yellow" /> Warning (60-79%)</div>
+        <div className="legend-item"><span className="dot red" /> Critical (&lt;60%)</div>
+      </div>
+
+      {/* Live indicator */}
+      <div className="live-indicator">
+        <span className="live-dot" /> LIVE DATA FLOW
+      </div>
+    </div>
   );
 }
 
@@ -187,6 +345,7 @@ export default function LandingPage() {
           --cyan-bright: #4DE3FF;
           --green: #22C55E;
           --gold: #EAB308;
+          --purple: #A855F7;
           --shadow: 0 18px 60px rgba(0,0,0,0.28);
           --radius: 22px;
           --radius-sm: 14px;
@@ -1170,6 +1329,267 @@ export default function LandingPage() {
           font-size: 13px;
         }
 
+        /* ===== GOVERNANCE GRAPH STYLES ===== */
+        .governance-section {
+          padding: 80px 0;
+          background: #020408;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .governance-section::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: 
+            radial-gradient(circle at 50% 50%, rgba(0,184,219,0.08) 0%, transparent 50%),
+            radial-gradient(ellipse at 50% 0%, rgba(0,184,219,0.05) 0%, transparent 40%);
+          pointer-events: none;
+        }
+
+        .starfield {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+        }
+
+        .star {
+          position: absolute;
+          width: 2px;
+          height: 2px;
+          background: white;
+          border-radius: 50%;
+          animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+          0%, 100% { opacity: 0.2; }
+          50% { opacity: 0.8; }
+        }
+
+        .governance-graph {
+          position: relative;
+          width: 100%;
+          height: 550px;
+          background: rgba(11,15,20,0.6);
+          backdrop-filter: blur(20px);
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 24px;
+          overflow: hidden;
+        }
+
+        .governance-graph::before,
+        .governance-graph::after {
+          content: '';
+          position: absolute;
+          width: 40px;
+          height: 40px;
+          border-color: rgba(0,184,219,0.3);
+          border-style: solid;
+          pointer-events: none;
+        }
+
+        .governance-graph::before {
+          top: 0;
+          left: 0;
+          border-width: 2px 0 0 2px;
+          border-radius: 24px 0 0 0;
+        }
+
+        .governance-graph::after {
+          bottom: 0;
+          right: 0;
+          border-width: 0 2px 2px 0;
+          border-radius: 0 0 24px 0;
+        }
+
+        .graph-grid {
+          position: absolute;
+          inset: 0;
+          background-image: 
+            linear-gradient(rgba(0,184,219,0.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0,184,219,0.05) 1px, transparent 1px);
+          background-size: 40px 40px;
+          opacity: 0.5;
+        }
+
+        .graph-svg {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+        }
+
+        .graph-node {
+          position: absolute;
+          transform: translate(-50%, -50%);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          cursor: pointer;
+          z-index: 10;
+          transition: transform 0.3s ease;
+        }
+
+        .graph-node:hover {
+          transform: translate(-50%, -50%) scale(1.1);
+        }
+
+        .node-inner {
+          width: 50px;
+          height: 50px;
+          border-radius: 50%;
+          background: rgba(5,7,10,0.95);
+          border: 2px solid;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 20px;
+          position: relative;
+          z-index: 2;
+          box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        .health-ring {
+          position: absolute;
+          width: 58px;
+          height: 58px;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          z-index: 1;
+        }
+
+        .ai-node .node-inner {
+          animation: aiGlow 2s ease-in-out infinite;
+        }
+
+        @keyframes aiGlow {
+          0%, 100% { box-shadow: 0 0 10px rgba(168,85,247,0.5); }
+          50% { box-shadow: 0 0 25px rgba(168,85,247,0.8), 0 0 40px rgba(168,85,247,0.4); }
+        }
+
+        .ai-pulse {
+          position: absolute;
+          width: 50px;
+          height: 50px;
+          border-radius: 50%;
+          border: 2px solid var(--purple);
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          animation: pulse 1.5s ease-out infinite;
+        }
+
+        @keyframes pulse {
+          0% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+          100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
+        }
+
+        .node-labels {
+          margin-top: 8px;
+          text-align: center;
+          white-space: nowrap;
+        }
+
+        .node-label {
+          font-family: var(--display);
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--text);
+        }
+
+        .node-sublabel {
+          font-family: var(--mono);
+          font-size: 9px;
+          color: var(--muted-2);
+          margin-top: 2px;
+        }
+
+        .node-health {
+          font-family: var(--mono);
+          font-size: 10px;
+          font-weight: 600;
+          margin-top: 4px;
+        }
+
+        .graph-legend {
+          position: absolute;
+          bottom: 16px;
+          left: 16px;
+          background: rgba(11,15,20,0.9);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 12px;
+          padding: 12px 16px;
+        }
+
+        .legend-title {
+          font-family: var(--mono);
+          font-size: 9px;
+          color: var(--muted-2);
+          margin-bottom: 8px;
+          letter-spacing: 0.1em;
+        }
+
+        .legend-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 11px;
+          color: var(--muted);
+          margin-bottom: 4px;
+        }
+
+        .legend-item:last-child { margin-bottom: 0; }
+
+        .dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+        }
+
+        .dot.green { background: var(--green); }
+        .dot.yellow { background: var(--gold); }
+        .dot.red { background: #EF4444; }
+
+        .live-indicator {
+          position: absolute;
+          top: 16px;
+          left: 16px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-family: var(--mono);
+          font-size: 10px;
+          color: var(--green);
+          letter-spacing: 0.05em;
+        }
+
+        .live-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--green);
+          animation: livePulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes livePulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(1.2); }
+        }
+
+        .graph-header {
+          position: absolute;
+          top: 16px;
+          right: 16px;
+          display: flex;
+          gap: 16px;
+          font-family: var(--mono);
+          font-size: 10px;
+          color: var(--muted-2);
+        }
+
         @media (max-width: 1120px) {
           .hero-grid,
           .showcase-grid,
@@ -1188,6 +1608,12 @@ export default function LandingPage() {
           }
 
           .hero-panel { min-height: auto; }
+          
+          .governance-graph { height: 400px; }
+          .node-inner { width: 40px; height: 40px; font-size: 16px; }
+          .health-ring { width: 48px; height: 48px; }
+          .node-label { font-size: 9px; }
+          .node-sublabel { font-size: 8px; }
         }
 
         @media (max-width: 860px) {
@@ -1207,6 +1633,9 @@ export default function LandingPage() {
             flex-direction: column;
             align-items: flex-start;
           }
+          
+          .governance-graph { height: 350px; }
+          .graph-legend { display: none; }
         }
 
         @media (max-width: 560px) {
@@ -1233,6 +1662,10 @@ export default function LandingPage() {
           .cta-panel {
             padding: 38px 20px;
           }
+          
+          .governance-graph { height: 300px; }
+          .node-inner { width: 32px; height: 32px; font-size: 14px; }
+          .health-ring { width: 40px; height: 40px; }
         }
       `}</style>
 
@@ -1251,6 +1684,9 @@ export default function LandingPage() {
               </a>
               <a href="#showcase" className="nav-link">
                 Product
+              </a>
+              <a href="#intelligence" className="nav-link">
+                Intelligence
               </a>
               <a href="#outcomes" className="nav-link">
                 Outcomes
@@ -1272,6 +1708,9 @@ export default function LandingPage() {
         </nav>
 
         <main>
+          {/* ... (keep all your existing sections: hero, trust, problem, pillars, showcase) ... */}
+          
+          {/* HERO SECTION - keep existing */}
           <section className="hero">
             <div className="shell">
               <div className="hero-grid">
@@ -1424,6 +1863,7 @@ export default function LandingPage() {
             </div>
           </section>
 
+          {/* TRUST BAND - keep existing */}
           <div className="trust-band">
             <div className="trust-row">
               {trust.map((item) => (
@@ -1434,6 +1874,7 @@ export default function LandingPage() {
             </div>
           </div>
 
+          {/* PROBLEM SECTION - keep existing */}
           <section className="section">
             <div className="shell">
               <div className="section-head">
@@ -1477,6 +1918,7 @@ export default function LandingPage() {
             </div>
           </section>
 
+          {/* PLATFORM PILARS - keep existing */}
           <section className="section" id="platform">
             <div className="shell">
               <div className="section-head">
@@ -1510,6 +1952,7 @@ export default function LandingPage() {
             </div>
           </section>
 
+          {/* SHOWCASE SECTION - keep existing */}
           <section className="section" id="showcase">
             <div className="shell">
               <div className="section-head">
@@ -1627,6 +2070,39 @@ export default function LandingPage() {
             </div>
           </section>
 
+          {/* ===== NEW: GOVERNANCE INTELLIGENCE SECTION ===== */}
+          <section className="governance-section" id="intelligence">
+            {/* Starfield Background */}
+            <div className="starfield">
+              {[...Array(40)].map((_, i) => (
+                <div
+                  key={i}
+                  className="star"
+                  style={{
+                    left: `${Math.random() * 100}%`,
+                    top: `${Math.random() * 100}%`,
+                    animationDelay: `${Math.random() * 3}s`,
+                  }}
+                />
+              ))}
+            </div>
+
+            <div className="shell" style={{ position: 'relative', zIndex: 1 }}>
+              <div className="section-head" style={{ textAlign: 'center', maxWidth: '800px', margin: '0 auto 40px' }}>
+                <div className="section-kicker">Governance Intelligence</div>
+                <h2 className="section-title">
+                  The <span style={{ color: '#00B8DB' }}>Ontology</span> of Delivery
+                </h2>
+                <p className="section-sub">
+                  See how Aliena connects programmes, PMO, finance, and delivery into a unified intelligence layer. Data flows in real-time. Insights emerge automatically.
+                </p>
+              </div>
+
+              <GovernanceGraph />
+            </div>
+          </section>
+
+          {/* COMPARISON SECTION - keep existing */}
           <section className="section">
             <div className="shell">
               <div className="section-head">
@@ -1680,6 +2156,7 @@ export default function LandingPage() {
             </div>
           </section>
 
+          {/* OUTCOMES SECTION - keep existing */}
           <section className="section" id="outcomes">
             <div className="shell">
               <div className="section-head">
@@ -1705,6 +2182,7 @@ export default function LandingPage() {
             </div>
           </section>
 
+          {/* AUDIENCE SECTION - keep existing */}
           <section className="section">
             <div className="shell">
               <div className="section-head">
@@ -1730,6 +2208,7 @@ export default function LandingPage() {
             </div>
           </section>
 
+          {/* SECURITY SECTION - keep existing */}
           <section className="section" id="security">
             <div className="shell">
               <div className="section-head">
@@ -1796,6 +2275,7 @@ export default function LandingPage() {
             </div>
           </section>
 
+          {/* CTA SECTION - keep existing */}
           <section className="cta-wrap">
             <div className="shell">
               <div className="cta-panel">
@@ -1827,6 +2307,7 @@ export default function LandingPage() {
           </section>
         </main>
 
+        {/* FOOTER - keep existing */}
         <footer className="footer">
           <div className="shell">
             <div className="footer-inner">
