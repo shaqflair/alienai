@@ -200,7 +200,7 @@ function QuarterRow({ label, months, monthlyData, lines, sym, collapsed, onToggl
             fontFamily: P.mono, fontSize: 11, display: "inline-block",
             transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
             transition: "transform 0.15s", color: P.textMd,
-          }}>?</span>
+          }}>{">"}</span>
           <span style={{ fontFamily: P.mono, fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: P.text }}>
             {label}
           </span>
@@ -249,7 +249,7 @@ type Props = {
 
 const FY_START_OPTIONS = [
   { value: 1,  label: "Jan -- Calendar year" },
-  { value: 4,  label: "Apr -- UK / NHS" },
+  { value: 4,  label: "Apr -- UK FY" },
   { value: 7,  label: "Jul" },
   { value: 10, label: "Oct" },
 ];
@@ -462,7 +462,7 @@ export default function FinancialPlanMonthlyView({
 
       {/* -- Table -- */}
       <div style={{ border: `1px solid ${P.borderMd}`, maxHeight: "70vh", overflowY: "auto", overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", background: P.surface, minWidth: `${200 + monthKeys.length * 168 + 90}px` }}>
+        <table style={{ borderCollapse: "collapse", background: P.surface, minWidth: `${200 + monthKeys.length * 168 + 120}px` }}>
 
           {/* -- THEAD -- */}
           <thead style={{ position: "sticky", top: 0, zIndex: 20 }}>
@@ -631,7 +631,7 @@ export default function FinancialPlanMonthlyView({
                               <span style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 600, color: (mv ?? 0) > 0 ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>
                                 {(mv ?? 0) > 0 ? "+" : "-"} {fmtK(Math.abs(mv!), sym)}
                               </span>
-                            ) : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>?</span>}
+                            ) : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>{">"}</span>}
                           </td>,
                         ];
                       })}
@@ -753,5 +753,6 @@ export default function FinancialPlanMonthlyView({
     </div>
   );
 }
+
 
 
