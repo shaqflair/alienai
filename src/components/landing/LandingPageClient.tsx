@@ -301,7 +301,9 @@ export default function LandingPageClient() {
         .al-h2{font-family:'Space Grotesk',sans-serif;font-size:clamp(32px,4.5vw,56px);line-height:1.0;letter-spacing:-0.035em;font-weight:700;margin-bottom:16px}
         .al-sub{font-size:17px;line-height:1.75;color:#99A6B7;max-width:680px}
         .cockpit-card{background:rgba(8,12,20,0.88);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);border:1px solid rgba(255,255,255,0.1);border-radius:22px;box-shadow:0 32px 80px rgba(0,0,0,0.55);animation:al-glow 4s 2s ease-in-out infinite;overflow:hidden}
-        @media(max-width:1100px){.hero-r{display:none!important}.pg2{grid-template-columns:1fr!important}.pg3{grid-template-columns:1fr!important}.og4{grid-template-columns:repeat(2,1fr)!important}.ag3{grid-template-columns:1fr!important}.cc2{grid-template-columns:1fr!important}}
+        .ont-grid{display:grid;grid-template-columns:280px 1fr;gap:20px}
+        .sec-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+        @media(max-width:1100px){.hero-r{display:none!important}.pg2{grid-template-columns:1fr!important}.pg3{grid-template-columns:1fr!important}.og4{grid-template-columns:repeat(2,1fr)!important}.ag3{grid-template-columns:1fr!important}.cc2{grid-template-columns:1fr!important}.ont-grid{grid-template-columns:1fr!important}.sec-grid{grid-template-columns:1fr!important}}
         @media(max-width:768px){.nl{display:none!important}.og4{grid-template-columns:1fr 1fr!important}}
         @media(max-width:520px){.ha{display:grid!important;width:100%}.ca{display:grid!important;width:100%}.al-btn{width:100%;justify-content:center}.og4{grid-template-columns:1fr!important}}
       `}</style>
@@ -319,7 +321,7 @@ export default function LandingPageClient() {
           </div>
           <div style={{ display:"flex", gap:10 }}>
             <a href="/login" className="al-btn al-btn-g">Sign in</a>
-            <a href="mailto:hello@aliena.co.uk" className="al-btn al-btn-p">Book a demo</a>
+            <a href="mailto:support@aliena.co.uk" className="al-btn al-btn-p">Book a demo</a>
           </div>
         </div>
       </nav>
@@ -327,7 +329,10 @@ export default function LandingPageClient() {
       {/* HERO */}
       <section style={{ position:"relative", minHeight:"100vh", display:"flex", alignItems:"center", paddingTop:80, overflow:"hidden", background:"radial-gradient(ellipse at 65% 50%,rgba(0,184,219,0.07) 0%,transparent 55%),radial-gradient(ellipse at 90% 15%,rgba(77,227,255,0.05) 0%,transparent 30%),linear-gradient(180deg,#03050A 0%,#060C14 100%)" }}>
         <Starfield density={1} />
-        <div aria-hidden style={{ position:"absolute", borderRadius:"50%", width:700, height:700, top:"5%", right:"15%", background:"radial-gradient(circle,rgba(0,184,219,0.09) 0%,transparent 70%)", pointerEvents:"none" }} />
+        {/* Background logo watermark */}
+        <div aria-hidden style={{ position:"absolute", right:"-4%", top:"50%", transform:"translateY(-50%)", width:"55vw", maxWidth:780, aspectRatio:"1", opacity:0.055, pointerEvents:"none", zIndex:1 }}>
+          <img src="https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png" alt="" style={{ width:"100%", height:"100%", objectFit:"contain", filter:"blur(2px)" }} />
+        </div>
         <div className="al-sh" style={{ position:"relative", zIndex:2 }}>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:48, alignItems:"center", minHeight:"calc(100vh - 80px)", padding:"60px 0" }}>
             {/* Left */}
@@ -336,15 +341,16 @@ export default function LandingPageClient() {
                 <span style={{ width:7, height:7, borderRadius:"50%", background:C.cyan, boxShadow:`0 0 10px ${C.cyan}`, display:"inline-block" }} />
                 AI Governance Platform for Programme Delivery
               </div>
-              <h1 className="al-f2" style={{ fontFamily:dp, fontSize:"clamp(46px,6vw,84px)", lineHeight:0.95, letterSpacing:"-0.04em", fontWeight:700, marginBottom:22 }}>
-                Govern complex<br />delivery with an<br /><span className="tg">AI-native</span><br />control layer
+              <h1 className="al-f2" style={{ marginBottom:22 }}>
+                <span style={{ fontFamily:"'Inter',system-ui,sans-serif", fontSize:"clamp(32px,4.2vw,58px)", lineHeight:1.05, letterSpacing:"-0.02em", fontWeight:300, display:"block", color:"rgba(242,245,250,0.82)" }}>Govern complex delivery with an</span>
+                <span style={{ fontFamily:dp, fontSize:"clamp(40px,5.5vw,76px)", lineHeight:0.95, letterSpacing:"-0.045em", fontWeight:700, display:"block", marginTop:4 }}><span className="tg">AI-native</span> control layer</span>
               </h1>
               <p className="al-f3" style={{ fontSize:18, lineHeight:1.7, color:C.muted, maxWidth:540, marginBottom:34 }}>
                 Aliena AI brings approvals, RAID, financial oversight, resource planning and executive reporting into one boardroom-grade operating system for PMOs, delivery leaders and regulated organisations.
               </p>
               <div className="al-f4 ha" style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:28 }}>
                 <a href="/login" className="al-btn al-btn-p al-lg">Start pilot <ArrowRight size={16} /></a>
-                <a href="mailto:hello@aliena.co.uk" className="al-btn al-btn-o al-lg">Talk to Aliena</a>
+                <a href="mailto:support@aliena.co.uk" className="al-btn al-btn-o al-lg">Talk to Aliena</a>
               </div>
               <div className="al-f5" style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
                 {["Executive Cockpit","Governance Hub","AI Risk Signals","Audit-ready workflows"].map(p => (
@@ -470,7 +476,7 @@ export default function LandingPageClient() {
               <Sparkles size={28} color={C.cyan} />
               <div style={{ fontFamily:dp, fontSize:22, fontWeight:700 }}>Ready to see it live?</div>
               <div style={{ color:C.muted, fontSize:14, lineHeight:1.6, maxWidth:220 }}>Book a leadership demo and see Aliena in your delivery context.</div>
-              <a href="mailto:hello@aliena.co.uk" className="al-btn al-btn-p" style={{ marginTop:4 }}>Book demo <ArrowRight size={14} /></a>
+              <a href="mailto:support@aliena.co.uk" className="al-btn al-btn-p" style={{ marginTop:4 }}>Book demo <ArrowRight size={14} /></a>
             </div>
           </div>
         </div>
@@ -489,22 +495,45 @@ export default function LandingPageClient() {
             <h2 className="al-h2">The <span className="tg">Ontology</span> of Delivery</h2>
             <p className="al-sub" style={{ margin:"0 auto" }}>See how Aliena connects programmes, PMO, finance, and delivery into a unified intelligence layer. Data flows in real-time. Insights emerge automatically.</p>
           </div>
-          <div style={{ position:"relative", background:"rgba(8,12,20,0.65)", backdropFilter:"blur(24px)", WebkitBackdropFilter:"blur(24px)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:26, padding:"54px 20px 20px", height:580, boxShadow:"0 40px 100px rgba(0,0,0,0.5)" }}>
-            {[{top:0,left:0,bw:"2px 0 0 2px"},{top:0,right:0,bw:"2px 2px 0 0"},{bottom:0,left:0,bw:"0 0 2px 2px"},{bottom:0,right:0,bw:"0 2px 2px 0"}].map((s,i)=>(
-              <div key={i} aria-hidden style={{ position:"absolute", width:36, height:36, borderColor:"rgba(0,184,219,0.25)", borderStyle:"solid", borderWidth:s.bw, borderRadius:26, ...(s.top!==undefined?{top:0}:{}), ...(s.bottom!==undefined?{bottom:0}:{}), ...(s.left!==undefined?{left:0}:{}), ...(s.right!==undefined?{right:0}:{}), pointerEvents:"none" }} />
-            ))}
-            <div style={{ position:"absolute", top:16, left:20, right:20, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:mn, fontSize:10, color:"#22C55E" }}>
-                <div style={{ width:6, height:6, borderRadius:"50%", background:"#22C55E", animation:"al-live 1.5s ease-in-out infinite" }} />
-                LIVE GOVERNANCE ONTOLOGY
-              </div>
-              <div style={{ display:"flex", gap:10, fontFamily:mn, fontSize:10, color:C.muted2 }}>
-                {["11 NODES","13 CONNECTIONS","84% HEALTH"].map(t=>(
-                  <span key={t} style={{ background:"rgba(255,255,255,0.05)", padding:"3px 8px", borderRadius:6 }}>{t}</span>
-                ))}
-              </div>
+
+          {/* Two-column: sidebar + graph */}
+          <div className="ont-grid" style={{ display:"grid", gridTemplateColumns:"280px 1fr", gap:20, alignItems:"stretch" }}>
+            {/* Left sidebar */}
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              {[
+                { label:"Real-time Sync",    desc:"Live data flows across all governance nodes",       color:C.cyan },
+                { label:"Health Monitoring", desc:"Automated scoring of programme health",             color:C.green },
+                { label:"AI Synthesis",      desc:"Intelligent insights from disconnected data",       color:C.purple },
+                { label:"Unified View",      desc:"Single source of truth for leadership",             color:C.amber },
+              ].map(f => (
+                <div key={f.label} style={{ padding:"14px 16px", borderRadius:14, border:"1px solid rgba(255,255,255,0.07)", background:"rgba(8,12,20,0.72)", backdropFilter:"blur(16px)", WebkitBackdropFilter:"blur(16px)", transition:"border-color 0.2s" }}>
+                  <div style={{ fontFamily:mn, fontSize:10, color:f.color, letterSpacing:"0.08em", marginBottom:6 }}>{f.label}</div>
+                  <div style={{ fontSize:13, color:C.muted, lineHeight:1.55 }}>{f.desc}</div>
+                </div>
+              ))}
+              <a href="mailto:support@aliena.co.uk" className="al-btn al-btn-p" style={{ marginTop:4, justifyContent:"center" }}>
+                Explore the Ontology <ArrowRight size={14} />
+              </a>
             </div>
-            <GovernanceGraph />
+
+            {/* Graph panel */}
+            <div style={{ position:"relative", background:"rgba(8,12,20,0.65)", backdropFilter:"blur(24px)", WebkitBackdropFilter:"blur(24px)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:26, padding:"54px 20px 20px", minHeight:560, boxShadow:"0 40px 100px rgba(0,0,0,0.5)" }}>
+              {[{t:0,l:0,bw:"2px 0 0 2px"},{t:0,r:0,bw:"2px 2px 0 0"},{b:0,l:0,bw:"0 0 2px 2px"},{b:0,r:0,bw:"0 2px 2px 0"}].map((s,i)=>(
+                <div key={i} aria-hidden style={{ position:"absolute", width:36, height:36, borderColor:"rgba(0,184,219,0.25)", borderStyle:"solid", borderWidth:s.bw, borderRadius:26, ...(s.t!==undefined?{top:0}:{}), ...(s.b!==undefined?{bottom:0}:{}), ...(s.l!==undefined?{left:0}:{}), ...(s.r!==undefined?{right:0}:{}), pointerEvents:"none" }} />
+              ))}
+              <div style={{ position:"absolute", top:16, left:20, right:20, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:mn, fontSize:10, color:"#22C55E" }}>
+                  <div style={{ width:6, height:6, borderRadius:"50%", background:"#22C55E", animation:"al-live 1.5s ease-in-out infinite" }} />
+                  LIVE GOVERNANCE ONTOLOGY
+                </div>
+                <div style={{ display:"flex", gap:10, fontFamily:mn, fontSize:10, color:C.muted2 }}>
+                  {["11 NODES","13 CONNECTIONS","84% HEALTH"].map(t=>(
+                    <span key={t} style={{ background:"rgba(255,255,255,0.05)", padding:"3px 8px", borderRadius:6 }}>{t}</span>
+                  ))}
+                </div>
+              </div>
+              <GovernanceGraph />
+            </div>
           </div>
         </div>
       </section>
@@ -584,18 +613,55 @@ export default function LandingPageClient() {
         </div>
       </section>
 
+      {/* SECURITY */}
+      <section id="security" style={{ padding:"96px 0", background:"#03060B", position:"relative", overflow:"hidden" }}>
+        <Starfield density={0.3} />
+        <div className="al-sh" style={{ position:"relative", zIndex:1 }}>
+          <div className="al-kk">Security &amp; Readiness</div>
+          <h2 className="al-h2">Enterprise confidence is<br /><span className="tg">part of the product.</span></h2>
+          <p className="al-sub" style={{ marginBottom:36 }}>Aliena is designed for control, accountability and scale. Security is not an afterthought.</p>
+          <div className="sec-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:28 }}>
+            <div className="al-card" style={{ padding:28 }}>
+              <h3 style={{ fontFamily:dp, fontSize:20, fontWeight:700, marginBottom:16 }}>Trust signals that matter</h3>
+              <div style={{ display:"grid", gap:10 }}>
+                {["Row-level security and role-based access design","Governed approval workflows with clear traceability","AI assistance designed to support human decisions","UK-built platform for complex delivery environments"].map(t=>(
+                  <div key={t} style={{ display:"flex", alignItems:"flex-start", gap:9, fontSize:14, color:C.muted, lineHeight:1.55 }}>
+                    <CheckCircle2 size={14} color={C.green} style={{ flexShrink:0, marginTop:2 }} />{t}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="al-card" style={{ padding:28 }}>
+              <h3 style={{ fontFamily:dp, fontSize:20, fontWeight:700, marginBottom:16 }}>Designed for scale</h3>
+              <div style={{ display:"grid", gap:10 }}>
+                {["Audit-ready by default","Structured decision traceability across every artefact","Role-scoped data access across organisations","Built for enterprise PMO environments"].map(t=>(
+                  <div key={t} style={{ display:"flex", alignItems:"flex-start", gap:9, fontSize:14, color:C.muted, lineHeight:1.55 }}>
+                    <CheckCircle2 size={14} color={C.cyan} style={{ flexShrink:0, marginTop:2 }} />{t}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <a href="/security" style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"12px 22px", borderRadius:11, border:"1px solid rgba(0,184,219,0.25)", color:C.cyanLt, fontSize:14, fontWeight:600, fontFamily:"'Inter',system-ui,sans-serif", transition:"all 0.2s", background:"rgba(0,184,219,0.06)" }}
+            onMouseEnter={e=>{(e.currentTarget as HTMLAnchorElement).style.background="rgba(0,184,219,0.12)";(e.currentTarget as HTMLAnchorElement).style.borderColor="rgba(0,184,219,0.45)"}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLAnchorElement).style.background="rgba(0,184,219,0.06)";(e.currentTarget as HTMLAnchorElement).style.borderColor="rgba(0,184,219,0.25)"}}>
+            View full security details <ArrowRight size={14} />
+          </a>
+        </div>
+      </section>
+
       {/* CTA */}
       <section style={{ padding:"100px 0 110px", background:"#04060C" }}>
         <div className="al-sh">
           <div style={{ borderRadius:28, border:"1px solid rgba(0,184,219,0.15)", background:"radial-gradient(ellipse at top center,rgba(0,184,219,0.09) 0%,transparent 50%),rgba(255,255,255,0.025)", padding:"60px 32px", textAlign:"center", boxShadow:"0 0 80px rgba(0,184,219,0.05)" }}>
             <div className="al-kk" style={{ marginBottom:16 }}>Get started</div>
             <h2 style={{ fontFamily:dp, fontSize:"clamp(36px,5vw,60px)", lineHeight:1.02, letterSpacing:"-0.04em", fontWeight:700, maxWidth:860, margin:"0 auto 18px" }}>
-              Bring governance, visibility and AI decision intelligence into one platform.
+              Bring governance, visibility and{" "}<span className="tg">AI decision intelligence</span>{" "}into one platform.
             </h2>
-            <p style={{ maxWidth:640, margin:"0 auto 28px", color:C.muted, fontSize:17, lineHeight:1.8 }}>If you want a world-class governance system for your delivery estate, Aliena is built for exactly that.</p>
+            <p style={{ maxWidth:540, margin:"0 auto 28px", color:C.muted, fontSize:16, lineHeight:1.8 }}>Book a leadership demo and see how Aliena turns fragmented delivery into a governed system.</p>
             <div className="ca" style={{ display:"flex", justifyContent:"center", gap:12, flexWrap:"wrap" }}>
-              <a href="/login" className="al-btn al-btn-p al-lg">Start pilot <ArrowRight size={16} /></a>
-              <a href="mailto:hello@aliena.co.uk" className="al-btn al-btn-o al-lg">Book a leadership demo</a>
+              <a href="mailto:support@aliena.co.uk" className="al-btn al-btn-p al-lg">Book a demo <ArrowRight size={16} /></a>
+              <a href="mailto:support@aliena.co.uk" className="al-btn al-btn-g al-lg">Contact sales</a>
             </div>
           </div>
         </div>
@@ -607,7 +673,7 @@ export default function LandingPageClient() {
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:20, flexWrap:"wrap" }}>
             <a href="/"><Logo size="sm" /></a>
             <div style={{ display:"flex", gap:20, flexWrap:"wrap" }}>
-              {[["Security","/security"],["Privacy","/privacy"],["security.txt","/.well-known/security.txt"],["Contact","mailto:hello@aliena.co.uk"]].map(([l,h])=>(
+              {[["Security","/security"],["Privacy","/privacy"],["security.txt","/.well-known/security.txt"],["Contact","mailto:support@aliena.co.uk"]].map(([l,h])=>(
                 <a key={l} href={h} style={{ color:C.muted, fontSize:13, transition:"color 0.2s" }}
                   onMouseEnter={e=>(e.currentTarget.style.color=C.text)}
                   onMouseLeave={e=>(e.currentTarget.style.color=C.muted)}>{l}</a>
