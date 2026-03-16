@@ -1,7 +1,14 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   GLOBAL FONT IMPORTS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+
 
 /* ═══════════════════════════════════════════════════════════════════════
    CRYSTAL GLASS SYSTEM  ·  globals.css
@@ -18,22 +25,28 @@
 :root {
   color-scheme: light;
   --radius: 0.4375rem;
+
   --background: #111111;
   --foreground: #111111;
   --primary: #000000;
   --border: #111111;
+
   --grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.03'/%3E%3C/svg%3E");
 }
 
 .dark {
   color-scheme: dark;
+
   --background: #111111;
   --foreground: #111111;
   --border: #111111;
 }
 
 @layer base {
-  * { @apply border-border; }
+  * {
+    @apply border-border;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     background-image: var(--grain);
@@ -42,7 +55,35 @@
 }
 
 
+/* ═══════════════════════════════════════════════════════════════════════
+   ALIENA DESIGN SYSTEM UTILITIES
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@layer utilities {
+
+  /* Text Gradient (AI Neon Accent) */
+  .text-gradient {
+    background: linear-gradient(135deg, #00B8DB 0%, #4DE3FF 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Display Font */
+  .font-display {
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  /* Mono Font */
+  .font-mono {
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+}
+
+
 /* ── Palantir B&W override ───────────────────────────────────────────── */
+
 .status-badge,
 [class*="badge"],
 [class*="status"] {
