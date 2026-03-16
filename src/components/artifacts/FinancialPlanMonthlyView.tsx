@@ -500,34 +500,82 @@ export default function FinancialPlanMonthlyView({
       </div>
 
 
-      {/* -- Month-on-month forecast movement strip -- */}
-      {visibleMonths.length > 1 && (
-        <div style={{ border: `1px solid #E0D8B0`, background: "#FDFAF2", padding: "10px 14px" }}>
-          <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.amber, marginBottom: 8 }}>
-            Forecast Movement (month-on-month)
+      {/* -- Movement strips -- */}
+      {visibleMonths.length > 0 && (
+        <div style={{ border: `1px solid #E0D8B0`, background: "#FDFAF2", padding: "10px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+
+          {/* Row 1: Month-on-month forecast change */}
+          <div>
+            <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.amber, marginBottom: 6 }}>
+              Forecast Movement (month-on-month)
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {visibleMonths.map((mk, i) => {
+                if (i === 0) return null;
+                const prevMk = visibleMonths[i - 1];
+                const curr = monthTotals[mk]?.forecast ?? 0;
+                const prev = monthTotals[prevMk]?.forecast ?? 0;
+                const mv = curr - prev;
+                if (!mv || mv === 0) return null;
+                const [y, m] = mk.split("-");
+                const up = mv > 0;
+                return (
+                  <div key={mk} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", background: up ? P.redLt : P.greenLt, border: `1px solid ${up ? "#F0B0AA" : "#A0D0B8"}`, fontFamily: P.mono, fontSize: 10 }}>
+                    <span style={{ color: P.textSm }}>{MONTH_SHORT[Number(m) - 1]} {y.slice(2)}</span>
+                    <span style={{ fontWeight: 600, color: up ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>{up ? "+" : "-"}{fmtK(Math.abs(mv), sym)}</span>
+                  </div>
+                );
+              })}
+              {visibleMonths.filter((mk, i) => {
+                if (i === 0) return false;
+                const prev = visibleMonths[i - 1];
+                return (monthTotals[mk]?.forecast ?? 0) !== (monthTotals[prev]?.forecast ?? 0);
+              }).length === 0 && (
+                <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, fontStyle: "italic" }}>Flat -- no month-on-month change</span>
+              )}
+            </div>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {visibleMonths.map((mk, i) => {
-              if (i === 0) return null;
-              const prevMk = visibleMonths[i - 1];
-              const curr = monthTotals[mk]?.forecast ?? 0;
-              const prev = monthTotals[prevMk]?.forecast ?? 0;
-              const mv = curr - prev;
-              if (!mv || mv === 0) return null;
-              if (!isPastMonth(mk) && !curr) return null;
-              const [y, m] = mk.split("-");
-              const up = mv > 0;
-              return (
-                <div key={mk} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", background: up ? P.redLt : P.greenLt, border: `1px solid ${up ? "#F0B0AA" : "#A0D0B8"}`, fontFamily: P.mono, fontSize: 10 }}>
-                  <span style={{ color: P.textSm }}>{MONTH_SHORT[Number(m) - 1]} {y.slice(2)}</span>
-                  <span style={{ fontWeight: 600, color: up ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>{up ? "+" : "-"} {fmtK(Math.abs(mv), sym)}</span>
-                </div>
-              );
-            })}
-            {visibleMonths.filter((mk, i) => i > 0 && (monthTotals[mk]?.forecast ?? 0) !== (monthTotals[visibleMonths[i - 1]]?.forecast ?? 0)).length === 0 && (
-              <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, fontStyle: "italic" }}>No forecast movement yet</span>
-            )}
+
+          {/* Divider */}
+          <div style={{ borderTop: `1px dashed #E0D0A0` }} />
+
+          {/* Row 2: Budget vs Forecast gap per month */}
+          <div>
+            <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.amber, marginBottom: 6 }}>
+              Budget vs Forecast (per month)
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {visibleMonths.map(mk => {
+                const bud = monthTotals[mk]?.budget ?? 0;
+                const fct = monthTotals[mk]?.forecast ?? 0;
+                if (!bud && !fct) return null;
+                const gap = fct - bud;
+                const [y, m] = mk.split("-");
+                const over = gap > 0;
+                const under = gap < 0;
+                const neutral = gap === 0;
+                return (
+                  <div key={mk} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", background: over ? P.redLt : under ? P.greenLt : "#F4F4F2", border: `1px solid ${over ? "#F0B0AA" : under ? "#A0D0B8" : P.border}`, fontFamily: P.mono, fontSize: 10 }}>
+                    <span style={{ color: P.textSm }}>{MONTH_SHORT[Number(m) - 1]} {y.slice(2)}</span>
+                    {neutral ? (
+                      <span style={{ color: P.textSm, fontWeight: 500 }}>on budget</span>
+                    ) : (
+                      <>
+                        <span style={{ fontWeight: 600, color: over ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>
+                          {over ? "+" : "-"}{fmtK(Math.abs(gap), sym)}
+                        </span>
+                        <span style={{ fontSize: 9, color: P.textSm }}>{over ? "over" : "under"}</span>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              {visibleMonths.every(mk => !(monthTotals[mk]?.budget) && !(monthTotals[mk]?.forecast)) && (
+                <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, fontStyle: "italic" }}>No budget or forecast data yet</span>
+              )}
+            </div>
           </div>
+
         </div>
       )}
 
