@@ -173,7 +173,7 @@ export default function LandingPageClient() {
           background: linear-gradient(90deg, #03050A 0%, rgba(3,5,10,0.5) 30%, transparent 100%);
           z-index: 1;
         }
-        /* Astronaut silhouette via CSS — swap with <img> for real asset */
+        /* Astronaut silhouette via CSS - swap with <img> for real asset */
         .hero-astronaut {
           position: absolute; right: 5%; top: 50%; transform: translateY(-50%);
           width: 480px; height: 480px; z-index: 0;
@@ -326,7 +326,7 @@ export default function LandingPageClient() {
         .section-sub {
           font-size: 17px; line-height: 1.75; color: var(--muted); max-width: 680px;
         }
-        /* Text Gradient — mirrors global utility */
+        /* Text Gradient - mirrors global utility */
         .text-gradient {
           background: linear-gradient(135deg, #00B8DB 0%, #4DE3FF 100%);
           -webkit-background-clip: text;
@@ -367,12 +367,12 @@ export default function LandingPageClient() {
         .transform-title { font-family: var(--display); font-size: 26px; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 8px; }
         .transform-text { color: var(--muted); font-size: 15px; line-height: 1.7; max-width: 680px; }
 
-        /* PILLARS — full viewport with space BG */
+        /* PILLARS - full viewport with space BG */
         .pillars-section {
           position: relative; padding: 100px 0; overflow: hidden;
           background: #020507;
         }
-        /* Spacecraft silhouette via CSS gradient — swap for real image */
+        /* Spacecraft silhouette via CSS gradient - swap for real image */
         .pillars-section::before {
           content: '';
           position: absolute; inset: 0; z-index: 0;
@@ -420,7 +420,7 @@ export default function LandingPageClient() {
           color: var(--green); font-size: 11px; margin-top: 1px;
         }
 
-        /* COMPARISON SECTION — space/planet BG */
+        /* COMPARISON SECTION - space/planet BG */
         .comparison-section {
           position: relative; padding: 96px 0; overflow: hidden;
           background: #020507;
@@ -667,7 +667,7 @@ export default function LandingPageClient() {
                     {[
                       { val: "17", label: "active projects", cls: "cy" },
                       { val: "4", label: "approvals escalated", cls: "amber" },
-                      { val: "£1.2m", label: "variance flagged", cls: "gr" },
+                      { val: "-1.2m", label: "variance flagged", cls: "gr" },
                     ].map(m => (
                       <div key={m.val} className="cockpit-metric">
                         <div className={`cockpit-metric-val ${m.cls}`}>{m.val}</div>
@@ -741,7 +741,7 @@ export default function LandingPageClient() {
         </div>
       </section>
 
-      {/* PILLARS — with space/spacecraft bg feel */}
+      {/* PILLARS - with space/spacecraft bg feel */}
       <section className="pillars-section" id="platform">
         <Starfield count={50} />
         <div className="shell pillars-inner">
@@ -781,7 +781,7 @@ export default function LandingPageClient() {
       {/* GOVERNANCE INTELLIGENCE SECTION (full component) */}
       <GovernanceIntelligenceSection />
 
-      {/* COMPARISON — with planet/nebula bg */}
+      {/* COMPARISON - with planet/nebula bg */}
       <section className="comparison-section">
         <Starfield count={40} />
         <div className="planet-decoration" />
@@ -799,7 +799,7 @@ export default function LandingPageClient() {
                 <div className="compare-items">
                   {["Static reports assembled after the fact", "Disconnected approvals and governance evidence", "RAID logs that depend on manual interpretation", "Executive visibility arrives too late"].map(t => (
                     <div key={t} className="compare-item old-item">
-                      <span className="icon" style={{ color: "var(--muted2)", marginTop: 2 }}>•</span>
+                      <span className="icon" style={{ color: "var(--muted2)", marginTop: 2 }}>-</span>
                       {t}
                     </div>
                   ))}
@@ -880,7 +880,7 @@ export default function LandingPageClient() {
               <a href="/.well-known/security.txt" className="footer-link">security.txt</a>
               <a href="mailto:hello@aliena.co.uk" className="footer-link">Contact</a>
             </div>
-            <div className="footer-copy">© 2026 Aliena AI. Built in the UK.</div>
+            <div className="footer-copy">- 2026 Aliena AI. Built in the UK.</div>
           </div>
         </div>
       </footer>
