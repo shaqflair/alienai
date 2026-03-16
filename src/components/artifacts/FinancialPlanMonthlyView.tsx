@@ -516,6 +516,7 @@ export default function FinancialPlanMonthlyView({
                 const curr = monthTotals[mk]?.forecast ?? 0;
                 const prev = monthTotals[prevMk]?.forecast ?? 0;
                 const mv = curr - prev;
+              if (!curr || !prev) return null;
                 if (!mv || mv === 0) return null;
                 const [y, m] = mk.split("-");
                 const up = mv > 0;
@@ -621,3 +622,4 @@ export default function FinancialPlanMonthlyView({
     </div>
   );
 }
+
