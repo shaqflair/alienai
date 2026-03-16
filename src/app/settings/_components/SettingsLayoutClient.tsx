@@ -28,6 +28,7 @@ const NAV: NavItem[] = [
   { href: "/settings/members",  label: "Members",     icon: "M" },
   { href: "/people/invite",     label: "Invites",     icon: "I", adminOnly: true },
   { href: "/settings/billing",  label: "Billing",     icon: "B", adminOnly: true },
+  { href: "/settings/security", label: "Security",    icon: "S" },
 ];
 
 function NavLink({
@@ -151,3 +152,4 @@ export default function SettingsLayoutClient({
     </div>
   );
 }
+
