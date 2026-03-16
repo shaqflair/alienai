@@ -851,8 +851,8 @@ export default function HeatmapClient({
     {/* -- Page-level allocation audit trail -- */}
     <div style={{ margin: "24px 0 0", padding: "20px 24px", background: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
       <AllocationAuditTrail
-        organisationId={(data as any).organisationId ?? undefined}
-        title="Resource allocation history"
+       organisationId={initialFilters.organisationId ?? undefined}
+               title="Resource allocation history"
    />
     </div>
 
