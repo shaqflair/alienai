@@ -853,7 +853,9 @@ export default function HeatmapClient({
       <AllocationAuditTrail
         organisationId={(data as any).organisationId ?? undefined}
         title="Resource allocation history"
-      />
+   />
+    </div>
+
     </div></div>
 
     {edit && <EditModal cell={edit} people={allPeople} projects={allProjects} onClose={() => setEdit(null)} onSaved={onSaved} onSaveError={showSaveErr}/>}
