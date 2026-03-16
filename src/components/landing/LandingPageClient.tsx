@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -152,8 +152,8 @@ type GraphNode = {
   sub: string;
   color: string;
   health: number;
-  Icon: React.ComponentType<{ size?: number; color?: string }>;
-};
+  Icon: ComponentType<{ size?: number; color?: string }>;
+  };
 
 const GRAPH_NODES: GraphNode[] = [
   {
@@ -637,7 +637,7 @@ function GovernanceGraph() {
 
         {[
           [THEME.green, "Healthy (80%+)"],
-          [THEME.amber, "Warning (60–79%)"],
+          [THEME.amber, "Warning (60ï¿½79%)"],
           [THEME.red, "Critical (<60%)"],
         ].map(([color, label]) => (
           <div
