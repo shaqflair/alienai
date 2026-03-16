@@ -755,8 +755,11 @@ export default function FinancialPlanEditor({
   const [activeTab, setActiveTab] = useState<"budget" | "resources" | "monthly" | "changes" | "narrative">("budget");
   const [signals, setSignals]     = useState<Signal[]>([]);
   const [, startTransition]       = useTransition();
-  const lastSignalsKeyRef         = useRef<string>("");
-
+  const lastSignalsKeyRef = useRef<string>("");
+  const baselineMonthlyDataRef = useRef<MonthlyData | null>(null);
+  if (baselineMonthlyDataRef.current === null && content.monthly_data && Object.keys(content.monthly_data).length > 0) {
+    baselineMonthlyDataRef.current = JSON.parse(JSON.stringify(content.monthly_data));
+  }
   const sym       = CURRENCY_SYMBOLS[content.currency] ?? "\u00a3";
   const lines     = content.cost_lines ?? [];
   const resources = content.resources  ?? [];
@@ -1108,8 +1111,9 @@ export default function FinancialPlanEditor({
             onMonthlyDataChange={d => updateField("monthly_data", d)}
             fyConfig={fyConfig} onFyConfigChange={c => updateField("fy_config", c)}
             signals={signals} readOnly={readOnly}
+            baselineMonthlyData={baselineMonthlyDataRef.current ?? undefined}
           />
-        </div>
+                  </div>
       )}
 
       {activeTab === "changes" && (

@@ -134,6 +134,7 @@ type Props = {
   onFyConfigChange: (c: FYConfig) => void;
   signals?: Signal[];
   readOnly?: boolean;
+  baselineMonthlyData?: MonthlyData; // snapshot at load time for movement comparison
 };
 
 const FY_START_OPTIONS = [
@@ -157,7 +158,7 @@ const thBase: React.CSSProperties = {
 };
 
 export default function FinancialPlanMonthlyView({
-  content, monthlyData, onMonthlyDataChange, fyConfig, onFyConfigChange, signals = [], readOnly = false,
+  content, monthlyData, onMonthlyDataChange, fyConfig, onFyConfigChange, signals = [], readOnly = false, baselineMonthlyData,
 }: Props) {
   const [activeQuarters, setActiveQuarters] = useState<Set<string> | null>(null);
   const [viewMode, setViewMode] = useState<"full" | "bud_fct">("full");
@@ -504,35 +505,40 @@ export default function FinancialPlanMonthlyView({
       {visibleMonths.length > 0 && (
         <div style={{ border: `1px solid #E0D8B0`, background: "#FDFAF2", padding: "10px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
 
-          {/* Row 1: Month-on-month forecast change */}
+          {/* Row 1: Forecast revision vs baseline (snapshot at load/save time) */}
           <div>
             <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.amber, marginBottom: 6 }}>
-              Forecast Movement (month-on-month)
+              Forecast Revision (vs last saved)
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-              {visibleMonths.map((mk, i) => {
-                if (i === 0) return null;
-                const prevMk = visibleMonths[i - 1];
-                const curr = monthTotals[mk]?.forecast ?? 0;
-                const prev = monthTotals[prevMk]?.forecast ?? 0;
-                const mv = curr - prev;
-              if (!curr || !prev) return null;
-                if (!mv || mv === 0) return null;
-                const [y, m] = mk.split("-");
-                const up = mv > 0;
-                return (
-                  <div key={mk} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", background: up ? P.redLt : P.greenLt, border: `1px solid ${up ? "#F0B0AA" : "#A0D0B8"}`, fontFamily: P.mono, fontSize: 10 }}>
-                    <span style={{ color: P.textSm }}>{MONTH_SHORT[Number(m) - 1]} {y.slice(2)}</span>
-                    <span style={{ fontWeight: 600, color: up ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>{up ? "+" : "-"}{fmtK(Math.abs(mv), sym)}</span>
-                  </div>
-                );
-              })}
-              {visibleMonths.filter((mk, i) => {
-                if (i === 0) return false;
-                const prev = visibleMonths[i - 1];
-                return (monthTotals[mk]?.forecast ?? 0) !== (monthTotals[prev]?.forecast ?? 0);
-              }).length === 0 && (
-                <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, fontStyle: "italic" }}>Flat -- no month-on-month change</span>
+              {baselineMonthlyData ? (
+                <>
+                  {(() => {
+                    const changed = visibleMonths.filter(mk => {
+                      const curr = sumMonths(lines, monthlyData, [mk], "forecast");
+                      const base = sumMonths(lines, baselineMonthlyData, [mk], "forecast");
+                      return curr !== base;
+                    });
+                    if (changed.length === 0) {
+                      return <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, fontStyle: "italic" }}>No changes since last save</span>;
+                    }
+                    return changed.map(mk => {
+                      const curr = sumMonths(lines, monthlyData, [mk], "forecast");
+                      const base = sumMonths(lines, baselineMonthlyData, [mk], "forecast");
+                      const mv = curr - base;
+                      const [y, m] = mk.split("-");
+                      const up = mv > 0;
+                      return (
+                        <div key={mk} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", background: up ? P.redLt : P.greenLt, border: `1px solid ${up ? "#F0B0AA" : "#A0D0B8"}`, fontFamily: P.mono, fontSize: 10 }}>
+                          <span style={{ color: P.textSm }}>{MONTH_SHORT[Number(m) - 1]} {y.slice(2)}</span>
+                          <span style={{ fontWeight: 600, color: up ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>{up ? "+" : "-"}{fmtK(Math.abs(mv), sym)}</span>
+                        </div>
+                      );
+                    });
+                  })()}
+                </>
+              ) : (
+                <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, fontStyle: "italic" }}>Save the plan once to enable revision tracking</span>
               )}
             </div>
           </div>
@@ -622,4 +628,3 @@ export default function FinancialPlanMonthlyView({
     </div>
   );
 }
-
