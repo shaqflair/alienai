@@ -266,7 +266,7 @@ export default function FinancialPlanMonthlyView({
           <div style={{ display: "flex", border: `1px solid ${P.border}` }}>
             {(["full", "bud_fct"] as const).map(m => (
               <button key={m} onClick={() => setViewMode(m)} style={{ padding: "5px 10px", fontFamily: P.mono, fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", background: viewMode === m ? P.navy : P.bg, color: viewMode === m ? "#FFF" : P.textMd, border: "none" }}>
-                {m === "full" ? "B / A / F" : "B / F"}
+                {m === "full" ? "Bud + Act + Fct" : "Bud + Fct only"}
               </button>
             ))}
           </div>
@@ -499,7 +499,43 @@ export default function FinancialPlanMonthlyView({
         </table>
       </div>
 
-      {/* -- Quarter summary cards -- */}
+
+      {/* -- Month-on-month forecast movement strip -- */}
+      {visibleMonths.length > 1 && (
+        <div style={{ border: `1px solid #E0D8B0`, background: "#FDFAF2", padding: "10px 14px" }}>
+          <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.amber, marginBottom: 8 }}>
+            Forecast Movement (month-on-month)
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {visibleMonths.map((mk, i) => {
+              if (i === 0) return null;
+              const prevMk = visibleMonths[i - 1];
+              const curr = monthTotals[mk]?.forecast ?? 0;
+              const prev = monthTotals[prevMk]?.forecast ?? 0;
+              const mv = curr - prev;
+              if (!mv || mv === 0) return null;
+              if (!isPastMonth(mk) && !curr) return null;
+              const [y, m] = mk.split("-");
+              const up = mv > 0;
+              return (
+                <div key={mk} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", background: up ? P.redLt : P.greenLt, border: `1px solid ${up ? "#F0B0AA" : "#A0D0B8"}`, fontFamily: P.mono, fontSize: 10 }}>
+                  <span style={{ color: P.textSm }}>{MONTH_SHORT[Number(m) - 1]} {y.slice(2)}</span>
+                  <span style={{ fontWeight: 600, color: up ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>{up ? "+" : "-"} {fmtK(Math.abs(mv), sym)}</span>
+                </div>
+              );
+            })}
+            {visibleMonths.every((mk, i) => {
+              if (i === 0) return true;
+              const prev = visibleMonths[i - 1];
+              return (monthTotals[mk]?.forecast ?? 0) === (monthTotals[prev]?.forecast ?? 0);
+            }) && (
+              <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, fontStyle: "italic" }}>No forecast movement yet</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* -- Quarter summary cards -- */
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${visibleQuarters.length}, 1fr)`, gap: 8 }}>
         {visibleQuarters.map(q => {
           const qMonths   = q.months.filter(mk => visibleMonths.includes(mk));
