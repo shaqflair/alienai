@@ -636,7 +636,7 @@ function GovernanceGraph() {
 
         {[
           [THEME.green, "Healthy (80%+)"],
-          [THEME.amber, "Warning (60–79%)"],
+          [THEME.amber, "Warning (60-79%)"],
           [THEME.red, "Critical (<60%)"],
         ].map(([color, label]) => (
           <div
