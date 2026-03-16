@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useCallback, useEffect, useMemo, useTransition, useRef } from "react";
 import {
@@ -958,7 +958,7 @@ export default function FinancialPlanEditor({
       </div>
 
       {/* -- Tabs -- */}
-      <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${P.border}`, overflowX: "auto" }}>
+      <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${P.border}`, overflowX: "auto", alignItems: "flex-end" }}>
         {tabs.map(tab => {
           const active = activeTab === tab.id;
           return (
@@ -978,7 +978,18 @@ export default function FinancialPlanEditor({
         })}
       </div>
 
-      {/* -- Cost Breakdown tab -- */}
+      {artifactId && (
+        
+          href={`/api/artifacts/financial-plan/export/xlsx?artifactId=${artifactId}`}
+          style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 12px", border: `1px solid ${P.border}`, background: P.bg, color: P.textMd, fontSize: 11, fontWeight: 600, textDecoration: "none", fontFamily: P.mono, marginBottom: 2, flexShrink: 0 }}
+          download
+        >
+          Export XLSX
+        </a>
+      )}
+      </div>
+
+      {/* -- Cost Breakdown tab -- */
       {activeTab === "budget" && (
         <div style={{ border: `1px solid ${P.borderMd}`, overflow: "hidden" }}>
           <div style={{ padding: "6px 12px", background: P.violetLt, borderBottom: `1px solid #a5f3fc`, display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 9, color: P.violet, fontWeight: 500 }}>

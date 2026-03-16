@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 // FILE: src/app/heatmap/_components/HeatmapClient.tsx
 
 import { useState, useCallback, useRef, useEffect, useTransition } from "react";
@@ -680,6 +680,7 @@ export default function HeatmapClient({
           <button type="button" onClick={() => setShowAI(s => !s)} style={{display:"inline-flex",alignItems:"center",gap:"6px",padding:"8px 14px",borderRadius:"8px",border:`1.5px solid ${showAI?"#00b8db":"#e2e8f0"}`,background:showAI?"rgba(0,184,219,0.1)":"white",color:showAI?"#00b8db":"#64748b",fontSize:"12px",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
             <span style={{fontSize:"14px"}}>*</span> Ask AI
           </button>
+          <a href={`/api/heatmap/export/xlsx?organisationId=${(initialFilters as any).organisationId}&granularity=${filters.granularity}&dateFrom=${filters.dateFrom}&dateTo=${filters.dateTo}`} style={{display:"inline-flex",alignItems:"center",gap:"6px",padding:"8px 14px",borderRadius:"8px",border:"1.5px solid #e2e8f0",background:"white",color:"#64748b",fontSize:"12px",fontWeight:600,textDecoration:"none",fontFamily:"inherit"}} download>Export XLSX</a>
           <a href="/allocations/new" style={{display:"inline-flex",alignItems:"center",gap:"6px",padding:"8px 16px",borderRadius:"8px",background:"#00b8db",color:"white",fontSize:"13px",fontWeight:700,textDecoration:"none",boxShadow:"0 2px 10px rgba(0,184,219,0.3)"}}>+ Allocate resource</a>
         </div>
       </div>
