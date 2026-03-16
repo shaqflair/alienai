@@ -64,6 +64,40 @@ function toIso(x: any) {
   return d.toISOString();
 }
 
+function isStepTerminalStatus(status: any) {
+  const st = lower(status);
+  return (
+    st === "approved" ||
+    st === "rejected" ||
+    st === "changes_requested" ||
+    st === "cancelled" ||
+    st === "closed" ||
+    st === "completed" ||
+    st === "skipped"
+  );
+}
+
+function isChainTerminalStatus(status: any) {
+  const st = lower(status);
+  return (
+    st === "approved" ||
+    st === "rejected" ||
+    st === "changes_requested" ||
+    st === "cancelled" ||
+    st === "closed" ||
+    st === "completed"
+  );
+}
+
+function getStepMinApprovals(step: any, approverCount?: number) {
+  const raw = firstFinite(step?.min_approvals, step?.minimum_approvals, step?.required_approvals, 1);
+  const base = Math.max(1, Number(raw || 1));
+  if (Number.isFinite(Number(approverCount)) && Number(approverCount) > 0) {
+    return Math.min(base, Number(approverCount));
+  }
+  return base;
+}
+
 async function requireUser() {
   const supabase = await createClient();
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -359,12 +393,6 @@ async function clearArtifactApprovalLinkIfStale(supabase: any, artifactId: strin
   }
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   cancelApprovalChainArtifacts
-   FIX: DELETE steps entirely (not just cancel them) so order slots are
-   freed. The unique constraint artifact_approval_steps_unique_order fires
-   when a new chain tries to INSERT steps with the same artifact+order.
-───────────────────────────────────────────────────────────────────────── */
 async function cancelApprovalChainArtifacts(supabase: any, chainId: string, artifactId?: string) {
   const adminDb = createAdminClient();
 
@@ -418,6 +446,18 @@ function getCurrentStep(sortedSteps: any[]) {
   );
 }
 
+function getBlockingPriorStep(sortedSteps: any[], currentStep: any) {
+  const currentPos = getStepPosition(currentStep, sortedSteps);
+  if (currentPos <= 0) return null;
+
+  for (let i = 0; i < currentPos; i += 1) {
+    const step = sortedSteps[i];
+    if (!step?.id) continue;
+    if (!isStepTerminalStatus(step?.status)) return step;
+  }
+  return null;
+}
+
 async function updateArtifactApprovalProgress(
   supabase: any,
   artifactId: string,
@@ -442,70 +482,67 @@ async function updateArtifactApprovalProgress(
   throwDb(u1.error, "artifacts.update(progress)");
 }
 
-async function markStepApproved(supabase: any, stepId: string, userId: string, nowIso: string) {
-  const r1 = await supabase
-    .from("artifact_approval_steps")
-    .update({
+async function finalizeArtifactApproval(
+  supabase: any,
+  args: { artifactId: string; actorId: string; nowIso: string }
+) {
+  await updateArtifactApprovalProgress(
+    supabase,
+    args.artifactId,
+    {
+      approval_status: "approved",
+      approved_at: args.nowIso,
+      approved_by: args.actorId,
+      is_locked: true,
       status: "approved",
-      approved_at: nowIso,
-      approved_by: userId,
-      acted_at: nowIso,
-      actor_id: userId,
-      is_active: false,
-    })
-    .eq("id", stepId);
-
-  if (r1.error) {
-    const r2 = await supabase
-      .from("artifact_approval_steps")
-      .update({
-        status: "approved",
-        approved_at: nowIso,
-        approved_by: userId,
-        is_active: false,
-      })
-      .eq("id", stepId);
-    if (r2.error) throwDb(r2.error, "artifact_approval_steps.update(approve)");
-  }
-
-  const ap1 = await supabase
-    .from("approval_step_approvers")
-    .update({ status: "approved", approved_at: nowIso, acted_at: nowIso })
-    .eq("step_id", stepId)
-    .eq("user_id", userId);
-
-  if (ap1.error) {
-    const ap2 = await supabase
-      .from("approval_step_approvers")
-      .update({ status: "approved", approved_at: nowIso })
-      .eq("step_id", stepId)
-      .eq("user_id", userId);
-
-    if (ap2.error) {
-      const apMsg = safeStr(ap2.error?.message);
-      if (
-        !isMissingColumnError(apMsg, "approved_at") &&
-        !isMissingColumnError(apMsg, "acted_at") &&
-        !isMissingColumnError(apMsg, "status")
-      ) {
-        throwDb(ap2.error, "approval_step_approvers.update(approve)");
-      }
+    },
+    {
+      approval_status: "approved",
+      approved_at: args.nowIso,
+      approved_by: args.actorId,
+      is_locked: true,
     }
-  }
+  );
 }
 
-async function activateStep(supabase: any, stepId: string, nowIso: string) {
-  const r1 = await supabase
-    .from("artifact_approval_steps")
-    .update({ status: "active", is_active: true, started_at: nowIso })
-    .eq("id", stepId);
-  if (!r1.error) return;
+async function moveArtifactToNextApprovalStep(
+  supabase: any,
+  args: { artifactId: string; nextStepIndex: number }
+) {
+  await updateArtifactApprovalProgress(
+    supabase,
+    args.artifactId,
+    {
+      approval_status: "submitted",
+      approval_step_index: args.nextStepIndex,
+      is_locked: true,
+      status: "submitted",
+    },
+    {
+      approval_status: "submitted",
+      is_locked: true,
+    }
+  );
+}
 
-  const r2 = await supabase
-    .from("artifact_approval_steps")
-    .update({ status: "active", is_active: true })
-    .eq("id", stepId);
-  if (r2.error) throwDb(r2.error, "artifact_approval_steps.update(activate)");
+async function keepArtifactOnCurrentApprovalStep(
+  supabase: any,
+  args: { artifactId: string; currentStepIndex: number }
+) {
+  await updateArtifactApprovalProgress(
+    supabase,
+    args.artifactId,
+    {
+      approval_status: "submitted",
+      approval_step_index: args.currentStepIndex,
+      is_locked: true,
+      status: "submitted",
+    },
+    {
+      approval_status: "submitted",
+      is_locked: true,
+    }
+  );
 }
 
 async function markActiveChainStepsClosed(
@@ -568,83 +605,516 @@ async function closeApprovalChain(
   if (r3.error) throwDb(r3.error, "approval_chains.update(close)");
 }
 
+/* =========================================================
+   Delegate-safe approval helpers
+========================================================= */
+
+function isActiveDelegationNow(row: any, nowIso: string) {
+  if (!row) return false;
+  if (row?.is_active === false) return false;
+
+  const nowMs = new Date(nowIso).getTime();
+  const startsMs = new Date(row?.starts_at ?? 0).getTime();
+  const endsMs = new Date(row?.ends_at ?? 0).getTime();
+
+  if (!Number.isFinite(nowMs) || !Number.isFinite(startsMs) || !Number.isFinite(endsMs)) return false;
+  return startsMs <= nowMs && nowMs < endsMs;
+}
+
+async function getActiveDelegateGrantForApprover(
+  supabase: any,
+  args: {
+    organisationId?: string | null;
+    approverUserId: string;
+    actorUserId: string;
+    nowIso: string;
+  }
+) {
+  const approverUserId = safeStr(args.approverUserId).trim();
+  const actorUserId = safeStr(args.actorUserId).trim();
+  const organisationId = safeStr(args.organisationId).trim();
+
+  if (!approverUserId || !actorUserId || approverUserId === actorUserId) return null;
+
+  let q = supabase
+    .from("approver_delegations")
+    .select("*")
+    .eq("from_user_id", approverUserId)
+    .eq("to_user_id", actorUserId)
+    .eq("is_active", true);
+
+  if (organisationId) {
+    q = q.eq("organisation_id", organisationId);
+  }
+
+  const { data, error } = await q.order("starts_at", { ascending: false });
+  if (error) throwDb(error, "approver_delegations.select(active_for_actor)");
+
+  const rows = Array.isArray(data) ? data : [];
+  return rows.find((row: any) => isActiveDelegationNow(row, args.nowIso)) ?? null;
+}
+
 async function getStepApproverRows(supabase: any, stepId: string) {
   const { data, error } = await supabase.from("approval_step_approvers").select("*").eq("step_id", stepId);
   if (error) throwDb(error, "approval_step_approvers.select(by_step)");
   return Array.isArray(data) ? (data as any[]) : [];
 }
 
+async function countApprovedApproverSlotsForStep(supabase: any, stepId: string) {
+  const rows = await getStepApproverRows(supabase, stepId);
+  const approved = rows.filter((r) => lower((r as any)?.status) === "approved");
+  return {
+    rows,
+    approvedCount: approved.length,
+  };
+}
+
+async function markApproverSlotDecision(
+  supabase: any,
+  args: {
+    approverRowId: string;
+    actorUserId: string;
+    nowIso: string;
+    status: "approved" | "rejected" | "changes_requested";
+    actingAsDelegate: boolean;
+  }
+) {
+  const patchPrimary = {
+    status: args.status,
+    approved_at: args.status === "approved" ? args.nowIso : null,
+    acted_at: args.nowIso,
+    acted_by_user_id: args.actorUserId,
+    decision_source: args.actingAsDelegate ? "delegate" : "owner",
+  };
+
+  const r1 = await supabase
+    .from("approval_step_approvers")
+    .update(patchPrimary)
+    .eq("id", args.approverRowId)
+    .in("status", ["pending", "active", "assigned", "not_started"]);
+
+  if (!r1.error) return;
+
+  const msg1 = safeStr(r1.error?.message);
+  const patchFallback: Record<string, any> = {
+    status: args.status,
+    approved_at: args.status === "approved" ? args.nowIso : null,
+    acted_at: args.nowIso,
+  };
+
+  const missingActedBy = isMissingColumnError(msg1, "acted_by_user_id");
+  const missingDecisionSource = isMissingColumnError(msg1, "decision_source");
+  const missingActedAt = isMissingColumnError(msg1, "acted_at");
+  const missingApprovedAt = isMissingColumnError(msg1, "approved_at");
+  const missingStatus = isMissingColumnError(msg1, "status");
+
+  if (missingActedBy || missingDecisionSource || missingActedAt || missingApprovedAt || missingStatus) {
+    if (missingActedAt) delete patchFallback.acted_at;
+    if (missingApprovedAt) delete patchFallback.approved_at;
+    if (missingStatus) delete patchFallback.status;
+
+    const r2 = await supabase
+      .from("approval_step_approvers")
+      .update(patchFallback)
+      .eq("id", args.approverRowId);
+
+    if (r2.error) throwDb(r2.error, "approval_step_approvers.update(slot_decision_fallback)");
+    return;
+  }
+
+  throwDb(r1.error, "approval_step_approvers.update(slot_decision)");
+}
+
+async function closeStepApproved(
+  supabase: any,
+  args: {
+    stepId: string;
+    actorId: string;
+    nowIso: string;
+  }
+) {
+  const r1 = await supabase
+    .from("artifact_approval_steps")
+    .update({
+      status: "approved",
+      approved_at: args.nowIso,
+      approved_by: args.actorId,
+      acted_at: args.nowIso,
+      actor_id: args.actorId,
+      completed_at: args.nowIso,
+      is_active: false,
+    })
+    .eq("id", args.stepId)
+    .in("status", ["pending", "active", "in_review", "submitted", "current", "pending_approval"]);
+
+  if (!r1.error) return;
+
+  const r2 = await supabase
+    .from("artifact_approval_steps")
+    .update({
+      status: "approved",
+      approved_at: args.nowIso,
+      approved_by: args.actorId,
+      is_active: false,
+    })
+    .eq("id", args.stepId);
+
+  if (r2.error) throwDb(r2.error, "artifact_approval_steps.update(close_step_approved)");
+}
+
+async function activateStep(supabase: any, stepId: string, nowIso: string) {
+  const r1 = await supabase
+    .from("artifact_approval_steps")
+    .update({ status: "active", is_active: true, started_at: nowIso })
+    .eq("id", stepId)
+    .in("status", ["pending", "submitted", "not_started"]);
+  if (!r1.error) return;
+
+  const r2 = await supabase
+    .from("artifact_approval_steps")
+    .update({ status: "active", is_active: true })
+    .eq("id", stepId);
+  if (r2.error) throwDb(r2.error, "artifact_approval_steps.update(activate)");
+}
+
+async function resolveActiveChainForArtifact(supabase: any, artifactId: string) {
+  const { data: activeChainRow, error: chainErr } = await supabase
+    .from("approval_chains")
+    .select("*")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (chainErr) throwDb(chainErr, "approval_chains.select(active_for_artifact)");
+
+  const chain = (activeChainRow as any) ?? null;
+  if (!chain?.id) throw new Error("No active approval chain found for this artifact.");
+  if (isChainTerminalStatus(chain?.status) || chain?.is_active === false) {
+    throw new Error("The approval chain is already closed.");
+  }
+  return chain;
+}
+
+async function assertApprovalAuditContext(
+  supabase: any,
+  args: {
+    projectId: string;
+    artifactId: string;
+    actorId: string;
+    action: string;
+    chainId?: string | null;
+    stepId?: string | null;
+  }
+) {
+  const action = safeStr(args.action).trim().toLowerCase();
+  if (!action) throw new Error("Audit action is required.");
+
+  const actorId = safeStr(args.actorId).trim();
+  if (!actorId) throw new Error("Audit actor is required.");
+
+  const artifactId = safeStr(args.artifactId).trim();
+  const projectId = safeStr(args.projectId).trim();
+  if (!artifactId || !projectId) throw new Error("Audit artifact/project context is required.");
+
+  const { data: artifactRow, error: artErr } = await supabase
+    .from("artifacts")
+    .select("id, project_id, approval_chain_id")
+    .eq("id", artifactId)
+    .maybeSingle();
+  if (artErr) throwDb(artErr, "artifacts.select(audit_validate)");
+  if (!artifactRow?.id) throw new Error("Audit validation failed: artifact not found.");
+  if (safeStr((artifactRow as any)?.project_id) !== projectId) {
+    throw new Error("Audit validation failed: artifact does not belong to project.");
+  }
+
+  const chainId = safeStr(args.chainId).trim();
+  const stepId = safeStr(args.stepId).trim();
+
+  if (chainId) {
+    const { data: chainRow, error: chainErr } = await supabase
+      .from("approval_chains")
+      .select("id, artifact_id, project_id")
+      .eq("id", chainId)
+      .maybeSingle();
+    if (chainErr) throwDb(chainErr, "approval_chains.select(audit_validate)");
+    if (!chainRow?.id) throw new Error("Audit validation failed: approval chain not found.");
+    if (safeStr((chainRow as any)?.artifact_id) !== artifactId) {
+      throw new Error("Audit validation failed: chain does not belong to artifact.");
+    }
+    const chainProjectId = safeStr((chainRow as any)?.project_id).trim();
+    if (chainProjectId && chainProjectId !== projectId) {
+      throw new Error("Audit validation failed: chain does not belong to project.");
+    }
+
+    if (stepId) {
+      const { data: stepRow, error: stepErr } = await supabase
+        .from("artifact_approval_steps")
+        .select("id, chain_id, artifact_id")
+        .eq("id", stepId)
+        .maybeSingle();
+      if (stepErr) throwDb(stepErr, "artifact_approval_steps.select(audit_validate)");
+      if (!stepRow?.id) throw new Error("Audit validation failed: approval step not found.");
+      if (safeStr((stepRow as any)?.chain_id) !== chainId) {
+        throw new Error("Audit validation failed: step does not belong to chain.");
+      }
+      const stepArtifactId = safeStr((stepRow as any)?.artifact_id).trim();
+      if (stepArtifactId && stepArtifactId !== artifactId) {
+        throw new Error("Audit validation failed: step does not belong to artifact.");
+      }
+    }
+  } else if (stepId) {
+    throw new Error("Audit validation failed: stepId provided without chainId.");
+  }
+}
+
+async function writeApprovalAuditLogValidated(
+  supabase: any,
+  args: {
+    projectId: string;
+    artifactId: string;
+    actorId: string;
+    action: string;
+    chainId?: string | null;
+    stepId?: string | null;
+    before?: any;
+    after?: any;
+  }
+) {
+  await assertApprovalAuditContext(supabase, {
+    projectId: args.projectId,
+    artifactId: args.artifactId,
+    actorId: args.actorId,
+    action: args.action,
+    chainId: args.chainId ?? null,
+    stepId: args.stepId ?? null,
+  });
+
+  await writeAuditLog(supabase, {
+    project_id: args.projectId,
+    artifact_id: args.artifactId,
+    actor_id: args.actorId,
+    action: args.action,
+    before: {
+      ...(args.before ?? {}),
+      approval_chain_id: args.chainId ?? null,
+      step_id: args.stepId ?? null,
+    },
+    after: {
+      ...(args.after ?? {}),
+      approval_chain_id: args.chainId ?? null,
+      step_id: args.stepId ?? null,
+    },
+  });
+}
+
 async function assertUserCanActOnCurrentStep(
   supabase: any,
-  args: { stepId: string; userId: string; myRole: string }
+  args: {
+    stepId: string;
+    userId: string;
+    myRole: string;
+    organisationId?: string | null;
+    nowIso: string;
+  }
 ) {
   const rows = await getStepApproverRows(supabase, args.stepId);
 
   if (!rows.length) {
     if (!canApproveByRole(args.myRole)) throw new Error("You are not an eligible approver for this step.");
-    return { matchedApprover: null, approverCount: 0 };
+    return {
+      matchedApprover: null,
+      approverCount: 0,
+      actingAsDelegate: false,
+      delegatedFromUserId: null,
+      delegationId: null,
+    };
   }
 
-  const match =
-    rows.find((r) => safeStr((r as any)?.user_id) === args.userId) ??
-    rows.find((r) => safeStr((r as any)?.approver_user_id) === args.userId) ??
-    rows.find((r) => safeStr((r as any)?.delegate_user_id) === args.userId) ??
-    null;
+  const directMatch = rows.find((r) => safeStr((r as any)?.user_id) === args.userId) ?? null;
 
-  if (!match) throw new Error("You are not assigned to the current approval step.");
+  if (directMatch) {
+    const st = lower((directMatch as any)?.status);
+    if (st === "approved") throw new Error("You have already approved this step.");
+    if (st === "rejected" || st === "changes_requested") throw new Error("This approval slot has already been completed.");
+    if (st === "cancelled" || st === "closed" || st === "skipped") throw new Error("This approval slot is already closed.");
 
-  const st = lower((match as any)?.status);
-  if (st === "approved") throw new Error("You have already approved this step.");
-  if (st === "rejected" || st === "changes_requested") throw new Error("This step has already been completed.");
+    return {
+      matchedApprover: directMatch,
+      approverCount: rows.length,
+      actingAsDelegate: false,
+      delegatedFromUserId: safeStr((directMatch as any)?.user_id) || null,
+      delegationId: null,
+    };
+  }
 
-  return { matchedApprover: match, approverCount: rows.length };
+  for (const row of rows) {
+    const approverUserId = safeStr((row as any)?.user_id).trim();
+    if (!approverUserId) continue;
+
+    const grant = await getActiveDelegateGrantForApprover(supabase, {
+      organisationId: args.organisationId ?? null,
+      approverUserId,
+      actorUserId: args.userId,
+      nowIso: args.nowIso,
+    });
+
+    if (!grant?.id) continue;
+
+    const st = lower((row as any)?.status);
+    if (st === "approved") throw new Error("This approval slot has already been completed by the approver or delegate.");
+    if (st === "rejected" || st === "changes_requested") throw new Error("This approval slot has already been completed.");
+    if (st === "cancelled" || st === "closed" || st === "skipped") throw new Error("This approval slot is already closed.");
+
+    return {
+      matchedApprover: row,
+      approverCount: rows.length,
+      actingAsDelegate: true,
+      delegatedFromUserId: approverUserId,
+      delegationId: safeStr(grant?.id) || null,
+    };
+  }
+
+  throw new Error("You are not assigned to the current approval step and do not have an active delegate approval grant.");
 }
 
-async function finalizeArtifactApproval(
+async function assertApprovalActionAllowed(
   supabase: any,
-  args: { artifactId: string; actorId: string; nowIso: string }
+  args: {
+    projectId: string;
+    artifactId: string;
+    userId: string;
+    myRole: string;
+    organisationId?: string | null;
+    nowIso: string;
+  }
 ) {
-  await updateArtifactApprovalProgress(
-    supabase,
-    args.artifactId,
-    {
-      approval_status: "approved",
-      approved_at: args.nowIso,
-      approved_by: args.actorId,
-      is_locked: true,
-      status: "approved",
-    },
-    {
-      approval_status: "approved",
-      approved_at: args.nowIso,
-      approved_by: args.actorId,
-      is_locked: true,
-    }
-  );
+  const chain = await resolveActiveChainForArtifact(supabase, args.artifactId);
+  const steps = sortApprovalSteps(await listApprovalStepsForChain(supabase, chain.id));
+  if (!steps.length) throw new Error("No approval steps found for the active approval chain.");
+
+  const currentStep = getCurrentStep(steps);
+  if (!currentStep?.id) throw new Error("No current active approval step found.");
+
+  if (isStepTerminalStatus(currentStep?.status)) {
+    throw new Error("This approval step is already closed.");
+  }
+
+  const blockingStep = getBlockingPriorStep(steps, currentStep);
+  if (blockingStep?.id) {
+    const blockingOrder = firstFinite(
+      blockingStep?.step_order,
+      blockingStep?.step_index,
+      blockingStep?.sequence,
+      blockingStep?.order_no,
+      0
+    );
+    const currentOrder = firstFinite(
+      currentStep?.step_order,
+      currentStep?.step_index,
+      currentStep?.sequence,
+      currentStep?.order_no,
+      0
+    );
+    throw new Error(
+      `Step ${currentOrder ?? "current"} cannot be actioned before Step ${blockingOrder ?? "previous"} is completed.`
+    );
+  }
+
+  const approverInfo = await assertUserCanActOnCurrentStep(supabase, {
+    stepId: currentStep.id,
+    userId: args.userId,
+    myRole: args.myRole,
+    organisationId: args.organisationId ?? null,
+    nowIso: args.nowIso,
+  });
+
+  return {
+    chain,
+    steps,
+    currentStep,
+    approverInfo,
+  };
 }
 
-async function moveArtifactToNextApprovalStep(
+async function progressApprovalChain(
   supabase: any,
-  args: { artifactId: string; nextStepIndex: number }
+  args: {
+    artifactId: string;
+    chain: any;
+    steps: any[];
+    currentStep: any;
+    currentPos: number;
+    actorId: string;
+    nowIso: string;
+    approverCount: number;
+  }
 ) {
-  await updateArtifactApprovalProgress(
-    supabase,
-    args.artifactId,
-    {
-      approval_status: "submitted",
-      approval_step_index: args.nextStepIndex,
-      is_locked: true,
-      status: "submitted",
-    },
-    {
-      approval_status: "submitted",
-      is_locked: true,
+  const threshold = getStepMinApprovals(args.currentStep, args.approverCount);
+
+  if (args.approverCount > 0) {
+    const counted = await countApprovedApproverSlotsForStep(supabase, args.currentStep.id);
+    if (counted.approvedCount < threshold) {
+      await keepArtifactOnCurrentApprovalStep(supabase, {
+        artifactId: args.artifactId,
+        currentStepIndex: Math.max(0, args.currentPos),
+      });
+
+      return {
+        stepClosed: false,
+        chainCompleted: false,
+        nextStep: null,
+        approvalsCount: counted.approvedCount,
+        threshold,
+      };
     }
-  );
+  }
+
+  await closeStepApproved(supabase, {
+    stepId: args.currentStep.id,
+    actorId: args.actorId,
+    nowIso: args.nowIso,
+  });
+
+  const nextStep = args.currentPos >= 0 ? args.steps[args.currentPos + 1] ?? null : null;
+
+  if (nextStep?.id) {
+    await activateStep(supabase, nextStep.id, args.nowIso);
+    await moveArtifactToNextApprovalStep(supabase, {
+      artifactId: args.artifactId,
+      nextStepIndex: Math.max(0, args.currentPos + 1),
+    });
+
+    return {
+      stepClosed: true,
+      chainCompleted: false,
+      nextStep,
+      approvalsCount: threshold,
+      threshold,
+    };
+  }
+
+  await finalizeArtifactApproval(supabase, {
+    artifactId: args.artifactId,
+    actorId: args.actorId,
+    nowIso: args.nowIso,
+  });
+  await closeApprovalChain(supabase, args.chain.id, {
+    status: "approved",
+    actorId: args.actorId,
+    nowIso: args.nowIso,
+  });
+
+  return {
+    stepClosed: true,
+    chainCompleted: true,
+    nextStep: null,
+    approvalsCount: threshold,
+    threshold,
+  };
 }
 
 /* =========================================================
-   Suggestions (unchanged)
+   Suggestions
 ========================================================= */
 
 function clampInt(x: any, min: number, max: number) {
@@ -900,8 +1370,6 @@ export async function renameArtifactTitle(formData: FormData) {
 
 /* =========================================================
    Submit for Approval
-   FIX: After stale chain sweep, also delete orphaned steps
-   to clear the unique constraint on (artifact_id, step_order).
 ========================================================= */
 
 export async function submitArtifactForApproval(projectId: string, artifactId: string) {
@@ -931,6 +1399,11 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
 
   if (isProjectCharterType(a0.type)) {
     assertCharterReadyForSubmit(a0.content_json);
+  }
+
+  const existingLinkedChainId = safeStr(a0.approval_chain_id).trim();
+  if (existingLinkedChainId && st === "submitted") {
+    throw new Error("This artifact already has an approval chain.");
   }
 
   const { data: allActiveChains, error: sweepErr } = await supabase
@@ -1071,11 +1544,12 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     });
   }
 
-  await writeAuditLog(supabase, {
-    project_id: projectId,
-    artifact_id: artifactId,
-    actor_id: user.id,
+  await writeApprovalAuditLogValidated(supabase, {
+    projectId,
+    artifactId,
+    actorId: user.id,
     action: st === "changes_requested" ? "resubmit" : "submit",
+    chainId: runtimeChainId,
     before: {
       approval_status: a0.approval_status,
       is_locked: a0.is_locked,
@@ -1121,36 +1595,30 @@ export async function approveStep(projectId: string, artifactId: string, comment
   const st = lower(a0.approval_status);
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
-  const { data: activeChainRow, error: chainErr } = await supabase
-    .from("approval_chains")
-    .select("*")
-    .eq("artifact_id", artifactId)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (chainErr) throwDb(chainErr, "approval_chains.select(active_for_artifact)");
+  const nowIso = new Date().toISOString();
 
-  const chain = (activeChainRow as any) ?? null;
-  if (!chain?.id) throw new Error("No active approval chain found for this artifact.");
-
-  const steps = sortApprovalSteps(await listApprovalStepsForChain(supabase, chain.id));
-  if (!steps.length) throw new Error("No approval steps found for the active approval chain.");
-
-  const currentStep = getCurrentStep(steps);
-  if (!currentStep?.id) throw new Error("No current active approval step found.");
-
-  await assertUserCanActOnCurrentStep(supabase, {
-    stepId: currentStep.id,
+  const { chain, steps, currentStep, approverInfo } = await assertApprovalActionAllowed(supabase, {
+    projectId,
+    artifactId,
     userId: user.id,
     myRole,
+    organisationId: safeStr((a0 as any)?.organisation_id) || null,
+    nowIso,
   });
 
-  const nowIso = new Date().toISOString();
   const currentPos = getStepPosition(currentStep, steps);
-  const nextStep = currentPos >= 0 ? steps[currentPos + 1] ?? null : null;
   const project = await getProjectNotificationContext(supabase, projectId);
   const actorDisplayName = await getUserDisplayName(supabase, user.id);
 
-  await markStepApproved(supabase, currentStep.id, user.id, nowIso);
+  if (approverInfo.matchedApprover?.id) {
+    await markApproverSlotDecision(supabase, {
+      approverRowId: safeStr(approverInfo.matchedApprover.id),
+      actorUserId: user.id,
+      nowIso,
+      status: "approved",
+      actingAsDelegate: !!approverInfo.actingAsDelegate,
+    });
+  }
 
   await addApprovalCommentSafe(supabase, {
     organisationId: safeStr((a0 as any)?.organisation_id) || null,
@@ -1163,13 +1631,49 @@ export async function approveStep(projectId: string, artifactId: string, comment
     body: comment ?? null,
   });
 
-  if (nextStep?.id) {
-    await activateStep(supabase, nextStep.id, nowIso);
-    await moveArtifactToNextApprovalStep(supabase, {
+  const progression = await progressApprovalChain(supabase, {
+    artifactId,
+    chain,
+    steps,
+    currentStep,
+    currentPos,
+    actorId: user.id,
+    nowIso,
+    approverCount: approverInfo.approverCount,
+  });
+
+  if (!progression.stepClosed) {
+    await writeApprovalAuditLogValidated(supabase, {
+      projectId,
       artifactId,
-      nextStepIndex: Math.max(0, currentPos + 1),
+      actorId: user.id,
+      action: "approve_step_vote",
+      chainId: chain.id,
+      stepId: currentStep.id,
+      before: {
+        approval_status: a0.approval_status,
+        is_locked: a0.is_locked,
+        step_status: currentStep.status,
+      },
+      after: {
+        approval_status: "submitted",
+        step_status: "active",
+        approvals_count: progression.approvalsCount,
+        min_approvals: progression.threshold,
+        step_closed: false,
+        acted_as_delegate: !!approverInfo.actingAsDelegate,
+        delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
+        approval_slot_id: safeStr(approverInfo.matchedApprover?.id) || null,
+        delegation_id: approverInfo.delegationId ?? null,
+      },
     });
 
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+    revalidatePath(`/projects/${projectId}/artifacts`);
+    return;
+  }
+
+  if (progression.nextStep?.id) {
     try {
       await notifyNextStepApprovers(supabase, {
         artifactId,
@@ -1183,25 +1687,31 @@ export async function approveStep(projectId: string, artifactId: string, comment
       console.error("[approveStep] next-step notification failed:", notifyErr);
     }
 
-    await writeAuditLog(supabase, {
-      project_id: projectId,
-      artifact_id: artifactId,
-      actor_id: user.id,
+    await writeApprovalAuditLogValidated(supabase, {
+      projectId,
+      artifactId,
+      actorId: user.id,
       action: "approve_step",
+      chainId: chain.id,
+      stepId: currentStep.id,
       before: {
         approval_status: a0.approval_status,
-        approval_chain_id: chain.id,
-        step_id: currentStep.id,
+        is_locked: a0.is_locked,
+        step_status: currentStep.status,
         next_step_id: null,
       },
       after: {
         approval_status: "submitted",
-        approval_chain_id: chain.id,
-        step_id: currentStep.id,
         step_status: "approved",
-        next_step_id: nextStep.id,
+        approvals_count: progression.approvalsCount,
+        min_approvals: progression.threshold,
+        next_step_id: progression.nextStep.id,
         next_step_status: "active",
         approval_step_index: Math.max(0, currentPos + 1),
+        acted_as_delegate: !!approverInfo.actingAsDelegate,
+        delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
+        approval_slot_id: safeStr(approverInfo.matchedApprover?.id) || null,
+        delegation_id: approverInfo.delegationId ?? null,
       },
     });
 
@@ -1210,14 +1720,12 @@ export async function approveStep(projectId: string, artifactId: string, comment
     return;
   }
 
-  await finalizeArtifactApproval(supabase, { artifactId, actorId: user.id, nowIso });
   const baselineId = await promoteApprovedToBaseline(supabase, {
     projectId,
     approvedArtifactId: artifactId,
     artifactType: a0.type,
     actorId: user.id,
   });
-  await closeApprovalChain(supabase, chain.id, { status: "approved", actorId: user.id, nowIso });
 
   try {
     await notifyArtifactFullyApproved(supabase, {
@@ -1233,25 +1741,30 @@ export async function approveStep(projectId: string, artifactId: string, comment
     console.error("[approveStep] final-approval notification failed:", notifyErr);
   }
 
-  await writeAuditLog(supabase, {
-    project_id: projectId,
-    artifact_id: artifactId,
-    actor_id: user.id,
+  await writeApprovalAuditLogValidated(supabase, {
+    projectId,
+    artifactId,
+    actorId: user.id,
     action: "approve",
+    chainId: chain.id,
+    stepId: currentStep.id,
     before: {
       approval_status: a0.approval_status,
       is_locked: a0.is_locked,
-      approval_chain_id: chain.id,
-      step_id: currentStep.id,
+      step_status: currentStep.status,
     },
     after: {
       approval_status: "approved",
       approved_by: user.id,
       approved_at: nowIso,
-      approval_chain_id: chain.id,
       chain_closed: true,
-      step_id: currentStep.id,
       step_status: "approved",
+      approvals_count: progression.approvalsCount,
+      min_approvals: progression.threshold,
+      acted_as_delegate: !!approverInfo.actingAsDelegate,
+      delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
+      approval_slot_id: safeStr(approverInfo.matchedApprover?.id) || null,
+      delegation_id: approverInfo.delegationId ?? null,
     },
   });
 
@@ -1282,28 +1795,20 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
   if (!isApprovalEligibleArtifact(a0.type)) throw new Error("This artifact does not use approvals.");
   if (String(a0.user_id) === user.id) throw new Error("You cannot request changes on your own artifact.");
 
-  const st = String(a0.approval_status ?? "").toLowerCase();
+  const st = lower(a0.approval_status);
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
-  const { data: activeChainRow, error: chainErr } = await supabase
-    .from("approval_chains")
-    .select("*")
-    .eq("artifact_id", artifactId)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (chainErr) throwDb(chainErr, "approval_chains.select(active_for_artifact)");
-
-  const chain = (activeChainRow as any) ?? null;
-  const steps = chain?.id ? sortApprovalSteps(await listApprovalStepsForChain(supabase, chain.id)) : [];
-  const currentStep = getCurrentStep(steps);
-
-  if (currentStep?.id) {
-    await assertUserCanActOnCurrentStep(supabase, { stepId: currentStep.id, userId: user.id, myRole });
-  } else if (!canApproveByRole(myRole)) {
-    throw new Error("You are not an eligible approver for this project.");
-  }
-
   const nowIso = new Date().toISOString();
+
+  const { chain, currentStep, approverInfo } = await assertApprovalActionAllowed(supabase, {
+    projectId,
+    artifactId,
+    userId: user.id,
+    myRole,
+    organisationId: safeStr((a0 as any)?.organisation_id) || null,
+    nowIso,
+  });
+
   const project = await getProjectNotificationContext(supabase, projectId);
   const actorDisplayName = await getUserDisplayName(supabase, user.id);
 
@@ -1321,15 +1826,23 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
     .eq("id", artifactId);
   if (upErr) throwDb(upErr, "artifacts.update(request_changes)");
 
-  if (chain?.id) {
-    if (currentStep?.id) await markActiveChainStepsClosed(supabase, chain.id, nowIso, "changes_requested");
-    await closeApprovalChain(supabase, chain.id, {
-      status: "changes_requested",
-      actorId: user.id,
+  if (approverInfo.matchedApprover?.id) {
+    await markApproverSlotDecision(supabase, {
+      approverRowId: safeStr(approverInfo.matchedApprover.id),
+      actorUserId: user.id,
       nowIso,
-      reason: reason ?? null,
+      status: "changes_requested",
+      actingAsDelegate: !!approverInfo.actingAsDelegate,
     });
   }
+
+  await markActiveChainStepsClosed(supabase, chain.id, nowIso, "changes_requested");
+  await closeApprovalChain(supabase, chain.id, {
+    status: "changes_requested",
+    actorId: user.id,
+    nowIso,
+    reason: reason ?? null,
+  });
 
   await addApprovalCommentSafe(supabase, {
     organisationId: safeStr((a0 as any)?.organisation_id) || null,
@@ -1357,23 +1870,28 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
     console.error("[requestChangesArtifact] notification failed:", notifyErr);
   }
 
-  await writeAuditLog(supabase, {
-    project_id: projectId,
-    artifact_id: artifactId,
-    actor_id: user.id,
+  await writeApprovalAuditLogValidated(supabase, {
+    projectId,
+    artifactId,
+    actorId: user.id,
     action: "request_changes",
+    chainId: chain.id,
+    stepId: currentStep.id,
     before: {
       approval_status: a0.approval_status,
       is_locked: a0.is_locked,
-      approval_chain_id: chain?.id ?? null,
-      step_id: currentStep?.id ?? null,
+      step_status: currentStep.status,
     },
     after: {
       approval_status: "changes_requested",
       reason: reason ?? null,
       is_locked: false,
-      approval_chain_id: chain?.id ?? null,
-      chain_closed: !!chain?.id,
+      chain_closed: true,
+      step_status: "changes_requested",
+      acted_as_delegate: !!approverInfo.actingAsDelegate,
+      delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
+      approval_slot_id: safeStr(approverInfo.matchedApprover?.id) || null,
+      delegation_id: approverInfo.delegationId ?? null,
     },
   });
 
@@ -1391,28 +1909,20 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
   if (!isApprovalEligibleArtifact(a0.type)) throw new Error("This artifact does not use approvals.");
   if (String(a0.user_id) === user.id) throw new Error("You cannot reject your own artifact.");
 
-  const st = String(a0.approval_status ?? "").toLowerCase();
+  const st = lower(a0.approval_status);
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
-  const { data: activeChainRow, error: chainErr } = await supabase
-    .from("approval_chains")
-    .select("*")
-    .eq("artifact_id", artifactId)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (chainErr) throwDb(chainErr, "approval_chains.select(active_for_artifact)");
-
-  const chain = (activeChainRow as any) ?? null;
-  const steps = chain?.id ? sortApprovalSteps(await listApprovalStepsForChain(supabase, chain.id)) : [];
-  const currentStep = getCurrentStep(steps);
-
-  if (currentStep?.id) {
-    await assertUserCanActOnCurrentStep(supabase, { stepId: currentStep.id, userId: user.id, myRole });
-  } else if (!canApproveByRole(myRole)) {
-    throw new Error("You are not an eligible approver for this project.");
-  }
-
   const nowIso = new Date().toISOString();
+
+  const { chain, currentStep, approverInfo } = await assertApprovalActionAllowed(supabase, {
+    projectId,
+    artifactId,
+    userId: user.id,
+    myRole,
+    organisationId: safeStr((a0 as any)?.organisation_id) || null,
+    nowIso,
+  });
+
   const project = await getProjectNotificationContext(supabase, projectId);
   const actorDisplayName = await getUserDisplayName(supabase, user.id);
 
@@ -1430,15 +1940,23 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
     .eq("id", artifactId);
   if (upErr) throwDb(upErr, "artifacts.update(reject_final)");
 
-  if (chain?.id) {
-    if (currentStep?.id) await markActiveChainStepsClosed(supabase, chain.id, nowIso, "rejected");
-    await closeApprovalChain(supabase, chain.id, {
-      status: "rejected",
-      actorId: user.id,
+  if (approverInfo.matchedApprover?.id) {
+    await markApproverSlotDecision(supabase, {
+      approverRowId: safeStr(approverInfo.matchedApprover.id),
+      actorUserId: user.id,
       nowIso,
-      reason: reason ?? null,
+      status: "rejected",
+      actingAsDelegate: !!approverInfo.actingAsDelegate,
     });
   }
+
+  await markActiveChainStepsClosed(supabase, chain.id, nowIso, "rejected");
+  await closeApprovalChain(supabase, chain.id, {
+    status: "rejected",
+    actorId: user.id,
+    nowIso,
+    reason: reason ?? null,
+  });
 
   await addApprovalCommentSafe(supabase, {
     organisationId: safeStr((a0 as any)?.organisation_id) || null,
@@ -1466,23 +1984,28 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
     console.error("[rejectFinalArtifact] notification failed:", notifyErr);
   }
 
-  await writeAuditLog(supabase, {
-    project_id: projectId,
-    artifact_id: artifactId,
-    actor_id: user.id,
+  await writeApprovalAuditLogValidated(supabase, {
+    projectId,
+    artifactId,
+    actorId: user.id,
     action: "reject_final",
+    chainId: chain.id,
+    stepId: currentStep.id,
     before: {
       approval_status: a0.approval_status,
       is_locked: a0.is_locked,
-      approval_chain_id: chain?.id ?? null,
-      step_id: currentStep?.id ?? null,
+      step_status: currentStep.status,
     },
     after: {
       approval_status: "rejected",
       reason: reason ?? null,
       is_locked: false,
-      approval_chain_id: chain?.id ?? null,
-      chain_closed: !!chain?.id,
+      chain_closed: true,
+      step_status: "rejected",
+      acted_as_delegate: !!approverInfo.actingAsDelegate,
+      delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
+      approval_slot_id: safeStr(approverInfo.matchedApprover?.id) || null,
+      delegation_id: approverInfo.delegationId ?? null,
     },
   });
 
