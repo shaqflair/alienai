@@ -632,6 +632,21 @@ type AtomicApproveRpcResult = {
   approved_count?: number | null;
   pending_count?: number | null;
   required_approvals?: number | null;
+  delegated_from_user_id?: string | null;
+};
+
+type AtomicTerminalRpcResult = {
+  ok?: boolean;
+  step_id?: string | null;
+  slot_id?: string | null;
+  decision_source?: "direct" | "delegated" | "system" | string | null;
+  step_status?: string | null;
+  chain_status?: string | null;
+  artifact_status?: string | null;
+  progressed?: boolean | null;
+  completed_chain?: boolean | null;
+  reason?: string | null;
+  delegated_from_user_id?: string | null;
 };
 
 function isActiveDelegationNow(row: any, nowIso: string) {
@@ -1162,6 +1177,68 @@ async function approveStepAtomic(
   return result;
 }
 
+async function rejectStepAtomic(
+  supabase: any,
+  args: {
+    stepId: string;
+    actorUserId: string;
+    reason?: string | null;
+  }
+): Promise<AtomicTerminalRpcResult> {
+  const { data, error } = await supabase.rpc("reject_approval_step_atomic", {
+    p_step_id: args.stepId,
+    p_actor_user_id: args.actorUserId,
+    p_reason: safeStr(args.reason).trim() || null,
+  });
+
+  if (error) {
+    const msg = safeStr(error?.message);
+    if (isMissingFunctionError(msg, "reject_approval_step_atomic")) {
+      throw new Error(
+        "Approval hardening migration is not applied yet. Run the latest database migration before rejecting."
+      );
+    }
+    throwDb(error, "rpc.reject_approval_step_atomic");
+  }
+
+  const result = (data ?? null) as AtomicTerminalRpcResult | null;
+  if (!result || result.ok !== true) {
+    throw new Error("Atomic reject failed.");
+  }
+  return result;
+}
+
+async function requestChangesStepAtomic(
+  supabase: any,
+  args: {
+    stepId: string;
+    actorUserId: string;
+    reason?: string | null;
+  }
+): Promise<AtomicTerminalRpcResult> {
+  const { data, error } = await supabase.rpc("request_changes_approval_step_atomic", {
+    p_step_id: args.stepId,
+    p_actor_user_id: args.actorUserId,
+    p_reason: safeStr(args.reason).trim() || null,
+  });
+
+  if (error) {
+    const msg = safeStr(error?.message);
+    if (isMissingFunctionError(msg, "request_changes_approval_step_atomic")) {
+      throw new Error(
+        "Approval hardening migration is not applied yet. Run the latest database migration before requesting changes."
+      );
+    }
+    throwDb(error, "rpc.request_changes_approval_step_atomic");
+  }
+
+  const result = (data ?? null) as AtomicTerminalRpcResult | null;
+  if (!result || result.ok !== true) {
+    throw new Error("Atomic request changes failed.");
+  }
+  return result;
+}
+
 async function getStepById(supabase: any, stepId: string) {
   const { data, error } = await supabase.from("artifact_approval_steps").select("*").eq("id", stepId).maybeSingle();
   if (error) throwDb(error, "artifact_approval_steps.select(by_id)");
@@ -1687,8 +1764,10 @@ export async function approveStep(projectId: string, artifactId: string, comment
     ? Number(atomic.required_approvals)
     : getStepMinApprovals(currentStep, approverInfo.approverCount);
 
-  const actedAsDelegate =
-    lower(atomic.decision_source) === "delegated" || !!approverInfo.actingAsDelegate;
+  const delegatedFromUserId =
+    safeStr(atomic.delegated_from_user_id).trim() || approverInfo.delegatedFromUserId || null;
+
+  const actedAsDelegate = lower(atomic.decision_source) === "delegated" || !!approverInfo.actingAsDelegate;
 
   if (lower(atomic.step_status) === "pending" && atomic.progressed !== true) {
     await writeApprovalAuditLogValidated(supabase, {
@@ -1710,7 +1789,7 @@ export async function approveStep(projectId: string, artifactId: string, comment
         min_approvals: threshold,
         step_closed: false,
         acted_as_delegate: actedAsDelegate,
-        delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
+        delegated_from_user_id: delegatedFromUserId,
         approval_slot_id: safeStr(atomic.slot_id) || safeStr(approverInfo.matchedApprover?.id) || null,
         delegation_id: approverInfo.delegationId ?? null,
         decision_source: safeStr(atomic.decision_source) || null,
@@ -1761,7 +1840,7 @@ export async function approveStep(projectId: string, artifactId: string, comment
         next_step_status: safeStr(nextStep?.status || "active"),
         approval_step_index: Math.max(0, currentPos + 1),
         acted_as_delegate: actedAsDelegate,
-        delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
+        delegated_from_user_id: delegatedFromUserId,
         approval_slot_id: safeStr(atomic.slot_id) || safeStr(approverInfo.matchedApprover?.id) || null,
         delegation_id: approverInfo.delegationId ?? null,
         decision_source: safeStr(atomic.decision_source) || null,
@@ -1815,7 +1894,7 @@ export async function approveStep(projectId: string, artifactId: string, comment
       approvals_count: approvalsCount,
       min_approvals: threshold,
       acted_as_delegate: actedAsDelegate,
-      delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
+      delegated_from_user_id: delegatedFromUserId,
       approval_slot_id: safeStr(atomic.slot_id) || safeStr(approverInfo.matchedApprover?.id) || null,
       delegation_id: approverInfo.delegationId ?? null,
       decision_source: safeStr(atomic.decision_source) || null,
@@ -1866,35 +1945,9 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
   const project = await getProjectNotificationContext(supabase, projectId);
   const actorDisplayName = await getUserDisplayName(supabase, user.id);
 
-  const { error: upErr } = await supabase
-    .from("artifacts")
-    .update({
-      approval_status: "changes_requested",
-      rejected_at: nowIso,
-      rejected_by: user.id,
-      rejection_reason: reason ?? null,
-      is_locked: false,
-      locked_at: null,
-      locked_by: null,
-    })
-    .eq("id", artifactId);
-  if (upErr) throwDb(upErr, "artifacts.update(request_changes)");
-
-  if (approverInfo.matchedApprover?.id) {
-    await markApproverSlotDecision(supabase, {
-      approverRowId: safeStr(approverInfo.matchedApprover.id),
-      actorUserId: user.id,
-      nowIso,
-      status: "rejected",
-      actingAsDelegate: !!approverInfo.actingAsDelegate,
-    });
-  }
-
-  await markActiveChainStepsClosed(supabase, chain.id, nowIso, "changes_requested");
-  await closeApprovalChain(supabase, chain.id, {
-    status: "changes_requested",
-    actorId: user.id,
-    nowIso,
+  const atomic = await requestChangesStepAtomic(supabase, {
+    stepId: safeStr(currentStep.id),
+    actorUserId: user.id,
     reason: reason ?? null,
   });
 
@@ -1924,6 +1977,11 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
     console.error("[requestChangesArtifact] notification failed:", notifyErr);
   }
 
+  const delegatedFromUserId =
+    safeStr(atomic.delegated_from_user_id).trim() || approverInfo.delegatedFromUserId || null;
+
+  const actedAsDelegate = lower(atomic.decision_source) === "delegated" || !!approverInfo.actingAsDelegate;
+
   await writeApprovalAuditLogValidated(supabase, {
     projectId,
     artifactId,
@@ -1937,15 +1995,16 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
       step_status: currentStep.status,
     },
     after: {
-      approval_status: "changes_requested",
+      approval_status: safeStr(atomic.artifact_status || "changes_requested"),
       reason: reason ?? null,
       is_locked: false,
       chain_closed: true,
-      step_status: "changes_requested",
-      acted_as_delegate: !!approverInfo.actingAsDelegate,
-      delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
-      approval_slot_id: safeStr(approverInfo.matchedApprover?.id) || null,
+      step_status: safeStr(atomic.step_status || "changes_requested"),
+      acted_as_delegate: actedAsDelegate,
+      delegated_from_user_id: delegatedFromUserId,
+      approval_slot_id: safeStr(atomic.slot_id) || safeStr(approverInfo.matchedApprover?.id) || null,
       delegation_id: approverInfo.delegationId ?? null,
+      decision_source: safeStr(atomic.decision_source) || null,
     },
   });
 
@@ -1980,35 +2039,9 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
   const project = await getProjectNotificationContext(supabase, projectId);
   const actorDisplayName = await getUserDisplayName(supabase, user.id);
 
-  const { error: upErr } = await supabase
-    .from("artifacts")
-    .update({
-      approval_status: "rejected",
-      rejected_at: nowIso,
-      rejected_by: user.id,
-      rejection_reason: reason ?? null,
-      is_locked: false,
-      locked_at: null,
-      locked_by: null,
-    })
-    .eq("id", artifactId);
-  if (upErr) throwDb(upErr, "artifacts.update(reject_final)");
-
-  if (approverInfo.matchedApprover?.id) {
-    await markApproverSlotDecision(supabase, {
-      approverRowId: safeStr(approverInfo.matchedApprover.id),
-      actorUserId: user.id,
-      nowIso,
-      status: "rejected",
-      actingAsDelegate: !!approverInfo.actingAsDelegate,
-    });
-  }
-
-  await markActiveChainStepsClosed(supabase, chain.id, nowIso, "rejected");
-  await closeApprovalChain(supabase, chain.id, {
-    status: "rejected",
-    actorId: user.id,
-    nowIso,
+  const atomic = await rejectStepAtomic(supabase, {
+    stepId: safeStr(currentStep.id),
+    actorUserId: user.id,
     reason: reason ?? null,
   });
 
@@ -2038,6 +2071,11 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
     console.error("[rejectFinalArtifact] notification failed:", notifyErr);
   }
 
+  const delegatedFromUserId =
+    safeStr(atomic.delegated_from_user_id).trim() || approverInfo.delegatedFromUserId || null;
+
+  const actedAsDelegate = lower(atomic.decision_source) === "delegated" || !!approverInfo.actingAsDelegate;
+
   await writeApprovalAuditLogValidated(supabase, {
     projectId,
     artifactId,
@@ -2051,15 +2089,16 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
       step_status: currentStep.status,
     },
     after: {
-      approval_status: "rejected",
+      approval_status: safeStr(atomic.artifact_status || "rejected"),
       reason: reason ?? null,
       is_locked: false,
       chain_closed: true,
-      step_status: "rejected",
-      acted_as_delegate: !!approverInfo.actingAsDelegate,
-      delegated_from_user_id: approverInfo.delegatedFromUserId ?? null,
-      approval_slot_id: safeStr(approverInfo.matchedApprover?.id) || null,
+      step_status: safeStr(atomic.step_status || "rejected"),
+      acted_as_delegate: actedAsDelegate,
+      delegated_from_user_id: delegatedFromUserId,
+      approval_slot_id: safeStr(atomic.slot_id) || safeStr(approverInfo.matchedApprover?.id) || null,
       delegation_id: approverInfo.delegationId ?? null,
+      decision_source: safeStr(atomic.decision_source) || null,
     },
   });
 
