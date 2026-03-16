@@ -461,7 +461,7 @@ export default function FinancialPlanMonthlyView({
       </div>
 
       {/* -- Table -- */}
-      <div style={{ border: `1px solid ${P.borderMd}`, maxHeight: "70vh", overflowY: "auto", overflowX: "auto" }}>
+      <div style={{ border: `1px solid ${P.borderMd}`, maxHeight: "70vh", overflowY: "auto", overflowX: "auto", scrollPaddingRight: "100px", scrollPaddingRight: "100px" }}>
         <table style={{ borderCollapse: "collapse", background: P.surface, minWidth: `${200 + monthKeys.length * 180 + 200}px` }}>
 
           {/* -- THEAD -- */}
@@ -484,7 +484,7 @@ export default function FinancialPlanMonthlyView({
                     </th>
                   ))
               }
-              <th style={{ position: "sticky", right: 0, zIndex: 30, background: "#EFEFEC", minWidth: 90, padding: "7px 10px", textAlign: "right", borderLeft: `1px solid ${P.borderMd}`, borderBottom: `1px solid ${P.borderMd}`, fontFamily: P.mono, fontSize: 8, color: P.textSm, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 500 }}>
+              <th style={{ position: "sticky", right: 0, zIndex: 30, background: "#EFEFEC", minWidth: 100, padding: "7px 10px", textAlign: "right", borderLeft: `1px solid ${P.borderMd}`, borderBottom: `1px solid ${P.borderMd}`, fontFamily: P.mono, fontSize: 8, color: P.textSm, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 500 }}>
                 Total
               </th>
             </tr>
@@ -753,6 +753,9 @@ export default function FinancialPlanMonthlyView({
     </div>
   );
 }
+
+
+
 
 
 
