@@ -57,15 +57,14 @@ function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
     lg: { icon: 52, text: 32, gap: 14 },
   }[size];
 
-  const letters = [
-    { ch: "?", accent: true },
-    { ch: "L", accent: false },
-    { ch: "I", accent: true },
-    { ch: "?", accent: false },
-    { ch: "N", accent: false },
-    { ch: "?", accent: true },
+const letters = [
+    { ch: "\u039B", accent: true },
+    { ch: "L",      accent: false },
+    { ch: "I",      accent: true },
+    { ch: "\u039E", accent: false },
+    { ch: "N",      accent: false },
+    { ch: "\u039B", accent: true },
   ];
-
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: sizes.gap }}>
       <img
@@ -637,7 +636,7 @@ function GovernanceGraph() {
 
         {[
           [THEME.green, "Healthy (80%+)"],
-          [THEME.amber, "Warning (60ï¿½79%)"],
+          [THEME.amber, "Warning (60–79%)"],
           [THEME.red, "Critical (<60%)"],
         ].map(([color, label]) => (
           <div
@@ -1668,9 +1667,10 @@ export default function LandingPageClient() {
                           marginTop: 1,
                         }}
                       >
-                        ?
+                       >
+                        &#10003;
                       </span>
-                      {bullet}
+                                            {bullet}
                     </div>
                   ))}
                 </div>
