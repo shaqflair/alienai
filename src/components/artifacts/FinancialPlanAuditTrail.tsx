@@ -266,8 +266,8 @@ export default function FinancialPlanAuditTrail({
   const [groups,   setGroups]   = useState<AuditGroup[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
-  // Default to "all" so events are visible immediately
-  const [filter,   setFilter]   = useState<FilterType>("all");
+  // null = nothing shown until user clicks a filter tab
+  const [filter,   setFilter]   = useState<FilterType | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [page,     setPage]     = useState(1);
   const PAGE_SIZE = 25;
@@ -293,12 +293,14 @@ export default function FinancialPlanAuditTrail({
 
   useEffect(() => { void load(); }, [load]);
 
-  const filtered = filter === "all"
-    ? groups
-    : groups.filter(g => filter === "approval"
-        ? g.section === "approval"
-        : g.section !== "approval"
-      );
+  const filtered = filter === null
+    ? []
+    : filter === "all"
+      ? groups
+      : groups.filter(g => filter === "approval"
+          ? g.section === "approval"
+          : g.section !== "approval"
+        );
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -311,7 +313,7 @@ export default function FinancialPlanAuditTrail({
     });
   }
 
-  const btn = (active: boolean): React.CSSProperties => ({
+  const btn = (active: boolean, muted?: boolean): React.CSSProperties => ({
     padding: "4px 12px", borderRadius: 6, border: "1px solid",
     borderColor: active ? "#0e7490" : "#e2e8f0",
     background: active ? "#ecfeff" : "#fff",
@@ -326,22 +328,29 @@ export default function FinancialPlanAuditTrail({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>Audit trail</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {expanded.size > 0 && (
+          {filter !== null && expanded.size > 0 && (
             <button type="button" onClick={() => setExpanded(new Set())} style={btn(false)}>Collapse all</button>
           )}
-          {filtered.length > 0 && expanded.size === 0 && (
+          {filter !== null && filtered.length > 0 && expanded.size === 0 && (
             <button type="button" onClick={() => setExpanded(new Set(filtered.map(g => g.group_key)))} style={btn(false)}>Expand all</button>
           )}
           <button type="button" onClick={load} style={{ ...btn(false), padding: "4px 8px" }} title="Refresh">{"\u21bb"}</button>
-          <span style={{ fontSize: 11, color: "#94a3b8" }}>{filtered.length} event{filtered.length !== 1 ? "s" : ""}</span>
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>{groups.length} event{groups.length !== 1 ? "s" : ""}</span>
         </div>
       </div>
 
-      {/* Filter tabs - ALL is active by default so events show immediately */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+      {/* Filter tabs - click to reveal events */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: "#94a3b8", marginRight: 4 }}>Click to view:</span>
         {(["all", "changes", "approval"] as FilterType[]).map(f => (
-          <button key={f} type="button" onClick={() => { setFilter(f); setPage(1); setExpanded(new Set()); }} style={btn(filter === f)}>
-            {f === "all" ? `All (${groups.length})` : f === "changes" ? `Changes (${groups.filter(g => g.section !== "approval").length})` : `Approval (${groups.filter(g => g.section === "approval").length})`}
+          <button key={f} type="button"
+            onClick={() => { setFilter(prev => prev === f ? null : f); setPage(1); setExpanded(new Set()); }}
+            style={btn(filter === f)}>
+            {f === "all"
+              ? `All (${groups.length})`
+              : f === "changes"
+                ? `Changes (${groups.filter(g => g.section !== "approval").length})`
+                : `Approval (${groups.filter(g => g.section === "approval").length})`}
           </button>
         ))}
       </div>
@@ -352,8 +361,13 @@ export default function FinancialPlanAuditTrail({
       {error && !loading && (
         <div style={{ padding: "10px 14px", borderRadius: 8, background: "#fff5f5", border: "1px solid #fecaca", fontSize: 12, color: "#dc2626" }}>{error}</div>
       )}
-      {!loading && !error && filtered.length === 0 && (
-        <div style={{ padding: "24px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>No events found.</div>
+      {!loading && filter === null && (
+        <div style={{ padding: "16px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>
+          Select a filter above to view audit events.
+        </div>
+      )}
+      {!loading && !error && filter !== null && filtered.length === 0 && (
+        <div style={{ padding: "16px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>No events found.</div>
       )}
 
       {!loading && !error && paged.length > 0 && (
