@@ -847,6 +847,13 @@ export default function HeatmapClient({
       </div>
 
       <PipeSection gaps={data.pipelineGaps} periods={data.periods} cw={cw}/>
+
+    {/* -- Page-level allocation audit trail -- */}
+    <div style={{ margin: "24px 0 0", padding: "20px 24px", background: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+      <AllocationAuditTrail
+        organisationId={(data as any).organisationId ?? undefined}
+        title="Resource allocation history"
+      />
     </div></div>
 
     {edit && <EditModal cell={edit} people={allPeople} projects={allProjects} onClose={() => setEdit(null)} onSaved={onSaved} onSaveError={showSaveErr}/>}
