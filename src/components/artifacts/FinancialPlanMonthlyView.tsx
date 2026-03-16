@@ -524,18 +524,14 @@ export default function FinancialPlanMonthlyView({
                 </div>
               );
             })}
-            {visibleMonths.every((mk, i) => {
-              if (i === 0) return true;
-              const prev = visibleMonths[i - 1];
-              return (monthTotals[mk]?.forecast ?? 0) === (monthTotals[prev]?.forecast ?? 0);
-            }) && (
+            {visibleMonths.filter((mk, i) => i > 0 && (monthTotals[mk]?.forecast ?? 0) !== (monthTotals[visibleMonths[i - 1]]?.forecast ?? 0)).length === 0 && (
               <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, fontStyle: "italic" }}>No forecast movement yet</span>
             )}
           </div>
         </div>
       )}
 
-      {/* -- Quarter summary cards -- */
+      {/* -- Quarter summary cards -- */}
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${visibleQuarters.length}, 1fr)`, gap: 8 }}>
         {visibleQuarters.map(q => {
           const qMonths   = q.months.filter(mk => visibleMonths.includes(mk));
