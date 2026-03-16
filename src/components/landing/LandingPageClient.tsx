@@ -1667,7 +1667,6 @@ export default function LandingPageClient() {
                           marginTop: 1,
                         }}
                       >
-                       >
                         &#10003;
                       </span>
                                             {bullet}
