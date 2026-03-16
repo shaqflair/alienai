@@ -19,13 +19,28 @@ function canEditRole(role: string) {
   return r === "owner" || r === "admin" || r === "editor";
 }
 
+function normalizeIncomingStatus(status: unknown) {
+  const s = safeLower(status);
+  if (!s || s === "new" || s === "pending" || s === "generated" || s === "queued") return "proposed";
+  if (s === "suggested") return "proposed";
+  if (s === "rejected") return "dismissed";
+  if (s === "proposed" || s === "applied" || s === "dismissed") return s;
+  return s;
+}
+
+function toUiStatus(status: unknown) {
+  const s = normalizeIncomingStatus(status);
+  if (s === "dismissed") return "rejected";
+  return s || "proposed";
+}
+
 async function safeJson(req: Request) {
   return await req.json().catch(() => ({}));
 }
 
 /**
  * Next.js route ctx.params is usually: { params: { id: string } }
- * Some of your code uses Promise-wrapped params. Support both safely.
+ * Some code uses Promise-wrapped params. Support both safely.
  */
 async function readParamId(ctx: any): Promise<string> {
   try {
@@ -81,7 +96,9 @@ export async function POST(req: Request, ctx: any) {
     const projectId = safeStr(body?.projectId).trim();
     const reason = safeStr(body?.reason ?? body?.note ?? "").trim();
 
-    if (!projectId) return NextResponse.json({ ok: false, error: "Missing projectId" }, { status: 400 });
+    if (!projectId) {
+      return NextResponse.json({ ok: false, error: "Missing projectId" }, { status: 400 });
+    }
 
     // Membership gate (editor/owner/admin)
     const mem = await requireProjectMembership(supabase, projectId, user.id);
@@ -91,7 +108,19 @@ export async function POST(req: Request, ctx: any) {
     // Fetch suggestion (RLS)
     const { data: existing, error: getErr } = await supabase
       .from("ai_suggestions")
-      .select("id, project_id, status, artifact_id, target_artifact_type, suggestion_type, section_key")
+      .select(
+        [
+          "id",
+          "project_id",
+          "status",
+          "artifact_id",
+          "target_artifact_type",
+          "suggestion_type",
+          "section_key",
+          "trigger_key",
+          "triggered_by_event_id",
+        ].join(",")
+      )
       .eq("id", id)
       .eq("project_id", projectId)
       .maybeSingle();
@@ -99,24 +128,27 @@ export async function POST(req: Request, ctx: any) {
     if (getErr) return NextResponse.json({ ok: false, error: getErr.message }, { status: 500 });
     if (!existing) return NextResponse.json({ ok: false, error: "Suggestion not found" }, { status: 404 });
 
-    const currStatus = safeLower((existing as any).status);
+    const currStatus = normalizeIncomingStatus((existing as any).status);
 
     // Idempotent: if already terminal, return ok
-    if (currStatus !== "proposed" && currStatus !== "suggested") {
+    if (currStatus !== "proposed") {
       return NextResponse.json({
         ok: true,
-        suggestion: { id: (existing as any).id, status: (existing as any).status },
+        suggestion: {
+          id: (existing as any).id,
+          status: toUiStatus((existing as any).status),
+        },
         note: `No change (already ${safeStr((existing as any).status)})`,
       });
     }
 
     const nowIso = new Date().toISOString();
 
-    // Update to rejected (fits your table constraints)
+    // Canonical DB status is "dismissed"; UI can still receive "rejected"
     const { data: updated, error: updErr } = await supabase
       .from("ai_suggestions")
       .update({
-        status: "rejected",
+        status: "dismissed",
         decided_at: nowIso,
         rejected_at: nowIso,
         actioned_by: user.id,
@@ -124,13 +156,25 @@ export async function POST(req: Request, ctx: any) {
       })
       .eq("id", id)
       .eq("project_id", projectId)
-      .select("id,status,decided_at,rejected_at,actioned_by")
+      .select("id,status,decided_at,rejected_at,actioned_by,updated_at")
       .maybeSingle();
 
     if (updErr) return NextResponse.json({ ok: false, error: updErr.message }, { status: 500 });
     if (!updated) return NextResponse.json({ ok: false, error: "Suggestion not found" }, { status: 404 });
 
-    // Best-effort event log (don’t fail if RLS blocks project_events)
+    // Optional feedback row (best-effort, same pattern as apply route)
+    try {
+      await supabase.from("ai_suggestion_feedback").insert({
+        suggestion_id: id,
+        actor_user_id: user.id,
+        action: "rejected",
+        note: reason || null,
+      });
+    } catch {
+      // ignore
+    }
+
+    // Best-effort event log
     try {
       await supabase.from("project_events").insert({
         project_id: projectId,
@@ -145,13 +189,21 @@ export async function POST(req: Request, ctx: any) {
           reason: reason || null,
           target_artifact_type: (existing as any).target_artifact_type ?? null,
           suggestion_type: (existing as any).suggestion_type ?? null,
+          trigger_key: (existing as any).trigger_key ?? null,
+          triggered_by_event_id: (existing as any).triggered_by_event_id ?? null,
         },
       });
     } catch {
       // ignore
     }
 
-    return NextResponse.json({ ok: true, suggestion: updated });
+    return NextResponse.json({
+      ok: true,
+      suggestion: {
+        ...(updated as any),
+        status: "rejected",
+      },
+    });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }

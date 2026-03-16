@@ -1,15 +1,17 @@
-﻿// src/app/api/ai/events/route.ts — REBUILT v6 (org-wide portfolio scope via resolvePortfolioScope)
+﻿// src/app/api/ai/events/route.ts — REBUILT v6 + event trigger wiring
 // ✅ Uses shared resolvePortfolioScope(supabase, userId)
 // ✅ Active-only filtering via filterActiveProjectIds
 // ✅ Fail-open only within scoped candidates
 // ✅ All responses remain no-store
 // ✅ Project-detail branches remain org-member/project-access controlled
+// ✅ NEW: project_events insert + trigger-engine wiring for governance suggestion generation
 
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { buildPmImpactAssessment, safeNum as safeNumAi } from "@/lib/ai/change-ai";
+import { processEventAndGenerateSuggestions } from "@/lib/ai/trigger-engine";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import OpenAI from "openai";
@@ -142,10 +144,152 @@ function isNumericLike(s: string) {
 }
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(
-    new Set(
-      values.map((x) => safeStr(x).trim()).filter(Boolean)
-    )
+    new Set(values.map((x) => safeStr(x).trim()).filter(Boolean))
   );
+}
+
+/* ── event trigger helpers ─────────────────────────────────────────────── */
+
+function deriveEventSeverity(eventType: string, payload: any): "info" | "warning" | "critical" {
+  const explicit = safeLower(payload?.severity);
+  if (explicit === "info" || explicit === "warning" || explicit === "critical") return explicit;
+
+  const t = safeLower(eventType);
+  if (
+    t.includes("critical") ||
+    t.includes("rejected") ||
+    t.includes("failed") ||
+    t.includes("breach") ||
+    t.includes("escalated")
+  ) {
+    return "critical";
+  }
+  if (
+    t.includes("delayed") ||
+    t.includes("overdue") ||
+    t.includes("submitted") ||
+    t.includes("changes_requested") ||
+    t.includes("warning")
+  ) {
+    return "warning";
+  }
+  return "info";
+}
+
+function shouldPersistProjectEvent(eventType: string): boolean {
+  const t = safeLower(eventType);
+  if (!t) return false;
+
+  const ignore = new Set([
+    "artifact_due",
+    "delivery_report",
+    "weekly_report_narrative",
+    "change_ai_impact_assessment",
+  ]);
+  if (ignore.has(t)) return false;
+
+  if (
+    t.startsWith("artifact_") ||
+    t.startsWith("approval_") ||
+    t.startsWith("closure_") ||
+    t.startsWith("change_") ||
+    t.startsWith("raid_") ||
+    t.startsWith("risk_") ||
+    t.startsWith("issue_") ||
+    t.startsWith("dependency_") ||
+    t.startsWith("assumption_")
+  ) {
+    return true;
+  }
+
+  return (
+    t.includes("artifact") ||
+    t.includes("approval") ||
+    t.includes("closure_report") ||
+    t.includes("closure") ||
+    t.includes("governance")
+  );
+}
+
+function extractArtifactId(body: any, payload: any): string | null {
+  const v =
+    safeStr(body?.artifact_id).trim() ||
+    safeStr(body?.artifactId).trim() ||
+    safeStr(payload?.artifact_id).trim() ||
+    safeStr(payload?.artifactId).trim() ||
+    safeStr(payload?.source?.artifact_id).trim() ||
+    safeStr(payload?.sourceArtifactId).trim();
+  return v || null;
+}
+
+function extractSectionKey(body: any, payload: any): string | null {
+  const v =
+    safeStr(body?.section_key).trim() ||
+    safeStr(body?.sectionKey).trim() ||
+    safeStr(payload?.section_key).trim() ||
+    safeStr(payload?.sectionKey).trim();
+  return v || null;
+}
+
+async function createProjectEventAndRunEngine(args: {
+  supabase: any;
+  projectId: string;
+  eventType: string;
+  body: any;
+  payload: any;
+  userId: string | null;
+}) {
+  const { supabase, projectId, eventType, body, payload, userId } = args;
+
+  const artifactId = extractArtifactId(body, payload);
+  const sectionKey = extractSectionKey(body, payload);
+
+  const eventPayload =
+    payload && typeof payload === "object"
+      ? {
+          ...payload,
+          project_id: safeStr(payload?.project_id).trim() || projectId,
+          artifact_id: safeStr(payload?.artifact_id).trim() || artifactId,
+          section_key: safeStr(payload?.section_key).trim() || sectionKey,
+        }
+      : {
+          value: payload ?? null,
+          project_id: projectId,
+          artifact_id: artifactId,
+          section_key: sectionKey,
+        };
+
+  const insertRow = {
+    project_id: projectId,
+    artifact_id: artifactId,
+    section_key: sectionKey,
+    event_type: eventType,
+    actor_user_id: userId || null,
+    source: "app" as const,
+    severity: deriveEventSeverity(eventType, eventPayload),
+    payload: eventPayload,
+  };
+
+  const { data, error } = await supabase.from("project_events").insert(insertRow).select("id").maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const eventId = safeStr(data?.id).trim();
+  if (!eventId) return null;
+
+  try {
+    await processEventAndGenerateSuggestions(eventId);
+  } catch (e: any) {
+    console.error("[ai/events] trigger-engine failed", {
+      eventId,
+      eventType,
+      error: e?.message ?? e,
+    });
+  }
+
+  return eventId;
 }
 
 /* ── auth error classifier ──────────────────────────────────────────────── */
@@ -1833,15 +1977,6 @@ export async function POST(req: Request) {
         model: assessment.model,
       });
     }
-// ── PATCH: delivery_report handler ─────────────────────────────────────────
-// Insert this block in src/app/api/ai/events/route.ts POST handler
-// LOCATION: after the weekly_report_narrative block, before the knownTypes check
-// i.e. replace:
-//   const knownTypes = [
-//     "artifact_due",
-//     "delivery_report",
-//     ...
-// with this block + the knownTypes array
 
     if (eventType === "delivery_report") {
       if (!projectUuid) {
@@ -1856,7 +1991,6 @@ export async function POST(req: Request) {
         const weekAgo = new Date(from.getTime() - windowDays * 24 * 60 * 60 * 1000);
         const to = endOfUtcWindow(from, windowDays);
 
-        // Load recent milestones
         const { data: msData } = await supabase
           .from("schedule_milestones")
           .select("id,milestone_name,end_date,status,critical_path_flag,source_artifact_id")
@@ -1866,7 +2000,6 @@ export async function POST(req: Request) {
 
         const msRows = Array.isArray(msData) ? (msData as any[]) : [];
 
-        // Load open RAID items
         const { data: raidData } = await supabase
           .from("raid_items")
           .select("id,type,title,status,due_date,owner_label,priority")
@@ -1877,7 +2010,6 @@ export async function POST(req: Request) {
 
         const raidRows = Array.isArray(raidData) ? (raidData as any[]) : [];
 
-        // Load recent change requests
         const { data: chData } = await supabase
           .from("change_requests")
           .select("id,title,status,delivery_status,decision_status,updated_at")
@@ -1887,11 +2019,9 @@ export async function POST(req: Request) {
 
         const chRows = Array.isArray(chData) ? (chData as any[]) : [];
 
-        // Build period dates
         const periodFrom = period?.from ?? weekAgo.toISOString().split("T")[0];
         const periodTo = period?.to ?? from.toISOString().split("T")[0];
 
-        // Categorise milestones
         const msCompleted = msRows
           .filter((m: any) => {
             const st = safeLower(m?.status);
@@ -1914,18 +2044,15 @@ export async function POST(req: Request) {
           critical: !!m?.critical_path_flag,
         }));
 
-        // Build RAG from derivedRag or healthContext
-        const rag = (derivedRag === "red" || derivedRag === "amber" || derivedRag === "green")
+        const rag = derivedRag === "red" || derivedRag === "amber" || derivedRag === "green"
           ? derivedRag
           : "green";
 
-        // Changes for report
         const changesForReport = chRows.slice(0, 5).map((c: any) => ({
           title: safeStr(c?.title).trim() || "Change request",
           status: safeStr(c?.decision_status ?? c?.delivery_status ?? c?.status).trim() || "review",
         }));
 
-        // RAID for report
         const raidForReport = raidRows.slice(0, 5).map((r: any) => ({
           title: safeStr(r?.title).trim() || "RAID item",
           type: safeStr(r?.type).trim() || "risk",
@@ -1933,7 +2060,6 @@ export async function POST(req: Request) {
           priority: safeStr(r?.priority).trim() || "medium",
         }));
 
-        // Try AI generation first
         let aiGenerated = false;
         let headline = "";
         let narrative = "";
@@ -1948,7 +2074,9 @@ export async function POST(req: Request) {
 
           const ragLabel = rag === "red" ? "Red — Critical" : rag === "amber" ? "Amber — At Risk" : "Green — On Track";
           const msCompletedNames = msCompleted.map((m: any) => safeStr(m?.milestone_name).trim()).filter(Boolean);
-          const msDueNames = msDue.map((m: any) => `${safeStr(m?.milestone_name).trim()} (due ${safeStr(m?.end_date).split("T")[0]})`).filter(Boolean);
+          const msDueNames = msDue
+            .map((m: any) => `${safeStr(m?.milestone_name).trim()} (due ${safeStr(m?.end_date).split("T")[0]})`)
+            .filter(Boolean);
           const highRaid = raidRows.filter((r: any) => safeLower(r?.priority) === "high").slice(0, 3);
 
           const userPrompt = `Project: ${meta.project_name ?? "Project"}${meta.project_code ? ` (${meta.project_code})` : ""}
@@ -1995,7 +2123,6 @@ Generate the weekly delivery report. Return ONLY valid JSON:
           blockers = Array.isArray(parsed.blockers) ? parsed.blockers : [];
           aiGenerated = true;
         } catch {
-          // Rule-based fallback
           const ragLabel = rag === "red" ? "Critical" : rag === "amber" ? "At Risk" : "On Track";
           const name = meta.project_name ?? "Project";
           headline = `${name} — ${ragLabel}`;
@@ -2012,7 +2139,6 @@ Generate the weekly delivery report. Return ONLY valid JSON:
             .map((r: any) => ({ text: safeStr(r?.title).trim(), link: null }));
         }
 
-        // Build the canonical report object the client parser expects
         const report = {
           version: 1,
           project: {
@@ -2050,7 +2176,6 @@ Generate the weekly delivery report. Return ONLY valid JSON:
           project_id: projectUuid,
           project_code: meta.project_code,
           project_name: meta.project_name,
-          // All three keys the client parser checks for
           report,
           delivery_report: report,
           content_json: report,
@@ -2062,6 +2187,7 @@ Generate the weekly delivery report. Return ONLY valid JSON:
         );
       }
     }
+
     const knownTypes = [
       "artifact_due",
       "delivery_report",
@@ -2071,6 +2197,17 @@ Generate the weekly delivery report. Return ONLY valid JSON:
 
     if (eventType && !knownTypes.includes(eventType)) {
       console.warn(`[ai/events] Unrecognised eventType "${eventType}" — falling through to draft assist.`);
+    }
+
+    if (projectUuid && shouldPersistProjectEvent(eventType)) {
+      await createProjectEventAndRunEngine({
+        supabase,
+        projectId: projectUuid,
+        eventType,
+        body,
+        payload,
+        userId: user.id,
+      });
     }
 
     const draft =
