@@ -1,381 +1,218 @@
-// src/components/artifacts/FinancialPlanAuditTrail.tsx
-"use client";
+// src/app/api/artifacts/audit/route.ts
+import "server-only";
 
-import React, { useEffect, useState, useCallback } from "react";
+import { NextResponse } from "next/server";
+import { createClient } from "@/utils/supabase/server";
 
-type AuditItem = {
-  id: string | number;
-  created_at: string;
-  section: string;
-  action_label?: string | null;
-  summary?: string | null;
-  kind: "content" | "approval";
-  action?: string | null;
-  decision?: string | null;
-  step_name?: string | null;
-  before?: any;
-  after?: any;
-};
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-type AuditGroup = {
-  group_key: string;
-  created_at: string;
-  actor_email?: string | null;
-  actor_id?: string | null;
-  title: string;
-  section: string;
-  summaries: string[];
-  items: AuditItem[];
-  item_count: number;
-};
+function jsonOk(data: any, status = 200) {
+  const res = NextResponse.json({ ok: true, ...data }, { status });
+  res.headers.set("Cache-Control", "no-store");
+  return res;
+}
+function jsonErr(error: string, status = 400, meta?: any) {
+  const res = NextResponse.json({ ok: false, error, meta }, { status });
+  res.headers.set("Cache-Control", "no-store");
+  return res;
+}
+function safeStr(x: any) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+function minuteBucket(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "min:unknown";
+  return `min:${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}-${d.getUTCHours()}-${d.getUTCMinutes()}`;
+}
 
-function fmtDateTime(iso: string) {
+function approvalTitle(action: string, decision?: string | null, stepName?: string | null) {
+  const a = safeStr(action).trim().toLowerCase();
+  const d = safeStr(decision).trim().toLowerCase();
+  const label = d || a || "event";
+  const pretty =
+    label === "approved" ? "Approved"
+    : label === "rejected" ? "Rejected"
+    : label === "request_changes" || label === "changes_requested" ? "Requested changes"
+    : label === "submitted" ? "Submitted for approval"
+    : label.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const step = safeStr(stepName).trim();
+  return step ? `Approval - ${pretty} - ${step}` : `Approval - ${pretty}`;
+}
+
+function approvalSummary(action: string, decision?: string | null, comment?: string | null) {
+  const c = safeStr(comment).trim();
+  const d = safeStr(decision).trim();
+  const a = safeStr(action).trim();
+  if (c) return c;
+  if (d) return d;
+  if (a) return a;
+  return null;
+}
+
+export async function GET(req: Request) {
   try {
-    return new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit", month: "short", year: "numeric",
-      hour: "2-digit", minute: "2-digit", hour12: false,
-    }).format(new Date(iso));
-  } catch { return iso; }
-}
+    const url = new URL(req.url);
+    const artifact_id = safeStr(url.searchParams.get("artifact_id")).trim();
+    if (!artifact_id) return jsonErr("artifact_id is required", 400);
 
-function fmtRelative(iso: string): string {
-  try {
-    const diff = Date.now() - new Date(iso).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1)  return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24)  return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    if (days < 7)  return `${days}d ago`;
-    return fmtDateTime(iso);
-  } catch { return iso; }
-}
+    const supabase = await createClient();
 
-function sectionIcon(section: string, kind: string): string {
-  if (kind === "approval") return "\u2713";
-  switch (section) {
-    case "budget": case "financial": return "\u00a3";
-    case "schedule": case "timeline": return "\ud83d\uddd3";
-    case "risks": case "raid": return "\u26a0";
-    case "general": default: return "\ud83d\udcdd";
-  }
-}
+    const { data: auth, error: authErr } = await supabase.auth.getUser();
+    if (authErr) return jsonErr(authErr.message, 401);
+    if (!auth?.user) return jsonErr("Unauthorized", 401);
 
-function sectionColor(section: string, kind: string): { color: string; bg: string; border: string } {
-  if (kind === "approval") return { color: "#2563eb", bg: "#eff6ff", border: "#bfdbfe" };
-  switch (section) {
-    case "budget": case "financial": return { color: "#059669", bg: "#f0fdf4", border: "#bbf7d0" };
-    case "schedule": return { color: "#d97706", bg: "#fffbeb", border: "#fde68a" };
-    case "risks": case "raid": return { color: "#dc2626", bg: "#fff5f5", border: "#fecaca" };
-    default: return { color: "#475569", bg: "#f8fafc", border: "#e2e8f0" };
-  }
-}
+    // Resolve project from artifact
+    const { data: art, error: artErr } = await supabase
+      .from("artifacts")
+      .select("id, project_id")
+      .eq("id", artifact_id)
+      .maybeSingle();
 
-function diffValue(val: any): string {
-  if (val === null || val === undefined) return "--";
-  if (typeof val === "boolean") return val ? "Yes" : "No";
-  if (typeof val === "object") {
-    try { return JSON.stringify(val).slice(0, 120); } catch { return String(val); }
-  }
-  const s = String(val);
-  return s.length > 120 ? s.slice(0, 120) + "..." : s;
-}
+    if (artErr) return jsonErr(artErr.message, 400);
+    if (!art?.project_id) return jsonErr("Artifact not found", 404);
 
-function DiffView({ before, after }: { before: any; after: any }) {
-  if (!before && !after) return null;
-
-  // If both are objects, show field-by-field diff
-  if (before && after && typeof before === "object" && typeof after === "object" && !Array.isArray(before)) {
-    const keys = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})]));
-    const changed = keys.filter(k => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
-    if (!changed.length) return null;
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
-        {changed.map(k => (
-          <div key={k} style={{ display: "grid", gridTemplateColumns: "120px 1fr 1fr", gap: 8, fontSize: 11, fontFamily: "monospace", alignItems: "start" }}>
-            <span style={{ color: "#64748b", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k}</span>
-            <span style={{ color: "#dc2626", background: "#fff5f5", padding: "2px 6px", borderRadius: 4, wordBreak: "break-all" }}>
-              {diffValue(before[k])}
-            </span>
-            <span style={{ color: "#059669", background: "#f0fdf4", padding: "2px 6px", borderRadius: 4, wordBreak: "break-all" }}>
-              {diffValue(after[k])}
-            </span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  // Simple before/after
-  return (
-    <div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 11, fontFamily: "monospace" }}>
-      {before !== undefined && (
-        <span style={{ color: "#dc2626", background: "#fff5f5", padding: "3px 8px", borderRadius: 4, flex: 1, wordBreak: "break-all" }}>
-          - {diffValue(before)}
-        </span>
-      )}
-      {after !== undefined && (
-        <span style={{ color: "#059669", background: "#f0fdf4", padding: "3px 8px", borderRadius: 4, flex: 1, wordBreak: "break-all" }}>
-          + {diffValue(after)}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function GroupRow({ group, expanded, onToggle }: {
-  group: AuditGroup;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const primaryItem = group.items[0];
-  const cfg = sectionColor(group.section, primaryItem?.kind ?? "content");
-  const icon = sectionIcon(group.section, primaryItem?.kind ?? "content");
-
-  const hasDetail = group.items.length > 0 &&
-    group.items.some(i => i.summary || i.before || i.after || i.decision || i.step_name);
-
-  return (
-    <div style={{ borderRadius: 8, border: `1px solid ${expanded ? cfg.border : "#e2e8f0"}`, background: expanded ? cfg.bg : "#ffffff", overflow: "hidden", transition: "all 0.15s" }}>
-      <button
-        type="button"
-        onClick={hasDetail ? onToggle : undefined}
-        style={{
-          width: "100%", textAlign: "left", background: "none", border: "none",
-          padding: "10px 14px", cursor: hasDetail ? "pointer" : "default",
-          display: "flex", alignItems: "flex-start", gap: 10, fontFamily: "inherit",
-        }}
-      >
-        {/* Icon */}
-        <span style={{
-          width: 28, height: 28, borderRadius: 6, background: cfg.bg,
-          border: `1px solid ${cfg.border}`, display: "flex", alignItems: "center",
-          justifyContent: "center", fontSize: 13, flexShrink: 0, marginTop: 1,
-        }}>{icon}</span>
-
-        {/* Main content */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>{group.title}</span>
-            {group.section === "approval" && primaryItem?.decision && (
-              <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 4, background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}` }}>
-                {primaryItem.decision}
-              </span>
-            )}
-            {group.item_count > 1 && (
-              <span style={{ fontSize: 10, color: "#94a3b8", background: "#f1f5f9", padding: "1px 6px", borderRadius: 4 }}>
-                {group.item_count} changes
-              </span>
-            )}
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 3, flexWrap: "wrap" }}>
-            {group.actor_email && (
-              <span style={{ fontSize: 11, color: "#64748b" }}>by {group.actor_email}</span>
-            )}
-            {group.summaries.length > 0 && !expanded && (
-              <span style={{ fontSize: 11, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 300 }}>
-                {group.summaries[0]}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Right side */}
-        <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-          <span style={{ fontSize: 11, color: "#64748b" }}>{fmtRelative(group.created_at)}</span>
-          <span style={{ fontSize: 10, color: "#cbd5e1" }}>{fmtDateTime(group.created_at)}</span>
-        </div>
-
-        {/* Chevron */}
-        {hasDetail && (
-          <span style={{ color: "#94a3b8", fontSize: 11, flexShrink: 0, marginTop: 4, transform: expanded ? "rotate(180deg)" : "none", display: "inline-block", transition: "transform 0.15s" }}>
-            {"v"}
-          </span>
-        )}
-      </button>
-
-      {/* Expanded detail */}
-      {expanded && hasDetail && (
-        <div style={{ padding: "0 14px 14px 52px", borderTop: `1px solid ${cfg.border}` }}>
-          {group.summaries.length > 0 && (
-            <p style={{ fontSize: 12, color: "#475569", fontStyle: "italic", margin: "10px 0 8px" }}>
-              {group.summaries.join(" \u00b7 ")}
-            </p>
-          )}
-          {group.items.map((item, i) => (
-            <div key={i} style={{ marginTop: i > 0 ? 12 : 8, paddingTop: i > 0 ? 12 : 0, borderTop: i > 0 ? "1px dashed #e2e8f0" : "none" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: cfg.color }}>
-                  {item.action_label ?? item.section ?? "Change"}
-                </span>
-                {item.kind === "approval" && item.step_name && (
-                  <span style={{ fontSize: 10, color: "#64748b" }}>Step: {item.step_name}</span>
-                )}
-              </div>
-              {item.summary && (
-                <p style={{ fontSize: 11, color: "#64748b", margin: "4px 0 0" }}>{item.summary}</p>
-              )}
-              {(item.before !== undefined || item.after !== undefined) && (
-                <DiffView before={item.before} after={item.after} />
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-type FilterType = "all" | "changes" | "approval";
-
-export default function FinancialPlanAuditTrail({
-  projectId,
-  artifactId,
-}: {
-  projectId: string;
-  artifactId: string;
-}) {
-  const [groups,   setGroups]   = useState<AuditGroup[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState<string | null>(null);
-  const [filter,   setFilter]   = useState<FilterType>("all");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [page,     setPage]     = useState(1);
-  const PAGE_SIZE = 25;
-
-  const load = useCallback(async () => {
-    if (!artifactId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(
-        `/api/artifacts/audit?artifact_id=${encodeURIComponent(artifactId)}`,
-        { cache: "no-store" }
-      );
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load audit trail");
-      setGroups(Array.isArray(json.events) ? json.events : []);
-    } catch (e: any) {
-      setError(e?.message ?? "Could not load audit trail");
-    } finally {
-      setLoading(false);
-    }
-  }, [artifactId]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  function toggleExpanded(key: string) {
-    setExpanded(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
+    // Membership check via RPC
+    const { data: memberOk, error: memberErr } = await supabase.rpc("is_project_member", {
+      p_project_id: art.project_id,
     });
+    if (memberErr) return jsonErr(memberErr.message, 400);
+    if (!memberOk) return jsonErr("Forbidden", 403);
+
+    // Fetch content audit log
+    const [contentRes, approvalRes] = await Promise.all([
+      supabase
+        .from("artifact_audit_log")
+        .select("id, artifact_id, project_id, actor_id, actor_email, action, section, action_label, summary, changed_columns, content_json_paths, request_id, route, created_at, before, after")
+        .eq("artifact_id", artifact_id)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      supabase
+        .from("approval_audit_log_v")
+        .select("id, created_at, project_id, artifact_id, artifact_title, artifact_kind, step_id, step_name, step_order, chain_id, actor_user_id, actor_email, action, decision, comment, request_id, payload")
+        .eq("artifact_id", artifact_id)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(200),
+    ]);
+
+    if (contentRes.error) return jsonErr(contentRes.error.message, 500);
+    if (approvalRes.error) return jsonErr(approvalRes.error.message, 500);
+
+    type UnifiedItem = {
+      kind: "content" | "approval";
+      id: any;
+      created_at: string;
+      actor_email?: string | null;
+      actor_id?: string | null;
+      title: string;
+      section: string;
+      summary?: string | null;
+      content_json_paths?: any;
+      changed_columns?: any;
+      before?: any;
+      after?: any;
+      request_id?: string | null;
+      action?: string;
+      decision?: string | null;
+      step_name?: string | null;
+      step_order?: number | null;
+      chain_id?: string | null;
+      step_id?: string | null;
+      payload?: any;
+    };
+
+    const unified: UnifiedItem[] = [];
+
+    for (const r of (contentRes.data as any[]) ?? []) {
+      unified.push({
+        kind: "content",
+        id: r.id,
+        created_at: r.created_at,
+        actor_email: r.actor_email ?? null,
+        actor_id: r.actor_id ?? null,
+        title: safeStr(r.action_label || "Document updated"),
+        section: safeStr(r.section || "general") || "general",
+        summary: r.summary ?? null,
+        content_json_paths: r.content_json_paths ?? null,
+        changed_columns: r.changed_columns ?? null,
+        before: r.before ?? null,
+        after: r.after ?? null,
+        request_id: r.request_id ?? null,
+      });
+    }
+
+    for (const r of (approvalRes.data as any[]) ?? []) {
+      unified.push({
+        kind: "approval",
+        id: r.id,
+        created_at: r.created_at,
+        actor_email: r.actor_email ?? null,
+        actor_id: r.actor_user_id ?? null,
+        title: approvalTitle(r.action, r.decision, r.step_name),
+        section: "approval",
+        summary: approvalSummary(r.action, r.decision, r.comment),
+        action: r.action,
+        decision: r.decision ?? null,
+        step_name: r.step_name ?? null,
+        step_order: r.step_order ?? null,
+        chain_id: r.chain_id ?? null,
+        step_id: r.step_id ?? null,
+        request_id: r.request_id ?? null,
+        payload: r.payload ?? null,
+      });
+    }
+
+    // Group by request_id or minute bucket
+    const groups = new Map<string, any>();
+
+    for (const u of unified) {
+      const key = u.request_id
+        ? `req:${u.request_id}`
+        : `${minuteBucket(u.created_at)}:${u.kind}`;
+
+      if (!groups.has(key)) {
+        groups.set(key, {
+          group_key: key,
+          created_at: u.created_at,
+          actor_email: u.actor_email || null,
+          actor_id: u.actor_id || null,
+          title: u.kind === "approval" ? "Approval activity" : "Document updated",
+          section: u.kind === "approval" ? "approval" : "general",
+          summaries: [] as string[],
+          items: [] as any[],
+        });
+      }
+
+      const g = groups.get(key);
+      if (!g.actor_email && u.actor_email) g.actor_email = u.actor_email;
+      if (!g.actor_id && u.actor_id) g.actor_id = u.actor_id;
+      if (g.created_at < u.created_at) g.created_at = u.created_at;
+
+      if (u.kind === "approval") {
+        g.section = "approval";
+        g.title = u.title || g.title;
+      } else {
+        if (u.section && u.section !== "general") g.section = u.section;
+        if (u.title && u.title !== "Document updated") g.title = u.title;
+      }
+
+      if (u.summary) g.summaries.push(u.summary);
+
+      if (u.kind === "content") {
+        g.items.push({ id: u.id, created_at: u.created_at, section: u.section, action_label: u.title, summary: u.summary, changed_columns: u.changed_columns, content_json_paths: u.content_json_paths, before: u.before, after: u.after, kind: "content" });
+      } else {
+        g.items.push({ id: u.id, created_at: u.created_at, section: "approval", action_label: u.title, summary: u.summary, kind: "approval", action: u.action, decision: u.decision, step_name: u.step_name, step_order: u.step_order });
+      }
+    }
+
+    const events = Array.from(groups.values())
+      .map((g) => ({ ...g, summaries: Array.from(new Set(g.summaries)).slice(0, 8), item_count: g.items.length }))
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+
+    return jsonOk({ events }, 200);
+  } catch (e: any) {
+    return jsonErr("Unexpected error", 500, { message: String(e?.message || e) });
   }
-
-  function expandAll() {
-    setExpanded(new Set(filtered.map(g => g.group_key)));
-  }
-  function collapseAll() {
-    setExpanded(new Set());
-  }
-
-  const filtered = filter === "all"
-    ? groups
-    : groups.filter(g => filter === "approval" ? g.section === "approval" : g.section !== "approval");
-
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const anyExpanded = expanded.size > 0;
-
-  const btnStyle = (active: boolean): React.CSSProperties => ({
-    padding: "4px 10px", borderRadius: 6, border: "1px solid",
-    borderColor: active ? "#0e7490" : "#e2e8f0",
-    background:  active ? "#ecfeff" : "#ffffff",
-    color:       active ? "#0e7490" : "#64748b",
-    fontSize: 11, fontWeight: active ? 700 : 500,
-    cursor: "pointer", fontFamily: "inherit",
-  });
-
-  return (
-    <div style={{ fontFamily: "system-ui, sans-serif" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-        <p style={{ fontSize: 14, fontWeight: 700, color: "#0d1117", margin: 0 }}>Audit trail</p>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {filtered.length > 0 && (
-            <button type="button" onClick={anyExpanded ? collapseAll : expandAll} style={btnStyle(false)}>
-              {anyExpanded ? "Collapse all" : "Expand all"}
-            </button>
-          )}
-          <button type="button" onClick={load} title="Refresh" style={{ ...btnStyle(false), padding: "4px 8px" }}>
-            {"\u21bb"}
-          </button>
-          <span style={{ fontSize: 11, color: "#94a3b8" }}>
-            {filtered.length} event{filtered.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-        {(["all", "changes", "approval"] as FilterType[]).map(f => (
-          <button key={f} type="button" onClick={() => { setFilter(f); setPage(1); }} style={btnStyle(filter === f)}>
-            {f.charAt(0).toUpperCase() + f.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {/* Loading */}
-      {loading && (
-        <div style={{ padding: "32px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>
-          Loading audit trail...
-        </div>
-      )}
-
-      {/* Error */}
-      {error && !loading && (
-        <div style={{ padding: "12px 14px", borderRadius: 8, background: "#fff5f5", border: "1px solid #fecaca", fontSize: 12, color: "#dc2626" }}>
-          {error}
-        </div>
-      )}
-
-      {/* Empty */}
-      {!loading && !error && filtered.length === 0 && (
-        <div style={{ padding: "32px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>
-          No events found{filter !== "all" ? ` for "${filter}"` : ""}.
-        </div>
-      )}
-
-      {/* Events */}
-      {!loading && !error && paged.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {paged.map(group => (
-            <GroupRow
-              key={group.group_key}
-              group={group}
-              expanded={expanded.has(group.group_key)}
-              onToggle={() => toggleExpanded(group.group_key)}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 14 }}>
-          <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            style={{ ...btnStyle(false), opacity: page === 1 ? 0.4 : 1 }}>
-            {"\u2190"} Prev
-          </button>
-          <span style={{ fontSize: 11, color: "#64748b" }}>Page {page} of {totalPages}</span>
-          <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            style={{ ...btnStyle(false), opacity: page === totalPages ? 0.4 : 1 }}>
-            Next {"\u2192"}
-          </button>
-        </div>
-      )}
-    </div>
-  );
 }
