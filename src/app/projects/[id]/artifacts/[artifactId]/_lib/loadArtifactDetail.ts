@@ -29,6 +29,7 @@ import { resolveProjectUuidFast } from "./resolveProjectUuidFast";
 const ARTIFACT_SELECT = [
   "id",
   "project_id",
+  "organisation_id",
   "user_id",
   "type",
   "title",
@@ -53,6 +54,10 @@ const ARTIFACT_SELECT = [
   "is_current",
   "is_baseline",
   "last_saved_at",
+  "current_draft_rev",
+  "current_version_no",
+  "last_saved_version_id",
+  "last_saved_by",
 ].join(", ");
 
 const PROJECT_META_SELECT =
@@ -62,6 +67,21 @@ const WBS_TYPES = ["wbs", "work_breakdown_structure"];
 
 const CANONICAL_PROJECT_CHARTER_TYPE = "PROJECT_CHARTER";
 const LEGACY_PROJECT_CHARTER_TYPES = ["PID"];
+
+type ProjectRole = "owner" | "editor" | "viewer";
+
+type CollaborationState = {
+  activeLockSessionId: string | null;
+  activeLockUserId: string | null;
+  activeLockEditorName: string | null;
+  activeLockAcquiredAt: string | null;
+  activeLockHeartbeatAt: string | null;
+  activeLockExpiresAt: string | null;
+  activeLockIsMine: boolean;
+  activeLockExpired: boolean;
+  canEditByStatus: boolean;
+  readOnlyReason: string | null;
+};
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -111,6 +131,19 @@ function normalizeArtifactTypeForUi(type: any) {
   return safeStr(type).trim();
 }
 
+function isApprovalReadOnlyStatus(status: string | null | undefined) {
+  const s = safeLower(status);
+  return (
+    s === "submitted" ||
+    s === "submitted_for_approval" ||
+    s === "pending_approval" ||
+    s === "in_review" ||
+    s === "awaiting_approval" ||
+    s === "approved" ||
+    s === "rejected"
+  );
+}
+
 async function resolveMyRole(supabase: any, projectUuid: string, userId: string) {
   const { data: pm } = await supabase
     .from("project_members")
@@ -124,7 +157,7 @@ async function resolveMyRole(supabase: any, projectUuid: string, userId: string)
     const r = safeLower(pm.role);
     const mapped = r === "admin" ? "owner" : r === "member" ? "editor" : r;
     const role = mapped === "owner" || mapped === "editor" || mapped === "viewer" ? mapped : "viewer";
-    return role as "owner" | "editor" | "viewer";
+    return role as ProjectRole;
   }
 
   const { data: proj } = await supabase
@@ -158,7 +191,7 @@ async function resolveMyRole(supabase: any, projectUuid: string, userId: string)
             ? "editor"
             : "viewer";
 
-  return effective as "owner" | "editor" | "viewer";
+  return effective as ProjectRole;
 }
 
 async function findCanonicalProjectCharterArtifact(
@@ -339,7 +372,7 @@ async function resolveApprovalDecisionState(
   args: {
     artifactId: string;
     userId: string;
-    myRole: "owner" | "editor" | "viewer";
+    myRole: ProjectRole;
     isAuthor: boolean;
     approvalEnabled: boolean;
     status: string;
@@ -463,6 +496,74 @@ async function resolveApprovalDecisionState(
   };
 }
 
+async function resolveCollaborationState(
+  supabase: any,
+  args: {
+    artifactId: string;
+    userId: string;
+    approvalEnabled: boolean;
+    derivedArtifactStatus: string;
+  }
+): Promise<CollaborationState> {
+  const nowIso = new Date().toISOString();
+
+  const canEditByStatus =
+    !args.approvalEnabled ||
+    !isApprovalReadOnlyStatus(args.derivedArtifactStatus);
+
+  const { data: activeLock, error } = await supabase
+    .from("artifact_edit_sessions")
+    .select(
+      "id, user_id, editor_name, acquired_at, last_heartbeat_at, expires_at, released_at"
+    )
+    .eq("artifact_id", args.artifactId)
+    .is("released_at", null)
+    .gt("expires_at", nowIso)
+    .order("last_heartbeat_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !activeLock?.id) {
+    return {
+      activeLockSessionId: null,
+      activeLockUserId: null,
+      activeLockEditorName: null,
+      activeLockAcquiredAt: null,
+      activeLockHeartbeatAt: null,
+      activeLockExpiresAt: null,
+      activeLockIsMine: false,
+      activeLockExpired: false,
+      canEditByStatus,
+      readOnlyReason: canEditByStatus ? null : "This artifact is locked by approval status.",
+    };
+  }
+
+  const lockUserId = safeStr((activeLock as any)?.user_id).trim() || null;
+  const expiresAt = safeStr((activeLock as any)?.expires_at).trim() || null;
+  const isMine = !!lockUserId && lockUserId === args.userId;
+  const isExpired = !!expiresAt && new Date(expiresAt).getTime() <= Date.now();
+
+  let readOnlyReason: string | null = null;
+  if (!canEditByStatus) {
+    readOnlyReason = "This artifact is locked by approval status.";
+  } else if (!isMine) {
+    readOnlyReason = `Locked by ${safeStr((activeLock as any)?.editor_name).trim() || "another editor"}.`;
+  }
+
+  return {
+    activeLockSessionId: safeStr((activeLock as any)?.id).trim() || null,
+    activeLockUserId: lockUserId,
+    activeLockEditorName: safeStr((activeLock as any)?.editor_name).trim() || null,
+    activeLockAcquiredAt: safeStr((activeLock as any)?.acquired_at).trim() || null,
+    activeLockHeartbeatAt: safeStr((activeLock as any)?.last_heartbeat_at).trim() || null,
+    activeLockExpiresAt: expiresAt,
+    activeLockIsMine: isMine,
+    activeLockExpired: isExpired,
+    canEditByStatus,
+    readOnlyReason,
+  };
+}
+
 export async function loadArtifactDetail(params: Promise<{ id?: string; artifactId?: string }>) {
   const supabase = await createClient();
 
@@ -497,10 +598,7 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
 
   if (!myRoleResolved && !organisationApproverAccess.hasApproverAccess) notFound();
 
-  const myRole =
-    myRoleResolved ??
-    ("viewer" as "owner" | "editor" | "viewer");
-
+  const myRole = myRoleResolved ?? ("viewer" as ProjectRole);
   const canEditByRole = myRole === "owner" || myRole === "editor";
 
   const wbsPromise = supabase
@@ -596,17 +694,30 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   const isAuthor = safeStr(artifact.user_id) === auth.user.id;
   const isCurrent = (artifact as any)?.is_current !== false;
 
-  const isEditable = approvalEnabled
+  const collaboration = await resolveCollaborationState(supabase, {
+    artifactId: String(artifact.id),
+    userId: auth.user.id,
+    approvalEnabled,
+    derivedArtifactStatus: status,
+  });
+
+  const isEditableBase = approvalEnabled
     ? canEditByRole && !artifact.is_locked && (status === "draft" || status === "changes_requested") && isCurrent
     : weeklyMode
       ? canEditByRole
       : canEditByRole;
 
+  const isLockedByAnotherUser = !!collaboration.activeLockSessionId && !collaboration.activeLockIsMine;
+  const isEditable = isEditableBase && !isLockedByAnotherUser;
   const lockLayout =
     approvalEnabled && (status === "submitted" || status === "approved" || status === "rejected");
 
   const canSubmitOrResubmit =
-    approvalEnabled && isEditable && isCurrent && (status === "draft" || status === "changes_requested");
+    approvalEnabled &&
+    isEditable &&
+    isCurrent &&
+    (status === "draft" || status === "changes_requested") &&
+    !isLockedByAnotherUser;
 
   const approvalDecisionState = await resolveApprovalDecisionState(supabase, {
     artifactId: String(artifact.id),
@@ -623,6 +734,7 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   const canRenameTitle =
     canEditByRole &&
     !artifact.is_locked &&
+    !isLockedByAnotherUser &&
     (!approvalEnabled || status === "draft" || status === "changes_requested");
 
   const canCreateRevision = approvalEnabled && canEditByRole && isCurrent && status === "approved";
@@ -630,6 +742,27 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   const charterInitialRaw = ensureCharterV2Stored(getCharterInitialRaw(artifact));
   const charterInitial = forceProjectTitleIntoCharter(charterInitialRaw, projectTitle, clientName);
   const typedInitialJson = getTypedInitialJson(artifact);
+
+  const typedInitialJsonWithCollaboration =
+    typedInitialJson && typeof typedInitialJson === "object"
+      ? {
+          ...typedInitialJson,
+          currentDraftRev:
+            Number((artifact as any)?.current_draft_rev ?? (typedInitialJson as any)?.currentDraftRev ?? 0) || 0,
+          current_draft_rev:
+            Number((artifact as any)?.current_draft_rev ?? (typedInitialJson as any)?.current_draft_rev ?? 0) || 0,
+          currentVersionNo:
+            Number((artifact as any)?.current_version_no ?? (typedInitialJson as any)?.currentVersionNo ?? 0) || 0,
+          current_version_no:
+            Number((artifact as any)?.current_version_no ?? (typedInitialJson as any)?.current_version_no ?? 0) || 0,
+          lastSavedVersionId:
+            safeStr((artifact as any)?.last_saved_version_id ?? (typedInitialJson as any)?.lastSavedVersionId).trim() ||
+            null,
+          last_saved_version_id:
+            safeStr((artifact as any)?.last_saved_version_id ?? (typedInitialJson as any)?.last_saved_version_id).trim() ||
+            null,
+        }
+      : typedInitialJson;
 
   const wbsRow = (wbsRes as any)?.data ?? null;
   const wbsArtifactId = wbsRow?.id ? String(wbsRow.id) : null;
@@ -646,7 +779,13 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     myRole,
 
     artifactId: String(artifact.id),
-    artifact,
+    artifact: {
+      ...artifact,
+      current_draft_rev: Number((artifact as any)?.current_draft_rev ?? 0) || 0,
+      current_version_no: Number((artifact as any)?.current_version_no ?? 0) || 0,
+      last_saved_version_id: safeStr((artifact as any)?.last_saved_version_id).trim() || null,
+      last_saved_by: safeStr((artifact as any)?.last_saved_by).trim() || null,
+    },
 
     approvalEnabled,
     status,
@@ -664,6 +803,20 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     currentApprovalStepId: approvalDecisionState.currentStepId ?? organisationApproverAccess.stepId,
     currentApprovalStepStatus: approvalDecisionState.currentStepStatus,
 
+    collaboration: {
+      activeLockSessionId: collaboration.activeLockSessionId,
+      activeLockUserId: collaboration.activeLockUserId,
+      activeLockEditorName: collaboration.activeLockEditorName,
+      activeLockAcquiredAt: collaboration.activeLockAcquiredAt,
+      activeLockHeartbeatAt: collaboration.activeLockHeartbeatAt,
+      activeLockExpiresAt: collaboration.activeLockExpiresAt,
+      activeLockIsMine: collaboration.activeLockIsMine,
+      activeLockExpired: collaboration.activeLockExpired,
+      canEditByStatus: collaboration.canEditByStatus,
+      readOnlyReason: collaboration.readOnlyReason,
+      isLockedByAnotherUser,
+    },
+
     mode,
 
     aiTargetType: normalizeArtifactTypeForUi((artifact as any)?.type ?? ""),
@@ -672,7 +825,7 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
       normalizeArtifactTypeForUi((artifact as any)?.type ?? ""),
 
     charterInitial,
-    typedInitialJson,
+    typedInitialJson: typedInitialJsonWithCollaboration,
 
     latestWbsJson,
     wbsArtifactId,

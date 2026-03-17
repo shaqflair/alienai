@@ -5,6 +5,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import ProjectCharterEditorFormLazy from "@/components/editors/ProjectCharterEditorFormLazy";
+import ArtifactCollaborationBanner from "@/components/artifacts/ArtifactCollaborationBanner";
+import ArtifactEditorReadOnlyOverlay from "@/components/artifacts/ArtifactEditorReadOnlyOverlay";
+import { useArtifactCollaboration } from "@/components/artifacts/useArtifactCollaboration";
 import {
   emptyFinancialPlan,
   type FinancialPlanContent,
@@ -125,13 +128,23 @@ function stableStringify(value: unknown): string {
   }
 }
 
+function isApprovalLockedStatus(status: string | null | undefined) {
+  const s = String(status ?? "").trim().toLowerCase();
+  return (
+    s === "submitted" ||
+    s === "submitted_for_approval" ||
+    s === "pending_approval" ||
+    s === "in_review" ||
+    s === "awaiting_approval" ||
+    s === "approved"
+  );
+}
+
 /* -----------------------------------------------------------------------
    FinancialPlanEditorHost
-   - always supplies valid content
-   - debounced autosave via fetch (NOT a server action — server actions
-     block Next.js navigation while in-flight; fetch does not)
-   - cancels pending autosave when user navigates away (via unmount cleanup)
-   - avoids duplicate saves for unchanged payloads
+   - collaboration-aware autosave using artifact draft API
+   - autosave-safe revision handling
+   - respects read-only state when another user holds the lock
 ------------------------------------------------------------------------ */
 function FinancialPlanEditorHost({
   projectId,
@@ -139,12 +152,18 @@ function FinancialPlanEditorHost({
   organisationId,
   initialJson,
   readOnly,
+  sessionId,
+  clientDraftRev,
+  onDraftRevChange,
 }: {
   projectId: string;
   artifactId: string;
   organisationId?: string;
   initialJson: any;
   readOnly: boolean;
+  sessionId?: string | null;
+  clientDraftRev: number;
+  onDraftRevChange?: (next: number) => void;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
 }) {
   const [content, setContent] = useState<FinancialPlanContent>(() => {
@@ -158,10 +177,18 @@ function FinancialPlanEditorHost({
     return emptyFinancialPlan();
   });
 
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
   const lastQueuedJsonRef = useRef<string>(stableStringify(content));
   const lastSavedJsonRef = useRef<string>(stableStringify(content));
+  const draftRevRef = useRef<number>(clientDraftRev);
+
+  useEffect(() => {
+    draftRevRef.current = clientDraftRev;
+  }, [clientDraftRev]);
 
   const clearPendingSave = useCallback(() => {
     if (saveTimer.current) {
@@ -172,37 +199,62 @@ function FinancialPlanEditorHost({
 
   const runSave = useCallback(
     async (updated: FinancialPlanContent) => {
-      if (readOnly || savingRef.current) return;
+      if (readOnly || savingRef.current || !sessionId) return;
 
       const json = stableStringify(updated);
       if (!json || json === lastSavedJsonRef.current) return;
 
       savingRef.current = true;
+      setSaveState("saving");
+      setSaveMessage(null);
+
       try {
-        const res = await fetch("/api/artifacts/save-json", {
+        const res = await fetch(`/api/artifacts/${encodeURIComponent(artifactId)}/draft`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectId, artifactId, contentJson: updated }),
+          body: JSON.stringify({
+            sessionId,
+            clientDraftRev: draftRevRef.current,
+            title: "Financial Plan",
+            content: updated,
+            autosave: true,
+            summary: "Financial plan autosave",
+          }),
         });
 
         const data = await res.json().catch(() => ({ ok: false }));
+
         if (data?.ok) {
           lastSavedJsonRef.current = json;
+          if (typeof data.currentDraftRev === "number") {
+            draftRevRef.current = data.currentDraftRev;
+            onDraftRevChange?.(data.currentDraftRev);
+          }
+          setSaveState("saved");
+          setSaveMessage(
+            typeof data.currentDraftRev === "number"
+              ? `Saved draft rev ${data.currentDraftRev}`
+              : "Saved"
+          );
         } else {
-          console.error("[FinancialPlanEditorHost] save failed:", data?.error ?? "Unknown error");
+          setSaveState("error");
+          setSaveMessage(data?.message || "Autosave failed");
+          console.error("[FinancialPlanEditorHost] save failed:", data?.error ?? data?.message ?? "Unknown error");
         }
       } catch (e) {
+        setSaveState("error");
+        setSaveMessage("Autosave failed");
         console.error("[FinancialPlanEditorHost] save error:", e);
       } finally {
         savingRef.current = false;
       }
     },
-    [projectId, artifactId, readOnly]
+    [artifactId, onDraftRevChange, readOnly, sessionId]
   );
 
   const queueSave = useCallback(
     (updated: FinancialPlanContent) => {
-      if (readOnly) return;
+      if (readOnly || !sessionId) return;
 
       const json = stableStringify(updated);
       if (!json) return;
@@ -216,7 +268,7 @@ function FinancialPlanEditorHost({
         void runSave(updated);
       }, 800);
     },
-    [clearPendingSave, readOnly, runSave]
+    [clearPendingSave, readOnly, runSave, sessionId]
   );
 
   const handleChange = useCallback(
@@ -235,6 +287,13 @@ function FinancialPlanEditorHost({
 
   return (
     <div className="w-full text-slate-900">
+      <div className="mb-3 flex items-center justify-between text-xs text-slate-500">
+        <div>{readOnly ? "Read-only" : "Autosave enabled"}</div>
+        <div>
+          {saveState === "saving" ? "Saving…" : saveState === "saved" ? saveMessage : saveState === "error" ? saveMessage : null}
+        </div>
+      </div>
+
       <FinancialPlanEditor
         content={content}
         onChange={handleChange}
@@ -412,39 +471,110 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const effectiveLegacyExports =
     mode === "charter" ? (isCharterV2 ? undefined : legacyExports) : legacyExports;
 
+  const shouldHidePanels = mode === "charter" || isFinancialPlan;
+
+  const baseDraftRev = useMemo(() => {
+    const candidates = [
+      typedInitialJson?.currentDraftRev,
+      typedInitialJson?.current_draft_rev,
+      typedInitialJson?.meta?.currentDraftRev,
+      rawContentJson?.currentDraftRev,
+      rawContentJson?.current_draft_rev,
+    ];
+    for (const value of candidates) {
+      const n = Number(value);
+      if (Number.isFinite(n) && n >= 0) return n;
+    }
+    return 0;
+  }, [typedInitialJson, rawContentJson]);
+
+  const collaboration = useArtifactCollaboration({
+    artifactId,
+    enabled: isEditable,
+    initialDraftRev: baseDraftRev,
+  });
+
+  const approvalLocked =
+    (collaboration.state ? !collaboration.state.canEditByStatus : false) ||
+    isApprovalLockedStatus(approvalStatus);
+
+  const effectiveReadOnly =
+    !isEditable ||
+    lockLayout ||
+    collaboration.isReadOnly ||
+    approvalLocked;
+
   const contentHeader = hideContentExportsRow ? null : (
     <div className="flex items-center justify-between gap-3">
       <div className="text-sm font-semibold text-slate-900">Content</div>
       <div className="text-xs text-slate-500">
-        {lockLayout ? "Locked" : !isEditable ? "Read-only" : "Editable"}
+        {effectiveReadOnly ? "Read-only" : "Editable"}
       </div>
     </div>
   );
-
-  const shouldHidePanels = mode === "charter" || isFinancialPlan;
 
   const sectionClassName = cx(
     "rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-sm",
     hideContentExportsRow ? "space-y-0" : "space-y-4"
   );
 
+  const overlayMessage = approvalLocked
+    ? "This artifact is read-only while under approval."
+    : lockLayout
+    ? "Layout is locked for this artifact."
+    : collaboration.state?.readOnlyReason || collaboration.lockError || "Locked by another editor.";
+
   if (isFinancialPlan) {
     return (
-      <div className="w-full overflow-x-auto text-slate-900">
-        <FinancialPlanEditorHost
-          projectId={projectId}
-          artifactId={artifactId}
-          organisationId={organisationId}
-          initialJson={typedInitialJson ?? rawContentJson ?? null}
-          readOnly={!isEditable}
-          updateArtifactJsonAction={updateArtifactJsonAction}
+      <div className="space-y-4 text-slate-900">
+        <ArtifactCollaborationBanner
+          readOnly={effectiveReadOnly}
+          approvalLocked={approvalLocked}
+          lockOwnerName={
+            collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
+          }
+          expiresAt={collaboration.state?.activeLock?.expiresAt || null}
+          currentVersionNo={collaboration.state?.currentVersionNo ?? 0}
+          currentDraftRev={collaboration.state?.currentDraftRev ?? collaboration.draftRev}
         />
+
+        <div className="relative w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className={effectiveReadOnly ? "pointer-events-none select-none opacity-80" : ""}>
+            <FinancialPlanEditorHost
+              projectId={projectId}
+              artifactId={artifactId}
+              organisationId={organisationId}
+              initialJson={typedInitialJson ?? rawContentJson ?? null}
+              readOnly={effectiveReadOnly}
+              sessionId={collaboration.sessionId}
+              clientDraftRev={collaboration.state?.currentDraftRev ?? collaboration.draftRev}
+              onDraftRevChange={collaboration.setDraftRev}
+              updateArtifactJsonAction={updateArtifactJsonAction}
+            />
+          </div>
+
+          <ArtifactEditorReadOnlyOverlay
+            show={effectiveReadOnly}
+            message={overlayMessage}
+          />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-6 text-slate-900">
+      <ArtifactCollaborationBanner
+        readOnly={effectiveReadOnly}
+        approvalLocked={approvalLocked}
+        lockOwnerName={
+          collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
+        }
+        expiresAt={collaboration.state?.activeLock?.expiresAt || null}
+        currentVersionNo={collaboration.state?.currentVersionNo ?? 0}
+        currentDraftRev={collaboration.state?.currentDraftRev ?? collaboration.draftRev}
+      />
+
       {mode === "change_requests" ? (
         <section className="w-full text-slate-900">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -490,76 +620,85 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           <section className={sectionClassName}>
             {contentHeader}
 
-            {mode === "charter" ? (
-              <ProjectCharterEditorFormLazy
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={charterInitial}
-                readOnly={!isEditable}
-                artifactVersion={artifactVersion}
-                projectTitle={projectTitle}
-                projectManagerName={projectManagerName ?? undefined}
-                legacyExports={effectiveLegacyExports}
-                approvalEnabled={!!approvalEnabled}
-                canSubmitOrResubmit={allowSubmitInEditor}
-                approvalStatus={approvalStatus ?? null}
-                submitForApprovalAction={allowSubmitInEditor ? submitForApprovalAction : null}
-              />
-            ) : mode === "stakeholder" ? (
-              <StakeholderRegisterEditor
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={rawContentJson ?? null}
-                readOnly={!isEditable}
-              />
-            ) : mode === "wbs" ? (
-              <WBSEditor
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={rawContentJson ?? null}
-                readOnly={!isEditable}
-              />
-            ) : mode === "schedule" ? (
-              <ScheduleGanttEditor
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={typedInitialJson ?? null}
-                readOnly={!isEditable}
-                projectTitle={projectTitle || ""}
-                projectStartDate={projectStartDate ?? null}
-                projectFinishDate={projectFinishDate ?? null}
-                latestWbsJson={latestWbsJson ?? null}
-                wbsArtifactId={wbsArtifactId ?? null}
-              />
-            ) : mode === "closure" ? (
-              <ProjectClosureReportEditor
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={typedInitialJson ?? null}
-                readOnly={!isEditable}
-              />
-            ) : mode === "weekly_report" ? (
-              <WeeklyReportEditor
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={typedInitialJson ?? rawContentJson ?? null}
-                readOnly={!isEditable}
-                updateArtifactJsonAction={updateArtifactJsonAction}
-              />
-            ) : (
-              <div className="grid gap-3">
-                {String(rawContentText ?? "").trim().length === 0 ? (
-                  <div className="text-sm text-slate-600">No content yet.</div>
-                ) : null}
+            <div className="relative">
+              <div className={effectiveReadOnly ? "pointer-events-none select-none opacity-80" : ""}>
+                {mode === "charter" ? (
+                  <ProjectCharterEditorFormLazy
+                    projectId={projectId}
+                    artifactId={artifactId}
+                    initialJson={charterInitial}
+                    readOnly={effectiveReadOnly}
+                    artifactVersion={artifactVersion}
+                    projectTitle={projectTitle}
+                    projectManagerName={projectManagerName ?? undefined}
+                    legacyExports={effectiveLegacyExports}
+                    approvalEnabled={!!approvalEnabled}
+                    canSubmitOrResubmit={allowSubmitInEditor && !effectiveReadOnly}
+                    approvalStatus={approvalStatus ?? null}
+                    submitForApprovalAction={allowSubmitInEditor && !effectiveReadOnly ? submitForApprovalAction : null}
+                  />
+                ) : mode === "stakeholder" ? (
+                  <StakeholderRegisterEditor
+                    projectId={projectId}
+                    artifactId={artifactId}
+                    initialJson={rawContentJson ?? null}
+                    readOnly={effectiveReadOnly}
+                  />
+                ) : mode === "wbs" ? (
+                  <WBSEditor
+                    projectId={projectId}
+                    artifactId={artifactId}
+                    initialJson={rawContentJson ?? null}
+                    readOnly={effectiveReadOnly}
+                  />
+                ) : mode === "schedule" ? (
+                  <ScheduleGanttEditor
+                    projectId={projectId}
+                    artifactId={artifactId}
+                    initialJson={typedInitialJson ?? null}
+                    readOnly={effectiveReadOnly}
+                    projectTitle={projectTitle || ""}
+                    projectStartDate={projectStartDate ?? null}
+                    projectFinishDate={projectFinishDate ?? null}
+                    latestWbsJson={latestWbsJson ?? null}
+                    wbsArtifactId={wbsArtifactId ?? null}
+                  />
+                ) : mode === "closure" ? (
+                  <ProjectClosureReportEditor
+                    projectId={projectId}
+                    artifactId={artifactId}
+                    initialJson={typedInitialJson ?? null}
+                    readOnly={effectiveReadOnly}
+                  />
+                ) : mode === "weekly_report" ? (
+                  <WeeklyReportEditor
+                    projectId={projectId}
+                    artifactId={artifactId}
+                    initialJson={typedInitialJson ?? rawContentJson ?? null}
+                    readOnly={effectiveReadOnly}
+                    updateArtifactJsonAction={updateArtifactJsonAction}
+                  />
+                ) : (
+                  <div className="grid gap-3">
+                    {String(rawContentText ?? "").trim().length === 0 ? (
+                      <div className="text-sm text-slate-600">No content yet.</div>
+                    ) : null}
 
-                <textarea
-                  rows={14}
-                  readOnly
-                  value={String(rawContentText ?? "")}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-900 whitespace-pre-wrap outline-none"
-                />
+                    <textarea
+                      rows={14}
+                      readOnly
+                      value={String(rawContentText ?? "")}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-900 whitespace-pre-wrap outline-none"
+                    />
+                  </div>
+                )}
               </div>
-            )}
+
+              <ArtifactEditorReadOnlyOverlay
+                show={effectiveReadOnly}
+                message={overlayMessage}
+              />
+            </div>
           </section>
 
           {!shouldHidePanels ? (

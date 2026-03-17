@@ -15,6 +15,10 @@ import {
   notifyNextStepApprovers,
 } from "@/lib/server/notifications/approval-notifications";
 import { addApprovalComment } from "@/lib/server/approvals/comments";
+import {
+  snapshotArtifactForApprovalApproved,
+  snapshotArtifactForApprovalSubmission,
+} from "@/lib/server/artifacts/approval-versioning";
 
 /* =========================================================
    Helpers
@@ -170,6 +174,10 @@ async function getArtifact(supabase: any, artifactId: string) {
         "version",
         "updated_at",
         "approval_chain_id",
+        "status",
+        "current_draft_rev",
+        "current_version_no",
+        "last_saved_version_id",
       ].join(", ")
     )
     .eq("id", artifactId)
@@ -272,6 +280,70 @@ async function addApprovalCommentSafe(
   }
 }
 
+async function getMyActiveEditSessionId(
+  supabase: any,
+  args: {
+    artifactId: string;
+    userId: string;
+  }
+): Promise<string | null> {
+  const nowIso = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("artifact_edit_sessions")
+    .select("id, released_at, expires_at")
+    .eq("artifact_id", args.artifactId)
+    .eq("user_id", args.userId)
+    .is("released_at", null)
+    .gt("expires_at", nowIso)
+    .order("last_heartbeat_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[approval-actions] active edit session lookup failed:", error);
+    return null;
+  }
+
+  return safeStr((data as any)?.id).trim() || null;
+}
+
+async function createApprovalSubmissionSnapshotSafe(
+  args: {
+    artifactId: string;
+    approvalChainId?: string | null;
+    editSessionId?: string | null;
+  }
+) {
+  try {
+    await snapshotArtifactForApprovalSubmission({
+      artifactId: args.artifactId,
+      approvalChainId: args.approvalChainId ?? null,
+      editSessionId: args.editSessionId ?? null,
+    });
+  } catch (error) {
+    console.error("[approval-actions] approval submission snapshot failed:", error);
+    throw error;
+  }
+}
+
+async function createApprovalApprovedSnapshotSafe(
+  args: {
+    artifactId: string;
+    approvalChainId?: string | null;
+  }
+) {
+  try {
+    await snapshotArtifactForApprovalApproved({
+      artifactId: args.artifactId,
+      approvalChainId: args.approvalChainId ?? null,
+    });
+  } catch (error) {
+    console.error("[approval-actions] approval approved snapshot failed:", error);
+    throw error;
+  }
+}
+
 /* =========================================================
    Artifact type helpers
 ========================================================= */
@@ -343,6 +415,7 @@ async function updateArtifactSubmitted(
     submitted_at: args.nowIso,
     submitted_by: args.actorId,
     is_locked: true,
+    status: "submitted",
   };
 
   const { data, error } = await supabase
@@ -350,7 +423,7 @@ async function updateArtifactSubmitted(
     .update(patch)
     .eq("id", args.artifactId)
     .eq("project_id", args.projectId)
-    .select("id, project_id, approval_status, approval_chain_id, is_locked, submitted_at, submitted_by")
+    .select("id, project_id, approval_status, approval_chain_id, is_locked, submitted_at, submitted_by, status")
     .maybeSingle();
 
   if (error) throwDb(error, "artifacts.update(submit_runtime_minimal)");
@@ -358,7 +431,7 @@ async function updateArtifactSubmitted(
   if (!data?.id) {
     const { data: probe, error: probeErr } = await supabase
       .from("artifacts")
-      .select("id, project_id, approval_status, approval_chain_id, is_locked, submitted_at, submitted_by")
+      .select("id, project_id, approval_status, approval_chain_id, is_locked, submitted_at, submitted_by, status")
       .eq("id", args.artifactId)
       .maybeSingle();
 
@@ -1632,6 +1705,22 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   const runtimeChainId = safeStr(runtime?.chainId).trim();
   if (!runtimeChainId) throw new Error("Runtime approval chain build returned no chainId.");
 
+  const editSessionId = await getMyActiveEditSessionId(supabase, {
+    artifactId,
+    userId: user.id,
+  });
+
+  try {
+    await createApprovalSubmissionSnapshotSafe({
+      artifactId,
+      approvalChainId: runtimeChainId,
+      editSessionId,
+    });
+  } catch (error) {
+    await cancelApprovalChainArtifacts(adminDbForBuilder, runtimeChainId, artifactId);
+    throw error;
+  }
+
   let updatedArtifact: any;
   try {
     updatedArtifact = await updateArtifactSubmitted(supabase, {
@@ -1686,6 +1775,9 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
       approval_status: a0.approval_status,
       is_locked: a0.is_locked,
       approval_chain_id: a0.approval_chain_id ?? null,
+      current_draft_rev: a0.current_draft_rev ?? null,
+      current_version_no: a0.current_version_no ?? null,
+      last_saved_version_id: a0.last_saved_version_id ?? null,
     },
     after: {
       approval_status: safeStr(updatedArtifact?.approval_status || "submitted"),
@@ -1696,6 +1788,8 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
       runtime_steps_created: true,
       runtime_artifact_type: safeStr(runtime?.chosenType || normalizeArtifactType(a0.type)),
       runtime_step_count: Array.isArray(runtime?.stepIds) ? runtime.stepIds.length : 0,
+      approval_submission_snapshot_created: true,
+      approval_submission_snapshot_session_id: editSessionId,
     },
   });
 
@@ -1852,6 +1946,11 @@ export async function approveStep(projectId: string, artifactId: string, comment
     return;
   }
 
+  await createApprovalApprovedSnapshotSafe({
+    artifactId,
+    approvalChainId: safeStr((chain as any)?.id) || null,
+  });
+
   const baselineId = await promoteApprovedToBaseline(supabase, {
     projectId,
     approvedArtifactId: artifactId,
@@ -1898,6 +1997,7 @@ export async function approveStep(projectId: string, artifactId: string, comment
       approval_slot_id: safeStr(atomic.slot_id) || safeStr(approverInfo.matchedApprover?.id) || null,
       delegation_id: approverInfo.delegationId ?? null,
       decision_source: safeStr(atomic.decision_source) || null,
+      approval_approved_snapshot_created: true,
     },
   });
 
