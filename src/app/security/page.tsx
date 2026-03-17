@@ -1,4 +1,4 @@
-﻿// src/app/security/page.tsx
+// src/app/security/page.tsx
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -61,14 +61,14 @@ export default function SecurityPage() {
 
   return (
     <>
-      <style>{`
+      <style>{``
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap');
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: #05070A; color: #F2F5FA; font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
         a { color: inherit; text-decoration: none; }
         .sec-card { transition: border-color 0.2s, transform 0.2s; }
         .sec-card:hover { border-color: rgba(0,184,219,0.2) !important; transform: translateY(-2px); }
-      `}</style>
+      ``}</style>
 
       <main style={{ minHeight: "100vh", background: "linear-gradient(180deg, #03050A 0%, #060C14 50%, #04080F 100%)", position: "relative", overflow: "hidden" }}>
 
@@ -155,10 +155,10 @@ export default function SecurityPage() {
             </div>
             <div style={{ display: "grid", gap: 12 }}>
               {compliance.map(item => (
-                <div key={item.label} className="sec-card" style={{ ...card, background: item.bgColor, border: `1px solid ${item.borderColor}` }}>
+                <div key={item.label} className="sec-card" style={{ ...card, background: item.bgColor, border: ``1px solid `${item.borderColor}`` }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
                     <span style={{ fontFamily: dp, fontWeight: 700, fontSize: 15 }}>{item.label}</span>
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: item.bgColor, color: item.statusColor, border: `1px solid ${item.borderColor}`, fontFamily: mn, letterSpacing: "0.06em", textTransform: "uppercase" }}>{item.status}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: item.bgColor, color: item.statusColor, border: ``1px solid `${item.borderColor}``, fontFamily: mn, letterSpacing: "0.06em", textTransform: "uppercase" }}>{item.status}</span>
                   </div>
                   <div style={{ fontSize: 14, color: C.muted, lineHeight: 1.7 }}>{item.body}</div>
                 </div>
