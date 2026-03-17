@@ -1,17 +1,16 @@
-// src/components/home/HomePage.tsx — POLISHED v10.0
+// src/components/home/HomePage.tsx — POLISHED v9.6
 //
-// Changes vs v9.5:
-//   ✅ HP-F14: Uses single aggregated /api/portfolio/dashboard call
-//   ✅ HP-F15: Removes multi-endpoint client waterfall
-//   ✅ HP-F16: Keeps live per-project health via dashboard.health.projectScores
-//   ✅ HP-F17: Keeps ExecutiveBriefingCard separate for narrative generation
-//   ✅ HP-F18: Preserves filters / due window / portfolio shell behavior
+// Fixes vs v9.5:
+//   ✅ HP-F14: ExecutiveBriefingCard is now render-only.
+//             Executive briefing is passed in from server aggregation,
+//             so HomePage no longer relies on client-side AI fetch inside the card.
 
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PortfolioAskDrawer from "@/components/home/PortfolioAskDrawer";
 import ExecutiveBriefingCard from "@/components/home/ExecutiveBriefingCard";
+import type { BriefingData } from "@/lib/server/home/loadExecutiveBriefing";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 import {
@@ -49,6 +48,19 @@ type DueDigestItem = {
   status?: string | null; ownerLabel?: string | null; ownerEmail?: string | null;
   link?: string | null; meta?: any;
 };
+type ArtifactDueAi = {
+  summary: string; windowDays: number;
+  counts: { total: number; milestone: number; work_item: number; raid: number; artifact: number; change: number };
+  dueSoon: DueDigestItem[]; recommendedMessage?: string;
+};
+type ArtifactDueResp =
+  | { ok: false; error: string; meta?: any }
+  | {
+      ok: true; eventType: "artifact_due"; scope?: "project" | "org";
+      project_id?: string; project_human_id?: string | null;
+      project_code?: string | null; project_name?: string | null;
+      model?: string; ai: ArtifactDueAi; stats?: any;
+    };
 type Insight = { id: string; severity: "high" | "medium" | "info"; title: string; body: string; href?: string | null };
 type HomeData =
   | { ok: false; error: string }
@@ -80,92 +92,38 @@ type RaidPanel = {
   risk_hi?: number; issue_hi?: number;
 };
 
-type PortfolioHealthApi = {
-  ok: true;
-  score: number | null;
-  portfolio_health: number;
-  projectCount: number;
-  parts: {
-    schedule: number | null; raid: number | null;
-    budget: number | null; governance: number | null;
-    flow?: number | null; approvals?: number | null; activity?: number | null;
-  };
-  projectScores?: Record<string, { score: number; rag: "G" | "A" | "R" }>;
-  drivers?: any[];
-  meta?: any;
-};
+type PortfolioHealthApi =
+  | { ok: false; error: string; meta?: any }
+  | {
+      ok: true;
+      score: number | null;
+      portfolio_health: number;
+      days?: 7 | 14 | 30 | 60 | "all";
+      windowDays?: number;
+      projectCount: number;
+      parts: {
+        schedule: number | null; raid: number | null;
+        budget: number | null; governance: number | null;
+        flow?: number | null; approvals?: number | null; activity?: number | null;
+      };
+      projectScores?: Record<string, { score: number; rag: "G" | "A" | "R" }>;
+      drivers?: any[];
+      meta?: any;
+    };
 
 type RagLetter = "G" | "A" | "R";
+type FinancialPlanSummary =
+  | { ok: false; error: string }
+  | {
+      ok: true; total_approved_budget?: number | null; total_spent?: number | null;
+      variance_pct?: number | null; pending_exposure_pct?: number | null;
+      rag: "G" | "A" | "R"; currency?: string | null;
+      project_ref?: string | null; artifact_id?: string | null; project_count?: number;
+    };
 type RecentWin = {
   id: string; title: string; date: string; type: string; project_id: string;
   project_code: string | null; project_name: string | null; project_colour: string; link: string | null;
 };
-
-type DashboardResponse =
-  | { ok: false; error?: string; meta?: any }
-  | {
-      ok: true;
-      generatedAt: string;
-      windowDays: 7 | 14 | 30 | 60;
-      dueWindowDays: 7 | 14 | 30;
-      filters?: PortfolioFilters;
-      cards: {
-        portfolioHealth: {
-          score: number | null;
-          rag: "G" | "A" | "R" | null;
-          counts: { g: number; a: number; r: number };
-          delta?: number | null;
-        };
-        openRisks: {
-          dueTotal: number;
-          highSeverity: number;
-        };
-        milestonesDue: {
-          count: number;
-        };
-        budgetHealth: {
-          totalApprovedBudget: number | null;
-          totalSpent: number | null;
-          variancePct: number | null;
-          rag: "G" | "A" | "R" | null;
-          currency: string | null;
-        };
-      };
-      health: {
-        projectCount: number;
-        parts: {
-          schedule: number | null; raid: number | null;
-          budget: number | null; governance: number | null;
-          flow?: number | null; approvals?: number | null; activity?: number | null;
-        };
-        projectScores?: Record<string, { score: number; rag: "G" | "A" | "R" }>;
-        drivers?: any[];
-        meta?: any;
-      };
-      raidPanel: RaidPanel | null;
-      due: {
-        summary?: string;
-        counts?: { total: number; milestone: number; work_item: number; raid: number; artifact: number; change: number };
-        items?: any[];
-        recommendedMessage?: string;
-        meta?: any;
-      };
-      resourceActivity: {
-        weeks?: ResourceWeek[];
-        meta?: any;
-      };
-      recentWins: {
-        wins?: RecentWin[];
-        meta?: any;
-      };
-      aiBriefing: {
-        insights?: Insight[];
-        meta?: any;
-      } | null;
-      partial?: Record<string, boolean>;
-      errors?: Record<string, string | null>;
-    };
-
 type ProjectOption = { id: string; name: string; code: string | null };
 
 /* --- Utils ---------------------------------------------------------------- */
@@ -245,6 +203,20 @@ function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]):
     projectName: uniqStrings([...(f.projectName ?? []), ...names]),
   };
 }
+function appendFiltersToApi(baseUrl: string, f: PortfolioFilters, projectOptions: ProjectOption[] = []): string {
+  try {
+    const derived = deriveApiFilters(f, projectOptions);
+    const origin = typeof window !== "undefined" ? window.location.origin : "http://local/";
+    const u = new URL(baseUrl, origin);
+    const sp = u.searchParams;
+    if (derived.q?.trim()) sp.set("q", derived.q.trim());
+    (derived.projectCode ?? []).forEach((v) => sp.append("code", v));
+    (derived.projectName ?? []).forEach((v) => sp.append("name", v));
+    (derived.projectManagerId ?? []).forEach((v) => sp.append("pm", v));
+    (derived.department ?? []).forEach((v) => sp.append("dept", v));
+    return u.pathname + (sp.toString() ? `?${sp.toString()}` : "");
+  } catch { return baseUrl; }
+}
 function appendFiltersToUrl(path: string, f: PortfolioFilters) {
   const sp = filtersToSearchParams(f);
   return `${path}${sp.toString() ? `?${sp.toString()}` : ""}`;
@@ -311,10 +283,16 @@ function tabMatch(tab: BellTab, n: NotifRow) {
   return true;
 }
 function runIdle(fn: () => void) {
-  if (typeof window !== "undefined" && typeof (window as any).requestIdleCallback === "function") {
+  if (typeof window !== "undefined" && typeof (window as any).requestIdleCallback === "function")
     return (window as any).requestIdleCallback(fn, { timeout: 1200 });
-  }
   return window.setTimeout(fn, 0);
+}
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> {
+  try {
+    const r = await fetch(url, init);
+    if (!r.ok) return null;
+    return (await r.json().catch(() => null)) as T | null;
+  } catch { return null; }
 }
 function scoreToRag(score: number): RagLetter {
   const s = clamp01to100(score);
@@ -355,9 +333,8 @@ function calcRagAgg(
   for (const it of list) {
     const pid = String(it?.project_id || "").trim();
     const letter = String(it?.rag || "").toUpperCase() as RagLetter;
-    if (pid && ["G", "A", "R"].includes(letter)) {
+    if (pid && ["G", "A", "R"].includes(letter))
       byPid.set(pid, { rag: letter, health: it?.health != null ? Number(it.health) : NaN });
-    }
   }
   let g = 0, a = 0, r = 0, scored = 0;
   const vals: number[] = [];
@@ -369,7 +346,7 @@ function calcRagAgg(
     scored++;
     if (hit.rag === "G") g++;
     else if (hit.rag === "A") a++;
-    else r++;
+    else if (hit.rag === "R") r++;
     const h = Number(hit.health);
     vals.push(Number.isFinite(h) && h > 0 ? clamp01to100(h) : hit.rag === "G" ? 90 : hit.rag === "A" ? 78 : 45);
   }
@@ -416,36 +393,6 @@ function useDebounced<T>(value: T, delay: number): T {
     return () => clearTimeout(id);
   }, [value, delay]);
   return debounced;
-}
-function normalizeDueItems(items: any[]): DueDigestItem[] {
-  return (Array.isArray(items) ? items : [])
-    .sort((a: any, b: any) => {
-      const ta = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-      const tb = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-      return ta - tb;
-    })
-    .slice(0, 20)
-    .map((x: any) => ({
-      ...x,
-      title: safeStr(x?.title || x?.name || x?.artifact_title || x?.milestone_title).trim() || "Untitled",
-      dueDate: x?.dueDate || x?.due_date || x?.due_at || x?.deadline || null,
-      ownerLabel: x?.ownerLabel || x?.owner_label || x?.owner_name || x?.assignee_name || null,
-      ownerEmail: x?.ownerEmail || x?.owner_email || x?.assignee_email || null,
-      link: safeStr(x?.link || x?.href || x?.url || x?.project_link).trim() || null,
-      meta: {
-        ...x?.meta,
-        project_code: x?.meta?.project_code || x?.project_code || x?.project_human_id || null,
-        project_name: x?.meta?.project_name || x?.project_name || x?.project_title || null,
-      },
-    }));
-}
-function formatBudget(n: number, currency: string): string {
-  const abs = Math.abs(n);
-  const prefix = currency.length === 1 ? currency : "";
-  const suffix = currency.length > 1 ? ` ${currency}` : "";
-  if (abs >= 1_000_000) return `${prefix}${(n / 1_000_000).toFixed(1)}M${suffix}`;
-  if (abs >= 1_000) return `${prefix}${(n / 1_000).toFixed(0)}k${suffix}`;
-  return `${prefix}${n.toFixed(0)}${suffix}`;
 }
 
 /* --- Rejection Modal ----------------------------------------------------- */
@@ -531,11 +478,9 @@ function NotificationBell() {
   useEffect(() => {
     const id = runIdle(() => refresh());
     return () => {
-      if (typeof window !== "undefined" && typeof (window as any).cancelIdleCallback === "function") {
+      if (typeof window !== "undefined" && typeof (window as any).cancelIdleCallback === "function")
         (window as any).cancelIdleCallback(id);
-      } else {
-        window.clearTimeout(id);
-      }
+      else window.clearTimeout(id);
     };
   }, [refresh]);
 
@@ -652,8 +597,8 @@ function NotificationBell() {
                                 <div className={["mt-0.5 h-7 w-7 shrink-0 rounded-lg border flex items-center justify-center",
                                   sev === "high" ? "border-red-100 bg-red-50 text-red-500"
                                     : sev === "medium" ? "border-amber-100 bg-amber-50 text-amber-500"
-                                      : sev === "success" ? "border-green-100 bg-green-50 text-green-500"
-                                        : "border-blue-100 bg-blue-50 text-blue-500"].join(" ")}>
+                                    : sev === "success" ? "border-green-100 bg-green-50 text-green-500"
+                                    : "border-blue-100 bg-blue-50 text-blue-500"].join(" ")}>
                                   {notifIcon(n)}
                                 </div>
                                 <div className="min-w-0 flex-1">
@@ -1092,13 +1037,22 @@ function FilterDrawer({
 
 /* --- Main ----------------------------------------------------------------- */
 
-export default function HomePage({ data }: { data: HomeData }) {
+export default function HomePage({
+  data,
+  executiveBriefing,
+}: {
+  data: HomeData;
+  executiveBriefing?: BriefingData | null;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
 
   const ok = data?.ok === true;
   const projects = ok ? data.projects : [];
+  const kpis = ok
+    ? data.kpis
+    : { portfolioHealth: 0, openRisks: 0, highRisks: 0, forecastVariance: 0, milestonesDue: 0, openLessons: 0 };
   const rag = ok ? data.rag || [] : [];
 
   const urlFilters = useMemo(() => searchParamsToFilters(new URLSearchParams(sp?.toString() || "")), [sp]);
@@ -1127,13 +1081,26 @@ export default function HomePage({ data }: { data: HomeData }) {
   const debouncedWindowDays = useDebounced(windowDays, 300);
   const numericWindowDays = useMemo<7 | 14 | 30 | 60>(() => normalizeWindowDays(debouncedWindowDays), [debouncedWindowDays]);
 
-  const [dueWindowDays, setDueWindowDays] = useState<7 | 14 | 30>(14);
-  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
-  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [phData, setPhData] = useState<PortfolioHealthApi | null>(null);
   const [phPrevScore, setPhPrevScore] = useState<number | null>(null);
+  const [insights, setInsights] = useState<Insight[]>([]);
+  const [insightsLoading, setInsightsLoading] = useState(true);
   const [approvalItems, setApprovalItems] = useState<any[]>([]);
   const [pendingIds, setPendingIds] = useState<Record<string, true>>({});
   const [rejectModal, setRejectModal] = useState<{ taskId: string; title: string } | null>(null);
+  const [milestonesDueLive, setMilestonesDueLive] = useState<number | null>(null);
+  const [raidPanel, setRaidPanel] = useState<RaidPanel | null>(null);
+  const [raidLoading, setRaidLoading] = useState(false);
+  const [dueWindowDays, setDueWindowDays] = useState<7 | 14 | 30>(14);
+  const [dueLoading, setDueLoading] = useState(false);
+  const [dueItems, setDueItems] = useState<DueDigestItem[]>([]);
+  const [dueUpdatedAt, setDueUpdatedAt] = useState<string>("");
+  const [fpSummary, setFpSummary] = useState<FinancialPlanSummary | null>(null);
+  const [fpLoading, setFpLoading] = useState(false);
+  const [resourceWeeks, setResourceWeeks] = useState<ResourceWeek[]>([]);
+  const [resourceLoading, setResourceLoading] = useState(true);
+  const [recentWins, setRecentWins] = useState<RecentWin[]>([]);
+  const [winsLoading, setWinsLoading] = useState(true);
 
   const projectOptions = useMemo<ProjectOption[]>(() => {
     return (Array.isArray(projects) ? projects : [])
@@ -1151,11 +1118,11 @@ export default function HomePage({ data }: { data: HomeData }) {
     for (const p of (Array.isArray(projects) ? projects : []) as any[]) {
       const name = safeStr(
         p?.project_manager || p?.pm_name || p?.manager_name ||
-        p?.project_manager_name || p?.manager || p?.pm || p?.owner_name,
+        p?.project_manager_name || p?.manager || p?.pm || p?.owner_name
       ).trim();
       const id = safeStr(
         p?.project_manager_id || p?.pm_user_id || p?.manager_id ||
-        p?.project_manager_user_id || p?.owner_id,
+        p?.project_manager_user_id || p?.owner_id
       ).trim();
       if (!name) continue;
       map.set(id || name, name);
@@ -1239,22 +1206,6 @@ export default function HomePage({ data }: { data: HomeData }) {
     return m2;
   }, [rag]);
 
-  const phData = useMemo<PortfolioHealthApi | null>(() => {
-    if (!dashboard || dashboard.ok !== true) return null;
-    return {
-      ok: true,
-      score: dashboard.cards?.portfolioHealth?.score ?? null,
-      portfolio_health: dashboard.cards?.portfolioHealth?.score ?? 0,
-      projectCount: dashboard.health?.projectCount ?? 0,
-      parts: dashboard.health?.parts ?? {
-        schedule: null, raid: null, budget: null, governance: null, flow: null, approvals: null, activity: null,
-      },
-      projectScores: dashboard.health?.projectScores ?? {},
-      drivers: dashboard.health?.drivers ?? [],
-      meta: dashboard.health?.meta ?? null,
-    };
-  }, [dashboard]);
-
   const mergedRagMap = useMemo(() => {
     const merged = new Map(ragMap);
     if (phData?.ok && phData.projectScores) {
@@ -1280,100 +1231,191 @@ export default function HomePage({ data }: { data: HomeData }) {
     return { g, a, r };
   }, [activeProjects, mergedRagMap]);
 
+  /* ── Effects ── */
+
+  useEffect(() => {
+    if (!ok) return;
+    let c = false;
+    setResourceLoading(true);
+    (async () => {
+      try {
+        const url = appendFiltersToApi(`/api/portfolio/resource-activity?days=${numericWindowDays}`, urlFilters, projectOptions);
+        const j = await fetchJson<{ ok: boolean; weeks: ResourceWeek[] }>(url, { cache: "no-store" });
+        if (!c && j?.ok && Array.isArray(j.weeks)) setResourceWeeks(j.weeks);
+      } catch {} finally { if (!c) setResourceLoading(false); }
+    })();
+    return () => { c = true; };
+  }, [ok, numericWindowDays, urlFilters, projectOptions]);
+
+  useEffect(() => {
+    if (!ok) return;
+    let c = false;
+    setWinsLoading(true);
+    (async () => {
+      try {
+        const url = appendFiltersToApi(`/api/portfolio/recent-wins?days=7&limit=8`, urlFilters, projectOptions);
+        const j = await fetchJson<{ ok: boolean; wins: RecentWin[] }>(url, { cache: "no-store" });
+        if (!c && j?.ok && Array.isArray(j.wins)) setRecentWins(j.wins);
+      } catch {} finally { if (!c) setWinsLoading(false); }
+    })();
+    return () => { c = true; };
+  }, [ok, urlFilters, projectOptions]);
+
+  useEffect(() => {
+    if (!ok) return;
+    let c = false;
+    setInsightsLoading(true);
+    runIdle(() => {
+      (async () => {
+        try {
+          const url = appendFiltersToApi(`/api/ai/briefing?days=${numericWindowDays}`, urlFilters, projectOptions);
+          const j = await fetchJson<any>(url, { cache: "no-store" });
+          const list = Array.isArray(j?.insights) ? (j.insights as Insight[]) : [];
+          if (!c) setInsights(orderBriefingInsights(list));
+        } catch { if (!c) setInsights([]); }
+        finally { if (!c) setInsightsLoading(false); }
+      })();
+    });
+    return () => { c = true; };
+  }, [ok, numericWindowDays, urlFilters, projectOptions]);
+
+  useEffect(() => {
+    if (!ok) return;
+    let c = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          setFpLoading(true);
+          const url = appendFiltersToApi(`/api/portfolio/financial-plan-summary?days=${numericWindowDays}`, urlFilters, projectOptions);
+          const j = await fetchJson<FinancialPlanSummary>(url, { cache: "no-store" });
+          if (!c) setFpSummary(j ?? null);
+        } catch {} finally { if (!c) setFpLoading(false); }
+      })();
+    });
+    return () => { c = true; };
+  }, [ok, urlFilters, numericWindowDays, projectOptions]);
+
+  useEffect(() => {
+    if (!ok) return;
+    let c = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          setDueLoading(true);
+          const apiFilters = deriveApiFilters(urlFilters, projectOptions);
+          const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
+            method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+            body: JSON.stringify({ eventType: "artifact_due", windowDays: dueWindowDays, filters: apiFilters }),
+          });
+          if (!j || !j.ok) return;
+          const ai = (j as any).ai as ArtifactDueAi;
+          const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
+          const merged = list
+            .sort((a: any, b: any) => {
+              const ta = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+              const tb = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+              return ta - tb;
+            })
+            .slice(0, 20)
+            .map((x: any) => ({
+              ...x,
+              title: safeStr(x?.title || x?.name || x?.artifact_title || x?.milestone_title).trim() || "Untitled",
+              dueDate: x?.dueDate || x?.due_date || x?.due_at || x?.deadline || null,
+              ownerLabel: x?.ownerLabel || x?.owner_label || x?.owner_name || x?.assignee_name || null,
+              ownerEmail: x?.ownerEmail || x?.owner_email || x?.assignee_email || null,
+              link: safeStr(x?.link || x?.href || x?.url || x?.project_link).trim() || null,
+              meta: {
+                ...x?.meta,
+                project_code: x?.meta?.project_code || x?.project_code || x?.project_human_id || null,
+                project_name: x?.meta?.project_name || x?.project_name || x?.project_title || null,
+              },
+            }));
+          if (!c) { setDueItems(merged); setDueUpdatedAt(new Date().toISOString()); }
+        } catch {} finally { if (!c) setDueLoading(false); }
+      })();
+    });
+    return () => { c = true; };
+  }, [ok, dueWindowDays, urlFilters, projectOptions]);
+
+  useEffect(() => {
+    if (!ok) return;
+    let c = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          setRaidLoading(true);
+          const url = appendFiltersToApi(`/api/portfolio/raid-panel?days=${numericWindowDays}`, urlFilters, projectOptions);
+          const j: any = await fetchJson(url, { cache: "no-store" });
+          if (!j?.ok || !j?.panel) return;
+          const p = j.panel;
+          if (!c) setRaidPanel({
+            days: num(p.days, numericWindowDays), due_total: num(p.due_total), overdue_total: num(p.overdue_total),
+            risk_due: num(p.risk_due), issue_due: num(p.issue_due), dependency_due: num(p.dependency_due),
+            assumption_due: num(p.assumption_due), risk_hi: num(p.risk_hi), issue_hi: num(p.issue_hi),
+          });
+        } catch {} finally { if (!c) setRaidLoading(false); }
+      })();
+    });
+    return () => { c = true; };
+  }, [ok, numericWindowDays, urlFilters, projectOptions]);
+
   useEffect(() => {
     if (!ok) return;
     let cancelled = false;
-
-    const start = () => {
+    runIdle(() => {
       (async () => {
         try {
-          setDashboardLoading(true);
-          const apiFilters = deriveApiFilters(urlFilters, projectOptions);
-
-          const res = await fetch("/api/portfolio/dashboard", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            cache: "no-store",
-            body: JSON.stringify({
-              windowDays: numericWindowDays,
-              dueWindowDays,
-              includeAi: true,
-              filters: apiFilters,
-            }),
-          });
-
-          const json = await res.json().catch(() => null);
-
-          if (cancelled) return;
-
-          if (json?.ok) {
-            const nextScore = json?.cards?.portfolioHealth?.score;
-            setPhPrevScore((prev) => {
-              if (typeof nextScore !== "number" || !Number.isFinite(nextScore)) return prev;
-              if (prev == null) return nextScore;
-              return prev;
-            });
-            setDashboard(json as DashboardResponse);
-          } else {
-            setDashboard(null);
-          }
-        } catch {
-          if (!cancelled) setDashboard(null);
-        } finally {
-          if (!cancelled) setDashboardLoading(false);
-        }
+          const url = appendFiltersToApi(
+            `/api/portfolio/health?days=${numericWindowDays}`,
+            urlFilters, projectOptions,
+          );
+          const j = await fetchJson<PortfolioHealthApi>(url, { cache: "no-store" });
+          if (!cancelled && j?.ok) setPhData(j);
+        } catch {}
       })();
-    };
-
-    const id = runIdle(start);
-    return () => {
-      cancelled = true;
-      if (typeof window !== "undefined" && typeof (window as any).cancelIdleCallback === "function") {
-        (window as any).cancelIdleCallback(id);
-      } else {
-        window.clearTimeout(id);
-      }
-    };
-  }, [ok, numericWindowDays, dueWindowDays, urlFilters, projectOptions]);
+    });
+    return () => { cancelled = true; };
+  }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
   useEffect(() => {
-    const currentScore = dashboard?.ok ? dashboard.cards?.portfolioHealth?.score ?? null : null;
-    if (currentScore != null && Number.isFinite(Number(currentScore))) {
-      setPhPrevScore((prev) => prev == null ? currentScore : prev === currentScore ? prev : prev);
-    }
-  }, [dashboard]);
+    if (!ok) return;
+    let c = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          const url = appendFiltersToApi(
+            `/api/portfolio/milestones-due?days=${numericWindowDays}`,
+            urlFilters, projectOptions,
+          );
+          const j: any = await fetchJson(url, { cache: "no-store" });
+          if (j?.ok && typeof j?.count === "number" && !c) setMilestonesDueLive(Math.max(0, j.count));
+          else if (!c) setMilestonesDueLive(0);
+        } catch { if (!c) setMilestonesDueLive(0); }
+      })();
+    });
+    return () => { c = true; };
+  }, [ok, numericWindowDays, urlFilters, projectOptions]);
+
+  /* ── Derived values ── */
 
   const apiScore = phData?.ok
     ? clamp01to100(
-      (phData as any).score != null
-        ? (phData as any).score
-        : (phData as any).portfolio_health,
-    )
+        (phData as any).score != null
+          ? (phData as any).score
+          : (phData as any).portfolio_health,
+      )
     : null;
 
   const phScoreForUi = apiScore != null && apiScore > 0 ? apiScore : null;
+
   const phRag = scoreToRag(phScoreForUi ?? 0);
   const phDelta = phPrevScore != null && phScoreForUi != null ? phScoreForUi - phPrevScore : null;
 
-  const displayRagCounts = phData?.ok
-    ? liveRagCounts
-    : { g: ragAgg.g, a: ragAgg.a, r: ragAgg.r };
-
-  const insights = useMemo(() => {
-    const xs = dashboard?.ok && dashboard.aiBriefing?.insights ? dashboard.aiBriefing.insights : [];
-    return orderBriefingInsights(xs);
-  }, [dashboard]);
-
-  const insightsLoading = dashboardLoading;
-  const resourceWeeks = dashboard?.ok ? (dashboard.resourceActivity?.weeks ?? []) : [];
-  const resourceLoading = dashboardLoading;
-  const recentWins = dashboard?.ok ? (dashboard.recentWins?.wins ?? []) : [];
-  const winsLoading = dashboardLoading;
-  const raidPanel = dashboard?.ok ? dashboard.raidPanel ?? null : null;
-  const dueItems = useMemo(() => normalizeDueItems(dashboard?.ok ? (dashboard.due?.items ?? []) : []), [dashboard]);
-  const dueLoading = dashboardLoading;
-  const dueUpdatedAt = dashboard?.ok ? dashboard.generatedAt : "";
-  const milestonesDueLive = dashboard?.ok ? num(dashboard.cards?.milestonesDue?.count) : null;
+  const byId = useMemo(() => {
+    const m2 = new Map<string, any>();
+    for (const it of approvalItems) m2.set(String(it?.id || ""), it);
+    return m2;
+  }, [approvalItems]);
 
   const raidDueTotal = useMemo(() => {
     if (!raidPanel) return 0;
@@ -1382,46 +1424,85 @@ export default function HomePage({ data }: { data: HomeData }) {
       raidPanel.dependency_due != null || raidPanel.assumption_due != null;
     if (typedAvailable) {
       return num(raidPanel.risk_due) + num(raidPanel.issue_due) +
-        num(raidPanel.dependency_due) + num(raidPanel.assumption_due);
+             num(raidPanel.dependency_due) + num(raidPanel.assumption_due);
     }
     return num(raidPanel.due_total);
   }, [raidPanel]);
 
   const openRisksValue = raidPanel ? raidDueTotal : null;
-  const raidHighSeverity = dashboard?.ok
-    ? num(dashboard.cards?.openRisks?.highSeverity)
-    : num(raidPanel?.risk_hi) + num(raidPanel?.issue_hi);
+  const raidHighSeverity = num(raidPanel?.risk_hi) + num(raidPanel?.issue_hi);
 
-  const budgetCard = dashboard?.ok ? dashboard.cards?.budgetHealth : null;
-  const fpHasData = !!budgetCard && (
-    budgetCard.totalApprovedBudget != null ||
-    budgetCard.totalSpent != null ||
-    budgetCard.variancePct != null ||
-    budgetCard.rag != null
-  );
-  const fpVarianceNum = budgetCard?.variancePct != null && Number.isFinite(Number(budgetCard.variancePct))
-    ? Math.round(Number(budgetCard.variancePct) * 10) / 10
+  const fpHasData = fpSummary?.ok === true;
+  const _fpPortfolioPre = fpHasData ? (fpSummary as any).portfolio : null;
+  const fpVariancePct = fpHasData
+    ? ((fpSummary as any).variance_pct ?? _fpPortfolioPre?.variance_pct ?? _fpPortfolioPre?.variancePct ?? _fpPortfolioPre?.variance)
     : null;
-  const fpRag = budgetCard?.rag ?? null;
-  const fpCurrency = safeStr(budgetCard?.currency || "£").trim() || "£";
-  const fpTotalBudget = budgetCard?.totalApprovedBudget ?? null;
-  const fpTotalSpent = budgetCard?.totalSpent ?? null;
+  const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct))
+    ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
+  const fpRag = fpHasData ? (((fpSummary as any).rag || _fpPortfolioPre?.rag) as RagLetter ?? null) : null;
+  const fpCurrency = fpHasData ? (safeStr((fpSummary as any).currency || _fpPortfolioPre?.currency).trim() || "£") : "£";
+  const _fpPortfolio = _fpPortfolioPre;
 
-  const fpValueLabel = fpTotalBudget != null ? formatBudget(fpTotalBudget, fpCurrency) : dashboardLoading ? "…" : "—";
+  const _fpBudgetRaw = fpHasData ? (() => {
+    const s = fpSummary as any;
+    const p = _fpPortfolio ?? {};
+    const nested = p.totalBudget ?? p.total_budget ?? p.approvedBudget ?? p.approved_budget ?? p.totalApprovedBudget ?? p.budgeted ?? p.budget;
+    if (nested != null && Number(nested) > 0) return nested;
+    const topLevel = s.total_approved_budget ?? s.approved_budget ?? s.total_budget ?? s.budget_total ?? s.budgeted ?? s.total_budgeted ?? s.budget ?? s.plan_budget ?? s.total_plan_budget ?? s.approved;
+    if (topLevel != null) return topLevel;
+    for (const [k, v] of Object.entries(s)) {
+      const kl = k.toLowerCase();
+      if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v;
+    }
+    for (const [k, v] of Object.entries(p)) {
+      const kl = k.toLowerCase();
+      if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v;
+    }
+    return undefined;
+  })() : undefined;
+
+  const _fpSpentRaw = fpHasData ? (() => {
+    const s = fpSummary as any;
+    const p = _fpPortfolio ?? {};
+    const nested = p.totalActual ?? p.total_actual ?? p.totalSpent ?? p.total_spent ?? p.actualSpent ?? p.actual_spent ?? p.actuals ?? p.spent;
+    if (nested != null) return nested;
+    const topLevel = s.total_spent ?? s.actual_spent ?? s.spent_total ?? s.total_actual ?? s.actual ?? s.spent ?? s.total_actuals ?? s.actuals_total;
+    if (topLevel != null) return topLevel;
+    for (const [k, v] of Object.entries(p)) {
+      const kl = k.toLowerCase();
+      if ((kl.includes("spent") || kl.includes("actual")) && Number.isFinite(Number(v)) && Number(v) >= 0) return v;
+    }
+    return undefined;
+  })() : undefined;
+
+  const fpTotalBudget: number | null = _fpBudgetRaw != null && Number.isFinite(Number(_fpBudgetRaw)) ? Number(_fpBudgetRaw) : null;
+  const fpTotalSpent: number | null = _fpSpentRaw != null && Number.isFinite(Number(_fpSpentRaw)) ? Number(_fpSpentRaw) : null;
+
+  function formatBudget(n: number, currency: string): string {
+    const abs = Math.abs(n);
+    const prefix = currency.length === 1 ? currency : "";
+    const suffix = currency.length > 1 ? ` ${currency}` : "";
+    if (abs >= 1_000_000) return `${prefix}${(n / 1_000_000).toFixed(1)}M${suffix}`;
+    if (abs >= 1_000) return `${prefix}${(n / 1_000).toFixed(0)}k${suffix}`;
+    return `${prefix}${n.toFixed(0)}${suffix}`;
+  }
+
+  const fpValueLabel = fpTotalBudget != null ? formatBudget(fpTotalBudget, fpCurrency) : fpLoading ? "…" : "—";
   const fpSubLabel = fpHasData
     ? fpTotalSpent != null
       ? `${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` · ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}`
       : `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "watch" : "over"}`
     : "total portfolio budget";
   const fpTrendLabel = fpVarianceNum != null && fpVarianceNum !== 0
-    ? `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`
-    : undefined;
+    ? `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%` : undefined;
 
-  const byId = useMemo(() => {
-    const m2 = new Map<string, any>();
-    for (const it of approvalItems) m2.set(String(it?.id || ""), it);
-    return m2;
-  }, [approvalItems]);
+  const firstProjectRef = useMemo(() => {
+    const fp = fpSummary?.ok ? (fpSummary as any).project_ref : null;
+    if (fp) return fp;
+    const p = sortedProjects[0] as any;
+    if (!p) return "";
+    return safeStr(p?.id);
+  }, [fpSummary, sortedProjects]);
 
   async function decide(taskId: string, decision: "approve" | "reject", comment = "") {
     const item = byId.get(taskId);
@@ -1479,6 +1560,10 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fpColorKey = !fpHasData ? "blue" : fpRag === "G" ? "green" : fpRag === "A" ? "amber" : "red";
   const allDueItems = dueItems.slice(0, 8);
 
+  const displayRagCounts = phData?.ok
+    ? liveRagCounts
+    : { g: ragAgg.g, a: ragAgg.a, r: ragAgg.r };
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); *, *::before, *::after { box-sizing: border-box; } body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; -webkit-font-smoothing: antialiased; }` }} />
@@ -1497,6 +1582,8 @@ export default function HomePage({ data }: { data: HomeData }) {
           searchInputRef={searchInputRef}
         />
         <div className="min-h-screen" style={{ background: "#f8fafc" }}>
+
+          {/* Top Nav */}
           <header className="sticky top-0 z-30 bg-white border-b border-gray-100" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
             <div className="max-w-screen-2xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -1571,6 +1658,7 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             )}
 
+            {/* KPI Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KpiCard label="Portfolio Health"
                 value={phScoreForUi == null ? "…" : `${phScoreForUi}%`}
@@ -1598,11 +1686,13 @@ export default function HomePage({ data }: { data: HomeData }) {
                 onClick={() => router.push("/budget")} delay={0.15} />
             </div>
 
+            {/* Executive Briefing */}
             <ExecutiveBriefingCard
+              data={executiveBriefing ?? null}
               liveRagCounts={liveRagCounts}
-              projectScores={phData?.ok ? (phData as any).projectScores : undefined}
             />
 
+            {/* Resource + AI Insights */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-start justify-between mb-2">
@@ -1649,6 +1739,7 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             </div>
 
+            {/* Control Center */}
             <div className="rounded-2xl border border-gray-100 bg-white px-6 py-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
@@ -1665,6 +1756,7 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             </div>
 
+            {/* RAG + Projects + Sidebar */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 space-y-4">
                 {(phData?.ok ? liveRagCounts.g + liveRagCounts.a + liveRagCounts.r : ragAgg.scored) > 0 && (
