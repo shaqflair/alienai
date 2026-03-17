@@ -43,6 +43,8 @@ type ProfileRow = {
   full_name: string | null;
   email: string | null;
   avatar_url: string | null;
+  job_title: string | null;
+  line_manager_id: string | null;
 };
 
 export const runtime = "nodejs";
@@ -135,7 +137,7 @@ export default async function OrgMembersPage({
         if (userIds.length) {
           const { data: profs } = await sb
             .from("profiles")
-            .select("user_id, full_name, email, avatar_url")
+            .select("user_id, full_name, email, avatar_url, job_title, line_manager_id")
             .in("user_id", userIds);
 
           for (const prof of (profs ?? []) as ProfileRow[]) {
@@ -157,14 +159,15 @@ export default async function OrgMembersPage({
               : null;
 
           return {
-            user_id: m.user_id,
-            role: (safeText(m.role).toLowerCase() as OrgRole) || "member",
-            full_name: fullName,
+            user_id:         m.user_id,
+            role:            (safeText(m.role).toLowerCase() as OrgRole) || "member",
+            full_name:       fullName,
             email,
-            avatar_url:
-              typeof prof?.avatar_url === "string" ? prof.avatar_url : null,
-            joined_at: m.created_at ?? null,
-            isMe: m.user_id === auth.user.id,
+            avatar_url:      typeof prof?.avatar_url === "string" ? prof.avatar_url : null,
+            job_title:       typeof prof?.job_title === "string" ? prof.job_title : null,
+            line_manager_id: typeof prof?.line_manager_id === "string" ? prof.line_manager_id : null,
+            joined_at:       m.created_at ?? null,
+            isMe:            m.user_id === auth.user.id,
           };
         });
       })()
@@ -177,13 +180,13 @@ export default async function OrgMembersPage({
           <h1 className="text-xl font-semibold">Organisation members</h1>
           <p className="text-sm text-gray-600">
             Org: <span className="font-medium">{org.name}</span>
-            <span className="ml-2 text-xs text-gray-500">• Your role: {myRole}</span>
+            <span className="ml-2 text-xs text-gray-500">&bull; Your role: {myRole}</span>
           </p>
         </div>
 
         <div className="flex gap-2">
           <Link
-            href={`/organisations/${organisationId}/settings?tab=settings`}
+            href={"/organisations/" + organisationId + "/settings?tab=settings"}
             className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
           >
             Settings
