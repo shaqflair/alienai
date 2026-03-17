@@ -59,23 +59,26 @@ function Starfield({ density=1 }: { density?:number }) {
 /* ---- Governance Graph ---- */
 type GN = { id:string; x:number; y:number; label:string; sub:string; color:string; health:number; Icon:ComponentType<{size?:number;color?:string}> };
 const GNODES: GN[] = [
-  {id:"programme",x:50,y:13,label:"Programme",   sub:"Portfolio View",         color:T.cyan,   health:92, Icon:Building2   },
-  {id:"pmo",      x:20,y:33,label:"PMO Hub",     sub:"Governance Control",     color:T.cyanLt, health:88, Icon:Users       },
-  {id:"finance",  x:50,y:33,label:"Finance",     sub:"Budget & Forecast",      color:T.green,  health:95, Icon:Wallet      },
-  {id:"delivery", x:80,y:33,label:"Delivery",    sub:"Milestones & Resources", color:T.amber,  health:78, Icon:TrendingUp  },
-  {id:"approvals",x:10,y:54,label:"Approvals",   sub:"4 Pending",              color:T.orange, health:65, Icon:FileCheck   },
-  {id:"raid",     x:30,y:54,label:"RAID",        sub:"12 Active",              color:T.red,    health:72, Icon:AlertTriangle},
-  {id:"variance", x:48,y:54,label:"Variance",    sub:"1.2M Flagged",           color:T.orange, health:58, Icon:Activity    },
-  {id:"milestones",x:67,y:54,label:"Milestones", sub:"3 At Risk",              color:T.amber,  health:81, Icon:TrendingUp  },
-  {id:"resources",x:86,y:54,label:"Resources",   sub:"Overallocated",          color:T.red,    health:45, Icon:Users       },
-  {id:"ai",       x:50,y:74,label:"AI Governance",sub:"Intelligence Layer",    color:T.purple, health:99, Icon:Cpu         },
-  {id:"reporting",x:50,y:90,label:"Exec Cockpit",sub:"Unified View",           color:T.cyan,   health:100,Icon:Activity    },
+  {id:"programme", x:50,y:12, label:"Programme",    sub:"Portfolio View",         color:T.cyan,   health:92, Icon:Building2    },
+  {id:"pmo",       x:20,y:32, label:"PMO Hub",      sub:"Governance Control",     color:T.cyanLt, health:88, Icon:Users        },
+  {id:"finance",   x:50,y:32, label:"Finance",      sub:"Budget & Forecast",      color:T.green,  health:95, Icon:Wallet       },
+  {id:"delivery",  x:80,y:32, label:"Delivery",     sub:"Milestones & Resources", color:T.amber,  health:78, Icon:TrendingUp   },
+  {id:"approvals", x:10,y:53, label:"Approvals",    sub:"4 Pending",              color:T.orange, health:65, Icon:FileCheck    },
+  {id:"raid",      x:28,y:53, label:"RAID",         sub:"12 Active",              color:T.red,    health:72, Icon:AlertTriangle},
+  {id:"variance",  x:46,y:53, label:"Variance",     sub:"1.2M Flagged",           color:T.orange, health:58, Icon:Activity     },
+  {id:"milestones",x:64,y:53, label:"Milestones",   sub:"3 At Risk",              color:T.amber,  health:81, Icon:TrendingUp   },
+  {id:"resources", x:82,y:53, label:"Resources",    sub:"Overallocated",          color:T.red,    health:45, Icon:Users        },
+  {id:"change",    x:18,y:73, label:"Change Mgmt",  sub:"Control & Impact",       color:T.orange, health:70, Icon:FileCheck    },
+  {id:"ai",        x:58,y:73, label:"AI Governance",sub:"Intelligence Layer",     color:T.purple, health:99, Icon:Cpu          },
+  {id:"reporting", x:50,y:90, label:"Exec Cockpit", sub:"Unified View",           color:T.cyan,   health:100,Icon:Activity     },
 ];
 const EDGES: Array<[string,string]> = [
   ["programme","pmo"],["programme","finance"],["programme","delivery"],
-  ["pmo","approvals"],["pmo","raid"],["finance","variance"],["finance","reporting"],
+  ["pmo","approvals"],["pmo","raid"],["pmo","change"],
+  ["finance","variance"],["finance","change"],["finance","reporting"],
   ["delivery","milestones"],["delivery","resources"],
   ["approvals","ai"],["raid","ai"],["variance","ai"],["milestones","ai"],["resources","ai"],
+  ["change","ai"],
   ["ai","reporting"],
 ];
 function hcol(h:number){ return h>=80?T.green:h>=60?T.amber:T.red; }
@@ -120,7 +123,7 @@ function GovernanceGraph() {
           );
         })}
         {GNODES.map(node=>{
-          const x=nx(node.x),y=ny(node.y),ai=node.id==="ai",rep=node.id==="reporting";
+          const x=nx(node.x),y=ny(node.y),ai=node.id==="ai",rep=node.id==="reporting",chg=node.id==="change";
           const hi=hov===node.id,sc=sel===node.id,c=2*Math.PI*22;
           return (
             <g key={node.id} transform={`translate(${x},${y})`} style={{ cursor:"pointer" }}
@@ -139,6 +142,10 @@ function GovernanceGraph() {
               {rep&&<circle r="34" fill="none" stroke={T.cyan} strokeWidth="1.25" opacity="0.22">
                 <animate attributeName="r" values="30;38;30" dur="3s" repeatCount="indefinite"/>
                 <animate attributeName="opacity" values="0.25;0.08;0.25" dur="3s" repeatCount="indefinite"/>
+              </circle>}
+              {chg&&<circle r="30" fill="none" stroke={T.orange} strokeWidth="1" opacity="0.25">
+                <animate attributeName="r" values="26;34;26" dur="2.8s" repeatCount="indefinite"/>
+                <animate attributeName="opacity" values="0.3;0.06;0.3" dur="2.8s" repeatCount="indefinite"/>
               </circle>}
               {(hi||sc)&&<circle r="34" fill="none" stroke={node.color} strokeWidth="1.5" opacity="0.35" filter="url(#gg)"/>}
               <circle r="22" fill="none" stroke={hcol(node.health)} strokeWidth="2.5"
@@ -507,7 +514,7 @@ export default function LandingPageClient() {
               </div>
               <div style={{ borderTop:`1px solid ${T.line}`, paddingTop:18 }}>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:16 }}>
-                  {[{v:"11",l:"nodes"},{v:"15",l:"connections"},{v:"84%",l:"health"}].map(m=>(
+                  {[{v:"12",l:"nodes"},{v:"17",l:"connections"},{v:"84%",l:"health"}].map(m=>(
                     <div key={m.l} style={{ padding:"14px 10px", borderRadius:16, background:"rgba(255,255,255,.03)", border:`1px solid ${T.line}`, textAlign:"center" }}>
                       <div style={{ fontFamily:F.display, fontSize:22, fontWeight:700, lineHeight:1, color:T.text, marginBottom:6 }}>{m.v}</div>
                       <div style={{ fontSize:11, color:T.muted2, textTransform:"uppercase", letterSpacing:"0.08em", fontFamily:F.mono }}>{m.l}</div>
@@ -536,8 +543,8 @@ export default function LandingPageClient() {
                 </div>
               </div>
               <div style={{ padding:20, position:"relative" }}>
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:12, marginBottom:16 }}>
-                  {[{label:"AI signals",value:"27",tone:T.purple},{label:"At-risk areas",value:"3",tone:T.amber},{label:"Governed flow",value:"84%",tone:T.cyan}].map(item=>(
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:12, marginBottom:16 }}>
+                  {[{label:"AI signals",value:"27",tone:T.purple},{label:"At-risk areas",value:"3",tone:T.amber},{label:"Governed flow",value:"84%",tone:T.cyan},{label:"Change requests",value:"6",tone:T.orange}].map(item=>(
                     <div key={item.label} style={{ padding:14, borderRadius:18, background:"rgba(255,255,255,.03)", border:`1px solid ${T.line}` }}>
                       <div style={{ fontFamily:F.mono, fontSize:10, color:T.muted2, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>{item.label}</div>
                       <div style={{ fontFamily:F.display, fontSize:28, lineHeight:1, fontWeight:700, color:item.tone, letterSpacing:"-0.04em" }}>{item.value}</div>
