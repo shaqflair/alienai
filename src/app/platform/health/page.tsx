@@ -1,3 +1,4 @@
+// src/app/platform/health/page.tsx
 import "server-only";
 
 import Link from "next/link";
@@ -54,7 +55,6 @@ function severityClasses(sev: PlatformEvent["severity"]) {
     return {
       wrap: "border-red-200 bg-red-50",
       pill: "bg-red-100 text-red-700 border-red-200",
-      dot: "bg-red-500",
       icon: <ShieldAlert className="h-4 w-4 text-red-500" />,
     };
   }
@@ -62,14 +62,12 @@ function severityClasses(sev: PlatformEvent["severity"]) {
     return {
       wrap: "border-amber-200 bg-amber-50",
       pill: "bg-amber-100 text-amber-700 border-amber-200",
-      dot: "bg-amber-500",
       icon: <AlertTriangle className="h-4 w-4 text-amber-500" />,
     };
   }
   return {
     wrap: "border-blue-200 bg-blue-50",
     pill: "bg-blue-100 text-blue-700 border-blue-200",
-    dot: "bg-blue-500",
     icon: <Activity className="h-4 w-4 text-blue-500" />,
   };
 }
@@ -106,6 +104,35 @@ function StatCard({
       {sub && <div className="mt-1 text-xs opacity-70">{sub}</div>}
     </div>
   );
+}
+
+async function updateStatus(formData: FormData) {
+  "use server";
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.id) return;
+
+  const id = safeStr(formData.get("id")).trim();
+  const status = safeStr(formData.get("status")).trim().toLowerCase();
+
+  if (!id) return;
+  if (!["open", "investigating", "resolved", "ignored"].includes(status)) return;
+
+  await supabase
+    .from("platform_events")
+    .update({
+      status,
+      metadata: {
+        status_updated_at: new Date().toISOString(),
+        status_updated_by: user.id,
+      },
+    })
+    .eq("id", id);
 }
 
 export default async function PlatformHealthPage() {
@@ -228,7 +255,7 @@ export default async function PlatformHealthPage() {
                               </div>
 
                               {row.message && (
-                                <div className="mt-1 text-sm text-slate-600 font-mono bg-slate-50 p-2 rounded-lg border border-slate-100 line-clamp-2">
+                                <div className="mt-1 text-sm text-slate-600">
                                   {row.message}
                                 </div>
                               )}
@@ -246,17 +273,63 @@ export default async function PlatformHealthPage() {
                                   </span>
                                 )}
                                 <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium">
-                                  hits: {row.occurrence_count}
+                                  occurrences: {row.occurrence_count}
                                 </span>
+                              </div>
+
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                <form action={updateStatus}>
+                                  <input type="hidden" name="id" value={row.id} />
+                                  <input type="hidden" name="status" value="investigating" />
+                                  <button
+                                    type="submit"
+                                    className="rounded-xl border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-100"
+                                  >
+                                    Mark investigating
+                                  </button>
+                                </form>
+
+                                <form action={updateStatus}>
+                                  <input type="hidden" name="id" value={row.id} />
+                                  <input type="hidden" name="status" value="resolved" />
+                                  <button
+                                    type="submit"
+                                    className="rounded-xl border border-green-200 bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700 hover:bg-green-100"
+                                  >
+                                    Mark resolved
+                                  </button>
+                                </form>
+
+                                <form action={updateStatus}>
+                                  <input type="hidden" name="id" value={row.id} />
+                                  <input type="hidden" name="status" value="ignored" />
+                                  <button
+                                    type="submit"
+                                    className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                                  >
+                                    Ignore
+                                  </button>
+                                </form>
+
+                                <form action={updateStatus}>
+                                  <input type="hidden" name="id" value={row.id} />
+                                  <input type="hidden" name="status" value="open" />
+                                  <button
+                                    type="submit"
+                                    className="rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700 hover:bg-cyan-100"
+                                  >
+                                    Re-open
+                                  </button>
+                                </form>
                               </div>
                             </div>
 
                             <div className="shrink-0 text-right">
-                              <div className="text-[11px] text-slate-400 uppercase tracking-tighter">first seen</div>
+                              <div className="text-[11px] text-slate-400">first seen</div>
                               <div className="text-xs font-medium text-slate-600">
                                 {timeAgo(row.first_seen_at)}
                               </div>
-                              <div className="mt-3 text-[11px] text-slate-400 uppercase tracking-tighter">last seen</div>
+                              <div className="mt-3 text-[11px] text-slate-400">last seen</div>
                               <div className="text-xs font-medium text-slate-600">
                                 {timeAgo(row.last_seen_at)}
                               </div>
@@ -299,20 +372,44 @@ export default async function PlatformHealthPage() {
 
                 <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
                   <div className="border-b border-slate-100 px-6 py-4">
-                    <h2 className="text-base font-semibold text-slate-900">Monitoring Status</h2>
+                    <h2 className="text-base font-semibold text-slate-900">What Phase 1 covers</h2>
                   </div>
-                  <div className="p-5 text-sm text-slate-600 space-y-3">
+                  <div className="p-5 text-sm text-slate-600">
                     <div className="flex items-start gap-3">
                       <ChevronRight className="mt-0.5 h-4 w-4 text-cyan-500" />
-                      <span><strong>Boundary Check:</strong> Active</span>
+                      <span>Route error capture from segment boundaries.</span>
                     </div>
-                    <div className="flex items-start gap-3">
+                    <div className="mt-3 flex items-start gap-3">
                       <ChevronRight className="mt-0.5 h-4 w-4 text-cyan-500" />
-                      <span><strong>UI Shielding:</strong> Enabled</span>
+                      <span>Global crash capture for full-app failures.</span>
                     </div>
-                    <div className="flex items-start gap-3">
+                    <div className="mt-3 flex items-start gap-3">
                       <ChevronRight className="mt-0.5 h-4 w-4 text-cyan-500" />
-                      <span><strong>Deduplication:</strong> Fingerprinting on</span>
+                      <span>Client shell error capture through UI boundary logging.</span>
+                    </div>
+                    <div className="mt-3 flex items-start gap-3">
+                      <ChevronRight className="mt-0.5 h-4 w-4 text-cyan-500" />
+                      <span>Incident deduplication by fingerprint with occurrence counting.</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+                  <div className="border-b border-slate-100 px-6 py-4">
+                    <h2 className="text-base font-semibold text-slate-900">Next phase</h2>
+                  </div>
+                  <div className="p-5 text-sm text-slate-600">
+                    <div className="flex items-start gap-3">
+                      <Clock3 className="mt-0.5 h-4 w-4 text-violet-500" />
+                      <span>AI-generated platform health summary and issue clustering.</span>
+                    </div>
+                    <div className="mt-3 flex items-start gap-3">
+                      <Clock3 className="mt-0.5 h-4 w-4 text-violet-500" />
+                      <span>API timeout and cron job monitoring signals.</span>
+                    </div>
+                    <div className="mt-3 flex items-start gap-3">
+                      <Clock3 className="mt-0.5 h-4 w-4 text-violet-500" />
+                      <span>Platform command center with trend analytics.</span>
                     </div>
                   </div>
                 </div>
