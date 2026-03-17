@@ -15,6 +15,7 @@ import { DM_Sans, DM_Mono } from "next/font/google";
 import { createClient } from "@/utils/supabase/server";
 import SidebarShell from "@/components/nav/SidebarShell";
 import CosmosBackdrop from "@/components/ui/CosmosBackdrop";
+import AppErrorBoundary from "@/components/system/AppErrorBoundary";
 import "./globals.css";
 
 export const runtime = "nodejs";
@@ -79,8 +80,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         user.email ||
         null;
 
-      // Determine ACTIVE organisation (profiles.active_organisation_id)
-      // Fallback: first membership if active org is null/unset
       let orgId: string | null = null;
 
       try {
@@ -112,7 +111,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         }
       }
 
-      // Fetch org name + project count for ACTIVE org
       if (orgId) {
         try {
           const { data: orgRow } = await supabase
@@ -158,24 +156,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       </head>
 
       <body className="text-slate-100 antialiased font-sans bg-[#000810]">
-        {/* Global cosmic background (fixed, behind everything) */}
         <CosmosBackdrop />
 
-        {/* App content above the canvas */}
         <div className="relative z-10">
-          {userName ? (
-            // Authenticated -- show full app shell with sidebar
-            <SidebarShell
-              userName={userName}
-              orgName={orgName}
-              projectCount={activeProjectCount}
-            >
-              {children}
-            </SidebarShell>
-          ) : (
-            // Unauthenticated -- render page directly, no sidebar
-            <>{children}</>
-          )}
+          <AppErrorBoundary>
+            {userName ? (
+              <SidebarShell
+                userName={userName}
+                orgName={orgName}
+                projectCount={activeProjectCount}
+              >
+                {children}
+              </SidebarShell>
+            ) : (
+              <>{children}</>
+            )}
+          </AppErrorBoundary>
         </div>
       </body>
     </html>

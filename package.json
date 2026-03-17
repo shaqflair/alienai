@@ -41,6 +41,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "docx": "^9.6.0",
+    "encoding": "^0.1.13",
     "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",
     "framer-motion": "^12.29.2",
