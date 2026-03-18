@@ -62,7 +62,6 @@ export default async function NewAllocationPage({
     redirect("/projects?err=missing_org");
   }
 
-  // Fetch org name for display
   const { data: orgData } = await supabase
     .from("organisations")
     .select("name")
@@ -70,7 +69,6 @@ export default async function NewAllocationPage({
     .maybeSingle();
   const orgName = orgData?.name ?? activeOrgId.slice(0, 8) + "...";
 
-  // -- Fetch people in org (two-step to avoid FK hint issues) ---------------
   const { data: memberUserRows } = await supabase
     .from("organisation_members")
     .select("user_id")
@@ -102,8 +100,7 @@ export default async function NewAllocationPage({
 
   people.sort((a, b) => a.full_name.localeCompare(b.full_name));
 
-  // -- Fetch active projects in org ------------------------------------------
-  const { data: projectRows, error: projectErr } = await supabase
+  const { data: projectRows } = await supabase
     .from("projects")
     .select("id, title, project_code, colour, start_date, finish_date, status, resource_status, lifecycle_status, deleted_at")
     .eq("organisation_id", activeOrgId)
@@ -127,109 +124,37 @@ export default async function NewAllocationPage({
 
   return (
     <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link
+        href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap"
+        rel="stylesheet"
+      />
 
-        .alloc-root {
-          font-family: 'DM Sans', sans-serif;
-          min-height: 100vh;
-          background: #f8fafc;
-          color: #0f172a;
-        }
-
-        .alloc-inner {
-          max-width: 760px;
-          margin: 0 auto;
-          padding: 48px 28px;
-        }
-
-        .alloc-breadcrumb {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 13px;
-          color: #94a3b8;
-          margin-bottom: 24px;
-        }
-
-        .alloc-breadcrumb a {
-          color: #00b8db;
-          text-decoration: none;
-          font-weight: 500;
-        }
-
-        .alloc-breadcrumb a:hover { text-decoration: underline; }
-
-        .alloc-card {
-          background: white;
-          border-radius: 18px;
-          border: 1.5px solid #e2e8f0;
-          box-shadow: 0 2px 16px rgba(0,184,219,0.07), 0 1px 4px rgba(0,0,0,0.04);
-          overflow: hidden;
-        }
-
-        .alloc-card-header {
-          padding: 24px 28px 20px;
-          border-bottom: 1px solid #f1f5f9;
-          background: linear-gradient(135deg, rgba(0,184,219,0.04) 0%, transparent 60%);
-        }
-
-        .alloc-card-body {
-          padding: 28px;
-        }
-
-        .alloc-error-banner {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 12px 16px;
-          border-radius: 9px;
-          background: #fef2f2;
-          border: 1px solid #fecaca;
-          color: #dc2626;
-          font-size: 13px;
-          font-weight: 500;
-          margin-bottom: 20px;
-        }
-
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(6px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
-
-      <main className="alloc-root">
-        <div className="alloc-inner">
+      <main style={{ fontFamily: "'DM Sans', sans-serif", minHeight: "100vh", background: "#f8fafc", color: "#0f172a" }}>
+        <div style={{ maxWidth: "760px", margin: "0 auto", padding: "48px 28px" }}>
 
           {/* Breadcrumb */}
-          <nav className="alloc-breadcrumb">
-            <a href="/projects">Projects</a>
+          <nav style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "#94a3b8", marginBottom: "24px" }}>
+            <a href="/projects" style={{ color: "#00b8db", textDecoration: "none", fontWeight: 500 }}>Projects</a>
             <span>{">"}</span>
             {defaultProject ? (
               <>
-                <a href={`/projects/${defaultProject}`}>Project</a>
+                <a href={`/projects/${defaultProject}`} style={{ color: "#00b8db", textDecoration: "none", fontWeight: 500 }}>Project</a>
                 <span>{">"}</span>
               </>
             ) : null}
             <span>Allocate resource</span>
           </nav>
 
-          <div className="alloc-card">
-            <div className="alloc-card-header">
+          <div style={{ background: "white", borderRadius: "18px", border: "1.5px solid #e2e8f0", boxShadow: "0 2px 16px rgba(0,184,219,0.07), 0 1px 4px rgba(0,0,0,0.04)", overflow: "hidden" }}>
+
+            {/* Header */}
+            <div style={{ padding: "24px 28px 20px", borderBottom: "1px solid #f1f5f9", background: "linear-gradient(135deg, rgba(0,184,219,0.04) 0%, transparent 60%)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <div style={{
-                  width: "40px", height: "40px", borderRadius: "10px",
-                  background: "rgba(0,184,219,0.1)", border: "1px solid rgba(0,184,219,0.2)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "18px",
-                }}></div>
+                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "rgba(0,184,219,0.1)", border: "1px solid rgba(0,184,219,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}>
+                </div>
                 <div>
-                  <h1 style={{ fontSize: "17px", fontWeight: 800, color: "#0f172a",
-                               margin: 0, marginBottom: "3px" }}>
+                  <h1 style={{ fontSize: "17px", fontWeight: 800, color: "#0f172a", margin: 0, marginBottom: "3px" }}>
                     Allocate Resource
                   </h1>
                   <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0 }}>
@@ -239,31 +164,25 @@ export default async function NewAllocationPage({
               </div>
 
               {/* Stats */}
-              <div style={{
-                display: "flex", gap: "20px", marginTop: "16px",
-                paddingTop: "16px", borderTop: "1px solid #f1f5f9",
-              }}>
+              <div style={{ display: "flex", gap: "20px", marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #f1f5f9" }}>
                 {[
                   { l: "People available", v: people.length },
                   { l: "Active projects",  v: projects.length },
                   { l: "Organisation",     v: orgName },
                 ].map(s => (
                   <div key={s.l}>
-                    <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase",
-                                  letterSpacing: "0.06em", marginBottom: "2px" }}>{s.l}</div>
-                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a",
-                                  fontFamily: "'DM Mono', monospace" }}>{s.v}</div>
+                    <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "2px" }}>{s.l}</div>
+                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a", fontFamily: "'DM Mono', monospace" }}>{s.v}</div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="alloc-card-body">
+            {/* Body */}
+            <div style={{ padding: "28px" }}>
               {errorMsg && (
-                <div className="alloc-error-banner">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                       stroke="currentColor" strokeWidth="2"
-                       strokeLinecap="round" strokeLinejoin="round">
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", borderRadius: "9px", background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", fontSize: "13px", fontWeight: 500, marginBottom: "20px" }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="10"/>
                     <line x1="12" y1="8" x2="12" y2="12"/>
                     <line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -288,4 +207,3 @@ export default async function NewAllocationPage({
     </>
   );
 }
-
