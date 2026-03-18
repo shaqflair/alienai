@@ -1,4 +1,4 @@
-```tsx
+
 "use client";
 // src/components/home/ExecutiveBriefingCard.tsx
 // Render-only version.
