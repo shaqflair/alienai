@@ -26,9 +26,11 @@ function uniqStrings(input: unknown): string[] {
     const s = safeStr(v).trim();
     if (s) out.add(s);
   };
+
   if (Array.isArray(input)) input.forEach(push);
   else if (typeof input === "string") input.split(",").forEach(push);
   else if (input != null) push(input);
+
   return Array.from(out);
 }
 
@@ -37,16 +39,18 @@ function clampDays(x: number) {
   return Math.max(1, Math.min(365, Math.floor(x)));
 }
 
-function parseDays(v: string | null): 7 | 14 | 30 | 60 {
-  const n = clampDays(Number(v || 30));
+function normalizeDays(v: unknown): 7 | 14 | 30 | 60 {
+  const raw = safeStr(v).trim().toLowerCase();
+  if (raw === "all") return 60;
+
+  const n = clampDays(Number(raw || 30));
   if (n <= 7) return 7;
   if (n <= 14) return 14;
   if (n <= 30) return 30;
   return 60;
 }
 
-function parseFilters(req: NextRequest): PortfolioFilters {
-  const sp = req.nextUrl.searchParams;
+function parseFiltersFromSearchParams(sp: URLSearchParams): PortfolioFilters {
   const q = safeStr(sp.get("q")).trim() || undefined;
   const projectId = uniqStrings(sp.getAll("projectId"));
   const projectCode = uniqStrings([...sp.getAll("projectCode"), ...sp.getAll("code")]);
@@ -64,13 +68,35 @@ function parseFilters(req: NextRequest): PortfolioFilters {
   return out;
 }
 
+function normalizeFilters(input: any): PortfolioFilters {
+  const out: PortfolioFilters = {};
+  const q = safeStr(input?.q).trim();
+  if (q) out.q = q;
+
+  const projectId = uniqStrings(input?.projectId);
+  const projectName = uniqStrings(input?.projectName);
+  const projectCode = uniqStrings(input?.projectCode);
+  const projectManagerId = uniqStrings(input?.projectManagerId);
+  const department = uniqStrings(input?.department);
+
+  if (projectId.length) out.projectId = projectId;
+  if (projectName.length) out.projectName = projectName;
+  if (projectCode.length) out.projectCode = projectCode;
+  if (projectManagerId.length) out.projectManagerId = projectManagerId;
+  if (department.length) out.department = department;
+
+  return out;
+}
+
 function appendFiltersToPath(path: string, filters: PortfolioFilters) {
   const sp = new URLSearchParams();
+
   if (filters.q?.trim()) sp.set("q", filters.q.trim());
   (filters.projectCode ?? []).forEach((v) => sp.append("code", v));
   (filters.projectName ?? []).forEach((v) => sp.append("name", v));
   (filters.projectManagerId ?? []).forEach((v) => sp.append("pm", v));
   (filters.department ?? []).forEach((v) => sp.append("dept", v));
+
   const qs = sp.toString();
   return qs ? `${path}${path.includes("?") ? "&" : "?"}${qs}` : path;
 }
@@ -90,6 +116,7 @@ async function fetchInternalJson<T>(
       },
       cache: "no-store",
     });
+
     if (!res.ok) return null;
     return (await res.json().catch(() => null)) as T | null;
   } catch {
@@ -97,17 +124,35 @@ async function fetchInternalJson<T>(
   }
 }
 
-export async function GET(req: NextRequest) {
+function normalizeAiBriefingPayload(input: any) {
+  const src = input && typeof input === "object" ? input : null;
+  const insights = Array.isArray(src?.insights) ? src.insights : [];
+  const executiveBriefing = src?.executive_briefing ?? src?.briefing ?? src?.data ?? null;
+
+  return {
+    ...(src ?? {}),
+    insights,
+    executive_briefing: executiveBriefing,
+    briefing: executiveBriefing,
+  };
+}
+
+async function buildDashboardSummary(
+  req: NextRequest,
+  input: { days?: unknown; dueDays?: unknown; dueWindowDays?: unknown; filters?: any },
+) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const days = parseDays(req.nextUrl.searchParams.get("days"));
-  const dueDays = parseDays(req.nextUrl.searchParams.get("dueDays"));
-  const filters = parseFilters(req);
+  const days = normalizeDays(input?.days);
+  const dueDays = normalizeDays(input?.dueWindowDays ?? input?.dueDays);
+  const filters = normalizeFilters(input?.filters);
 
   const [
     portfolioHealth,
@@ -116,7 +161,7 @@ export async function GET(req: NextRequest) {
     financialPlanSummary,
     recentWins,
     resourceActivity,
-    aiBriefing,
+    aiBriefingRaw,
     dueDigest,
   ] = await Promise.all([
     fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/health?days=${days}`, filters)),
@@ -129,9 +174,18 @@ export async function GET(req: NextRequest) {
     fetchInternalJson<any>(req, `/api/ai/events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ eventType: "artifact_due", windowDays: dueDays, filters }),
+      body: JSON.stringify({
+        eventType: "artifact_due",
+        windowDays: dueDays,
+        filters,
+      }),
     }),
   ]);
+
+  const aiBriefing = normalizeAiBriefingPayload(aiBriefingRaw);
+  const insights = Array.isArray(aiBriefing?.insights) ? aiBriefing.insights : [];
+  const executiveBriefing =
+    aiBriefing?.executive_briefing ?? aiBriefing?.briefing ?? null;
 
   return NextResponse.json(
     {
@@ -139,16 +193,47 @@ export async function GET(req: NextRequest) {
       days,
       dueDays,
       filters,
+      generated_at: new Date().toISOString(),
+
+      // canonical payload used by current homepage route consumer
       portfolioHealth: portfolioHealth ?? null,
       milestonesDue: milestonesDue ?? null,
       raidPanel: raidPanel ?? null,
       financialPlanSummary: financialPlanSummary ?? null,
       recentWins: recentWins ?? null,
       resourceActivity: resourceActivity ?? null,
-      aiBriefing: aiBriefing ?? null,
+      aiBriefing: aiBriefingRaw ? aiBriefing : null,
       dueDigest: dueDigest ?? null,
-      generated_at: new Date().toISOString(),
+
+      // compatibility aliases for older/newer homepage mappings
+      insights,
+      executiveBriefing,
+      financialPlan: financialPlanSummary ?? null,
+      due: dueDigest ?? null,
     },
-    { headers: { "Cache-Control": "no-store" } }
+    {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
+    },
   );
+}
+
+export async function GET(req: NextRequest) {
+  const filters = parseFiltersFromSearchParams(req.nextUrl.searchParams);
+  const days = normalizeDays(req.nextUrl.searchParams.get("days"));
+  const dueDays = normalizeDays(req.nextUrl.searchParams.get("dueDays"));
+
+  return buildDashboardSummary(req, {
+    days,
+    dueDays,
+    filters,
+  });
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => ({}));
+  return buildDashboardSummary(req, body ?? {});
 }
