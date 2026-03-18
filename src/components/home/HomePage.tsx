@@ -1257,9 +1257,7 @@ export default function HomePage({
   const [winsLoading, setWinsLoading] = useState(true);
 
   //  Change 1: briefingData state
- const [briefingData, setBriefingData] = useState<any | null>(
-  (data as any)?.briefing ?? null
-);
+  const [briefingData, setBriefingData] = useState<any | null>(null);
 
   const projectOptions = useMemo<ProjectOption[]>(() => {
     return (Array.isArray(projects) ? projects : [])
@@ -1433,6 +1431,42 @@ export default function HomePage({
           if (cancelled) return;
 
           setPhData(nextPh);
+
+          // Patch briefing health section with live API score so it matches KPI card
+         if (nextPh?.ok) {
+  const liveScore = Math.max(0, Math.min(100, Math.round(
+    Number((nextPh as any).score ?? (nextPh as any).portfolio_health ?? 0)
+  )));
+  if (liveScore > 0) {
+    // Compute rag counts from nextPh.projectScores directly (liveRagCounts is stale here)
+    const scores = (nextPh as any).projectScores ?? {};
+    const patchRag = { g: 0, a: 0, r: 0 };
+    for (const v of Object.values(scores) as any[]) {
+      if (v?.rag === "G") patchRag.g++;
+      else if (v?.rag === "A") patchRag.a++;
+      else if (v?.rag === "R") patchRag.r++;
+    }
+    setBriefingData((prev: any) => {
+      if (!prev?.ok) return prev;
+      const rag = patchRag;                const sentiment = liveScore >= 85 ? "green" : liveScore >= 70 ? "amber" : "red";
+                return {
+                  ...prev,
+                  sections: (prev.sections ?? []).map((s: any) =>
+                    s.id !== "health" ? s : {
+                      ...s,
+                      sentiment,
+                      body: `Average portfolio health is ${liveScore}%. Current mix: ${rag.g} green, ${rag.a} amber, ${rag.r} red.`,
+                    }
+                  ),
+                  signals_summary: {
+                    ...(prev.signals_summary ?? {}),
+                    avg_health: liveScore,
+                  },
+                };
+              });
+            }
+          }
+
           setInsights(nextInsights);
           setFpSummary(nextFp);
           setDueItems(nextDueItems);
@@ -1444,17 +1478,15 @@ export default function HomePage({
 
           //  Change 2: wire executive briefing from API response
           const executiveBriefingFromApi =
-  (j as any).executiveBriefing ||
-  (j as any).aiBriefing?.executive_briefing ||
-  (j as any).aiBriefing?.briefing ||
-  null;
-// Only overwrite if API returned something - keep server-seeded data if not
-if (executiveBriefingFromApi) {
-            setBriefingData(executiveBriefingFromApi);
-          }
+            (j as any).executiveBriefing ||
+            (j as any).aiBriefing?.executive_briefing ||
+            (j as any).aiBriefing?.briefing ||
+            null;
+          setBriefingData(executiveBriefingFromApi);
 
         } catch {
-          if (!cancelled) {            setInsights([]);
+          if (!cancelled) {
+            setInsights([]);
             setResourceWeeks([]);
             setRecentWins([]);
             setFpSummary(null);
