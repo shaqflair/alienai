@@ -147,7 +147,7 @@ async function loadFinanceSummary(args: {
   organisationId: string | null;
 }): Promise<{ body: string; sentiment: Sentiment; talkingPoint: string | null }> {
   const { supabase, projectIds, organisationId } = args;
-  const noData = { body: "No financial plan data is currently available for this portfolio.", sentiment: "neutral" as Sentiment, talkingPoint: null };
+  const noData = { body: "No budget data has been entered yet. Add financial plans to your projects to see portfolio-level budget analysis here.", sentiment: "neutral" as Sentiment, talkingPoint: null };
   try {
     let ids = projectIds;
     if (!ids.length && organisationId) {
@@ -156,40 +156,49 @@ async function loadFinanceSummary(args: {
     }
     if (!ids.length) return noData;
 
+    // Query budget_amount and budget_days directly from projects table
     const { data, error } = await supabase
-      .from("financial_plans")
-      .select("total_budget, total_spent, total_forecast, variance_pct, status, project_id")
-      .in("project_id", ids)
-      .limit(20);
+      .from("projects")
+      .select("id, title, project_code, budget_amount, budget_days")
+      .in("id", ids)
+      .is("deleted_at", null)
+      .limit(50);
 
     if (error || !data?.length) return noData;
 
-    let totalBudget = 0, totalSpent = 0, totalForecast = 0, hasData = false;
-    for (const row of data) {
-      const budget = safeNum((row as any).total_budget);
-      const spent = safeNum((row as any).total_spent);
-      const forecast = safeNum((row as any).total_forecast);
-      if (budget != null && budget > 0) { totalBudget += budget; hasData = true; }
-      if (spent != null) totalSpent += spent;
-      if (forecast != null) totalForecast += forecast;
-    }
-    if (!hasData) return { body: "Financial plans exist but budget figures are not yet populated.", sentiment: "neutral", talkingPoint: null };
+    let totalBudget = 0;
+    let totalBudgetDays = 0;
+    let projectsWithBudget = 0;
 
-    const spentPct = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : null;
-    const variancePct = totalBudget > 0 ? Math.round(((totalBudget - totalForecast) / totalBudget) * 100) : null;
-    const sentiment: Sentiment = variancePct == null ? "neutral" : variancePct < -10 ? "red" : variancePct < 0 ? "amber" : "green";
-    const budgetStr = formatCurrency(totalBudget);
-    const spentStr = formatCurrency(totalSpent);
-    let body = `Total portfolio budget is ${budgetStr}.`;
-    if (spentPct != null) body += ` ${spentStr} spent (${spentPct}% of budget).`;
-    if (variancePct != null) {
-      if (variancePct < 0) body += ` Forecast is ${Math.abs(variancePct)}% over budget -- requires attention.`;
-      else if (variancePct > 5) body += ` Forecast is tracking ${variancePct}% under budget.`;
-      else body += ` Forecast is broadly on budget (${variancePct}% variance).`;
+    for (const row of data) {
+      const amount = safeNum((row as any).budget_amount);
+      const days = safeNum((row as any).budget_days);
+      if (amount != null && amount > 0) {
+        totalBudget += amount;
+        projectsWithBudget++;
+      }
+      if (days != null && days > 0) totalBudgetDays += days;
     }
-    const talkingPoint = variancePct != null
-      ? `Portfolio budget is ${budgetStr}. Forecast variance is ${variancePct > 0 ? "+" : ""}${variancePct}%.`
-      : `Portfolio budget is ${budgetStr}.${spentPct != null ? ` ${spentPct}% spent to date.` : ""}`;
+
+    if (projectsWithBudget === 0 && totalBudgetDays === 0) return noData;
+
+    const budgetStr = totalBudget > 0 ? formatCurrency(totalBudget) : null;
+    const projectCount = data.length;
+
+    let body = "";
+    if (budgetStr) {
+      body = `Total portfolio budget is ${budgetStr} across ${projectCount} project${projectCount !== 1 ? "s" : ""}.`;
+    }
+    if (totalBudgetDays > 0) {
+      body += body ? ` ${totalBudgetDays} budget days allocated.` : `${totalBudgetDays} budget days allocated across ${projectCount} project${projectCount !== 1 ? "s" : ""}.`;
+    }
+    if (!body) return noData;
+
+    const sentiment: Sentiment = "neutral";
+    const talkingPoint = budgetStr
+      ? `Portfolio budget is ${budgetStr}.${totalBudgetDays > 0 ? ` ${totalBudgetDays} days budgeted.` : ""}`
+      : `${totalBudgetDays} budget days allocated across the portfolio.`;
+
     return { body, sentiment, talkingPoint };
   } catch {
     return noData;
