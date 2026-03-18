@@ -1444,13 +1444,14 @@ export default function HomePage({
 
           //  Change 2: wire executive briefing from API response
           const executiveBriefingFromApi =
-            (j as any).executiveBriefing ||
-            (j as any).aiBriefing?.executive_briefing ||
-            (j as any).aiBriefing?.briefing ||
-            null;
-          setBriefingData(executiveBriefingFromApi);
-
-        } catch {
+  (j as any).executiveBriefing ||
+  (j as any).aiBriefing?.executive_briefing ||
+  (j as any).aiBriefing?.briefing ||
+  null;
+// Only overwrite if API returned something - keep server-seeded data if not
+if (executiveBriefingFromApi) {
+  setBriefingData(executiveBriefingFromApi);
+}catch {
           if (!cancelled) {
             setInsights([]);
             setResourceWeeks([]);
