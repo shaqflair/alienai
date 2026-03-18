@@ -300,111 +300,478 @@ export default function LandingPageClient() {
         </div>
       </nav>
 
-      {/* HERO */}
-      <section style={{ position:"relative", minHeight:"100vh", display:"flex", alignItems:"center", paddingTop:88, overflow:"hidden",
-        background:"radial-gradient(ellipse at 68% 45%,rgba(0,194,232,.08) 0%,transparent 55%),radial-gradient(ellipse at 92% 12%,rgba(87,231,255,.05) 0%,transparent 28%),linear-gradient(180deg,#03050A 0%,#07101B 100%)" }}>
-        <Starfield density={1}/>
-        <div aria-hidden style={{ position:"absolute", right:"-4%", top:"50%", transform:"translateY(-50%)", width:"52vw", maxWidth:760, aspectRatio:"1", opacity:0.05, pointerEvents:"none", zIndex:1 }}>
-          <img src="https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png" alt=""
-            style={{ width:"100%", height:"100%", objectFit:"contain", filter:"blur(2px)" }}/>
+    {/* HERO */}
+<section
+  style={{
+    position: "relative",
+    minHeight: "100vh",
+    display: "flex",
+    alignItems: "center",
+    paddingTop: 88,
+    overflow: "hidden",
+    background:
+      "radial-gradient(ellipse at 68% 45%,rgba(0,194,232,.08) 0%,transparent 55%),radial-gradient(ellipse at 92% 12%,rgba(87,231,255,.05) 0%,transparent 28%),linear-gradient(180deg,#03050A 0%,#07101B 100%)",
+  }}
+>
+  <Starfield density={1} />
+  <div
+    aria-hidden
+    style={{
+      position: "absolute",
+      right: "-4%",
+      top: "50%",
+      transform: "translateY(-50%)",
+      width: "52vw",
+      maxWidth: 760,
+      aspectRatio: "1",
+      opacity: 0.05,
+      pointerEvents: "none",
+      zIndex: 1,
+    }}
+  >
+    <img
+      src="https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png"
+      alt=""
+      style={{
+        width: "100%",
+        height: "100%",
+        objectFit: "contain",
+        filter: "blur(2px)",
+      }}
+    />
+  </div>
+  <div className="al-shell" style={{ position: "relative", zIndex: 2 }}>
+    <div
+      className="hero-grid"
+      style={{ minHeight: "calc(100vh - 88px)", padding: "60px 0" }}
+    >
+      <div>
+        <div
+          className="al-f1"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "8px 14px",
+            borderRadius: 999,
+            border: `1px solid ${T.lineCyan}`,
+            background: "rgba(0,194,232,.08)",
+            color: T.cyanLt,
+            fontSize: 11,
+            fontFamily: F.mono,
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            marginBottom: 24,
+          }}
+        >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: T.cyan,
+              boxShadow: `0 0 10px ${T.cyan}`,
+              display: "inline-block",
+            }}
+          />
+          AI-powered governance for complex delivery
         </div>
-        <div className="al-shell" style={{ position:"relative", zIndex:2 }}>
-          <div className="hero-grid" style={{ minHeight:"calc(100vh - 88px)", padding:"60px 0" }}>
-            <div>
-              <div className="al-f1" style={{ display:"inline-flex", alignItems:"center", gap:10, padding:"8px 14px", borderRadius:999,
-                border:`1px solid ${T.lineCyan}`, background:"rgba(0,194,232,.08)", color:T.cyanLt,
-                fontSize:11, fontFamily:F.mono, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:24 }}>
-                <span style={{ width:7, height:7, borderRadius:"50%", background:T.cyan, boxShadow:`0 0 10px ${T.cyan}`, display:"inline-block" }}/>
-                AI governance platform for programme delivery
+
+        <h1 className="al-f2" style={{ marginBottom: 22 }}>
+          <span
+            style={{
+              fontFamily: F.body,
+              fontSize: "clamp(30px,4vw,54px)",
+              lineHeight: 1.06,
+              letterSpacing: "-0.03em",
+              fontWeight: 300,
+              display: "block",
+              color: "rgba(245,248,252,0.82)",
+            }}
+          >
+            See risks, approvals, and delivery pressure
+          </span>
+          <span
+            style={{
+              fontFamily: F.display,
+              fontSize: "clamp(40px,5.5vw,78px)",
+              lineHeight: 0.94,
+              letterSpacing: "-0.055em",
+              fontWeight: 700,
+              display: "block",
+              marginTop: 4,
+            }}
+          >
+            before projects go <span className="tg">off track</span>
+          </span>
+        </h1>
+
+        <p
+          className="al-f3"
+          style={{
+            fontSize: 18,
+            lineHeight: 1.8,
+            color: T.muted,
+            maxWidth: 620,
+            marginBottom: 34,
+          }}
+        >
+          Aliena brings approvals, RAID, finance, milestones, resources, and
+          executive reporting into one AI-powered governance platform for PMOs,
+          delivery leaders, and regulated organisations.
+        </p>
+
+        <div
+          className="al-f4 hero-actions"
+          style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 22 }}
+        >
+          <a
+            href="mailto:support@aliena.co.uk"
+            className="al-btn al-btn-p al-btn-lg"
+          >
+            Book a demo <ArrowRight size={16} />
+          </a>
+          <a href="#platform" className="al-btn al-btn-o al-btn-lg">
+            See platform overview
+          </a>
+        </div>
+
+        <div
+          className="al-f5"
+          style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 28 }}
+        >
+          {[
+            "Live governance view",
+            "AI risk signals",
+            "Approval control",
+            "Audit-ready workflows",
+          ].map((p) => (
+            <span key={p} className="chip">
+              {p}
+            </span>
+          ))}
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3,minmax(0,1fr))",
+            gap: 12,
+            maxWidth: 620,
+          }}
+        >
+          {[
+            { n: "17", l: "active projects" },
+            { n: "4", l: "approvals escalated" },
+            { n: "91%", l: "governance compliance" },
+          ].map((m) => (
+            <div
+              key={m.l}
+              style={{
+                padding: "14px 16px",
+                borderRadius: 18,
+                background: "rgba(255,255,255,.035)",
+                border: `1px solid ${T.lineS}`,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: F.display,
+                  fontWeight: 700,
+                  fontSize: 26,
+                  lineHeight: 1,
+                  marginBottom: 6,
+                  color: T.text,
+                }}
+              >
+                {m.n}
               </div>
-              <h1 className="al-f2" style={{ marginBottom:22 }}>
-                <span style={{ fontFamily:F.body, fontSize:"clamp(30px,4vw,54px)", lineHeight:1.06, letterSpacing:"-0.03em", fontWeight:300, display:"block", color:"rgba(245,248,252,0.82)" }}>
-                  Govern complex delivery with an
-                </span>
-                <span style={{ fontFamily:F.display, fontSize:"clamp(40px,5.5vw,78px)", lineHeight:0.94, letterSpacing:"-0.055em", fontWeight:700, display:"block", marginTop:4 }}>
-                  <span className="tg">AI-native</span> control layer
-                </span>
-              </h1>
-              <p className="al-f3" style={{ fontSize:18, lineHeight:1.8, color:T.muted, maxWidth:560, marginBottom:34 }}>
-                Aliena AI brings approvals, RAID, financial oversight, resource planning and executive reporting into one boardroom-grade operating system for PMOs, delivery leaders and regulated organisations.
-              </p>
-              <div className="al-f4 hero-actions" style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:22 }}>
-                <a href="/login" className="al-btn al-btn-p al-btn-lg">Start pilot <ArrowRight size={16}/></a>
-                <a href="mailto:support@aliena.co.uk" className="al-btn al-btn-o al-btn-lg">Talk to Aliena</a>
-              </div>
-              <div className="al-f5" style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:28 }}>
-                {["Executive Cockpit","Governance Hub","AI Risk Signals","Audit-ready workflows"].map(p=>(
-                  <span key={p} className="chip">{p}</span>
-                ))}
-              </div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:12, maxWidth:620 }}>
-                {[{n:"17",l:"active projects"},{n:"4",l:"approvals escalated"},{n:"91%",l:"governance compliance"}].map(m=>(
-                  <div key={m.l} style={{ padding:"14px 16px", borderRadius:18, background:"rgba(255,255,255,.035)", border:`1px solid ${T.lineS}` }}>
-                    <div style={{ fontFamily:F.display, fontWeight:700, fontSize:26, lineHeight:1, marginBottom:6, color:T.text }}>{m.n}</div>
-                    <div style={{ color:T.muted, fontSize:12, lineHeight:1.4 }}>{m.l}</div>
-                  </div>
-                ))}
+              <div style={{ color: T.muted, fontSize: 12, lineHeight: 1.4 }}>
+                {m.l}
               </div>
             </div>
+          ))}
+        </div>
+      </div>
 
-            <div className="hero-r" style={{ position:"relative", height:620 }}>
-              {[320,440,560].map((r,i)=>(
-                <div key={r} aria-hidden style={{ position:"absolute", top:"50%", left:"50%", width:r, height:r, borderRadius:"50%",
-                  border:`1px solid rgba(0,194,232,${0.07-i*0.02})`, transform:"translate(-50%,-50%)",
-                  animation:`al-float ${8+i*2}s ${i*1.5}s ease-in-out infinite` }}/>
+      <div className="hero-r" style={{ position: "relative", height: 620 }}>
+        {[320, 440, 560].map((r, i) => (
+          <div
+            key={r}
+            aria-hidden
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              width: r,
+              height: r,
+              borderRadius: "50%",
+              border: `1px solid rgba(0,194,232,${0.07 - i * 0.02})`,
+              transform: "translate(-50%,-50%)",
+              animation: `al-float ${8 + i * 2}s ${i * 1.5}s ease-in-out infinite`,
+            }}
+          />
+        ))}
+
+        <div
+          className="hero-panel"
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%,-50%)",
+            width: 470,
+            zIndex: 2,
+          }}
+        >
+          <div
+            style={{
+              padding: "13px 16px",
+              borderBottom: `1px solid ${T.line}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              background: "rgba(255,255,255,.02)",
+            }}
+          >
+            <div style={{ display: "flex", gap: 6 }}>
+              {[0, 1, 2].map((d) => (
+                <span
+                  key={d}
+                  style={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: "50%",
+                    background: "rgba(255,255,255,.25)",
+                    display: "inline-block",
+                  }}
+                />
               ))}
-              <div className="hero-panel" style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)", width:470, zIndex:2 }}>
-                <div style={{ padding:"13px 16px", borderBottom:`1px solid ${T.line}`, display:"flex", alignItems:"center", justifyContent:"space-between", background:"rgba(255,255,255,.02)" }}>
-                  <div style={{ display:"flex", gap:6 }}>
-                    {[0,1,2].map(d=><span key={d} style={{ width:9, height:9, borderRadius:"50%", background:"rgba(255,255,255,.25)", display:"inline-block" }}/>)}
+            </div>
+            <span
+              style={{
+                fontFamily: F.mono,
+                fontSize: 10,
+                color: T.muted2,
+                letterSpacing: "0.08em",
+              }}
+            >
+              ALIENA EXECUTIVE COCKPIT
+            </span>
+            <span
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: `1px solid ${T.lineCyan}`,
+                color: T.cyanLt,
+                background: "rgba(0,194,232,.08)",
+                fontFamily: F.mono,
+                fontSize: 10,
+              }}
+            >
+              LIVE
+            </span>
+          </div>
+
+          <div style={{ padding: 16 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(3,1fr)",
+                gap: 10,
+                marginBottom: 14,
+              }}
+            >
+              {[
+                { v: "17", l: "active projects", c: T.cyanLt },
+                { v: "4", l: "approvals escalated", c: T.amber },
+                { v: "1.2m", l: "variance flagged", c: T.green },
+              ].map((m) => (
+                <div
+                  key={m.v + m.l}
+                  style={{
+                    padding: 13,
+                    borderRadius: 16,
+                    background: "rgba(255,255,255,.04)",
+                    border: `1px solid ${T.line}`,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontFamily: F.display,
+                      fontSize: 24,
+                      fontWeight: 700,
+                      lineHeight: 1,
+                      marginBottom: 6,
+                      color: m.c,
+                    }}
+                  >
+                    {m.v}
                   </div>
-                  <span style={{ fontFamily:F.mono, fontSize:10, color:T.muted2, letterSpacing:"0.08em" }}>ALIENA EXECUTIVE COCKPIT</span>
-                  <span style={{ padding:"4px 10px", borderRadius:999, border:`1px solid ${T.lineCyan}`, color:T.cyanLt, background:"rgba(0,194,232,.08)", fontFamily:F.mono, fontSize:10 }}>LIVE</span>
+                  <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.4 }}>
+                    {m.l}
+                  </div>
                 </div>
-                <div style={{ padding:16 }}>
-                  <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:14 }}>
-                    {[{v:"17",l:"active projects",c:T.cyanLt},{v:"4",l:"approvals escalated",c:T.amber},{v:"1.2m",l:"variance flagged",c:T.green}].map(m=>(
-                      <div key={m.v+m.l} style={{ padding:13, borderRadius:16, background:"rgba(255,255,255,.04)", border:`1px solid ${T.line}` }}>
-                        <div style={{ fontFamily:F.display, fontSize:24, fontWeight:700, lineHeight:1, marginBottom:6, color:m.c }}>{m.v}</div>
-                        <div style={{ fontSize:11, color:T.muted, lineHeight:1.4 }}>{m.l}</div>
-                      </div>
-                    ))}
+              ))}
+            </div>
+
+            <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+              {[
+                ["Budget control", 86],
+                ["Milestone health", 78],
+                ["Approval compliance", 91],
+                ["Resource readiness", 73],
+              ].map(([l, v]) => (
+                <div
+                  key={l as string}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "118px 1fr 38px",
+                    gap: 8,
+                    alignItems: "center",
+                  }}
+                >
+                  <span style={{ fontSize: 11, color: T.muted }}>{l}</span>
+                  <div
+                    style={{
+                      height: 6,
+                      borderRadius: 999,
+                      background: "rgba(255,255,255,.08)",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${v}%`,
+                        borderRadius: 999,
+                        background: `linear-gradient(90deg,${T.cyan},${T.cyanLt})`,
+                      }}
+                    />
                   </div>
-                  <div style={{ display:"grid", gap:10, marginBottom:14 }}>
-                    {[["Budget control",86],["Milestone health",78],["Approval compliance",91],["Resource readiness",73]].map(([l,v])=>(
-                      <div key={l as string} style={{ display:"grid", gridTemplateColumns:"118px 1fr 38px", gap:8, alignItems:"center" }}>
-                        <span style={{ fontSize:11, color:T.muted }}>{l}</span>
-                        <div style={{ height:6, borderRadius:999, background:"rgba(255,255,255,.08)", overflow:"hidden" }}>
-                          <div style={{ height:"100%", width:`${v}%`, borderRadius:999, background:`linear-gradient(90deg,${T.cyan},${T.cyanLt})` }}/>
-                        </div>
-                        <span style={{ fontSize:11, color:T.text, textAlign:"right", fontFamily:F.mono }}>{v}%</span>
-                      </div>
-                    ))}
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: T.text,
+                      textAlign: "right",
+                      fontFamily: F.mono,
+                    }}
+                  >
+                    {v}%
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "grid", gap: 9 }}>
+              {[
+                {
+                  t: "APPROVAL FLOW",
+                  b: "Needs review",
+                  tx: "One financial plan is 5 days outside target SLA.",
+                },
+                {
+                  t: "BUDGET VARIANCE",
+                  b: "Emerging",
+                  tx: "Forecast overrun trend in Q3 unless scope is adjusted.",
+                },
+                {
+                  t: "RESOURCE LOAD",
+                  b: "Pressure",
+                  tx: "Delivery leadership is over-allocated across two programmes.",
+                },
+              ].map((s) => (
+                <div
+                  key={s.t}
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 14,
+                    background: "rgba(255,255,255,.03)",
+                    border: `1px solid ${T.line}`,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: T.cyanLt,
+                        fontFamily: F.mono,
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      {s.t}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: "#FDE68A",
+                        background: "rgba(234,179,8,.1)",
+                        border: "1px solid rgba(234,179,8,.2)",
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                      }}
+                    >
+                      {s.b}
+                    </span>
                   </div>
-                  <div style={{ display:"grid", gap:9 }}>
-                    {[{t:"APPROVAL FLOW",b:"Needs review",tx:"One financial plan is 5 days outside target SLA."},{t:"BUDGET VARIANCE",b:"Emerging",tx:"Forecast overrun trend in Q3 unless scope is adjusted."},{t:"RESOURCE LOAD",b:"Pressure",tx:"Delivery leadership is over-allocated across two programmes."}].map(s=>(
-                      <div key={s.t} style={{ padding:"10px 12px", borderRadius:14, background:"rgba(255,255,255,.03)", border:`1px solid ${T.line}` }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-                          <span style={{ fontSize:10, color:T.cyanLt, fontFamily:F.mono, letterSpacing:"0.06em" }}>{s.t}</span>
-                          <span style={{ fontSize:10, color:"#FDE68A", background:"rgba(234,179,8,.1)", border:"1px solid rgba(234,179,8,.2)", padding:"2px 8px", borderRadius:999 }}>{s.b}</span>
-                        </div>
-                        <div style={{ fontSize:12, color:T.text, lineHeight:1.55 }}>{s.tx}</div>
-                      </div>
-                    ))}
+                  <div style={{ fontSize: 12, color: T.text, lineHeight: 1.55 }}>
+                    {s.tx}
                   </div>
                 </div>
-              </div>
-              <div style={{ position:"absolute", right:10, bottom:34, width:184, padding:14, borderRadius:18,
-                background:"rgba(8,12,20,.9)", border:`1px solid ${T.lineS}`, backdropFilter:"blur(18px)" }}>
-                <div style={{ fontFamily:F.mono, fontSize:10, color:T.purple, letterSpacing:"0.1em", marginBottom:8 }}>AI INSIGHT</div>
-                <div style={{ fontFamily:F.display, fontSize:15, fontWeight:600, marginBottom:8 }}>Governance pressure emerging</div>
-                <div style={{ fontSize:12, color:T.muted, lineHeight:1.55 }}>2 approvals and 1 milestone now influence portfolio confidence.</div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
-      </section>
 
+        <div
+          style={{
+            position: "absolute",
+            right: 10,
+            bottom: 34,
+            width: 184,
+            padding: 14,
+            borderRadius: 18,
+            background: "rgba(8,12,20,.9)",
+            border: `1px solid ${T.lineS}`,
+            backdropFilter: "blur(18px)",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: F.mono,
+              fontSize: 10,
+              color: T.purple,
+              letterSpacing: "0.1em",
+              marginBottom: 8,
+            }}
+          >
+            AI INSIGHT
+          </div>
+          <div
+            style={{
+              fontFamily: F.display,
+              fontSize: 15,
+              fontWeight: 600,
+              marginBottom: 8,
+            }}
+          >
+            Governance pressure emerging
+          </div>
+          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.55 }}>
+            2 approvals and 1 milestone now influence portfolio confidence.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
       {/* TRUST BAND */}
       <div style={{ borderTop:"1px solid rgba(255,255,255,.05)", borderBottom:"1px solid rgba(255,255,255,.05)", background:"rgba(255,255,255,.015)", padding:"16px 28px" }}>
         <div className="al-shell" style={{ display:"flex", flexWrap:"wrap", gap:10, justifyContent:"center" }}>
