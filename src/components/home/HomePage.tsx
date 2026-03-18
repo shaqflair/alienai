@@ -1,14 +1,13 @@
 "use client";
 
-// src/components/home/HomePage.tsx — POLISHED v10.0
+// src/components/home/HomePage.tsx — dashboard-summary single-effect version
 //
-// Performance hardening vs v9.6:
-//   ✅ HP-F15: Heavy components are lazy-loaded with next/dynamic
-//   ✅ HP-F16: Removed runtime Google Fonts @import from render path
-//   ✅ HP-F17: Stable filter/api dependency keys to reduce avoidable refetches
-//   ✅ HP-F18: Reduced repeated motion wrappers on large repeated lists
-//   ✅ HP-F19: Added cancellable fetch handling in effects
-//   ✅ HP-F20: Keeps ExecutiveBriefingCard render-only
+// Refactor goals:
+//   ✅ Single dashboard-summary effect
+//   ✅ Old duplicated effects removed
+//   ✅ Loading states preserved
+//   ✅ Existing UI kept intact
+//   ✅ Wiring aligned to /api/home/dashboard-summary
 
 import React, {
   useCallback,
@@ -111,6 +110,7 @@ type NotifRow = {
 };
 type NotifApiResp = { ok: false; error: string } | { ok: true; unreadCount?: number; items: NotifRow[] };
 type BellTab = "all" | "action" | "ai" | "approvals";
+
 type DueItemType = "artifact" | "milestone" | "work_item" | "raid" | "change";
 type DueDigestItem = {
   itemType: DueItemType;
@@ -122,13 +122,22 @@ type DueDigestItem = {
   link?: string | null;
   meta?: any;
 };
+
 type ArtifactDueAi = {
   summary: string;
   windowDays: number;
-  counts: { total: number; milestone: number; work_item: number; raid: number; artifact: number; change: number };
+  counts: {
+    total: number;
+    milestone: number;
+    work_item: number;
+    raid: number;
+    artifact: number;
+    change: number;
+  };
   dueSoon: DueDigestItem[];
   recommendedMessage?: string;
 };
+
 type ArtifactDueResp =
   | { ok: false; error: string; meta?: any }
   | {
@@ -143,7 +152,15 @@ type ArtifactDueResp =
       ai: ArtifactDueAi;
       stats?: any;
     };
-type Insight = { id: string; severity: "high" | "medium" | "info"; title: string; body: string; href?: string | null };
+
+type Insight = {
+  id: string;
+  severity: "high" | "medium" | "info";
+  title: string;
+  body: string;
+  href?: string | null;
+};
+
 type HomeData =
   | { ok: false; error: string }
   | {
@@ -225,6 +242,7 @@ type PortfolioHealthApi =
     };
 
 type RagLetter = "G" | "A" | "R";
+
 type FinancialPlanSummary =
   | { ok: false; error: string }
   | {
@@ -238,7 +256,9 @@ type FinancialPlanSummary =
       project_ref?: string | null;
       artifact_id?: string | null;
       project_count?: number;
+      portfolio?: any;
     };
+
 type RecentWin = {
   id: string;
   title: string;
@@ -250,7 +270,26 @@ type RecentWin = {
   project_colour: string;
   link: string | null;
 };
+
 type ProjectOption = { id: string; name: string; code: string | null };
+
+type DashboardSummaryResponse =
+  | {
+      ok: false;
+      error?: string;
+    }
+  | {
+      ok: true;
+      generated_at?: string;
+      portfolioHealth?: PortfolioHealthApi | null;
+      insights?: Insight[] | null;
+      financialPlan?: FinancialPlanSummary | null;
+      due?: ArtifactDueResp | null;
+      raidPanel?: { ok?: boolean; panel?: RaidPanel | null } | RaidPanel | null;
+      resourceActivity?: { ok?: boolean; weeks?: ResourceWeek[] | null } | ResourceWeek[] | null;
+      recentWins?: { ok?: boolean; wins?: RecentWin[] | null } | RecentWin[] | null;
+      milestonesDue?: { ok?: boolean; count?: number | null } | number | null;
+    };
 
 /* --- Utils ---------------------------------------------------------------- */
 
@@ -341,22 +380,6 @@ function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]):
     projectName: uniqStrings([...(f.projectName ?? []), ...names]),
   };
 }
-function appendFiltersToApi(baseUrl: string, f: PortfolioFilters, projectOptions: ProjectOption[] = []): string {
-  try {
-    const derived = deriveApiFilters(f, projectOptions);
-    const origin = typeof window !== "undefined" ? window.location.origin : "http://local/";
-    const u = new URL(baseUrl, origin);
-    const sp = u.searchParams;
-    if (derived.q?.trim()) sp.set("q", derived.q.trim());
-    (derived.projectCode ?? []).forEach((v) => sp.append("code", v));
-    (derived.projectName ?? []).forEach((v) => sp.append("name", v));
-    (derived.projectManagerId ?? []).forEach((v) => sp.append("pm", v));
-    (derived.department ?? []).forEach((v) => sp.append("dept", v));
-    return u.pathname + (sp.toString() ? `?${sp.toString()}` : "");
-  } catch {
-    return baseUrl;
-  }
-}
 function appendFiltersToUrl(path: string, f: PortfolioFilters) {
   const sp = filtersToSearchParams(f);
   return `${path}${sp.toString() ? `?${sp.toString()}` : ""}`;
@@ -433,15 +456,6 @@ function runIdle(fn: () => void) {
     return (window as any).requestIdleCallback(fn, { timeout: 1200 });
   }
   return window.setTimeout(fn, 0);
-}
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> {
-  try {
-    const r = await fetch(url, init);
-    if (!r.ok) return null;
-    return (await r.json().catch(() => null)) as T | null;
-  } catch {
-    return null;
-  }
 }
 function scoreToRag(score: number): RagLetter {
   const s = clamp01to100(score);
@@ -560,81 +574,60 @@ function stableFilterKey(f: PortfolioFilters) {
     department: [...(f.department ?? [])].sort(),
   });
 }
-
-/* --- Rejection Modal ----------------------------------------------------- */
-
-function RejectionModal({
-  open,
-  title,
-  onConfirm,
-  onCancel,
-}: {
-  open: boolean;
-  title: string;
-  onConfirm: (reason: string) => void;
-  onCancel: () => void;
-}) {
-  const [reason, setReason] = useState("");
-  useEffect(() => {
-    if (!open) setReason("");
-  }, [open]);
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <m.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] bg-black/30"
-            onClick={onCancel}
-          />
-          <m.div
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.18 }}
-            className="fixed left-1/2 top-1/2 z-[70] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl"
-          >
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50">
-                <X className="h-4 w-4 text-red-500" />
-              </div>
-              <div>
-                <div className="font-semibold text-gray-900">Reject change request</div>
-                <div className="max-w-xs truncate text-sm text-gray-500">{title}</div>
-              </div>
-            </div>
-            <label className="mb-1.5 block text-xs font-medium text-gray-600">Reason (optional)</label>
-            <textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Provide context…"
-              rows={3}
-              autoFocus
-              className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-            />
-            <div className="mt-4 flex gap-2.5">
-              <button
-                type="button"
-                onClick={onCancel}
-                className="h-9 flex-1 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => onConfirm(reason)}
-                className="h-9 flex-1 rounded-xl bg-red-500 text-sm font-semibold text-white hover:bg-red-600"
-              >
-                Confirm rejection
-              </button>
-            </div>
-          </m.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
+function normalizeDueItemsFromEvent(j: ArtifactDueResp | null | undefined): DueDigestItem[] {
+  if (!j || !j.ok) return [];
+  const ai = (j as any).ai as ArtifactDueAi;
+  const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
+  return list
+    .sort((a: any, b: any) => {
+      const ta = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const tb = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      return ta - tb;
+    })
+    .slice(0, 20)
+    .map((x: any) => ({
+      ...x,
+      title: safeStr(x?.title || x?.name || x?.artifact_title || x?.milestone_title).trim() || "Untitled",
+      dueDate: x?.dueDate || x?.due_date || x?.due_at || x?.deadline || null,
+      ownerLabel: x?.ownerLabel || x?.owner_label || x?.owner_name || x?.assignee_name || null,
+      ownerEmail: x?.ownerEmail || x?.owner_email || x?.assignee_email || null,
+      link: safeStr(x?.link || x?.href || x?.url || x?.project_link).trim() || null,
+      meta: {
+        ...x?.meta,
+        project_code: x?.meta?.project_code || x?.project_code || x?.project_human_id || null,
+        project_name: x?.meta?.project_name || x?.project_name || x?.project_title || null,
+      },
+    }));
+}
+function normalizeRaidPanel(input: any, fallbackDays: number): RaidPanel | null {
+  const p = input?.panel ?? input;
+  if (!p || typeof p !== "object") return null;
+  return {
+    days: num(p.days, fallbackDays),
+    due_total: num(p.due_total),
+    overdue_total: num(p.overdue_total),
+    risk_due: num(p.risk_due),
+    issue_due: num(p.issue_due),
+    dependency_due: num(p.dependency_due),
+    assumption_due: num(p.assumption_due),
+    risk_hi: num(p.risk_hi),
+    issue_hi: num(p.issue_hi),
+  };
+}
+function normalizeWeeks(input: any): ResourceWeek[] {
+  if (Array.isArray(input)) return input as ResourceWeek[];
+  if (Array.isArray(input?.weeks)) return input.weeks as ResourceWeek[];
+  return [];
+}
+function normalizeWins(input: any): RecentWin[] {
+  if (Array.isArray(input)) return input as RecentWin[];
+  if (Array.isArray(input?.wins)) return input.wins as RecentWin[];
+  return [];
+}
+function normalizeMilestonesDueCount(input: any): number | null {
+  if (typeof input === "number" && Number.isFinite(input)) return Math.max(0, input);
+  if (typeof input?.count === "number" && Number.isFinite(input.count)) return Math.max(0, input.count);
+  return 0;
 }
 
 /* --- Notification Bell ---------------------------------------------------- */
@@ -1381,7 +1374,11 @@ const CheckboxList = memo(function CheckboxList({
         {selected.length > 0 && (
           <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2">
             <span className="text-[11px] text-gray-400">{selected.length} selected</span>
-            <button type="button" onClick={() => selected.forEach((id) => onToggle(id))} className="text-[11px] font-semibold text-red-500 hover:text-red-600">
+            <button
+              type="button"
+              onClick={() => selected.forEach((id) => onToggle(id))}
+              className="text-[11px] font-semibold text-red-500 hover:text-red-600"
+            >
               Clear
             </button>
           </div>
@@ -1597,9 +1594,6 @@ export default function HomePage({
   const [phPrevScore] = useState<number | null>(null);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(true);
-  const [approvalItems, setApprovalItems] = useState<any[]>([]);
-  const [pendingIds, setPendingIds] = useState<Record<string, true>>({});
-  const [rejectModal, setRejectModal] = useState<{ taskId: string; title: string } | null>(null);
   const [milestonesDueLive, setMilestonesDueLive] = useState<number | null>(null);
   const [raidPanel, setRaidPanel] = useState<RaidPanel | null>(null);
   const [raidLoading, setRaidLoading] = useState(false);
@@ -1769,211 +1763,90 @@ export default function HomePage({
     return { g, a, r };
   }, [activeProjects, mergedRagMap]);
 
-  /* ── Effects ── */
+  /* ── Single dashboard-summary effect ── */
 
   useEffect(() => {
     if (!ok) return;
+
     let cancelled = false;
     const controller = new AbortController();
+
     setResourceLoading(true);
-
-    (async () => {
-      try {
-        const url = appendFiltersToApi(`/api/portfolio/resource-activity?days=${numericWindowDays}`, derivedApiFilters);
-        const j = await fetchJson<{ ok: boolean; weeks: ResourceWeek[] }>(url, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!cancelled && j?.ok && Array.isArray(j.weeks)) setResourceWeeks(j.weeks);
-      } catch {
-        //
-      } finally {
-        if (!cancelled) setResourceLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [ok, numericWindowDays, apiFilterSnapshot]);
-
-  useEffect(() => {
-    if (!ok) return;
-    let cancelled = false;
-    const controller = new AbortController();
     setWinsLoading(true);
-
-    runIdle(() => {
-      (async () => {
-        try {
-          const url = appendFiltersToApi(`/api/portfolio/recent-wins?days=7&limit=8`, derivedApiFilters);
-          const j = await fetchJson<{ ok: boolean; wins: RecentWin[] }>(url, {
-            cache: "no-store",
-            signal: controller.signal,
-          });
-          if (!cancelled && j?.ok && Array.isArray(j.wins)) setRecentWins(j.wins);
-        } catch {
-          //
-        } finally {
-          if (!cancelled) setWinsLoading(false);
-        }
-      })();
-    });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [ok, apiFilterSnapshot]);
-
-  useEffect(() => {
-    if (!ok) return;
-    let cancelled = false;
-    const controller = new AbortController();
     setInsightsLoading(true);
+    setFpLoading(true);
+    setDueLoading(true);
+    setRaidLoading(true);
 
-    runIdle(() => {
+    const idleId = runIdle(() => {
       (async () => {
         try {
-          const url = appendFiltersToApi(`/api/ai/briefing?days=${numericWindowDays}`, derivedApiFilters);
-          const j = await fetchJson<any>(url, { cache: "no-store", signal: controller.signal });
-          const list = Array.isArray(j?.insights) ? (j.insights as Insight[]) : [];
-          if (!cancelled) setInsights(orderBriefingInsights(list));
-        } catch {
-          if (!cancelled) setInsights([]);
-        } finally {
-          if (!cancelled) setInsightsLoading(false);
-        }
-      })();
-    });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [ok, numericWindowDays, apiFilterSnapshot]);
-
-  useEffect(() => {
-    if (!ok) return;
-    let cancelled = false;
-    const controller = new AbortController();
-
-    runIdle(() => {
-      (async () => {
-        try {
-          setFpLoading(true);
-          const url = appendFiltersToApi(`/api/portfolio/financial-plan-summary?days=${numericWindowDays}`, derivedApiFilters);
-          const j = await fetchJson<FinancialPlanSummary>(url, { cache: "no-store", signal: controller.signal });
-          if (!cancelled) setFpSummary(j ?? null);
-        } catch {
-          //
-        } finally {
-          if (!cancelled) setFpLoading(false);
-        }
-      })();
-    });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [ok, numericWindowDays, apiFilterSnapshot]);
-
-  useEffect(() => {
-    if (!ok) return;
-    let cancelled = false;
-    const controller = new AbortController();
-
-    runIdle(() => {
-      (async () => {
-        try {
-          setDueLoading(true);
-          const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
+          const r = await fetch("/api/home/dashboard-summary", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             cache: "no-store",
             signal: controller.signal,
             body: JSON.stringify({
-              eventType: "artifact_due",
-              windowDays: dueWindowDays,
+              days: numericWindowDays,
+              dueWindowDays,
               filters: derivedApiFilters,
             }),
           });
 
-          if (!j || !j.ok) return;
+          const j: DashboardSummaryResponse = await r.json().catch(() => ({ ok: false, error: "Bad JSON" }));
 
-          const ai = (j as any).ai as ArtifactDueAi;
-          const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
-          const merged = list
-            .sort((a: any, b: any) => {
-              const ta = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-              const tb = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-              return ta - tb;
-            })
-            .slice(0, 20)
-            .map((x: any) => ({
-              ...x,
-              title: safeStr(x?.title || x?.name || x?.artifact_title || x?.milestone_title).trim() || "Untitled",
-              dueDate: x?.dueDate || x?.due_date || x?.due_at || x?.deadline || null,
-              ownerLabel: x?.ownerLabel || x?.owner_label || x?.owner_name || x?.assignee_name || null,
-              ownerEmail: x?.ownerEmail || x?.owner_email || x?.assignee_email || null,
-              link: safeStr(x?.link || x?.href || x?.url || x?.project_link).trim() || null,
-              meta: {
-                ...x?.meta,
-                project_code: x?.meta?.project_code || x?.project_code || x?.project_human_id || null,
-                project_name: x?.meta?.project_name || x?.project_name || x?.project_title || null,
-              },
-            }));
-
-          if (!cancelled) {
-            setDueItems(merged);
-            setDueUpdatedAt(new Date().toISOString());
+          if (cancelled || !j?.ok) {
+            if (!cancelled) {
+              setInsights([]);
+              setResourceWeeks([]);
+              setRecentWins([]);
+              setFpSummary(null);
+              setDueItems([]);
+              setRaidPanel(null);
+              setMilestonesDueLive(0);
+            }
+            return;
           }
+
+          const nextPh = j.portfolioHealth ?? null;
+          const nextInsights = orderBriefingInsights(Array.isArray(j.insights) ? j.insights : []);
+          const nextFp = j.financialPlan ?? null;
+          const nextDueItems = normalizeDueItemsFromEvent(j.due ?? null);
+          const nextRaid = normalizeRaidPanel(j.raidPanel, numericWindowDays);
+          const nextWeeks = normalizeWeeks(j.resourceActivity);
+          const nextWins = normalizeWins(j.recentWins);
+          const nextMilestones = normalizeMilestonesDueCount(j.milestonesDue);
+
+          if (cancelled) return;
+
+          setPhData(nextPh);
+          setInsights(nextInsights);
+          setFpSummary(nextFp);
+          setDueItems(nextDueItems);
+          setRaidPanel(nextRaid);
+          setResourceWeeks(nextWeeks);
+          setRecentWins(nextWins);
+          setMilestonesDueLive(nextMilestones);
+          setDueUpdatedAt(safeStr(j.generated_at).trim() || new Date().toISOString());
         } catch {
-          //
-        } finally {
-          if (!cancelled) setDueLoading(false);
-        }
-      })();
-    });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [ok, dueWindowDays, apiFilterSnapshot]);
-
-  useEffect(() => {
-    if (!ok) return;
-    let cancelled = false;
-    const controller = new AbortController();
-
-    runIdle(() => {
-      (async () => {
-        try {
-          setRaidLoading(true);
-          const url = appendFiltersToApi(`/api/portfolio/raid-panel?days=${numericWindowDays}`, derivedApiFilters);
-          const j: any = await fetchJson(url, { cache: "no-store", signal: controller.signal });
-          if (!j?.ok || !j?.panel) return;
-          const p = j.panel;
           if (!cancelled) {
-            setRaidPanel({
-              days: num(p.days, numericWindowDays),
-              due_total: num(p.due_total),
-              overdue_total: num(p.overdue_total),
-              risk_due: num(p.risk_due),
-              issue_due: num(p.issue_due),
-              dependency_due: num(p.dependency_due),
-              assumption_due: num(p.assumption_due),
-              risk_hi: num(p.risk_hi),
-              issue_hi: num(p.issue_hi),
-            });
+            setInsights([]);
+            setResourceWeeks([]);
+            setRecentWins([]);
+            setFpSummary(null);
+            setDueItems([]);
+            setRaidPanel(null);
+            setMilestonesDueLive(0);
           }
-        } catch {
-          //
         } finally {
-          if (!cancelled) setRaidLoading(false);
+          if (!cancelled) {
+            setResourceLoading(false);
+            setWinsLoading(false);
+            setInsightsLoading(false);
+            setFpLoading(false);
+            setDueLoading(false);
+            setRaidLoading(false);
+          }
         }
       })();
     });
@@ -1981,55 +1854,13 @@ export default function HomePage({
     return () => {
       cancelled = true;
       controller.abort();
+      if (typeof window !== "undefined" && typeof (window as any).cancelIdleCallback === "function") {
+        (window as any).cancelIdleCallback(idleId);
+      } else {
+        window.clearTimeout(idleId);
+      }
     };
-  }, [ok, numericWindowDays, apiFilterSnapshot]);
-
-  useEffect(() => {
-    if (!ok) return;
-    let cancelled = false;
-    const controller = new AbortController();
-
-    runIdle(() => {
-      (async () => {
-        try {
-          const url = appendFiltersToApi(`/api/portfolio/health?days=${numericWindowDays}`, derivedApiFilters);
-          const j = await fetchJson<PortfolioHealthApi>(url, { cache: "no-store", signal: controller.signal });
-          if (!cancelled && j?.ok) setPhData(j);
-        } catch {
-          //
-        }
-      })();
-    });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [ok, numericWindowDays, apiFilterSnapshot]);
-
-  useEffect(() => {
-    if (!ok) return;
-    let cancelled = false;
-    const controller = new AbortController();
-
-    runIdle(() => {
-      (async () => {
-        try {
-          const url = appendFiltersToApi(`/api/portfolio/milestones-due?days=${numericWindowDays}`, derivedApiFilters);
-          const j: any = await fetchJson(url, { cache: "no-store", signal: controller.signal });
-          if (j?.ok && typeof j?.count === "number" && !cancelled) setMilestonesDueLive(Math.max(0, j.count));
-          else if (!cancelled) setMilestonesDueLive(0);
-        } catch {
-          if (!cancelled) setMilestonesDueLive(0);
-        }
-      })();
-    });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [ok, numericWindowDays, apiFilterSnapshot]);
+  }, [ok, numericWindowDays, dueWindowDays, apiFilterSnapshot]);
 
   /* ── Derived values ── */
 
@@ -2040,12 +1871,6 @@ export default function HomePage({
   const phScoreForUi = apiScore != null && apiScore > 0 ? apiScore : null;
   const phRag = scoreToRag(phScoreForUi ?? 0);
   const phDelta = phPrevScore != null && phScoreForUi != null ? phScoreForUi - phPrevScore : null;
-
-  const byId = useMemo(() => {
-    const m2 = new Map<string, any>();
-    for (const it of approvalItems) m2.set(String(it?.id || ""), it);
-    return m2;
-  }, [approvalItems]);
 
   const raidDueTotal = useMemo(() => {
     if (!raidPanel) return 0;
@@ -2065,23 +1890,23 @@ export default function HomePage({
   const raidHighSeverity = num(raidPanel?.risk_hi) + num(raidPanel?.issue_hi);
 
   const fpHasData = fpSummary?.ok === true;
-  const _fpPortfolioPre = fpHasData ? (fpSummary as any).portfolio : null;
+  const fpPortfolioPre = fpHasData ? (fpSummary as any).portfolio : null;
   const fpVariancePct = fpHasData
     ? (fpSummary as any).variance_pct ??
-      _fpPortfolioPre?.variance_pct ??
-      _fpPortfolioPre?.variancePct ??
-      _fpPortfolioPre?.variance
+      fpPortfolioPre?.variance_pct ??
+      fpPortfolioPre?.variancePct ??
+      fpPortfolioPre?.variance
     : null;
   const fpVarianceNum =
     fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
-  const fpRag = fpHasData ? (((fpSummary as any).rag || _fpPortfolioPre?.rag) as RagLetter) ?? null : null;
-  const fpCurrency = fpHasData ? safeStr((fpSummary as any).currency || _fpPortfolioPre?.currency).trim() || "£" : "£";
-  const _fpPortfolio = _fpPortfolioPre;
+  const fpRag = fpHasData ? (((fpSummary as any).rag || fpPortfolioPre?.rag) as RagLetter) ?? null : null;
+  const fpCurrency = fpHasData ? safeStr((fpSummary as any).currency || fpPortfolioPre?.currency).trim() || "£" : "£";
+  const fpPortfolio = fpPortfolioPre;
 
-  const _fpBudgetRaw = fpHasData
+  const fpBudgetRaw = fpHasData
     ? (() => {
         const s = fpSummary as any;
-        const p = _fpPortfolio ?? {};
+        const p = fpPortfolio ?? {};
         const nested =
           p.totalBudget ??
           p.total_budget ??
@@ -2115,10 +1940,10 @@ export default function HomePage({
       })()
     : undefined;
 
-  const _fpSpentRaw = fpHasData
+  const fpSpentRaw = fpHasData
     ? (() => {
         const s = fpSummary as any;
-        const p = _fpPortfolio ?? {};
+        const p = fpPortfolio ?? {};
         const nested = p.totalActual ?? p.total_actual ?? p.totalSpent ?? p.total_spent ?? p.actualSpent ?? p.actual_spent ?? p.actuals ?? p.spent;
         if (nested != null) return nested;
         const topLevel = s.total_spent ?? s.actual_spent ?? s.spent_total ?? s.total_actual ?? s.actual ?? s.spent ?? s.total_actuals ?? s.actuals_total;
@@ -2132,9 +1957,9 @@ export default function HomePage({
     : undefined;
 
   const fpTotalBudget: number | null =
-    _fpBudgetRaw != null && Number.isFinite(Number(_fpBudgetRaw)) ? Number(_fpBudgetRaw) : null;
+    fpBudgetRaw != null && Number.isFinite(Number(fpBudgetRaw)) ? Number(fpBudgetRaw) : null;
   const fpTotalSpent: number | null =
-    _fpSpentRaw != null && Number.isFinite(Number(_fpSpentRaw)) ? Number(_fpSpentRaw) : null;
+    fpSpentRaw != null && Number.isFinite(Number(fpSpentRaw)) ? Number(fpSpentRaw) : null;
 
   function formatBudget(n: number, currency: string): string {
     const abs = Math.abs(n);
@@ -2153,66 +1978,11 @@ export default function HomePage({
     : "total portfolio budget";
   const fpTrendLabel = fpVarianceNum != null && fpVarianceNum !== 0 ? `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%` : undefined;
 
-  const firstProjectRef = useMemo(() => {
-    const fp = fpSummary?.ok ? (fpSummary as any).project_ref : null;
-    if (fp) return fp;
-    const p = sortedProjects[0] as any;
-    if (!p) return "";
-    return safeStr(p?.id);
-  }, [fpSummary, sortedProjects]);
+  const phColorKey = phRag === "G" ? "green" : phRag === "A" ? "amber" : "red";
+  const fpColorKey = !fpHasData ? "blue" : fpRag === "G" ? "green" : fpRag === "A" ? "amber" : "red";
+  const allDueItems = dueItems.slice(0, 8);
 
-  async function decide(taskId: string, decision: "approve" | "reject", comment = "") {
-    const item = byId.get(taskId);
-    if (!item) return;
-
-    setPendingIds((p) => ({ ...p, [taskId]: true }));
-    setApprovalItems((items) => items.filter((x) => String(x?.id || "") !== taskId));
-
-    try {
-      const r = await fetch("/api/approvals/decision", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approval_task_id: taskId, decision, comment }),
-      });
-      const j = await r.json();
-      if (!j?.ok) throw new Error(j?.error || "Decision failed");
-    } catch (e: any) {
-      setApprovalItems((items) => (items.some((x) => String(x?.id || "") === taskId) ? items : [item, ...items]));
-      alert(e?.message || "Decision failed");
-    } finally {
-      setPendingIds((p) => {
-        const next = { ...p };
-        delete next[taskId];
-        return next;
-      });
-    }
-  }
-
-  const exportProjectsCsv = useCallback(() => {
-    const rows = (activeProjects as any[]).map((p) => ({
-      code: projectCodeLabel((p as any)?.project_code),
-      title: safeStr((p as any)?.title),
-      client: safeStr((p as any)?.client_name),
-      department: safeStr((p as any)?.department),
-      project_manager: safeStr((p as any)?.project_manager),
-    }));
-
-    const header = ["code", "title", "client", "department", "project_manager"];
-    const esc = (s: any) => `"${safeStr(s).replace(/"/g, '""')}"`;
-    const csv = [header.join(","), ...rows.map((r) => header.map((k) => esc((r as any)[k])).join(","))].join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    const stamp = new Date().toISOString().slice(0, 10);
-    a.href = URL.createObjectURL(blob);
-    a.download = `portfolio-projects-${stamp}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      URL.revokeObjectURL(a.href);
-      a.remove();
-    }, 250);
-  }, [activeProjects]);
+  const displayRagCounts = phData?.ok ? liveRagCounts : { g: ragAgg.g, a: ragAgg.a, r: ragAgg.r };
 
   if (!ok) {
     return (
@@ -2225,26 +1995,8 @@ export default function HomePage({
     );
   }
 
-  const phColorKey = phRag === "G" ? "green" : phRag === "A" ? "amber" : "red";
-  const fpColorKey = !fpHasData ? "blue" : fpRag === "G" ? "green" : fpRag === "A" ? "amber" : "red";
-  const allDueItems = dueItems.slice(0, 8);
-
-  const displayRagCounts = phData?.ok ? liveRagCounts : { g: ragAgg.g, a: ragAgg.a, r: ragAgg.r };
-
   return (
     <LazyMotion features={domAnimation}>
-      <RejectionModal
-        open={!!rejectModal}
-        title={rejectModal?.title || ""}
-        onConfirm={(reason) => {
-          if (rejectModal) {
-            decide(rejectModal.taskId, "reject", reason);
-            setRejectModal(null);
-          }
-        }}
-        onCancel={() => setRejectModal(null)}
-      />
-
       <FilterDrawer
         open={drawerOpen}
         onClose={() => {
@@ -2344,7 +2096,29 @@ export default function HomePage({
 
               <button
                 type="button"
-                onClick={exportProjectsCsv}
+                onClick={() => {
+                  const rows = (activeProjects as any[]).map((p) => ({
+                    code: projectCodeLabel((p as any)?.project_code),
+                    title: safeStr((p as any)?.title),
+                    client: safeStr((p as any)?.client_name),
+                    department: safeStr((p as any)?.department),
+                    project_manager: safeStr((p as any)?.project_manager),
+                  }));
+                  const header = ["code", "title", "client", "department", "project_manager"];
+                  const esc = (s: any) => `"${safeStr(s).replace(/"/g, '""')}"`;
+                  const csv = [header.join(","), ...rows.map((r) => header.map((k) => esc((r as any)[k])).join(","))].join("\n");
+                  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                  const a = document.createElement("a");
+                  const stamp = new Date().toISOString().slice(0, 10);
+                  a.href = URL.createObjectURL(blob);
+                  a.download = `portfolio-projects-${stamp}.csv`;
+                  document.body.appendChild(a);
+                  a.click();
+                  setTimeout(() => {
+                    URL.revokeObjectURL(a.href);
+                    a.remove();
+                  }, 250);
+                }}
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white transition-colors hover:bg-gray-50"
                 aria-label="Export"
                 title="Export CSV"
