@@ -1,10 +1,11 @@
-﻿// src/app/api/ai/events/route.ts — REBUILT v6 + event trigger wiring
+﻿// src/app/api/ai/events/route.ts — REBUILT v7 + AI health logging
 // ✅ Uses shared resolvePortfolioScope(supabase, userId)
 // ✅ Active-only filtering via filterActiveProjectIds
 // ✅ Fail-open only within scoped candidates
 // ✅ All responses remain no-store
 // ✅ Project-detail branches remain org-member/project-access controlled
-// ✅ NEW: project_events insert + trigger-engine wiring for governance suggestion generation
+// ✅ project_events insert + trigger-engine wiring for governance suggestion generation
+// ✅ NEW: AI health logging (success / failure / slow / empty / invalid_json)
 
 import "server-only";
 
@@ -12,6 +13,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { buildPmImpactAssessment, safeNum as safeNumAi } from "@/lib/ai/change-ai";
 import { processEventAndGenerateSuggestions } from "@/lib/ai/trigger-engine";
+import { logAiHealthEvent } from "@/lib/ai/health-logger";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import OpenAI from "openai";
@@ -19,6 +21,89 @@ import OpenAI from "openai";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+/* ── ai health ─────────────────────────────────────────────────────────── */
+
+const AI_HEALTH_ENDPOINT = "/api/ai/events";
+const AI_SLOW_RESPONSE_MS = 8000;
+
+type AiHealthSignal = "success" | "failure" | "timeout" | "empty_output" | "invalid_json" | "slow_response";
+type AiHealthSeverity = "info" | "warning" | "critical";
+
+async function safeLogRouteHealth(args: {
+  projectId?: string | null;
+  artifactId?: string | null;
+  eventType: AiHealthSignal;
+  severity: AiHealthSeverity;
+  routeEventType?: string | null;
+  model?: string | null;
+  latencyMs?: number | null;
+  success?: boolean;
+  errorMessage?: string | null;
+  metadata?: Record<string, any> | null;
+}) {
+  try {
+    await logAiHealthEvent({
+      projectId: args.projectId ?? undefined,
+      artifactId: args.artifactId ?? undefined,
+      eventType: args.eventType,
+      severity: args.severity,
+      endpoint: AI_HEALTH_ENDPOINT,
+      model: args.model ?? undefined,
+      latencyMs: args.latencyMs ?? undefined,
+      success: args.success ?? args.eventType !== "failure" && args.eventType !== "timeout",
+      errorMessage: args.errorMessage ?? undefined,
+      metadata: {
+        routeEventType: args.routeEventType ?? null,
+        ...(args.metadata ?? {}),
+      },
+    });
+  } catch (err) {
+    console.error("[ai/events] health logging failed", err);
+  }
+}
+
+async function maybeLogSlowRouteHealth(args: {
+  projectId?: string | null;
+  artifactId?: string | null;
+  routeEventType?: string | null;
+  model?: string | null;
+  latencyMs?: number | null;
+  metadata?: Record<string, any> | null;
+}) {
+  const latencyMs = Number(args.latencyMs ?? 0);
+  if (!Number.isFinite(latencyMs) || latencyMs < AI_SLOW_RESPONSE_MS) return;
+
+  await safeLogRouteHealth({
+    projectId: args.projectId ?? null,
+    artifactId: args.artifactId ?? null,
+    eventType: "slow_response",
+    severity: "warning",
+    routeEventType: args.routeEventType ?? null,
+    model: args.model ?? null,
+    latencyMs,
+    success: true,
+    metadata: {
+      thresholdMs: AI_SLOW_RESPONSE_MS,
+      ...(args.metadata ?? {}),
+    },
+  });
+}
+
+function extractUsageMeta(usage: any) {
+  const inputTokens =
+    Number.isFinite(Number(usage?.prompt_tokens)) ? Number(usage.prompt_tokens) : null;
+  const outputTokens =
+    Number.isFinite(Number(usage?.completion_tokens)) ? Number(usage.completion_tokens) : null;
+  const totalTokens =
+    Number.isFinite(Number(usage?.total_tokens)) ? Number(usage.total_tokens) : null;
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+  };
+}
 
 /* ── utils ─────────────────────────────────────────────────────────────── */
 
@@ -143,9 +228,7 @@ function isNumericLike(s: string) {
   return /^\d+$/.test(String(s || "").trim());
 }
 function uniqueStrings(values: Array<string | null | undefined>) {
-  return Array.from(
-    new Set(values.map((x) => safeStr(x).trim()).filter(Boolean))
-  );
+  return Array.from(new Set(values.map((x) => safeStr(x).trim()).filter(Boolean)));
 }
 
 /* ── event trigger helpers ─────────────────────────────────────────────── */
@@ -311,7 +394,7 @@ function isAuthError(e: any): boolean {
   );
 }
 
-/* ── canonical DueSoonItem shape ─────────────────────────────────────────── */
+/* ── canonical DueSoonItem shape ───────────────────────────────────────── */
 
 type DueSoonItem = {
   type: "milestone" | "work_item" | "raid" | "change_request";
@@ -1594,6 +1677,10 @@ async function buildWeeklyReportNarrative(payload: any): Promise<{
   resourceSummary: Array<{ text: string }>;
   keyDecisions: Array<{ text: string; link: null }>;
   blockers: Array<{ text: string; link: null }>;
+  _meta: {
+    model: string;
+    usage: ReturnType<typeof extractUsageMeta>;
+  };
 }> {
   const {
     ragStatus = "green",
@@ -1671,6 +1758,10 @@ Generate the weekly report fields. Where data is insufficient, write realistic P
     resourceSummary: Array.isArray(result.resourceSummary) ? result.resourceSummary : [],
     keyDecisions: Array.isArray(result.keyDecisions) ? result.keyDecisions : [],
     blockers: Array.isArray(result.blockers) ? result.blockers : [],
+    _meta: {
+      model: "gpt-4o-mini",
+      usage: extractUsageMeta(completion.usage),
+    },
   };
 }
 
@@ -1679,6 +1770,8 @@ Generate the weekly report fields. Where data is insufficient, write realistic P
 ══════════════════════════════════════════════════════════════════════════ */
 
 export async function GET(req: Request) {
+  const startedAt = Date.now();
+
   try {
     const supabase = await createClient();
     const user = await requireAuth(supabase);
@@ -1689,6 +1782,30 @@ export async function GET(req: Request) {
     const projects = scoped.projects;
 
     if (!projects.length) {
+      const latencyMs = Date.now() - startedAt;
+
+      await safeLogRouteHealth({
+        eventType: "success",
+        severity: "info",
+        routeEventType: "artifact_due",
+        model: "artifact-due-rules-v7-org-scope",
+        latencyMs,
+        success: true,
+        metadata: {
+          scope: "org",
+          windowDays,
+          projects: 0,
+          dueSoonCount: 0,
+        },
+      });
+
+      await maybeLogSlowRouteHealth({
+        routeEventType: "artifact_due",
+        model: "artifact-due-rules-v7-org-scope",
+        latencyMs,
+        metadata: { scope: "org", projects: 0 },
+      });
+
       return jsonNoStore({
         ok: true,
         eventType: "artifact_due",
@@ -1729,6 +1846,33 @@ export async function GET(req: Request) {
     });
 
     const { _rows: _dropped, dueSoon_legacy: _legacy, ...ai } = bulkResult;
+    const latencyMs = Date.now() - startedAt;
+
+    await safeLogRouteHealth({
+      eventType: "success",
+      severity: "info",
+      routeEventType: "artifact_due",
+      model: "artifact-due-rules-v7-org-scope",
+      latencyMs,
+      success: true,
+      metadata: {
+        scope: "org",
+        windowDays,
+        projects: projects.length,
+        dueSoonCount: Array.isArray(ai.dueSoon) ? ai.dueSoon.length : 0,
+        counts: ai.counts,
+      },
+    });
+
+    await maybeLogSlowRouteHealth({
+      routeEventType: "artifact_due",
+      model: "artifact-due-rules-v7-org-scope",
+      latencyMs,
+      metadata: {
+        scope: "org",
+        projects: projects.length,
+      },
+    });
 
     return jsonNoStore({
       ok: true,
@@ -1742,6 +1886,22 @@ export async function GET(req: Request) {
       stats,
     });
   } catch (e: any) {
+    const latencyMs = Date.now() - startedAt;
+
+    await safeLogRouteHealth({
+      eventType: isAuthError(e) ? "failure" : "failure",
+      severity: isAuthError(e) ? "warning" : "critical",
+      routeEventType: "artifact_due",
+      model: "artifact-due-rules-v7-org-scope",
+      latencyMs,
+      success: false,
+      errorMessage: e?.message ?? "Unknown error",
+      metadata: {
+        method: "GET",
+        code: e?.code ?? null,
+      },
+    });
+
     if (isAuthError(e)) {
       return jsonNoStore({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
@@ -1761,13 +1921,21 @@ export async function GET(req: Request) {
 ══════════════════════════════════════════════════════════════════════════ */
 
 export async function POST(req: Request) {
+  const startedAt = Date.now();
+  let healthProjectId: string | null = null;
+  let healthArtifactId: string | null = null;
+  let healthRouteEventType: string | null = null;
+
   try {
     const supabase = await createClient();
     const user = await requireAuth(supabase);
 
     const body = await req.json().catch(() => ({} as any));
     const eventType = safeStr(body?.eventType).trim();
+    healthRouteEventType = eventType || "change_draft_assist_requested";
+
     const payload = (body && typeof body === "object" ? (body as any).payload : null) || null;
+    healthArtifactId = extractArtifactId(body, payload);
 
     const rawProject =
       safeStr(body?.project_id).trim() ||
@@ -1783,6 +1951,30 @@ export async function POST(req: Request) {
       const projects = scoped.projects;
 
       if (!projects.length) {
+        const latencyMs = Date.now() - startedAt;
+
+        await safeLogRouteHealth({
+          eventType: "success",
+          severity: "info",
+          routeEventType: eventType,
+          model: "artifact-due-rules-v7-org-scope",
+          latencyMs,
+          success: true,
+          metadata: {
+            scope: "org",
+            windowDays,
+            projects: 0,
+            dueSoonCount: 0,
+          },
+        });
+
+        await maybeLogSlowRouteHealth({
+          routeEventType: eventType,
+          model: "artifact-due-rules-v7-org-scope",
+          latencyMs,
+          metadata: { scope: "org", projects: 0 },
+        });
+
         return jsonNoStore({
           ok: true,
           eventType,
@@ -1823,6 +2015,33 @@ export async function POST(req: Request) {
       });
 
       const { _rows: _dropped, dueSoon_legacy: _legacy, ...ai } = bulkResult;
+      const latencyMs = Date.now() - startedAt;
+
+      await safeLogRouteHealth({
+        eventType: "success",
+        severity: "info",
+        routeEventType: eventType,
+        model: "artifact-due-rules-v7-org-scope",
+        latencyMs,
+        success: true,
+        metadata: {
+          scope: "org",
+          windowDays,
+          projects: projects.length,
+          dueSoonCount: Array.isArray(ai.dueSoon) ? ai.dueSoon.length : 0,
+          counts: ai.counts,
+        },
+      });
+
+      await maybeLogSlowRouteHealth({
+        routeEventType: eventType,
+        model: "artifact-due-rules-v7-org-scope",
+        latencyMs,
+        metadata: {
+          scope: "org",
+          projects: projects.length,
+        },
+      });
 
       return jsonNoStore({
         ok: true,
@@ -1838,11 +2057,37 @@ export async function POST(req: Request) {
     }
 
     if (!rawProject && eventType !== "artifact_due") {
+      const latencyMs = Date.now() - startedAt;
+
+      await safeLogRouteHealth({
+        eventType: "failure",
+        severity: "warning",
+        routeEventType: eventType || null,
+        latencyMs,
+        success: false,
+        errorMessage: "Missing project id",
+        metadata: { reason: "missing_project_id" },
+      });
+
       return jsonNoStore({ ok: false, error: "Missing project id" }, { status: 400 });
     }
 
     const projectUuid = rawProject ? await resolveProjectUuid(supabase, rawProject) : null;
+    healthProjectId = projectUuid;
+
     if (rawProject && !projectUuid) {
+      const latencyMs = Date.now() - startedAt;
+
+      await safeLogRouteHealth({
+        eventType: "failure",
+        severity: "warning",
+        routeEventType: eventType || null,
+        latencyMs,
+        success: false,
+        errorMessage: "Project not found",
+        metadata: { rawProject },
+      });
+
       return jsonNoStore({ ok: false, error: "Project not found", meta: { rawProject } }, { status: 404 });
     }
 
@@ -1867,6 +2112,34 @@ export async function POST(req: Request) {
     if (eventType === "artifact_due" && projectUuid) {
       const windowDays = parseWindowDays((body as any)?.windowDays ?? (payload as any)?.windowDays, 14);
       const ai = await buildDueDigestAi(supabase, projectUuid, meta, windowDays);
+      const latencyMs = Date.now() - startedAt;
+
+      await safeLogRouteHealth({
+        projectId: projectUuid,
+        eventType: "success",
+        severity: "info",
+        routeEventType: eventType,
+        model: "artifact-due-rules-v7-project-scope",
+        latencyMs,
+        success: true,
+        metadata: {
+          scope: "project",
+          windowDays,
+          dueSoonCount: Array.isArray(ai.dueSoon) ? ai.dueSoon.length : 0,
+          counts: ai.counts,
+        },
+      });
+
+      await maybeLogSlowRouteHealth({
+        projectId: projectUuid,
+        routeEventType: eventType,
+        model: "artifact-due-rules-v7-project-scope",
+        latencyMs,
+        metadata: {
+          scope: "project",
+          windowDays,
+        },
+      });
 
       return jsonNoStore({
         ok: true,
@@ -1888,8 +2161,77 @@ export async function POST(req: Request) {
     if (eventType === "weekly_report_narrative") {
       try {
         const result = await buildWeeklyReportNarrative(payload);
-        return jsonNoStore({ ok: true, ...result });
+        const emptyOutput =
+          !safeStr(result.headline).trim() &&
+          !safeStr(result.narrative).trim() &&
+          (!Array.isArray(result.delivered) || result.delivered.length === 0) &&
+          (!Array.isArray(result.planNextWeek) || result.planNextWeek.length === 0);
+
+        const latencyMs = Date.now() - startedAt;
+
+        if (emptyOutput) {
+          await safeLogRouteHealth({
+            projectId: projectUuid,
+            artifactId: healthArtifactId,
+            eventType: "empty_output",
+            severity: "warning",
+            routeEventType: eventType,
+            model: result._meta.model,
+            latencyMs,
+            success: true,
+            metadata: {
+              usage: result._meta.usage,
+            },
+          });
+        } else {
+          await safeLogRouteHealth({
+            projectId: projectUuid,
+            artifactId: healthArtifactId,
+            eventType: "success",
+            severity: "info",
+            routeEventType: eventType,
+            model: result._meta.model,
+            latencyMs,
+            success: true,
+            metadata: {
+              usage: result._meta.usage,
+              headlinePresent: !!safeStr(result.headline).trim(),
+              narrativePresent: !!safeStr(result.narrative).trim(),
+              deliveredCount: Array.isArray(result.delivered) ? result.delivered.length : 0,
+              planNextWeekCount: Array.isArray(result.planNextWeek) ? result.planNextWeek.length : 0,
+            },
+          });
+        }
+
+        await maybeLogSlowRouteHealth({
+          projectId: projectUuid,
+          artifactId: healthArtifactId,
+          routeEventType: eventType,
+          model: result._meta.model,
+          latencyMs,
+          metadata: {
+            usage: result._meta.usage,
+          },
+        });
+
+        const { _meta, ...publicResult } = result;
+        return jsonNoStore({ ok: true, ...publicResult });
       } catch (e: any) {
+        const latencyMs = Date.now() - startedAt;
+        const invalidJson = safeLower(e?.message).includes("invalid json");
+
+        await safeLogRouteHealth({
+          projectId: projectUuid,
+          artifactId: healthArtifactId,
+          eventType: invalidJson ? "invalid_json" : "failure",
+          severity: invalidJson ? "warning" : "critical",
+          routeEventType: eventType,
+          model: "gpt-4o-mini",
+          latencyMs,
+          success: false,
+          errorMessage: e?.message ?? "weekly_report_narrative failed",
+        });
+
         return jsonNoStore(
           { ok: false, error: e?.message ?? "weekly_report_narrative failed" },
           { status: 500 }
@@ -1904,8 +2246,35 @@ export async function POST(req: Request) {
         safeStr((body as any)?.changeId).trim() ||
         safeStr((body as any)?.artifactId).trim();
 
-      if (!changeId) return jsonNoStore({ ok: false, error: "Missing changeId" }, { status: 400 });
+      if (!changeId) {
+        const latencyMs = Date.now() - startedAt;
+
+        await safeLogRouteHealth({
+          projectId: projectUuid,
+          artifactId: healthArtifactId,
+          eventType: "failure",
+          severity: "warning",
+          routeEventType: eventType,
+          latencyMs,
+          success: false,
+          errorMessage: "Missing changeId",
+        });
+
+        return jsonNoStore({ ok: false, error: "Missing changeId" }, { status: 400 });
+      }
+
       if (!projectUuid) {
+        const latencyMs = Date.now() - startedAt;
+
+        await safeLogRouteHealth({
+          eventType: "failure",
+          severity: "warning",
+          routeEventType: eventType,
+          latencyMs,
+          success: false,
+          errorMessage: "Missing project id for change assessment",
+        });
+
         return jsonNoStore({ ok: false, error: "Missing project id for change assessment" }, { status: 400 });
       }
 
@@ -1930,11 +2299,43 @@ export async function POST(req: Request) {
           .eq("project_id", projectUuid)
           .maybeSingle();
 
-        if (e2) return jsonNoStore({ ok: false, error: e2.message }, { status: 500 });
+        if (e2) {
+          const latencyMs = Date.now() - startedAt;
+
+          await safeLogRouteHealth({
+            projectId: projectUuid,
+            artifactId: healthArtifactId,
+            eventType: "failure",
+            severity: "critical",
+            routeEventType: eventType,
+            latencyMs,
+            success: false,
+            errorMessage: e2.message,
+            metadata: { changeId },
+          });
+
+          return jsonNoStore({ ok: false, error: e2.message }, { status: 500 });
+        }
         cr = d2;
       }
 
-      if (!cr) return jsonNoStore({ ok: false, error: "Change request not found" }, { status: 404 });
+      if (!cr) {
+        const latencyMs = Date.now() - startedAt;
+
+        await safeLogRouteHealth({
+          projectId: projectUuid,
+          artifactId: healthArtifactId,
+          eventType: "failure",
+          severity: "warning",
+          routeEventType: eventType,
+          latencyMs,
+          success: false,
+          errorMessage: "Change request not found",
+          metadata: { changeId },
+        });
+
+        return jsonNoStore({ ok: false, error: "Change request not found" }, { status: 404 });
+      }
 
       const impact = (cr as any)?.impact_analysis ?? {};
 
@@ -1955,6 +2356,54 @@ export async function POST(req: Request) {
         cost: safeNumAi(impact?.cost, 0),
         days: safeNumAi(impact?.days, 0),
         risk: safeStr(impact?.risk),
+      });
+
+      const assessmentLooksEmpty =
+        !safeStr(assessment?.recommendation).trim() &&
+        !safeStr(assessment?.executive_summary).trim() &&
+        (!Array.isArray(assessment?.blockers) || assessment.blockers.length === 0) &&
+        (!Array.isArray(assessment?.next_actions) || assessment.next_actions.length === 0);
+
+      const latencyMs = Date.now() - startedAt;
+
+      if (assessmentLooksEmpty) {
+        await safeLogRouteHealth({
+          projectId: projectUuid,
+          artifactId: healthArtifactId,
+          eventType: "empty_output",
+          severity: "warning",
+          routeEventType: eventType,
+          model: safeStr(assessment?.model).trim() || "change-impact-assessment",
+          latencyMs,
+          success: true,
+          metadata: { changeId },
+        });
+      } else {
+        await safeLogRouteHealth({
+          projectId: projectUuid,
+          artifactId: healthArtifactId,
+          eventType: "success",
+          severity: "info",
+          routeEventType: eventType,
+          model: safeStr(assessment?.model).trim() || "change-impact-assessment",
+          latencyMs,
+          success: true,
+          metadata: {
+            changeId,
+            readiness_score: assessment?.readiness_score ?? null,
+            blockersCount: Array.isArray(assessment?.blockers) ? assessment.blockers.length : 0,
+            nextActionsCount: Array.isArray(assessment?.next_actions) ? assessment.next_actions.length : 0,
+          },
+        });
+      }
+
+      await maybeLogSlowRouteHealth({
+        projectId: projectUuid,
+        artifactId: healthArtifactId,
+        routeEventType: eventType,
+        model: safeStr(assessment?.model).trim() || "change-impact-assessment",
+        latencyMs,
+        metadata: { changeId },
       });
 
       return jsonNoStore({
@@ -1980,11 +2429,23 @@ export async function POST(req: Request) {
 
     if (eventType === "delivery_report") {
       if (!projectUuid) {
+        const latencyMs = Date.now() - startedAt;
+
+        await safeLogRouteHealth({
+          eventType: "failure",
+          severity: "warning",
+          routeEventType: eventType,
+          latencyMs,
+          success: false,
+          errorMessage: "Missing project id for delivery_report",
+        });
+
         return jsonNoStore({ ok: false, error: "Missing project id for delivery_report" }, { status: 400 });
       }
 
       try {
         const { artifactId, period, windowDays: wdRaw, derivedRag, healthContext } = (payload ?? {}) as any;
+        healthArtifactId = safeStr(artifactId).trim() || healthArtifactId;
 
         const windowDays = parseWindowDays(wdRaw, 7);
         const from = startOfUtcDay(new Date());
@@ -2044,9 +2505,10 @@ export async function POST(req: Request) {
           critical: !!m?.critical_path_flag,
         }));
 
-        const rag = derivedRag === "red" || derivedRag === "amber" || derivedRag === "green"
-          ? derivedRag
-          : "green";
+        const rag =
+          derivedRag === "red" || derivedRag === "amber" || derivedRag === "green"
+            ? derivedRag
+            : "green";
 
         const changesForReport = chRows.slice(0, 5).map((c: any) => ({
           title: safeStr(c?.title).trim() || "Change request",
@@ -2068,6 +2530,8 @@ export async function POST(req: Request) {
         let resourceSummary: Array<{ text: string }> = [];
         let keyDecisions: Array<{ text: string; link: null }> = [];
         let blockers: Array<{ text: string; link: null }> = [];
+        let modelUsed = "rule-based-fallback-v1";
+        let usageMeta = { inputTokens: null, outputTokens: null, totalTokens: null };
 
         try {
           const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -2107,7 +2571,8 @@ Generate the weekly delivery report. Return ONLY valid JSON:
             messages: [
               {
                 role: "system",
-                content: "You are a senior project delivery manager. Write concise, factual weekly reports for a PMO. Return only valid JSON with the requested fields.",
+                content:
+                  "You are a senior project delivery manager. Write concise, factual weekly reports for a PMO. Return only valid JSON with the requested fields.",
               },
               { role: "user", content: userPrompt },
             ],
@@ -2122,15 +2587,45 @@ Generate the weekly delivery report. Return ONLY valid JSON:
           keyDecisions = Array.isArray(parsed.keyDecisions) ? parsed.keyDecisions : [];
           blockers = Array.isArray(parsed.blockers) ? parsed.blockers : [];
           aiGenerated = true;
-        } catch {
+          modelUsed = "gpt-4o-mini";
+          usageMeta = extractUsageMeta(completion.usage);
+        } catch (innerErr: any) {
+          const invalidJson =
+            safeLower(innerErr?.message).includes("invalid json") ||
+            safeLower(innerErr?.message).includes("unexpected token");
+
+          if (invalidJson) {
+            await safeLogRouteHealth({
+              projectId: projectUuid,
+              artifactId: healthArtifactId,
+              eventType: "invalid_json",
+              severity: "warning",
+              routeEventType: eventType,
+              model: "gpt-4o-mini",
+              latencyMs: Date.now() - startedAt,
+              success: false,
+              errorMessage: innerErr?.message ?? "Invalid JSON in delivery_report AI generation",
+            });
+          }
+
           const ragLabel = rag === "red" ? "Critical" : rag === "amber" ? "At Risk" : "On Track";
           const name = meta.project_name ?? "Project";
           headline = `${name} — ${ragLabel}`;
-          narrative = `${name} is currently ${ragLabel.toLowerCase()}. ${raidRows.length > 0 ? `There are ${raidRows.length} open RAID items requiring attention.` : "No critical blockers identified."} ${msDue.length > 0 ? `${msDue.length} milestone(s) are due in the coming period.` : "No milestones due immediately."} The team continues to work towards delivery objectives.`;
-          delivered = msCompleted.slice(0, 3).map((m: any) => ({ text: `Completed milestone: ${safeStr(m?.milestone_name).trim()}` }));
-          if (!delivered.length) delivered = [{ text: "Continued delivery activities and progress on planned work items." }];
-          planNextWeek = msDue.slice(0, 3).map((m: any) => ({ text: `Deliver milestone: ${safeStr(m?.milestone_name).trim()}` }));
-          if (!planNextWeek.length) planNextWeek = [{ text: "Continue progress on planned work items and milestone delivery." }];
+          narrative = `${name} is currently ${ragLabel.toLowerCase()}. ${
+            raidRows.length > 0 ? `There are ${raidRows.length} open RAID items requiring attention.` : "No critical blockers identified."
+          } ${msDue.length > 0 ? `${msDue.length} milestone(s) are due in the coming period.` : "No milestones due immediately."} The team continues to work towards delivery objectives.`;
+          delivered = msCompleted
+            .slice(0, 3)
+            .map((m: any) => ({ text: `Completed milestone: ${safeStr(m?.milestone_name).trim()}` }));
+          if (!delivered.length) {
+            delivered = [{ text: "Continued delivery activities and progress on planned work items." }];
+          }
+          planNextWeek = msDue
+            .slice(0, 3)
+            .map((m: any) => ({ text: `Deliver milestone: ${safeStr(m?.milestone_name).trim()}` }));
+          if (!planNextWeek.length) {
+            planNextWeek = [{ text: "Continue progress on planned work items and milestone delivery." }];
+          }
           resourceSummary = [{ text: "Team resources allocated as planned. No capacity issues identified." }];
           keyDecisions = [];
           blockers = raidRows
@@ -2166,9 +2661,64 @@ Generate the weekly delivery report. Return ONLY valid JSON:
           meta: {
             generated_at: new Date().toISOString(),
             aiGenerated,
-            model: aiGenerated ? "gpt-4o-mini" : "rule-based-fallback-v1",
+            model: modelUsed,
           },
         };
+
+        const reportLooksEmpty =
+          !safeStr(report?.summary?.headline).trim() &&
+          !safeStr(report?.summary?.narrative).trim() &&
+          (!Array.isArray(report?.delivered) || report.delivered.length === 0) &&
+          (!Array.isArray(report?.planNextWeek) || report.planNextWeek.length === 0);
+
+        const latencyMs = Date.now() - startedAt;
+
+        if (reportLooksEmpty) {
+          await safeLogRouteHealth({
+            projectId: projectUuid,
+            artifactId: healthArtifactId,
+            eventType: "empty_output",
+            severity: "warning",
+            routeEventType: eventType,
+            model: modelUsed,
+            latencyMs,
+            success: true,
+            metadata: {
+              aiGenerated,
+              usage: usageMeta,
+            },
+          });
+        } else {
+          await safeLogRouteHealth({
+            projectId: projectUuid,
+            artifactId: healthArtifactId,
+            eventType: "success",
+            severity: "info",
+            routeEventType: eventType,
+            model: modelUsed,
+            latencyMs,
+            success: true,
+            metadata: {
+              aiGenerated,
+              usage: usageMeta,
+              deliveredCount: Array.isArray(delivered) ? delivered.length : 0,
+              planNextWeekCount: Array.isArray(planNextWeek) ? planNextWeek.length : 0,
+              blockersCount: Array.isArray(blockers) ? blockers.length : 0,
+            },
+          });
+        }
+
+        await maybeLogSlowRouteHealth({
+          projectId: projectUuid,
+          artifactId: healthArtifactId,
+          routeEventType: eventType,
+          model: modelUsed,
+          latencyMs,
+          metadata: {
+            aiGenerated,
+            usage: usageMeta,
+          },
+        });
 
         return jsonNoStore({
           ok: true,
@@ -2181,6 +2731,19 @@ Generate the weekly delivery report. Return ONLY valid JSON:
           content_json: report,
         });
       } catch (e: any) {
+        const latencyMs = Date.now() - startedAt;
+
+        await safeLogRouteHealth({
+          projectId: projectUuid,
+          artifactId: healthArtifactId,
+          eventType: "failure",
+          severity: "critical",
+          routeEventType: eventType,
+          latencyMs,
+          success: false,
+          errorMessage: e?.message ?? "delivery_report generation failed",
+        });
+
         return jsonNoStore(
           { ok: false, error: e?.message ?? "delivery_report generation failed" },
           { status: 500 }
@@ -2217,6 +2780,56 @@ Generate the weekly delivery report. Return ONLY valid JSON:
           ? body
           : ({} as any);
 
+    const aiDraft = buildDraftAssistAi(draft);
+    const draftLooksEmpty =
+      !safeStr(aiDraft?.summary).trim() &&
+      !safeStr(aiDraft?.justification).trim() &&
+      !safeStr(aiDraft?.implementation).trim();
+
+    const latencyMs = Date.now() - startedAt;
+
+    if (draftLooksEmpty) {
+      await safeLogRouteHealth({
+        projectId: projectUuid,
+        artifactId: healthArtifactId,
+        eventType: "empty_output",
+        severity: "warning",
+        routeEventType: eventType || "change_draft_assist_requested",
+        model: "draft-rules-v1",
+        latencyMs,
+        success: true,
+        metadata: {
+          draftId,
+        },
+      });
+    } else {
+      await safeLogRouteHealth({
+        projectId: projectUuid,
+        artifactId: healthArtifactId,
+        eventType: "success",
+        severity: "info",
+        routeEventType: eventType || "change_draft_assist_requested",
+        model: "draft-rules-v1",
+        latencyMs,
+        success: true,
+        metadata: {
+          draftId,
+          persistedProjectEvent: !!(projectUuid && shouldPersistProjectEvent(eventType)),
+        },
+      });
+    }
+
+    await maybeLogSlowRouteHealth({
+      projectId: projectUuid,
+      artifactId: healthArtifactId,
+      routeEventType: eventType || "change_draft_assist_requested",
+      model: "draft-rules-v1",
+      latencyMs,
+      metadata: {
+        draftId,
+      },
+    });
+
     return jsonNoStore({
       ok: true,
       eventType: eventType || "change_draft_assist_requested",
@@ -2229,9 +2842,28 @@ Generate the weekly delivery report. Return ONLY valid JSON:
       project_manager_name: meta.project_manager_name,
       project_manager_email: meta.project_manager_email,
       project_manager_user_id: meta.project_manager_user_id,
-      ai: buildDraftAssistAi(draft),
+      ai: aiDraft,
     });
   } catch (e: any) {
+    const latencyMs = Date.now() - startedAt;
+
+    await safeLogRouteHealth({
+      projectId: healthProjectId,
+      artifactId: healthArtifactId,
+      eventType: safeLower(e?.message).includes("timeout") ? "timeout" : "failure",
+      severity: isAuthError(e) ? "warning" : "critical",
+      routeEventType: healthRouteEventType,
+      latencyMs,
+      success: false,
+      errorMessage: e?.message ?? "Unknown error",
+      metadata: {
+        method: "POST",
+        code: e?.code ?? null,
+        details: e?.details ?? null,
+        hint: e?.hint ?? null,
+      },
+    });
+
     if (isAuthError(e)) {
       return jsonNoStore({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
