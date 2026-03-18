@@ -556,4 +556,3 @@ function ExecutiveBriefingCard({
 }
 
 export default React.memo(ExecutiveBriefingCard);
-```
