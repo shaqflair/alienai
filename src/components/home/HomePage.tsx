@@ -1257,7 +1257,9 @@ export default function HomePage({
   const [winsLoading, setWinsLoading] = useState(true);
 
   //  Change 1: briefingData state
-  const [briefingData, setBriefingData] = useState<any | null>(null);
+ const [briefingData, setBriefingData] = useState<any | null>(
+  (data as any)?.briefing ?? null
+);
 
   const projectOptions = useMemo<ProjectOption[]>(() => {
     return (Array.isArray(projects) ? projects : [])
