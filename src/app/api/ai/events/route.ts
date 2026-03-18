@@ -43,6 +43,9 @@ async function safeLogRouteHealth(args: {
   metadata?: Record<string, any> | null;
 }) {
   try {
+    const success =
+      args.success ?? (args.eventType !== "failure" && args.eventType !== "timeout");
+
     await logAiHealthEvent({
       projectId: args.projectId ?? undefined,
       artifactId: args.artifactId ?? undefined,
@@ -51,7 +54,7 @@ async function safeLogRouteHealth(args: {
       endpoint: AI_HEALTH_ENDPOINT,
       model: args.model ?? undefined,
       latencyMs: args.latencyMs ?? undefined,
-      success: args.success ?? args.eventType !== "failure" && args.eventType !== "timeout",
+      success,
       errorMessage: args.errorMessage ?? undefined,
       metadata: {
         routeEventType: args.routeEventType ?? null,
