@@ -492,7 +492,7 @@ function HeroSection({ onOpenDemo }: { onOpenDemo: () => void }) {
                 <HUDCard title="Active projects" value="1" trend="PRJ-100 on track" status="positive" />
                 <HUDCard title="High-severity RAID" value="1" trend="Supply chain risk" status="warning" />
                 <HUDCard title="Milestones (30d)" value="5" trend="Next: 15 Apr" status="neutral" />
-                <HUDCard title="Budget" value={{`${POUND}102k`}} trend="62 days budgeted" status="positive" />
+                <HUDCard title="Budget" value={`${POUND}102k`} trend="62 days budgeted" status="positive" />
               </div>
 
               {/* Executive briefing card */}
