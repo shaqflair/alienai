@@ -1,13 +1,6 @@
 "use client";
 
-// src/components/home/HomePage.tsx — dashboard-summary single-effect version
-//
-// Refactor goals:
-//   ✅ Single dashboard-summary effect
-//   ✅ Old duplicated effects removed
-//   ✅ Loading states preserved
-//   ✅ Existing UI kept intact
-//   ✅ Wiring aligned to /api/home/dashboard-summary
+// src/components/home/HomePage.tsx -- dashboard-summary single-effect version
 
 import React, {
   useCallback,
@@ -289,6 +282,7 @@ type DashboardSummaryResponse =
       resourceActivity?: { ok?: boolean; weeks?: ResourceWeek[] | null } | ResourceWeek[] | null;
       recentWins?: { ok?: boolean; wins?: RecentWin[] | null } | RecentWin[] | null;
       milestonesDue?: { ok?: boolean; count?: number | null } | number | null;
+      executiveBriefing?: any | null;
     };
 
 /* --- Utils ---------------------------------------------------------------- */
@@ -474,7 +468,7 @@ function projectCodeLabel(pc: any): string {
 }
 function dueDateLabel(iso: string | null | undefined) {
   const s = safeStr(iso).trim();
-  if (!s) return "—";
+  if (!s) return "--";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
   return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
@@ -500,10 +494,7 @@ function calcRagAgg(
       byPid.set(pid, { rag: letter, health: it?.health != null ? Number(it.health) : NaN });
     }
   }
-  let g = 0,
-    a = 0,
-    r = 0,
-    scored = 0;
+  let g = 0, a = 0, r = 0, scored = 0;
   const vals: number[] = [];
   for (const p of proj) {
     const pid = String((p as any)?.id || "").trim();
@@ -520,10 +511,7 @@ function calcRagAgg(
   const avg = vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
   return {
     avgHealth: clamp01to100(avg),
-    g,
-    a,
-    r,
-    scored,
+    g, a, r, scored,
     unscored: Math.max(0, proj.length - scored),
     projectsTotal: proj.length,
   };
@@ -549,12 +537,12 @@ function ragDotColor(r: RagLetter) {
 }
 function winTypeIcon(type: string): string {
   const t = (type ?? "").toLowerCase();
-  if (t.includes("risk")) return "⚠";
-  if (t.includes("commercial") || t.includes("budget")) return "£";
-  if (t.includes("learning") || t.includes("lesson")) return "✎";
-  if (t.includes("change") || t.includes("governance")) return "✓";
-  if (t.includes("milestone") || t.includes("delivery")) return "⚑";
-  return "★";
+  if (t.includes("risk")) return "!";
+  if (t.includes("commercial") || t.includes("budget")) return "\u00a3";
+  if (t.includes("learning") || t.includes("lesson")) return "L";
+  if (t.includes("change") || t.includes("governance")) return "C";
+  if (t.includes("milestone") || t.includes("delivery")) return "M";
+  return "*";
 }
 function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -885,107 +873,28 @@ function NotificationBell() {
 
 /* --- KPI Card ------------------------------------------------------------- */
 
-const KPI_THEMES: Record<
-  string,
-  {
-    bg: string;
-    iconBg: string;
-    iconColor: string;
-    valueColor: string;
-    labelColor: string;
-    subColor: string;
-    trendBg: string;
-    trendColor: string;
-  }
-> = {
-  green: {
-    bg: "bg-green-50",
-    iconBg: "bg-green-100",
-    iconColor: "text-green-600",
-    valueColor: "text-green-700",
-    labelColor: "text-green-800",
-    subColor: "text-green-600/80",
-    trendBg: "bg-green-100",
-    trendColor: "text-green-700",
-  },
-  amber: {
-    bg: "bg-amber-50",
-    iconBg: "bg-amber-100",
-    iconColor: "text-amber-600",
-    valueColor: "text-amber-700",
-    labelColor: "text-amber-800",
-    subColor: "text-amber-600/80",
-    trendBg: "bg-amber-100",
-    trendColor: "text-amber-700",
-  },
-  red: {
-    bg: "bg-red-50",
-    iconBg: "bg-red-100",
-    iconColor: "text-red-500",
-    valueColor: "text-red-600",
-    labelColor: "text-red-800",
-    subColor: "text-red-600/80",
-    trendBg: "bg-red-100",
-    trendColor: "text-red-600",
-  },
-  blue: {
-    bg: "bg-blue-50",
-    iconBg: "bg-blue-100",
-    iconColor: "text-blue-600",
-    valueColor: "text-blue-700",
-    labelColor: "text-blue-800",
-    subColor: "text-blue-600/80",
-    trendBg: "bg-blue-100",
-    trendColor: "text-blue-700",
-  },
-  yellow: {
-    bg: "bg-yellow-50",
-    iconBg: "bg-yellow-100",
-    iconColor: "text-yellow-600",
-    valueColor: "text-yellow-700",
-    labelColor: "text-yellow-800",
-    subColor: "text-yellow-600/80",
-    trendBg: "bg-yellow-100",
-    trendColor: "text-yellow-700",
-  },
+const KPI_THEMES: Record<string, { bg: string; iconBg: string; iconColor: string; valueColor: string; labelColor: string; subColor: string; trendBg: string; trendColor: string }> = {
+  green:  { bg: "bg-green-50",  iconBg: "bg-green-100",  iconColor: "text-green-600",  valueColor: "text-green-700",  labelColor: "text-green-800",  subColor: "text-green-600/80",  trendBg: "bg-green-100",  trendColor: "text-green-700"  },
+  amber:  { bg: "bg-amber-50",  iconBg: "bg-amber-100",  iconColor: "text-amber-600",  valueColor: "text-amber-700",  labelColor: "text-amber-800",  subColor: "text-amber-600/80",  trendBg: "bg-amber-100",  trendColor: "text-amber-700"  },
+  red:    { bg: "bg-red-50",    iconBg: "bg-red-100",    iconColor: "text-red-500",    valueColor: "text-red-600",    labelColor: "text-red-800",    subColor: "text-red-600/80",    trendBg: "bg-red-100",    trendColor: "text-red-600"    },
+  blue:   { bg: "bg-blue-50",   iconBg: "bg-blue-100",   iconColor: "text-blue-600",   valueColor: "text-blue-700",   labelColor: "text-blue-800",   subColor: "text-blue-600/80",   trendBg: "bg-blue-100",   trendColor: "text-blue-700"   },
+  yellow: { bg: "bg-yellow-50", iconBg: "bg-yellow-100", iconColor: "text-yellow-600", valueColor: "text-yellow-700", labelColor: "text-yellow-800", subColor: "text-yellow-600/80", trendBg: "bg-yellow-100", trendColor: "text-yellow-700" },
 };
 
-const KpiCard = memo(function KpiCard({
-  label,
-  value,
-  sub,
-  icon,
-  colorKey,
-  trendLabel,
-  onClick,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  icon: React.ReactNode;
-  colorKey: string;
-  trendLabel?: string;
-  onClick?: () => void;
+const KpiCard = memo(function KpiCard({ label, value, sub, icon, colorKey, trendLabel, onClick }: {
+  label: string; value: string; sub?: string; icon: React.ReactNode; colorKey: string; trendLabel?: string; onClick?: () => void;
 }) {
   const t = KPI_THEMES[colorKey] || KPI_THEMES.blue;
   const clickable = typeof onClick === "function";
   return (
-    <div
-      onClick={onClick}
-      className={[
-        "rounded-2xl p-6 transition-all duration-200",
-        t.bg,
-        clickable ? "cursor-pointer hover:-translate-y-0.5 hover:brightness-[0.97]" : "",
-      ].join(" ")}
-    >
+    <div onClick={onClick} className={["rounded-2xl p-6 transition-all duration-200", t.bg, clickable ? "cursor-pointer hover:-translate-y-0.5 hover:brightness-[0.97]" : ""].join(" ")}>
       <div className="mb-4 flex items-start justify-between">
         <div className={["flex h-11 w-11 items-center justify-center rounded-xl", t.iconBg].join(" ")}>
           <span className={t.iconColor}>{icon}</span>
         </div>
         {trendLabel && (
           <div className={["flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold", t.trendBg, t.trendColor].join(" ")}>
-            <ArrowUpRight className="h-3 w-3" />
-            {trendLabel}
+            <ArrowUpRight className="h-3 w-3" />{trendLabel}
           </div>
         )}
       </div>
@@ -998,36 +907,13 @@ const KpiCard = memo(function KpiCard({
 
 /* --- Insight Card --------------------------------------------------------- */
 
-const InsightCard = memo(function InsightCard({
-  severity,
-  title,
-  body,
-  href,
-}: {
-  severity: "high" | "medium" | "info";
-  title: string;
-  body: string;
-  href?: string;
+const InsightCard = memo(function InsightCard({ severity, title, body, href }: {
+  severity: "high" | "medium" | "info"; title: string; body: string; href?: string;
 }) {
   const cfg = {
-    high: {
-      wrap: "border border-red-100 bg-red-50/70",
-      icon: <AlertTriangle className="h-4 w-4 text-red-500" />,
-      badge: "text-red-500 font-bold text-xs",
-      badgeText: "HIGH",
-    },
-    medium: {
-      wrap: "border border-amber-100 bg-amber-50/60",
-      icon: <AlertTriangle className="h-4 w-4 text-amber-500" />,
-      badge: "text-amber-600 font-bold text-xs",
-      badgeText: "MEDIUM",
-    },
-    info: {
-      wrap: "border border-blue-100 bg-blue-50/50",
-      icon: <Sparkles className="h-4 w-4 text-blue-500" />,
-      badge: "text-blue-600 font-bold text-xs",
-      badgeText: "INFO",
-    },
+    high:   { wrap: "border border-red-100 bg-red-50/70",    icon: <AlertTriangle className="h-4 w-4 text-red-500" />,   badge: "text-red-500 font-bold text-xs",   badgeText: "HIGH"   },
+    medium: { wrap: "border border-amber-100 bg-amber-50/60", icon: <AlertTriangle className="h-4 w-4 text-amber-500" />, badge: "text-amber-600 font-bold text-xs", badgeText: "MEDIUM" },
+    info:   { wrap: "border border-blue-100 bg-blue-50/50",   icon: <Sparkles className="h-4 w-4 text-blue-500" />,      badge: "text-blue-600 font-bold text-xs",  badgeText: "INFO"   },
   }[severity];
 
   return (
@@ -1053,13 +939,7 @@ const InsightCard = memo(function InsightCard({
 
 /* --- Project Row ---------------------------------------------------------- */
 
-const ProjectRow = memo(function ProjectRow({
-  p,
-  ragMap,
-}: {
-  p: any;
-  ragMap: Map<string, { rag: RagLetter; health: number }>;
-}) {
+const ProjectRow = memo(function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLetter; health: number }> }) {
   const router = useRouter();
   const code = projectCodeLabel(p?.project_code);
   const pid = String(p?.id || "").trim();
@@ -1069,70 +949,39 @@ const ProjectRow = memo(function ProjectRow({
   const client = safeStr(p?.client_name).trim();
   const dotColor = rag ? ragDotColor(rag) : "#d1d5db";
   const ragLabel = rag === "G" ? "Green" : rag === "A" ? "Amber" : rag === "R" ? "Red" : "Unscored";
-  const ragLogic =
-    rag === "G"
-      ? `Health ≥ 85% (${health}%). Delivery signals are strong.`
-      : rag === "A"
-        ? `Health 70–84% (${health}%). Some signals need attention.`
-        : rag === "R"
-          ? `Health < 70% (${health}%). Significant delivery risk.`
-          : "No health score calculated yet for this project.";
+  const ragLogic = rag === "G" ? `Health >= 85% (${health}%). Delivery signals are strong.` : rag === "A" ? `Health 70-84% (${health}%). Some signals need attention.` : rag === "R" ? `Health < 70% (${health}%). Significant delivery risk.` : "No health score calculated yet for this project.";
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={() => {
-        if (pid) router.push(`/projects/${encodeURIComponent(pid)}`);
-      }}
+      role="button" tabIndex={0}
+      onClick={() => { if (pid) router.push(`/projects/${encodeURIComponent(pid)}`); }}
       onKeyDown={(e) => e.key === "Enter" && pid && router.push(`/projects/${encodeURIComponent(pid)}`)}
       className="group flex w-full cursor-pointer items-center gap-4 border-b border-gray-50 px-6 py-4 text-left transition-colors hover:bg-gray-50 last:border-0"
     >
       <div className="group/rag relative shrink-0" onClick={(e) => e.stopPropagation()}>
-        <div
-          className="h-3 w-3 cursor-help rounded-full ring-2 ring-transparent group-hover/rag:ring-offset-1"
-          style={{ background: dotColor, boxShadow: `0 0 0 2px ${dotColor}22` }}
-        />
-        <div
-          className="pointer-events-none absolute left-5 top-1/2 z-50 w-64 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-3 text-left opacity-0 transition-opacity duration-150 group-hover/rag:opacity-100"
-          style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.13)" }}
-        >
+        <div className="h-3 w-3 cursor-help rounded-full ring-2 ring-transparent group-hover/rag:ring-offset-1" style={{ background: dotColor, boxShadow: `0 0 0 2px ${dotColor}22` }} />
+        <div className="pointer-events-none absolute left-5 top-1/2 z-50 w-64 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-3 text-left opacity-0 transition-opacity duration-150 group-hover/rag:opacity-100" style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.13)" }}>
           <div className="mb-1.5 flex items-center gap-2">
             <div className="h-3 w-3 shrink-0 rounded-full" style={{ background: dotColor }} />
-            <span className="text-xs font-bold text-gray-900">
-              {ragLabel}
-              {health != null ? ` — ${health}%` : ""}
-            </span>
+            <span className="text-xs font-bold text-gray-900">{ragLabel}{health != null ? ` -- ${health}%` : ""}</span>
           </div>
           <p className="text-[11px] leading-relaxed text-gray-500">{ragLogic}</p>
           <div className="mt-2 border-t border-gray-100 pt-2 text-[10px] text-gray-400">
-            Thresholds: <span className="font-semibold text-green-600">Green ≥ 85%</span> ·{" "}
-            <span className="font-semibold text-amber-600">Amber 70–84%</span> ·{" "}
-            <span className="font-semibold text-red-500">Red {"<"} 70%</span>
+            Thresholds: <span className="font-semibold text-green-600">Green &gt;= 85%</span> - <span className="font-semibold text-amber-600">Amber 70-84%</span> - <span className="font-semibold text-red-500">Red &lt; 70%</span>
           </div>
         </div>
       </div>
-
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-gray-800 transition-colors group-hover:text-blue-600">
-          {p?.title || "Project"}
-        </div>
+        <div className="truncate text-sm font-semibold text-gray-800 transition-colors group-hover:text-blue-600">{p?.title || "Project"}</div>
         {client && <div className="mt-0.5 text-xs text-gray-400">{client}</div>}
       </div>
-
-      {code && (
-        <div className="shrink-0 whitespace-nowrap rounded bg-gray-100 px-2 py-0.5 text-xs font-mono text-gray-400">
-          {code}
-        </div>
-      )}
-
+      {code && <div className="shrink-0 whitespace-nowrap rounded bg-gray-100 px-2 py-0.5 text-xs font-mono text-gray-400">{code}</div>}
       <div className="flex w-32 shrink-0 items-center gap-2.5">
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
           <div className="h-full rounded-full" style={{ width: `${health ?? 0}%`, background: dotColor, transition: "width 0.6s ease" }} />
         </div>
-        <span className="w-8 text-right text-xs font-bold text-gray-600">{health != null ? `${health}%` : "—"}</span>
+        <span className="w-8 text-right text-xs font-bold text-gray-600">{health != null ? `${health}%` : "--"}</span>
       </div>
-
       <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-300 transition-colors group-hover:text-gray-500" />
     </div>
   );
@@ -1140,13 +989,7 @@ const ProjectRow = memo(function ProjectRow({
 
 /* --- Milestone Card ------------------------------------------------------- */
 
-const MilestoneCard = memo(function MilestoneCard({
-  item,
-  onClick,
-}: {
-  item: DueDigestItem;
-  onClick: () => void;
-}) {
+const MilestoneCard = memo(function MilestoneCard({ item, onClick }: { item: DueDigestItem; onClick: () => void }) {
   const overdue = isOverdue(item.dueDate);
   const daysLeft = item.dueDate ? Math.ceil((new Date(item.dueDate).getTime() - Date.now()) / 86400000) : null;
   const statusCfg = overdue
@@ -1154,63 +997,35 @@ const MilestoneCard = memo(function MilestoneCard({
     : daysLeft != null && daysLeft <= 5
       ? { badge: "bg-amber-100 text-amber-600 border border-amber-200", text: "At Risk" }
       : { badge: "bg-green-100 text-green-600 border border-green-200", text: "On Track" };
-
-  const initials = item.ownerLabel
-    ? item.ownerLabel
-        .split(" ")
-        .map((w: string) => w[0])
-        .slice(0, 2)
-        .join("")
-        .toUpperCase()
-    : null;
-
-  const avatarColors = [
-    "bg-blue-100 text-blue-700",
-    "bg-purple-100 text-purple-700",
-    "bg-green-100 text-green-700",
-    "bg-orange-100 text-orange-700",
-    "bg-pink-100 text-pink-700",
-  ];
+  const initials = item.ownerLabel ? item.ownerLabel.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase() : null;
+  const avatarColors = ["bg-blue-100 text-blue-700", "bg-purple-100 text-purple-700", "bg-green-100 text-green-700", "bg-orange-100 text-orange-700", "bg-pink-100 text-pink-700"];
   const avatarColor = initials ? avatarColors[initials.charCodeAt(0) % avatarColors.length] : avatarColors[0];
   const projectCode = safeStr(item.meta?.project_code || item.meta?.project_human_id || "").trim();
   const projectName = safeStr(item.meta?.project_name || item.meta?.project_title || "").trim();
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full rounded-xl border border-gray-100 bg-white p-4 text-left transition-all hover:border-gray-200 hover:shadow-sm"
-    >
+    <button type="button" onClick={onClick} className="w-full rounded-xl border border-gray-100 bg-white p-4 text-left transition-all hover:border-gray-200 hover:shadow-sm">
       <div className="mb-1.5 flex items-start justify-between gap-2">
         <span className="line-clamp-1 flex-1 text-sm font-semibold text-gray-800">{item.title}</span>
-        <span className={["shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10px] font-semibold", statusCfg.badge].join(" ")}>
-          {statusCfg.text}
-        </span>
+        <span className={["shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10px] font-semibold", statusCfg.badge].join(" ")}>{statusCfg.text}</span>
       </div>
-
       {(projectCode || projectName) && (
         <div className="mb-1.5 flex items-center gap-1.5">
           {projectCode && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-mono font-bold text-gray-400">{projectCode}</span>}
           {projectName && <span className="truncate text-[11px] text-gray-400">{projectName}</span>}
         </div>
       )}
-
       <div className="mb-3 flex items-center gap-1 text-xs text-gray-400">
         <Clock3 className="h-3 w-3" />
         {overdue ? "Overdue" : daysLeft != null && daysLeft > 0 ? `${daysLeft} days remaining` : "Due soon"}
       </div>
-
       <div className="flex items-center justify-between">
         {initials ? (
           <div className="flex items-center gap-2">
-            <div className={["flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold", avatarColor].join(" ")}>
-              {initials}
-            </div>
+            <div className={["flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold", avatarColor].join(" ")}>{initials}</div>
             <span className="text-xs text-gray-500">{item.ownerLabel}</span>
           </div>
-        ) : (
-          <div />
-        )}
+        ) : <div />}
         <span className="text-xs text-gray-400">{dueDateLabel(item.dueDate)}</span>
       </div>
     </button>
@@ -1219,42 +1034,24 @@ const MilestoneCard = memo(function MilestoneCard({
 
 /* --- Recent Win Card ------------------------------------------------------ */
 
-const RecentWinCard = memo(function RecentWinCard({
-  win,
-  onClick,
-}: {
-  win: RecentWin;
-  onClick: () => void;
-}) {
+const RecentWinCard = memo(function RecentWinCard({ win, onClick }: { win: RecentWin; onClick: () => void }) {
   const icon = winTypeIcon(win.type);
-  const dateLabel = win.date
-    ? new Date(win.date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
-    : "";
+  const dateLabel = win.date ? new Date(win.date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "";
   const typeLabel = (win.type ?? "other").charAt(0).toUpperCase() + (win.type ?? "other").slice(1).replace(/_/g, " ");
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full rounded-xl border border-green-100 bg-green-50/40 p-3.5 text-left transition-all hover:border-green-200 hover:bg-green-50/80 hover:shadow-sm"
-    >
+    <button type="button" onClick={onClick} className="w-full rounded-xl border border-green-100 bg-green-50/40 p-3.5 text-left transition-all hover:border-green-200 hover:bg-green-50/80 hover:shadow-sm">
       <div className="flex items-start gap-2.5">
         <span className="mt-0.5 shrink-0 text-lg leading-none">{icon}</span>
         <div className="min-w-0 flex-1">
           <div className="line-clamp-2 text-sm font-semibold leading-snug text-gray-800">{win.title}</div>
-
           {(win.project_code || win.project_name) && (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {win.project_code && (
-                <span className="rounded border border-gray-100 bg-white/80 px-1.5 py-0.5 text-[10px] font-mono font-bold text-gray-400">
-                  {win.project_code}
-                </span>
-              )}
+              {win.project_code && <span className="rounded border border-gray-100 bg-white/80 px-1.5 py-0.5 text-[10px] font-mono font-bold text-gray-400">{win.project_code}</span>}
               {win.project_name && <span className="truncate text-[11px] text-gray-400">{win.project_name}</span>}
               {(win as any).pm_name && <span className="truncate text-[11px] text-blue-400">{(win as any).pm_name}</span>}
             </div>
           )}
-
           <div className="mt-1.5 flex items-center justify-between">
             <span className="text-[11px] font-semibold text-green-600">{typeLabel}</span>
             {dateLabel && <span className="text-[11px] text-gray-400">{dateLabel}</span>}
@@ -1271,9 +1068,7 @@ const RecentWinCard = memo(function RecentWinCard({
 const LastUpdated = memo(function LastUpdated({ iso }: { iso: string }) {
   const [label, setLabel] = useState("");
   useEffect(() => {
-    function tick() {
-      setLabel(iso ? timeAgo(iso) : "");
-    }
+    function tick() { setLabel(iso ? timeAgo(iso) : ""); }
     tick();
     const id = setInterval(tick, 30000);
     return () => clearInterval(id);
@@ -1289,25 +1084,11 @@ const LastUpdated = memo(function LastUpdated({ iso }: { iso: string }) {
 
 /* --- Filter Drawer -------------------------------------------------------- */
 
-const CheckboxList = memo(function CheckboxList({
-  label,
-  items,
-  selected,
-  onToggle,
-  emptyText,
-}: {
-  label: string;
-  items: { id: string; name: string; sub?: string }[];
-  selected: string[];
-  onToggle: (id: string) => void;
-  emptyText: string;
+const CheckboxList = memo(function CheckboxList({ label, items, selected, onToggle, emptyText }: {
+  label: string; items: { id: string; name: string; sub?: string }[]; selected: string[]; onToggle: (id: string) => void; emptyText: string;
 }) {
   const [search, setSearch] = useState("");
-
-  const filtered = useMemo(
-    () => items.filter((i) => i.name.toLowerCase().includes(search.toLowerCase())),
-    [items, search],
-  );
+  const filtered = useMemo(() => items.filter((i) => i.name.toLowerCase().includes(search.toLowerCase())), [items, search]);
 
   return (
     <div>
@@ -1315,20 +1096,9 @@ const CheckboxList = memo(function CheckboxList({
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
         <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
           <Search className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Search ${label.toLowerCase()}…`}
-            className="w-full bg-transparent text-xs outline-none placeholder:text-gray-400"
-          />
-          {search && (
-            <button type="button" onClick={() => setSearch("")} className="shrink-0 text-gray-300 hover:text-gray-500">
-              <X className="h-3 w-3" />
-            </button>
-          )}
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${label.toLowerCase()}...`} className="w-full bg-transparent text-xs outline-none placeholder:text-gray-400" />
+          {search && <button type="button" onClick={() => setSearch("")} className="shrink-0 text-gray-300 hover:text-gray-500"><X className="h-3 w-3" /></button>}
         </div>
-
         <div className="max-h-44 overflow-y-auto">
           {items.length === 0 ? (
             <div className="px-3 py-3 text-xs text-gray-400">{emptyText}</div>
@@ -1338,31 +1108,12 @@ const CheckboxList = memo(function CheckboxList({
             filtered.map((item) => {
               const checked = selected.includes(item.id);
               return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onToggle(item.id)}
-                  className={[
-                    "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
-                    checked ? "bg-blue-50/60" : "hover:bg-gray-50",
-                  ].join(" ")}
-                >
-                  <div
-                    className={[
-                      "flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-all",
-                      checked ? "border-blue-500 bg-blue-500" : "border-gray-300 bg-white",
-                    ].join(" ")}
-                  >
-                    {checked && (
-                      <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
-                        <path d="M1 3.5l2.5 2.5L8 1" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
+                <button key={item.id} type="button" onClick={() => onToggle(item.id)} className={["flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors", checked ? "bg-blue-50/60" : "hover:bg-gray-50"].join(" ")}>
+                  <div className={["flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-all", checked ? "border-blue-500 bg-blue-500" : "border-gray-300 bg-white"].join(" ")}>
+                    {checked && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5l2.5 2.5L8 1" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className={["truncate text-sm", checked ? "font-semibold text-gray-900" : "text-gray-700"].join(" ")}>
-                      {item.name}
-                    </div>
+                    <div className={["truncate text-sm", checked ? "font-semibold text-gray-900" : "text-gray-700"].join(" ")}>{item.name}</div>
                     {item.sub && <div className="truncate text-[11px] text-gray-400">{item.sub}</div>}
                   </div>
                 </button>
@@ -1370,17 +1121,10 @@ const CheckboxList = memo(function CheckboxList({
             })
           )}
         </div>
-
         {selected.length > 0 && (
           <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2">
             <span className="text-[11px] text-gray-400">{selected.length} selected</span>
-            <button
-              type="button"
-              onClick={() => selected.forEach((id) => onToggle(id))}
-              className="text-[11px] font-semibold text-red-500 hover:text-red-600"
-            >
-              Clear
-            </button>
+            <button type="button" onClick={() => selected.forEach((id) => onToggle(id))} className="text-[11px] font-semibold text-red-500 hover:text-red-600">Clear</button>
           </div>
         )}
       </div>
@@ -1388,32 +1132,12 @@ const CheckboxList = memo(function CheckboxList({
   );
 });
 
-function FilterDrawer({
-  open,
-  onClose,
-  filters,
-  onApply,
-  onClear,
-  projectOptions,
-  pmOptions,
-  deptOptions,
-  searchInputRef,
-}: {
-  open: boolean;
-  onClose: () => void;
-  filters: PortfolioFilters;
-  onApply: (next: PortfolioFilters) => void;
-  onClear: () => void;
-  projectOptions: ProjectOption[];
-  pmOptions: { id: string; name: string }[];
-  deptOptions: { value: string; label: string }[];
-  searchInputRef: React.RefObject<HTMLInputElement>;
+function FilterDrawer({ open, onClose, filters, onApply, onClear, projectOptions, pmOptions, deptOptions, searchInputRef }: {
+  open: boolean; onClose: () => void; filters: PortfolioFilters; onApply: (next: PortfolioFilters) => void; onClear: () => void;
+  projectOptions: ProjectOption[]; pmOptions: { id: string; name: string }[]; deptOptions: { value: string; label: string }[]; searchInputRef: React.RefObject<HTMLInputElement>;
 }) {
   const [local, setLocal] = useState<PortfolioFilters>(filters);
-
-  useEffect(() => {
-    if (open) setLocal(filters);
-  }, [open, filters]);
+  useEffect(() => { if (open) setLocal(filters); }, [open, filters]);
 
   const toggle = (key: keyof PortfolioFilters, value: string) => {
     setLocal((prev) => {
@@ -1424,112 +1148,44 @@ function FilterDrawer({
     });
   };
 
-  const activeCount =
-    (local.projectId?.length ?? 0) +
-    (local.projectManagerId?.length ?? 0) +
-    (local.department?.length ?? 0) +
-    (local.q?.trim() ? 1 : 0);
+  const activeCount = (local.projectId?.length ?? 0) + (local.projectManagerId?.length ?? 0) + (local.department?.length ?? 0) + (local.q?.trim() ? 1 : 0);
 
   return (
     <AnimatePresence>
       {open && (
         <>
-          <m.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] bg-black/30"
-            onClick={onClose}
-          />
-          <m.div
-            initial={{ opacity: 0, x: 24 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 24 }}
-            transition={{ duration: 0.18 }}
-            className="fixed right-0 top-0 z-[70] flex h-full w-full max-w-[420px] flex-col border-l border-gray-200 bg-white shadow-2xl"
-          >
+          <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] bg-black/30" onClick={onClose} />
+          <m.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.18 }} className="fixed right-0 top-0 z-[70] flex h-full w-full max-w-[420px] flex-col border-l border-gray-200 bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
               <div>
                 <div className="font-semibold text-gray-900">Filters</div>
                 <div className="text-xs text-gray-500">Filter portfolio by project and ownership</div>
               </div>
-              <button className="flex h-9 w-9 items-center justify-center rounded-full ring-1 ring-gray-200 hover:bg-gray-50" onClick={onClose} aria-label="Close">
-                <X className="h-4 w-4 text-gray-600" />
-              </button>
+              <button className="flex h-9 w-9 items-center justify-center rounded-full ring-1 ring-gray-200 hover:bg-gray-50" onClick={onClose} aria-label="Close"><X className="h-4 w-4 text-gray-600" /></button>
             </div>
-
             <div className="flex-1 space-y-5 overflow-y-auto p-5">
               <div>
                 <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">Search</div>
                 <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
                   <Search className="h-4 w-4 shrink-0 text-gray-400" />
-                  <input
-                    ref={searchInputRef}
-                    value={local.q ?? ""}
-                    onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))}
-                    placeholder="Project name, code, PM, department…"
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
-                  />
-                  {local.q && (
-                    <button type="button" onClick={() => setLocal((p) => ({ ...p, q: undefined }))} className="text-gray-300 hover:text-gray-500">
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
+                  <input ref={searchInputRef} value={local.q ?? ""} onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))} placeholder="Project name, code, PM, department..." className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400" />
+                  {local.q && <button type="button" onClick={() => setLocal((p) => ({ ...p, q: undefined }))} className="text-gray-300 hover:text-gray-500"><X className="h-4 w-4" /></button>}
                 </div>
               </div>
-
-              <CheckboxList
-                label="Projects"
-                items={projectOptions.slice(0, 50).map((p) => ({ id: p.id, name: p.name, sub: p.code ?? undefined }))}
-                selected={local.projectId ?? []}
-                onToggle={(id) => toggle("projectId", id)}
-                emptyText="No projects available"
-              />
-
-              <CheckboxList
-                label="Project Manager"
-                items={pmOptions.map((pm) => ({ id: pm.id, name: pm.name }))}
-                selected={local.projectManagerId ?? []}
-                onToggle={(id) => toggle("projectManagerId", id)}
-                emptyText="No project managers found"
-              />
-
-              <CheckboxList
-                label="Department"
-                items={deptOptions.map((d) => ({ id: d.value, name: d.label }))}
-                selected={local.department ?? []}
-                onToggle={(id) => toggle("department", id)}
-                emptyText="No departments found"
-              />
+              <CheckboxList label="Projects" items={projectOptions.slice(0, 50).map((p) => ({ id: p.id, name: p.name, sub: p.code ?? undefined }))} selected={local.projectId ?? []} onToggle={(id) => toggle("projectId", id)} emptyText="No projects available" />
+              <CheckboxList label="Project Manager" items={pmOptions.map((pm) => ({ id: pm.id, name: pm.name }))} selected={local.projectManagerId ?? []} onToggle={(id) => toggle("projectManagerId", id)} emptyText="No project managers found" />
+              <CheckboxList label="Department" items={deptOptions.map((d) => ({ id: d.value, name: d.label }))} selected={local.department ?? []} onToggle={(id) => toggle("department", id)} emptyText="No departments found" />
             </div>
-
             <div className="border-t border-gray-200 bg-gray-50/60 p-4">
               {activeCount > 0 && (
                 <div className="mb-3 flex items-center justify-between">
-                  <span className="text-xs text-gray-500">
-                    <span className="font-semibold text-gray-900">{activeCount}</span> filter{activeCount !== 1 ? "s" : ""} active
-                  </span>
-                  <button type="button" onClick={onClear} className="text-xs font-semibold text-red-500 hover:text-red-600">
-                    Clear all
-                  </button>
+                  <span className="text-xs text-gray-500"><span className="font-semibold text-gray-900">{activeCount}</span> filter{activeCount !== 1 ? "s" : ""} active</span>
+                  <button type="button" onClick={onClear} className="text-xs font-semibold text-red-500 hover:text-red-600">Clear all</button>
                 </div>
               )}
-
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="h-10 flex-1 rounded-xl border border-gray-300 bg-white text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onApply(local)}
-                  className="h-10 flex-1 rounded-xl bg-gray-900 text-sm font-semibold text-white transition-colors hover:bg-gray-800"
-                >
-                  Apply filters
-                </button>
+                <button type="button" onClick={onClose} className="h-10 flex-1 rounded-xl border border-gray-300 bg-white text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50">Cancel</button>
+                <button type="button" onClick={() => onApply(local)} className="h-10 flex-1 rounded-xl bg-gray-900 text-sm font-semibold text-white transition-colors hover:bg-gray-800">Apply filters</button>
               </div>
             </div>
           </m.div>
@@ -1557,7 +1213,6 @@ export default function HomePage({
   const rag = ok ? data.rag || [] : [];
 
   const searchParamString = sp?.toString() || "";
-
   const urlFilters = useMemo(() => searchParamsToFilters(new URLSearchParams(searchParamString)), [searchParamString]);
   const filterKey = useMemo(() => stableFilterKey(urlFilters), [urlFilters]);
   const filtersActive = useMemo(() => hasActiveFilters(urlFilters), [urlFilters]);
@@ -1569,22 +1224,15 @@ export default function HomePage({
   const openDrawerFocusSearch = useCallback(() => {
     setDrawerOpenViaSearch(true);
     setDrawerOpen(true);
-    setTimeout(() => {
-      searchInputRef.current?.focus();
-    }, 200);
+    setTimeout(() => { searchInputRef.current?.focus(); }, 200);
   }, []);
 
-  const applyFilters = useCallback(
-    (next: PortfolioFilters) => {
-      const params = filtersToSearchParams(next);
-      router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
-    },
-    [router, pathname],
-  );
-
-  const clearFilters = useCallback(() => {
-    router.replace(pathname, { scroll: false });
+  const applyFilters = useCallback((next: PortfolioFilters) => {
+    const params = filtersToSearchParams(next);
+    router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
   }, [router, pathname]);
+
+  const clearFilters = useCallback(() => { router.replace(pathname, { scroll: false }); }, [router, pathname]);
 
   const [windowDays, setWindowDays] = useState<WindowDays>(30);
   const debouncedWindowDays = useDebounced(windowDays, 300);
@@ -1608,13 +1256,12 @@ export default function HomePage({
   const [recentWins, setRecentWins] = useState<RecentWin[]>([]);
   const [winsLoading, setWinsLoading] = useState(true);
 
+  //  Change 1: briefingData state
+  const [briefingData, setBriefingData] = useState<any | null>(null);
+
   const projectOptions = useMemo<ProjectOption[]>(() => {
     return (Array.isArray(projects) ? projects : [])
-      .map((p: any) => ({
-        id: String(p?.id || "").trim(),
-        name: safeStr(p?.title || "Project").trim(),
-        code: projectCodeLabel(p?.project_code) || null,
-      }))
+      .map((p: any) => ({ id: String(p?.id || "").trim(), name: safeStr(p?.title || "Project").trim(), code: projectCodeLabel(p?.project_code) || null }))
       .filter((p) => p.id)
       .sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name));
   }, [projects]);
@@ -1622,28 +1269,12 @@ export default function HomePage({
   const pmOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of (Array.isArray(projects) ? projects : []) as any[]) {
-      const name = safeStr(
-        p?.project_manager ||
-          p?.pm_name ||
-          p?.manager_name ||
-          p?.project_manager_name ||
-          p?.manager ||
-          p?.pm ||
-          p?.owner_name,
-      ).trim();
-      const id = safeStr(
-        p?.project_manager_id ||
-          p?.pm_user_id ||
-          p?.manager_id ||
-          p?.project_manager_user_id ||
-          p?.owner_id,
-      ).trim();
+      const name = safeStr(p?.project_manager || p?.pm_name || p?.manager_name || p?.project_manager_name || p?.manager || p?.pm || p?.owner_name).trim();
+      const id = safeStr(p?.project_manager_id || p?.pm_user_id || p?.manager_id || p?.project_manager_user_id || p?.owner_id).trim();
       if (!name) continue;
       map.set(id || name, name);
     }
-    return Array.from(map.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [projects]);
 
   const deptOptions = useMemo(() => {
@@ -1652,9 +1283,7 @@ export default function HomePage({
       const d = safeStr(p?.department).trim();
       if (d) set.add(d);
     }
-    return Array.from(set)
-      .sort((a, b) => a.localeCompare(b))
-      .map((d) => ({ value: d, label: d }));
+    return Array.from(set).sort((a, b) => a.localeCompare(b)).map((d) => ({ value: d, label: d }));
   }, [projects]);
 
   const derivedApiFilters = useMemo(() => deriveApiFilters(urlFilters, projectOptions), [urlFilters, projectOptions]);
@@ -1677,18 +1306,12 @@ export default function HomePage({
       const dept = safeStr(p?.department).toLowerCase().trim();
       const pm = safeStr(p?.project_manager_id).trim();
       const pmName = safeStr(p?.project_manager).toLowerCase().trim();
-
       if (idSet.size && !idSet.has(pid)) return false;
       if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
       if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
       if (pmSet.size && !(pmSet.has(pm) || pmSet.has(pmName))) return false;
       if (deptNeedles.length && (!dept || !deptNeedles.some((d) => dept.includes(d)))) return false;
-
-      if (q) {
-        const hay = `${title} ${code} ${dept} ${pmName}`.trim();
-        if (!hay.includes(q)) return false;
-      }
-
+      if (q) { const hay = `${title} ${code} ${dept} ${pmName}`.trim(); if (!hay.includes(q)) return false; }
       return true;
     });
   }, [projects, filterKey]);
@@ -1701,30 +1324,23 @@ export default function HomePage({
       if (truthy(p?.is_archived) || truthy(p?.archived)) return false;
       if (p?.archived_at) return false;
       if (p?.is_active === false || p?.active === false) return false;
-
-      const st =
-        [p?.status, p?.lifecycle_state, p?.state, p?.phase].map((v: any) => String(v ?? "").toLowerCase().trim()).find(Boolean) || "";
-
+      const st = [p?.status, p?.lifecycle_state, p?.state, p?.phase].map((v: any) => String(v ?? "").toLowerCase().trim()).find(Boolean) || "";
       if (!st) return true;
-      return !["closed", "cancel", "deleted", "archive", "inactive", "complete", "on_hold", "paused", "suspended"].some((k) =>
-        st.includes(k),
-      );
+      return !["closed", "cancel", "deleted", "archive", "inactive", "complete", "on_hold", "paused", "suspended"].some((k) => st.includes(k));
     });
   }, [filteredProjectsClient]);
 
   const sortedProjects = useMemo(
-    () =>
-      [...activeProjects].sort((a: any, b: any) => {
-        const ac = projectCodeLabel(a?.project_code);
-        const bc = projectCodeLabel(b?.project_code);
-        const an = Number(ac);
-        const bn = Number(bc);
-        const aNum = Number.isFinite(an) && ac !== "";
-        const bNum = Number.isFinite(bn) && bc !== "";
-        if (aNum && bNum && an !== bn) return an - bn;
-        if (ac && bc && ac !== bc) return ac.localeCompare(bc);
-        return safeStr(a?.title).toLowerCase().localeCompare(safeStr(b?.title).toLowerCase());
-      }),
+    () => [...activeProjects].sort((a: any, b: any) => {
+      const ac = projectCodeLabel(a?.project_code);
+      const bc = projectCodeLabel(b?.project_code);
+      const an = Number(ac); const bn = Number(bc);
+      const aNum = Number.isFinite(an) && ac !== "";
+      const bNum = Number.isFinite(bn) && bc !== "";
+      if (aNum && bNum && an !== bn) return an - bn;
+      if (ac && bc && ac !== bc) return ac.localeCompare(bc);
+      return safeStr(a?.title).toLowerCase().localeCompare(safeStr(b?.title).toLowerCase());
+    }),
     [activeProjects],
   );
 
@@ -1749,9 +1365,7 @@ export default function HomePage({
   const ragAgg = useMemo(() => calcRagAgg(rag as any, activeProjects as any), [rag, activeProjects]);
 
   const liveRagCounts = useMemo(() => {
-    let g = 0,
-      a = 0,
-      r = 0;
+    let g = 0, a = 0, r = 0;
     for (const p of activeProjects as any[]) {
       const pid = String(p?.id || "").trim();
       const entry = mergedRagMap.get(pid);
@@ -1763,11 +1377,10 @@ export default function HomePage({
     return { g, a, r };
   }, [activeProjects, mergedRagMap]);
 
-  /* ── Single dashboard-summary effect ── */
+  /* -- Single dashboard-summary effect ------------------------------------ */
 
   useEffect(() => {
     if (!ok) return;
-
     let cancelled = false;
     const controller = new AbortController();
 
@@ -1786,11 +1399,7 @@ export default function HomePage({
             headers: { "Content-Type": "application/json" },
             cache: "no-store",
             signal: controller.signal,
-            body: JSON.stringify({
-              days: numericWindowDays,
-              dueWindowDays,
-              filters: derivedApiFilters,
-            }),
+            body: JSON.stringify({ days: numericWindowDays, dueWindowDays, filters: derivedApiFilters }),
           });
 
           const j: DashboardSummaryResponse = await r.json().catch(() => ({ ok: false, error: "Bad JSON" }));
@@ -1804,17 +1413,19 @@ export default function HomePage({
               setDueItems([]);
               setRaidPanel(null);
               setMilestonesDueLive(0);
+              //  Change 3a: reset on error
+              setBriefingData(null);
             }
             return;
           }
 
-          const nextPh = j.portfolioHealth ?? null;
-          const nextInsights = orderBriefingInsights(Array.isArray(j.insights) ? j.insights : []);
-          const nextFp = j.financialPlan ?? null;
-          const nextDueItems = normalizeDueItemsFromEvent(j.due ?? null);
-          const nextRaid = normalizeRaidPanel(j.raidPanel, numericWindowDays);
-          const nextWeeks = normalizeWeeks(j.resourceActivity);
-          const nextWins = normalizeWins(j.recentWins);
+          const nextPh        = j.portfolioHealth ?? null;
+          const nextInsights  = orderBriefingInsights(Array.isArray(j.insights) ? j.insights : []);
+          const nextFp        = j.financialPlan ?? null;
+          const nextDueItems  = normalizeDueItemsFromEvent(j.due ?? null);
+          const nextRaid      = normalizeRaidPanel(j.raidPanel, numericWindowDays);
+          const nextWeeks     = normalizeWeeks(j.resourceActivity);
+          const nextWins      = normalizeWins(j.recentWins);
           const nextMilestones = normalizeMilestonesDueCount(j.milestonesDue);
 
           if (cancelled) return;
@@ -1828,6 +1439,15 @@ export default function HomePage({
           setRecentWins(nextWins);
           setMilestonesDueLive(nextMilestones);
           setDueUpdatedAt(safeStr(j.generated_at).trim() || new Date().toISOString());
+
+          //  Change 2: wire executive briefing from API response
+          const executiveBriefingFromApi =
+            (j as any).executiveBriefing ||
+            (j as any).aiBriefing?.executive_briefing ||
+            (j as any).aiBriefing?.briefing ||
+            null;
+          setBriefingData(executiveBriefingFromApi);
+
         } catch {
           if (!cancelled) {
             setInsights([]);
@@ -1837,6 +1457,8 @@ export default function HomePage({
             setDueItems([]);
             setRaidPanel(null);
             setMilestonesDueLive(0);
+            //  Change 3b: reset on catch
+            setBriefingData(null);
           }
         } finally {
           if (!cancelled) {
@@ -1862,7 +1484,7 @@ export default function HomePage({
     };
   }, [ok, numericWindowDays, dueWindowDays, apiFilterSnapshot]);
 
-  /* ── Derived values ── */
+  /* -- Derived values ----------------------------------------------------- */
 
   const apiScore = phData?.ok
     ? clamp01to100((phData as any).score != null ? (phData as any).score : (phData as any).portfolio_health)
@@ -1874,15 +1496,8 @@ export default function HomePage({
 
   const raidDueTotal = useMemo(() => {
     if (!raidPanel) return 0;
-    const typedAvailable =
-      raidPanel.risk_due != null ||
-      raidPanel.issue_due != null ||
-      raidPanel.dependency_due != null ||
-      raidPanel.assumption_due != null;
-
-    if (typedAvailable) {
-      return num(raidPanel.risk_due) + num(raidPanel.issue_due) + num(raidPanel.dependency_due) + num(raidPanel.assumption_due);
-    }
+    const typedAvailable = raidPanel.risk_due != null || raidPanel.issue_due != null || raidPanel.dependency_due != null || raidPanel.assumption_due != null;
+    if (typedAvailable) return num(raidPanel.risk_due) + num(raidPanel.issue_due) + num(raidPanel.dependency_due) + num(raidPanel.assumption_due);
     return num(raidPanel.due_total);
   }, [raidPanel]);
 
@@ -1891,75 +1506,35 @@ export default function HomePage({
 
   const fpHasData = fpSummary?.ok === true;
   const fpPortfolioPre = fpHasData ? (fpSummary as any).portfolio : null;
-  const fpVariancePct = fpHasData
-    ? (fpSummary as any).variance_pct ??
-      fpPortfolioPre?.variance_pct ??
-      fpPortfolioPre?.variancePct ??
-      fpPortfolioPre?.variance
-    : null;
-  const fpVarianceNum =
-    fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
+  const fpVariancePct = fpHasData ? (fpSummary as any).variance_pct ?? fpPortfolioPre?.variance_pct ?? fpPortfolioPre?.variancePct ?? fpPortfolioPre?.variance : null;
+  const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
   const fpRag = fpHasData ? (((fpSummary as any).rag || fpPortfolioPre?.rag) as RagLetter) ?? null : null;
-  const fpCurrency = fpHasData ? safeStr((fpSummary as any).currency || fpPortfolioPre?.currency).trim() || "£" : "£";
+  const fpCurrency = fpHasData ? safeStr((fpSummary as any).currency || fpPortfolioPre?.currency).trim() || "\u00a3" : "\u00a3";
   const fpPortfolio = fpPortfolioPre;
 
-  const fpBudgetRaw = fpHasData
-    ? (() => {
-        const s = fpSummary as any;
-        const p = fpPortfolio ?? {};
-        const nested =
-          p.totalBudget ??
-          p.total_budget ??
-          p.approvedBudget ??
-          p.approved_budget ??
-          p.totalApprovedBudget ??
-          p.budgeted ??
-          p.budget;
-        if (nested != null && Number(nested) > 0) return nested;
-        const topLevel =
-          s.total_approved_budget ??
-          s.approved_budget ??
-          s.total_budget ??
-          s.budget_total ??
-          s.budgeted ??
-          s.total_budgeted ??
-          s.budget ??
-          s.plan_budget ??
-          s.total_plan_budget ??
-          s.approved;
-        if (topLevel != null) return topLevel;
-        for (const [k, v] of Object.entries(s)) {
-          const kl = k.toLowerCase();
-          if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v;
-        }
-        for (const [k, v] of Object.entries(p)) {
-          const kl = k.toLowerCase();
-          if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v;
-        }
-        return undefined;
-      })()
-    : undefined;
+  const fpBudgetRaw = fpHasData ? (() => {
+    const s = fpSummary as any; const p = fpPortfolio ?? {};
+    const nested = p.totalBudget ?? p.total_budget ?? p.approvedBudget ?? p.approved_budget ?? p.totalApprovedBudget ?? p.budgeted ?? p.budget;
+    if (nested != null && Number(nested) > 0) return nested;
+    const topLevel = s.total_approved_budget ?? s.approved_budget ?? s.total_budget ?? s.budget_total ?? s.budgeted ?? s.total_budgeted ?? s.budget ?? s.plan_budget ?? s.total_plan_budget ?? s.approved;
+    if (topLevel != null) return topLevel;
+    for (const [k, v] of Object.entries(s)) { const kl = k.toLowerCase(); if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v; }
+    for (const [k, v] of Object.entries(p)) { const kl = k.toLowerCase(); if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v; }
+    return undefined;
+  })() : undefined;
 
-  const fpSpentRaw = fpHasData
-    ? (() => {
-        const s = fpSummary as any;
-        const p = fpPortfolio ?? {};
-        const nested = p.totalActual ?? p.total_actual ?? p.totalSpent ?? p.total_spent ?? p.actualSpent ?? p.actual_spent ?? p.actuals ?? p.spent;
-        if (nested != null) return nested;
-        const topLevel = s.total_spent ?? s.actual_spent ?? s.spent_total ?? s.total_actual ?? s.actual ?? s.spent ?? s.total_actuals ?? s.actuals_total;
-        if (topLevel != null) return topLevel;
-        for (const [k, v] of Object.entries(p)) {
-          const kl = k.toLowerCase();
-          if ((kl.includes("spent") || kl.includes("actual")) && Number.isFinite(Number(v)) && Number(v) >= 0) return v;
-        }
-        return undefined;
-      })()
-    : undefined;
+  const fpSpentRaw = fpHasData ? (() => {
+    const s = fpSummary as any; const p = fpPortfolio ?? {};
+    const nested = p.totalActual ?? p.total_actual ?? p.totalSpent ?? p.total_spent ?? p.actualSpent ?? p.actual_spent ?? p.actuals ?? p.spent;
+    if (nested != null) return nested;
+    const topLevel = s.total_spent ?? s.actual_spent ?? s.spent_total ?? s.total_actual ?? s.actual ?? s.spent ?? s.total_actuals ?? s.actuals_total;
+    if (topLevel != null) return topLevel;
+    for (const [k, v] of Object.entries(p)) { const kl = k.toLowerCase(); if ((kl.includes("spent") || kl.includes("actual")) && Number.isFinite(Number(v)) && Number(v) >= 0) return v; }
+    return undefined;
+  })() : undefined;
 
-  const fpTotalBudget: number | null =
-    fpBudgetRaw != null && Number.isFinite(Number(fpBudgetRaw)) ? Number(fpBudgetRaw) : null;
-  const fpTotalSpent: number | null =
-    fpSpentRaw != null && Number.isFinite(Number(fpSpentRaw)) ? Number(fpSpentRaw) : null;
+  const fpTotalBudget: number | null = fpBudgetRaw != null && Number.isFinite(Number(fpBudgetRaw)) ? Number(fpBudgetRaw) : null;
+  const fpTotalSpent: number | null = fpSpentRaw != null && Number.isFinite(Number(fpSpentRaw)) ? Number(fpSpentRaw) : null;
 
   function formatBudget(n: number, currency: string): string {
     const abs = Math.abs(n);
@@ -1970,10 +1545,10 @@ export default function HomePage({
     return `${prefix}${n.toFixed(0)}${suffix}`;
   }
 
-  const fpValueLabel = fpTotalBudget != null ? formatBudget(fpTotalBudget, fpCurrency) : fpLoading ? "…" : "—";
+  const fpValueLabel = fpTotalBudget != null ? formatBudget(fpTotalBudget, fpCurrency) : fpLoading ? "..." : "--";
   const fpSubLabel = fpHasData
     ? fpTotalSpent != null
-      ? `${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` · ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}`
+      ? `${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` - ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}`
       : `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "watch" : "over"}`
     : "total portfolio budget";
   const fpTrendLabel = fpVarianceNum != null && fpVarianceNum !== 0 ? `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%` : undefined;
@@ -1981,7 +1556,6 @@ export default function HomePage({
   const phColorKey = phRag === "G" ? "green" : phRag === "A" ? "amber" : "red";
   const fpColorKey = !fpHasData ? "blue" : fpRag === "G" ? "green" : fpRag === "A" ? "amber" : "red";
   const allDueItems = dueItems.slice(0, 8);
-
   const displayRagCounts = phData?.ok ? liveRagCounts : { g: ragAgg.g, a: ragAgg.a, r: ragAgg.r };
 
   if (!ok) {
@@ -1999,21 +1573,10 @@ export default function HomePage({
     <LazyMotion features={domAnimation}>
       <FilterDrawer
         open={drawerOpen}
-        onClose={() => {
-          setDrawerOpen(false);
-          setDrawerOpenViaSearch(false);
-        }}
+        onClose={() => { setDrawerOpen(false); setDrawerOpenViaSearch(false); }}
         filters={urlFilters}
-        onApply={(next) => {
-          applyFilters(next);
-          setDrawerOpen(false);
-          setDrawerOpenViaSearch(false);
-        }}
-        onClear={() => {
-          clearFilters();
-          setDrawerOpen(false);
-          setDrawerOpenViaSearch(false);
-        }}
+        onApply={(next) => { applyFilters(next); setDrawerOpen(false); setDrawerOpenViaSearch(false); }}
+        onClear={() => { clearFilters(); setDrawerOpen(false); setDrawerOpenViaSearch(false); }}
         projectOptions={projectOptions}
         pmOptions={pmOptions}
         deptOptions={deptOptions}
@@ -2030,7 +1593,7 @@ export default function HomePage({
               <div className="flex items-baseline gap-2.5">
                 <span className="text-base font-bold text-gray-900">Organisation Portfolio</span>
                 <span className="hidden text-xs text-gray-400 md:block">
-                  Enterprise project portfolio overview{filtersActive ? ` • filtered (${activeProjects.length})` : ""}
+                  Enterprise project portfolio overview{filtersActive ? ` - filtered (${activeProjects.length})` : ""}
                 </span>
               </div>
             </div>
@@ -2038,72 +1601,32 @@ export default function HomePage({
             <div className="flex items-center gap-2">
               <div className="hidden items-center gap-1 rounded-xl bg-gray-100 p-1 sm:flex">
                 {([7, 14, 30, 60] as const).map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setWindowDays(d)}
-                    className={[
-                      "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
-                      windowDays === d ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700",
-                    ].join(" ")}
-                  >
+                  <button key={d} type="button" onClick={() => setWindowDays(d)}
+                    className={["rounded-lg px-3 py-1.5 text-xs font-semibold transition-all", windowDays === d ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"].join(" ")}>
                     {d}d
                   </button>
                 ))}
               </div>
 
               {dueUpdatedAt && <LastUpdated iso={dueUpdatedAt} />}
-
               <div className="mx-1 h-5 w-px bg-gray-200" />
-
               <PortfolioAskDrawer />
 
-              <button
-                type="button"
-                onClick={openDrawerFocusSearch}
-                className={[
-                  "flex h-9 w-9 items-center justify-center rounded-xl border transition-colors",
-                  drawerOpenViaSearch ? "border-gray-900 bg-gray-900" : "border-gray-200 bg-white hover:bg-gray-50",
-                ].join(" ")}
-                aria-label="Search"
-                title="Search"
-              >
+              <button type="button" onClick={openDrawerFocusSearch}
+                className={["flex h-9 w-9 items-center justify-center rounded-xl border transition-colors", drawerOpenViaSearch ? "border-gray-900 bg-gray-900" : "border-gray-200 bg-white hover:bg-gray-50"].join(" ")}
+                aria-label="Search" title="Search">
                 <Search className={["h-4 w-4", drawerOpenViaSearch ? "text-white" : "text-gray-700"].join(" ")} />
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setDrawerOpenViaSearch(false);
-                  setDrawerOpen((v) => !v);
-                }}
-                className={[
-                  "flex h-9 w-9 items-center justify-center rounded-xl border transition-colors",
-                  (drawerOpen && !drawerOpenViaSearch) || filtersActive
-                    ? "border-gray-900 bg-gray-900"
-                    : "border-gray-200 bg-white hover:bg-gray-50",
-                ].join(" ")}
-                aria-label="Filter"
-                title="Filter"
-              >
-                <SlidersHorizontal
-                  className={[
-                    "h-4 w-4",
-                    (drawerOpen && !drawerOpenViaSearch) || filtersActive ? "text-white" : "text-gray-700",
-                  ].join(" ")}
-                />
+              <button type="button" onClick={() => { setDrawerOpenViaSearch(false); setDrawerOpen((v) => !v); }}
+                className={["flex h-9 w-9 items-center justify-center rounded-xl border transition-colors", (drawerOpen && !drawerOpenViaSearch) || filtersActive ? "border-gray-900 bg-gray-900" : "border-gray-200 bg-white hover:bg-gray-50"].join(" ")}
+                aria-label="Filter" title="Filter">
+                <SlidersHorizontal className={["h-4 w-4", (drawerOpen && !drawerOpenViaSearch) || filtersActive ? "text-white" : "text-gray-700"].join(" ")} />
               </button>
 
-              <button
-                type="button"
+              <button type="button"
                 onClick={() => {
-                  const rows = (activeProjects as any[]).map((p) => ({
-                    code: projectCodeLabel((p as any)?.project_code),
-                    title: safeStr((p as any)?.title),
-                    client: safeStr((p as any)?.client_name),
-                    department: safeStr((p as any)?.department),
-                    project_manager: safeStr((p as any)?.project_manager),
-                  }));
+                  const rows = (activeProjects as any[]).map((p) => ({ code: projectCodeLabel((p as any)?.project_code), title: safeStr((p as any)?.title), client: safeStr((p as any)?.client_name), department: safeStr((p as any)?.department), project_manager: safeStr((p as any)?.project_manager) }));
                   const header = ["code", "title", "client", "department", "project_manager"];
                   const esc = (s: any) => `"${safeStr(s).replace(/"/g, '""')}"`;
                   const csv = [header.join(","), ...rows.map((r) => header.map((k) => esc((r as any)[k])).join(","))].join("\n");
@@ -2114,27 +1637,18 @@ export default function HomePage({
                   a.download = `portfolio-projects-${stamp}.csv`;
                   document.body.appendChild(a);
                   a.click();
-                  setTimeout(() => {
-                    URL.revokeObjectURL(a.href);
-                    a.remove();
-                  }, 250);
+                  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 250);
                 }}
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white transition-colors hover:bg-gray-50"
-                aria-label="Export"
-                title="Export CSV"
-              >
+                aria-label="Export" title="Export CSV">
                 <Download className="h-4 w-4 text-gray-700" />
               </button>
 
               <NotificationBell />
 
-              <button
-                type="button"
-                onClick={() => router.push("/settings")}
+              <button type="button" onClick={() => router.push("/settings")}
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white transition-colors hover:bg-gray-50"
-                aria-label="Settings"
-                title="Settings"
-              >
+                aria-label="Settings" title="Settings">
                 <Settings className="h-4 w-4 text-gray-700" />
               </button>
             </div>
@@ -2143,128 +1657,60 @@ export default function HomePage({
 
         <main className="mx-auto max-w-screen-2xl space-y-5 px-6 py-6">
           {filtersActive && (
-            <div
-              className="flex items-center justify-between gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3"
-              style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
-            >
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
               <div className="min-w-0 text-xs text-gray-500">
                 <span className="font-semibold text-gray-700">Active filters:</span>{" "}
                 <span className="truncate">
                   {urlFilters.q ? `q="${urlFilters.q}" ` : ""}
-                  {urlFilters.projectId?.length ?? 0 ? `• Projects ${urlFilters.projectId!.length} ` : ""}
-                  {urlFilters.projectCode?.length ?? 0 ? `• Codes ${urlFilters.projectCode!.length} ` : ""}
-                  {urlFilters.projectManagerId?.length ?? 0 ? `• PM ${urlFilters.projectManagerId!.length} ` : ""}
-                  {urlFilters.department?.length ?? 0 ? `• Dept ${urlFilters.department!.length} ` : ""}
+                  {urlFilters.projectId?.length ?? 0 ? `- Projects ${urlFilters.projectId!.length} ` : ""}
+                  {urlFilters.projectCode?.length ?? 0 ? `- Codes ${urlFilters.projectCode!.length} ` : ""}
+                  {urlFilters.projectManagerId?.length ?? 0 ? `- PM ${urlFilters.projectManagerId!.length} ` : ""}
+                  {urlFilters.department?.length ?? 0 ? `- Dept ${urlFilters.department!.length} ` : ""}
                 </span>
               </div>
-
-              <button
-                onClick={clearFilters}
-                className="rounded-xl bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-200 hover:text-gray-900"
-              >
-                Clear all
-              </button>
+              <button onClick={clearFilters} className="rounded-xl bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-200 hover:text-gray-900">Clear all</button>
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <KpiCard
-              label="Portfolio Health"
-              value={phScoreForUi == null ? "…" : `${phScoreForUi}%`}
-              sub={`${displayRagCounts.g} Green · ${displayRagCounts.a} Amber · ${displayRagCounts.r} Red`}
-              icon={<Activity className="h-5 w-5" />}
-              colorKey={phScoreForUi == null ? "blue" : phColorKey}
-              trendLabel={phDelta != null && phDelta !== 0 ? `${Math.abs(Math.round(phDelta))}` : undefined}
-              onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))}
-            />
-
-            <KpiCard
-              label="Open Risks"
-              value={openRisksValue == null ? "…" : `${openRisksValue}`}
-              sub="high priority"
-              icon={<AlertTriangle className="h-5 w-5" />}
-              colorKey="amber"
-              trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity}` : undefined}
-              onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))}
-            />
-
-            <KpiCard
-              label="Milestones Due"
-              value={milestonesDueLive == null ? "…" : `${milestonesDueLive}`}
-              sub={`next ${windowDays === "all" ? "60" : windowDays} days`}
-              icon={<Clock3 className="h-5 w-5" />}
-              colorKey="blue"
-              onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))}
-            />
-
-            <KpiCard
-              label="Budget Health"
-              value={fpValueLabel}
-              sub={fpSubLabel}
-              icon={<DollarSign className="h-5 w-5" />}
-              colorKey={fpColorKey}
-              trendLabel={fpTrendLabel}
-              onClick={() => router.push("/budget")}
-            />
+            <KpiCard label="Portfolio Health" value={phScoreForUi == null ? "..." : `${phScoreForUi}%`} sub={`${displayRagCounts.g} Green - ${displayRagCounts.a} Amber - ${displayRagCounts.r} Red`} icon={<Activity className="h-5 w-5" />} colorKey={phScoreForUi == null ? "blue" : phColorKey} trendLabel={phDelta != null && phDelta !== 0 ? `${Math.abs(Math.round(phDelta))}` : undefined} onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))} />
+            <KpiCard label="Open Risks" value={openRisksValue == null ? "..." : `${openRisksValue}`} sub="high priority" icon={<AlertTriangle className="h-5 w-5" />} colorKey="amber" trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity}` : undefined} onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))} />
+            <KpiCard label="Milestones Due" value={milestonesDueLive == null ? "..." : `${milestonesDueLive}`} sub={`next ${windowDays === "all" ? "60" : windowDays} days`} icon={<Clock3 className="h-5 w-5" />} colorKey="blue" onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))} />
+            <KpiCard label="Budget Health" value={fpValueLabel} sub={fpSubLabel} icon={<DollarSign className="h-5 w-5" />} colorKey={fpColorKey} trendLabel={fpTrendLabel} onClick={() => router.push("/budget")} />
           </div>
 
-          <ExecutiveBriefingCard data={executiveBriefing ?? null} liveRagCounts={liveRagCounts} />
+          {/*  Change 4: ExecutiveBriefingCard with briefingData state */}
+          <ExecutiveBriefingCard data={briefingData} liveRagCounts={liveRagCounts} />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="rounded-2xl border border-gray-100 bg-white p-6 lg:col-span-2" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
               <div className="mb-2 flex items-start justify-between">
                 <div>
                   <h3 className="font-semibold text-gray-900">Resource Activity</h3>
-                  <p className="mt-0.5 text-xs text-gray-400">
-                    Week-on-week capacity vs demand (FTE) · {windowDays === "all" ? "60" : windowDays} days
-                  </p>
+                  <p className="mt-0.5 text-xs text-gray-400">Week-on-week capacity vs demand (FTE) - {windowDays === "all" ? "60" : windowDays} days</p>
                 </div>
                 <div className="mt-1 flex items-center gap-4 text-xs text-gray-400">
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#93c5fd" }} />
-                    Capacity
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#34d399" }} />
-                    Allocated
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#a78bfa", opacity: 0.8 }} />
-                    Pipeline
-                  </span>
+                  <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#93c5fd" }} />Capacity</span>
+                  <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#34d399" }} />Allocated</span>
+                  <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#a78bfa", opacity: 0.8 }} />Pipeline</span>
                 </div>
               </div>
-
-              <ResourceActivityChart
-                weeks={resourceWeeks.length > 0 ? resourceWeeks : undefined}
-                days={numericWindowDays}
-                loading={resourceLoading && resourceWeeks.length === 0}
-              />
+              <ResourceActivityChart weeks={resourceWeeks.length > 0 ? resourceWeeks : undefined} days={numericWindowDays} loading={resourceLoading && resourceWeeks.length === 0} />
             </div>
 
             <div className="rounded-2xl border border-gray-100 bg-white p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
               <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100">
-                  <Sparkles className="h-4 w-4 text-purple-600" />
-                </div>
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100"><Sparkles className="h-4 w-4 text-purple-600" /></div>
                 <h3 className="flex-1 font-semibold text-gray-900">AI Insights</h3>
-                <button onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))} className="text-xs font-medium text-blue-600 hover:text-blue-700">
-                  View all
-                </button>
+                <button onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))} className="text-xs font-medium text-blue-600 hover:text-blue-700">View all</button>
               </div>
-
               <div className="space-y-3">
                 {insightsLoading ? (
                   Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-gray-50" />)
                 ) : insights.length === 0 ? (
-                  <div className="py-10 text-center">
-                    <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-gray-200" />
-                    <p className="text-sm text-gray-400">No active insights</p>
-                  </div>
+                  <div className="py-10 text-center"><CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-gray-200" /><p className="text-sm text-gray-400">No active insights</p></div>
                 ) : (
-                  insights.slice(0, 4).map((x) => (
-                    <InsightCard key={x.id} severity={x.severity} title={x.title} body={x.body} href={fixInsightHref(x, windowDays)} />
-                  ))
+                  insights.slice(0, 4).map((x) => <InsightCard key={x.id} severity={x.severity} title={x.title} body={x.body} href={fixInsightHref(x, windowDays)} />)
                 )}
               </div>
             </div>
@@ -2275,18 +1721,11 @@ export default function HomePage({
               <div className="min-w-0">
                 <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-violet-500">Governance Intelligence</div>
                 <h3 className="mt-1 text-base font-semibold text-gray-900">Control Center</h3>
-                <p className="mt-1 max-w-2xl text-sm text-gray-500">
-                  Open the governance intelligence centre for approvals, control signals, oversight, and delivery decision support.
-                </p>
+                <p className="mt-1 max-w-2xl text-sm text-gray-500">Open the governance intelligence centre for approvals, control signals, oversight, and delivery decision support.</p>
               </div>
-              <button
-                type="button"
-                onClick={() => router.push("/approvals")}
-                className="inline-flex items-center gap-2 self-start rounded-2xl border border-violet-200 bg-violet-50 px-5 py-3 text-sm font-semibold text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                Control Center
-                <ArrowUpRight className="h-4 w-4" />
+              <button type="button" onClick={() => router.push("/approvals")}
+                className="inline-flex items-center gap-2 self-start rounded-2xl border border-violet-200 bg-violet-50 px-5 py-3 text-sm font-semibold text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100">
+                <ShieldCheck className="h-4 w-4" />Control Center<ArrowUpRight className="h-4 w-4" />
               </button>
             </div>
           </div>
@@ -2294,91 +1733,28 @@ export default function HomePage({
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="space-y-4 lg:col-span-2">
               {(phData?.ok ? liveRagCounts.g + liveRagCounts.a + liveRagCounts.r : ragAgg.scored) > 0 && (
-                <div
-                  className="rounded-2xl bg-white px-6 py-5"
-                  style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)", border: "1px solid #f3f4f6" }}
-                >
+                <div className="rounded-2xl bg-white px-6 py-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)", border: "1px solid #f3f4f6" }}>
                   <div className="mb-4 flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-gray-900">Project Health (RAG Status)</h3>
-                    <button
-                      onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))}
-                      className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
-                    >
-                      View all <ChevronRight className="h-3 w-3" />
-                    </button>
+                    <button onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))} className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700">View all <ChevronRight className="h-3 w-3" /></button>
                   </div>
-
                   <div className="grid grid-cols-3 gap-3">
                     {[
-                      {
-                        rag: "G" as RagLetter,
-                        count: displayRagCounts.g,
-                        icon: <CheckCircle2 className="h-4 w-4 text-green-600" />,
-                        label: "Green",
-                        threshold: "≥ 85% health",
-                        from: "#f0fdf4",
-                        border: "#dcfce7",
-                      },
-                      {
-                        rag: "A" as RagLetter,
-                        count: displayRagCounts.a,
-                        icon: <AlertTriangle className="h-4 w-4 text-amber-600" />,
-                        label: "Amber",
-                        threshold: "70–84% health",
-                        from: "#fffbeb",
-                        border: "#fef3c7",
-                      },
-                      {
-                        rag: "R" as RagLetter,
-                        count: displayRagCounts.r,
-                        icon: <AlertTriangle className="h-4 w-4 text-red-500" />,
-                        label: "Red",
-                        threshold: "< 70% health",
-                        from: "#fef2f2",
-                        border: "#fecaca",
-                      },
+                      { rag: "G" as RagLetter, count: displayRagCounts.g, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, label: "Green",  threshold: ">= 85% health", from: "#f0fdf4", border: "#dcfce7" },
+                      { rag: "A" as RagLetter, count: displayRagCounts.a, icon: <AlertTriangle className="h-4 w-4 text-amber-600" />, label: "Amber", threshold: "70-84% health", from: "#fffbeb", border: "#fef3c7" },
+                      { rag: "R" as RagLetter, count: displayRagCounts.r, icon: <AlertTriangle className="h-4 w-4 text-red-500" />,   label: "Red",   threshold: "< 70% health",  from: "#fef2f2", border: "#fecaca" },
                     ].map(({ rag: r, count, icon, label, threshold, from, border }) => {
                       const total = displayRagCounts.g + displayRagCounts.a + displayRagCounts.r;
                       return (
-                        <div
-                          key={r}
-                          className="cursor-pointer rounded-xl p-4 transition-all hover:brightness-[0.97]"
-                          style={{ background: from, border: `1px solid ${border}` }}
-                          onClick={() => router.push(appendFiltersToUrl(`/insights?rag=${r}&days=${numericWindowDays}`, urlFilters))}
-                        >
+                        <div key={r} className="cursor-pointer rounded-xl p-4 transition-all hover:brightness-[0.97]" style={{ background: from, border: `1px solid ${border}` }}
+                          onClick={() => router.push(appendFiltersToUrl(`/insights?rag=${r}&days=${numericWindowDays}`, urlFilters))}>
                           <div className="mb-2 flex items-center gap-2">
                             {icon}
-                            <span
-                              className="text-xs font-bold uppercase tracking-wider"
-                              style={{ color: r === "G" ? "#15803d" : r === "A" ? "#92400e" : "#991b1b" }}
-                            >
-                              {label}
-                            </span>
+                            <span className="text-xs font-bold uppercase tracking-wider" style={{ color: r === "G" ? "#15803d" : r === "A" ? "#92400e" : "#991b1b" }}>{label}</span>
                           </div>
-                          <div
-                            className="mb-1 text-3xl font-bold leading-none"
-                            style={{ color: r === "G" ? "#15803d" : r === "A" ? "#b45309" : "#dc2626" }}
-                          >
-                            {count}
-                          </div>
-                          <div
-                            className="mt-0.5 text-xs"
-                            style={{
-                              color: r === "G" ? "#16a34a" : r === "A" ? "#d97706" : "#ef4444",
-                              opacity: 0.8,
-                            }}
-                          >
-                            {total > 0 ? `${Math.round((count / total) * 100)}% of total` : ""}
-                          </div>
-                          <div
-                            className="mt-2 text-[10px] font-semibold"
-                            style={{
-                              color: r === "G" ? "#166534" : r === "A" ? "#92400e" : "#991b1b",
-                              opacity: 0.7,
-                            }}
-                          >
-                            {threshold}
-                          </div>
+                          <div className="mb-1 text-3xl font-bold leading-none" style={{ color: r === "G" ? "#15803d" : r === "A" ? "#b45309" : "#dc2626" }}>{count}</div>
+                          <div className="mt-0.5 text-xs" style={{ color: r === "G" ? "#16a34a" : r === "A" ? "#d97706" : "#ef4444", opacity: 0.8 }}>{total > 0 ? `${Math.round((count / total) * 100)}% of total` : ""}</div>
+                          <div className="mt-2 text-[10px] font-semibold" style={{ color: r === "G" ? "#166534" : r === "A" ? "#92400e" : "#991b1b", opacity: 0.7 }}>{threshold}</div>
                         </div>
                       );
                     })}
@@ -2394,18 +1770,11 @@ export default function HomePage({
                   </div>
                   <span className="pr-12 text-xs text-gray-400">Health</span>
                 </div>
-
-                {sortedProjects.slice(0, 9).map((p: any, i) => (
-                  <ProjectRow key={String(p.id || i)} p={p} ragMap={mergedRagMap} />
-                ))}
-
+                {sortedProjects.slice(0, 9).map((p: any, i) => <ProjectRow key={String(p.id || i)} p={p} ragMap={mergedRagMap} />)}
                 {sortedProjects.length === 0 && <div className="py-14 text-center text-sm text-gray-400">No active projects</div>}
-
                 {sortedProjects.length > 9 && (
                   <div className="border-t border-gray-50 px-6 py-3 text-center">
-                    <button onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))} className="text-sm font-medium text-blue-600 hover:text-blue-700">
-                      View all {activeProjects.length} projects →
-                    </button>
+                    <button onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))} className="text-sm font-medium text-blue-600 hover:text-blue-700">View all {activeProjects.length} projects</button>
                   </div>
                 )}
               </div>
@@ -2414,35 +1783,18 @@ export default function HomePage({
             <div className="space-y-4">
               <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-center gap-3 border-b border-gray-50 px-5 py-4">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50">
-                    <Calendar className="h-4 w-4 text-blue-500" />
-                  </div>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50"><Calendar className="h-4 w-4 text-blue-500" /></div>
                   <h3 className="flex-1 font-semibold text-gray-900">Upcoming Milestones</h3>
-
                   <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
                     {([7, 14, 30] as const).map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => setDueWindowDays(d)}
-                        className={[
-                          "rounded-md px-2 py-1 text-[11px] font-semibold transition-all",
-                          dueWindowDays === d ? "bg-white text-gray-900 shadow-sm" : "text-gray-400 hover:text-gray-600",
-                        ].join(" ")}
-                      >
+                      <button key={d} type="button" onClick={() => setDueWindowDays(d)}
+                        className={["rounded-md px-2 py-1 text-[11px] font-semibold transition-all", dueWindowDays === d ? "bg-white text-gray-900 shadow-sm" : "text-gray-400 hover:text-gray-600"].join(" ")}>
                         {d}d
                       </button>
                     ))}
                   </div>
-
-                  <button
-                    onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))}
-                    className="ml-1 flex items-center gap-0.5 text-xs font-medium text-blue-600 hover:text-blue-700"
-                  >
-                    All <ChevronRight className="h-3 w-3" />
-                  </button>
+                  <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))} className="ml-1 flex items-center gap-0.5 text-xs font-medium text-blue-600 hover:text-blue-700">All <ChevronRight className="h-3 w-3" /></button>
                 </div>
-
                 <div className="space-y-2.5 p-4">
                   {dueLoading ? (
                     Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 animate-pulse rounded-xl bg-gray-50" />)
@@ -2450,33 +1802,20 @@ export default function HomePage({
                     <div className="py-8 text-center">
                       <CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-gray-200" />
                       <p className="text-sm text-gray-400">Nothing due in {dueWindowDays} days</p>
-                      <button
-                        onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))}
-                        className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-700"
-                      >
-                        View milestone list →
-                      </button>
+                      <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))} className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-700">View milestone list</button>
                     </div>
                   ) : (
                     allDueItems.map((it, i) => (
-                      <MilestoneCard
-                        key={`${it.title}-${i}`}
-                        item={it}
-                        onClick={() => {
-                          const href = safeStr(it?.link).trim();
-                          if (href && !href.includes("/raid") && !href.includes("/risks")) router.push(href);
-                          else router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters));
-                        }}
-                      />
+                      <MilestoneCard key={`${it.title}-${i}`} item={it} onClick={() => {
+                        const href = safeStr(it?.link).trim();
+                        if (href && !href.includes("/raid") && !href.includes("/risks")) router.push(href);
+                        else router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters));
+                      }} />
                     ))
                   )}
-
                   {dueItems.length > 8 && (
-                    <button
-                      onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))}
-                      className="mt-1 w-full border-t border-gray-50 py-2 text-center text-xs font-medium text-blue-600 hover:text-blue-700"
-                    >
-                      View all {dueItems.length} milestones →
+                    <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))} className="mt-1 w-full border-t border-gray-50 py-2 text-center text-xs font-medium text-blue-600 hover:text-blue-700">
+                      View all {dueItems.length} milestones
                     </button>
                   )}
                 </div>
@@ -2484,16 +1823,11 @@ export default function HomePage({
 
               <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-center gap-3 border-b border-gray-50 px-5 py-4">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-green-50">
-                    <Trophy className="h-4 w-4 text-green-500" />
-                  </div>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-green-50"><Trophy className="h-4 w-4 text-green-500" /></div>
                   <h3 className="flex-1 font-semibold text-gray-900">Recent Wins</h3>
                   <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-400">Last 7 days</span>
-                  <button onClick={() => router.push(appendFiltersToUrl("/success-stories", urlFilters))} className="text-xs font-medium text-blue-600 hover:text-blue-700">
-                    View all
-                  </button>
+                  <button onClick={() => router.push(appendFiltersToUrl("/success-stories", urlFilters))} className="text-xs font-medium text-blue-600 hover:text-blue-700">View all</button>
                 </div>
-
                 <div className="space-y-2.5 p-4">
                   {winsLoading ? (
                     Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-gray-50" />)
@@ -2505,14 +1839,10 @@ export default function HomePage({
                     </div>
                   ) : (
                     recentWins.map((win) => (
-                      <RecentWinCard
-                        key={win.id}
-                        win={win}
-                        onClick={() => {
-                          if (win.link) router.push(win.link);
-                          else router.push(appendFiltersToUrl(`/success-stories`, urlFilters));
-                        }}
-                      />
+                      <RecentWinCard key={win.id} win={win} onClick={() => {
+                        if (win.link) router.push(win.link);
+                        else router.push(appendFiltersToUrl("/success-stories", urlFilters));
+                      }} />
                     ))
                   )}
                 </div>
