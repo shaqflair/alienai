@@ -1256,8 +1256,10 @@ export default function HomePage({
   const [recentWins, setRecentWins] = useState<RecentWin[]>([]);
   const [winsLoading, setWinsLoading] = useState(true);
 
-  //  Change 1: briefingData state
-  const [briefingData, setBriefingData] = useState<any | null>(null);
+  // briefingData: seed from server-rendered briefing so card renders immediately
+  const [briefingData, setBriefingData] = useState<any | null>(
+    (data as any)?.briefing ?? null
+  );
 
   const projectOptions = useMemo<ProjectOption[]>(() => {
     return (Array.isArray(projects) ? projects : [])
@@ -1413,8 +1415,7 @@ export default function HomePage({
               setDueItems([]);
               setRaidPanel(null);
               setMilestonesDueLive(0);
-              //  Change 3a: reset on error
-              setBriefingData(null);
+              // keep server-seeded briefing on API error
             }
             return;
           }
@@ -1431,31 +1432,50 @@ export default function HomePage({
           if (cancelled) return;
 
           setPhData(nextPh);
+          setInsights(nextInsights);
+          setFpSummary(nextFp);
+          setDueItems(nextDueItems);
+          setRaidPanel(nextRaid);
+          setResourceWeeks(nextWeeks);
+          setRecentWins(nextWins);
+          setMilestonesDueLive(nextMilestones);
+          setDueUpdatedAt(safeStr(j.generated_at).trim() || new Date().toISOString());
 
-          // Patch briefing health section with live API score so it matches KPI card
-         if (nextPh?.ok) {
-  const liveScore = Math.max(0, Math.min(100, Math.round(
-    Number((nextPh as any).score ?? (nextPh as any).portfolio_health ?? 0)
-  )));
-  if (liveScore > 0) {
-    // Compute rag counts from nextPh.projectScores directly (liveRagCounts is stale here)
-    const scores = (nextPh as any).projectScores ?? {};
-    const patchRag = { g: 0, a: 0, r: 0 };
-    for (const v of Object.values(scores) as any[]) {
-      if (v?.rag === "G") patchRag.g++;
-      else if (v?.rag === "A") patchRag.a++;
-      else if (v?.rag === "R") patchRag.r++;
-    }
-    setBriefingData((prev: any) => {
-      if (!prev?.ok) return prev;
-      const rag = patchRag;                const sentiment = liveScore >= 85 ? "green" : liveScore >= 70 ? "amber" : "red";
+          // Step 1: set briefing from API only if it returned one
+          // If null, keep server-seeded briefingData already in state
+          const executiveBriefingFromApi =
+            (j as any).executiveBriefing ||
+            (j as any).aiBriefing?.executive_briefing ||
+            (j as any).aiBriefing?.briefing ||
+            null;
+          if (executiveBriefingFromApi) {
+            setBriefingData(executiveBriefingFromApi);
+          }
+
+          // Step 2: patch health AFTER briefing is set -- live score matches KPI card
+          // Uses projectScores directly from nextPh, not stale liveRagCounts
+          if (nextPh?.ok) {
+            const liveScore = Math.max(0, Math.min(100, Math.round(
+              Number((nextPh as any).score ?? (nextPh as any).portfolio_health ?? 0)
+            )));
+            if (liveScore > 0) {
+              const scores = (nextPh as any).projectScores ?? {};
+              const patchRag = { g: 0, a: 0, r: 0 };
+              for (const v of Object.values(scores) as any[]) {
+                if ((v as any)?.rag === "G") patchRag.g++;
+                else if ((v as any)?.rag === "A") patchRag.a++;
+                else if ((v as any)?.rag === "R") patchRag.r++;
+              }
+              setBriefingData((prev: any) => {
+                if (!prev?.ok) return prev;
+                const sentiment = liveScore >= 85 ? "green" : liveScore >= 70 ? "amber" : "red";
                 return {
                   ...prev,
                   sections: (prev.sections ?? []).map((s: any) =>
                     s.id !== "health" ? s : {
                       ...s,
                       sentiment,
-                      body: `Average portfolio health is ${liveScore}%. Current mix: ${rag.g} green, ${rag.a} amber, ${rag.r} red.`,
+                      body: `Average portfolio health is ${liveScore}%. Current mix: ${patchRag.g} green, ${patchRag.a} amber, ${patchRag.r} red.`,
                     }
                   ),
                   signals_summary: {
@@ -1467,23 +1487,6 @@ export default function HomePage({
             }
           }
 
-          setInsights(nextInsights);
-          setFpSummary(nextFp);
-          setDueItems(nextDueItems);
-          setRaidPanel(nextRaid);
-          setResourceWeeks(nextWeeks);
-          setRecentWins(nextWins);
-          setMilestonesDueLive(nextMilestones);
-          setDueUpdatedAt(safeStr(j.generated_at).trim() || new Date().toISOString());
-
-          //  Change 2: wire executive briefing from API response
-          const executiveBriefingFromApi =
-            (j as any).executiveBriefing ||
-            (j as any).aiBriefing?.executive_briefing ||
-            (j as any).aiBriefing?.briefing ||
-            null;
-          setBriefingData(executiveBriefingFromApi);
-
         } catch {
           if (!cancelled) {
             setInsights([]);
@@ -1493,8 +1496,7 @@ export default function HomePage({
             setDueItems([]);
             setRaidPanel(null);
             setMilestonesDueLive(0);
-            //  Change 3b: reset on catch
-            setBriefingData(null);
+            // keep server-seeded briefing on catch
           }
         } finally {
           if (!cancelled) {
