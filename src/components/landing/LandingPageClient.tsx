@@ -74,6 +74,8 @@ const F = {
   mono: "var(--font-geist-mono), 'SF Mono', monospace",
 };
 
+const POUND = "\u00a3"; // GBP symbol - defined as JS escape to keep file ASCII-safe
+
 type TrackPayload = Record<string, string | number | boolean | null | undefined>;
 
 function trackEvent(name: string, payload: TrackPayload = {}) {
@@ -139,7 +141,7 @@ function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" | "xl" }) {
         style={{ display: "block", flexShrink: 0, filter: `drop-shadow(0 0 10px ${T.cyanGlow})` }}
       />
       <span style={{ fontFamily: F.display, letterSpacing: "0.14em", fontWeight: 700, fontSize: s.text, color: T.text, display: "inline-flex", alignItems: "baseline" }}>
-        <span style={{ color: T.cyan }}>A</span><span>L</span><span style={{ color: T.cyan }}>I</span><span>E</span><span>N</span><span style={{ color: T.cyan }}>A</span>
+        <span style={{ color: T.cyan }}>A</span><span>L</span><span style={{ color: T.cyan }}>I</span><span>E</span><span>N</span><span style={{ color: T.text }}>A</span>
       </span>
     </span>
   );
@@ -408,7 +410,7 @@ function HeroSection({ onOpenDemo }: { onOpenDemo: () => void }) {
       <div style={{ position:"fixed",left:mousePos.x-200,top:mousePos.y-200,width:400,height:400,background:`radial-gradient(circle, ${T.cyan}10, transparent 70%)`,pointerEvents:"none",zIndex:0,transition:"left 0.1s, top 0.1s" }} />
 
       <div style={{ maxWidth:1400,margin:"0 auto",padding:"0 32px",width:"100%",position:"relative",zIndex:1 }}>
-        <div className="hero-grid" style={{ display:"grid",gridTemplateColumns:"minmax(0, 1.1fr) minmax(420px, 0.9fr)",gap:48,alignItems:"center" }}>
+        <div className="hero-grid" style={{ display:"grid",gridTemplateColumns:"minmax(0, 1.1fr) minmax(420px, 0.9fr)",gap:48,alignItems:"flex-start" }}>
 
           {/* Left col */}
           <div>
@@ -490,7 +492,7 @@ function HeroSection({ onOpenDemo }: { onOpenDemo: () => void }) {
                 <HUDCard title="Active projects" value="1" trend="PRJ-100 on track" status="positive" />
                 <HUDCard title="High-severity RAID" value="1" trend="Supply chain risk" status="warning" />
                 <HUDCard title="Milestones (30d)" value="5" trend="Next: 15 Apr" status="neutral" />
-                <HUDCard title="Budget" value="\u00a3102k" trend="62 days budgeted" status="positive" />
+                <HUDCard title="Budget" value={{`${POUND}102k`}} trend="62 days budgeted" status="positive" />
               </div>
 
               {/* Executive briefing card */}
