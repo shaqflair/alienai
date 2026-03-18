@@ -1450,10 +1450,11 @@ export default function HomePage({
   null;
 // Only overwrite if API returned something - keep server-seeded data if not
 if (executiveBriefingFromApi) {
-  setBriefingData(executiveBriefingFromApi);
-}catch {
-          if (!cancelled) {
-            setInsights([]);
+            setBriefingData(executiveBriefingFromApi);
+          }
+
+        } catch {
+          if (!cancelled) {            setInsights([]);
             setResourceWeeks([]);
             setRecentWins([]);
             setFpSummary(null);
