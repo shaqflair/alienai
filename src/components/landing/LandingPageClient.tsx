@@ -1194,7 +1194,7 @@ function HeroSection({
                 <HUDCard title="Projects monitored" value="17" trend="+3 this quarter" status="positive" />
                 <HUDCard title="Risks escalated" value="04" trend="2 require review" status="warning" />
                 <HUDCard title="Approval blockage" value="2.1d" trend="Faster than baseline" status="positive" />
-                <HUDCard title="Forecast drift" value="�1.2M" trend="Early signal detected" status="warning" />
+                <HUDCard title="Forecast drift" value="Â£1.2M" trend="Early signal detected" status="warning" />
               </div>
 
               <div
@@ -1405,7 +1405,7 @@ function DashboardPreview() {
                     <span style={{ fontWeight: 600, color: T.text }}>AI Synthesis</span>
                   </div>
                   <p style={{ fontSize: 13, color: T.textMuted, lineHeight: 1.6 }}>
-                    �Two approvals and resource constraints suggest portfolio confidence may decline by 15% next week.�
+                    â€œTwo approvals and resource constraints suggest portfolio confidence may decline by 15% next week.â€
                   </p>
                 </div>
               </div>
