@@ -17,11 +17,11 @@ type AuditEntry = {
 };
 
 const ACTION_CFG: Record<string, { label: string; icon: string; color: string; bg: string; border: string }> = {
-  "allocation.created":      { label: "Allocated",    icon: "+",  color: "#059669", bg: "#f0fdf4", border: "#bbf7d0" },
-  "allocation.updated":      { label: "Updated",      icon: "~",  color: "#d97706", bg: "#fffbeb", border: "#fde68a" },
-  "allocation.deleted":      { label: "Removed",      icon: "-",  color: "#dc2626", bg: "#fff5f5", border: "#fecaca" },
-  "allocation.week_updated": { label: "Week edited",  icon: "~",  color: "#0891b2", bg: "#ecfeff", border: "#a5f3fc" },
-  "allocation.week_deleted": { label: "Week removed", icon: "-",  color: "#dc2626", bg: "#fff5f5", border: "#fecaca" },
+  "allocation.created":      { label: "Allocated",    icon: "+", color: "#059669", bg: "#f0fdf4", border: "#bbf7d0" },
+  "allocation.updated":      { label: "Updated",      icon: "~", color: "#d97706", bg: "#fffbeb", border: "#fde68a" },
+  "allocation.deleted":      { label: "Removed",      icon: "-", color: "#dc2626", bg: "#fff5f5", border: "#fecaca" },
+  "allocation.week_updated": { label: "Week edited",  icon: "~", color: "#0891b2", bg: "#ecfeff", border: "#a5f3fc" },
+  "allocation.week_deleted": { label: "Week removed", icon: "-", color: "#dc2626", bg: "#fff5f5", border: "#fecaca" },
 };
 
 function cfgFor(action: string) {
@@ -29,6 +29,20 @@ function cfgFor(action: string) {
     label: action.replace(/[._]/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
     icon: ".", color: "#475569", bg: "#f8fafc", border: "#e2e8f0",
   };
+}
+
+/** Format ISO date YYYY-MM-DD to UK DD/MM/YYYY */
+function toUkDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const s = iso.split("T")[0];
+  const parts = s.split("-");
+  if (parts.length !== 3) return iso;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+/** Fix any remaining corrupted ? arrows in old stored summaries */
+function fixArrows(s: string): string {
+  return s.replace(/ \? /g, " -> ");
 }
 
 function fmtDateTime(iso: string) {
@@ -69,13 +83,22 @@ function DiffDetail({ entry }: { entry: AuditEntry }) {
     );
   };
 
+  // Format a date value that may already be UK format or still ISO
+  const fmt = (d: string | null | undefined) => {
+    if (!d) return "";
+    // Already UK format (DD/MM/YYYY)
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(d)) return d;
+    return toUkDate(d);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
       {entry.action === "allocation.created" && after && (
         <>
           {renderField("Person",     after.person_name)}
           {renderField("Project",    after.project_title ?? after.project_code)}
-          {renderField("Dates",      after.start_date && after.end_date ? `${after.start_date} to ${after.end_date}` : null)}
+          {renderField("Start",      fmt(after.start_date))}
+          {renderField("End",        fmt(after.end_date))}
           {renderField("Days/wk",    after.days_per_week)}
           {renderField("Total days", after.total_days)}
           {after.conflict_count > 0 && (
@@ -87,9 +110,12 @@ function DiffDetail({ entry }: { entry: AuditEntry }) {
       )}
       {entry.action === "allocation.updated" && before && after && (
         <>
-          {before.start_date !== after.start_date && renderField("Start", `${before.start_date} -> ${after.start_date}`)}
-          {before.end_date !== after.end_date && renderField("End", `${before.end_date} -> ${after.end_date}`)}
-          {before.days_per_week !== after.days_per_week && renderField("Days/wk", `${before.days_per_week} -> ${after.days_per_week}`)}
+          {before.start_date !== after.start_date &&
+            renderField("Start", `${fmt(before.start_date)} -> ${fmt(after.start_date)}`)}
+          {before.end_date !== after.end_date &&
+            renderField("End", `${fmt(before.end_date)} -> ${fmt(after.end_date)}`)}
+          {before.days_per_week !== after.days_per_week &&
+            renderField("Days/wk", `${before.days_per_week} -> ${after.days_per_week}`)}
           {after.weeks_updated && renderField("Weeks updated", after.weeks_updated)}
         </>
       )}
@@ -98,15 +124,19 @@ function DiffDetail({ entry }: { entry: AuditEntry }) {
           {renderField("Person",        before.person_name)}
           {renderField("Weeks removed", before.weeks_removed)}
           {renderField("Total days",    before.total_days)}
-          {renderField("Period",        before.first_week && before.last_week ? `${before.first_week} to ${before.last_week}` : null)}
+          {renderField("Period",
+            before.first_week && before.last_week
+              ? `${fmt(before.first_week)} to ${fmt(before.last_week)}`
+              : null
+          )}
         </>
       )}
       {(entry.action === "allocation.week_updated" || entry.action === "allocation.week_deleted") && (
         <>
-          {renderField("Week", after?.week ?? before?.week)}
-          {before?.days_allocated != null && after?.days_allocated != null && before.days_allocated !== after.days_allocated && (
-            renderField("Days", `${before.days_allocated}d -> ${after.days_allocated}d`)
-          )}
+          {renderField("Week", fmt(after?.week ?? before?.week))}
+          {before?.days_allocated != null && after?.days_allocated != null &&
+            before.days_allocated !== after.days_allocated &&
+            renderField("Days", `${before.days_allocated}d -> ${after.days_allocated}d`)}
         </>
       )}
     </div>
@@ -118,7 +148,10 @@ function EntryRow({ entry, expanded, onToggle }: {
 }) {
   const cfg       = cfgFor(entry.action);
   const hasDetail = !!(entry.after || entry.before);
-  const summary   = (entry.after as any)?.summary ?? (entry.before as any)?.summary ?? null;
+
+  // Fix corrupted arrows in summary
+  const rawSummary = (entry.after as any)?.summary ?? (entry.before as any)?.summary ?? null;
+  const summary    = rawSummary ? fixArrows(rawSummary) : null;
 
   return (
     <div style={{ borderRadius: 8, border: `1px solid ${expanded ? cfg.border : "#e2e8f0"}`, background: expanded ? cfg.bg : "#fff", overflow: "hidden", transition: "border-color 0.15s" }}>
@@ -141,7 +174,9 @@ function EntryRow({ entry, expanded, onToggle }: {
             )}
           </div>
           {summary && !expanded && (
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summary}</div>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {summary}
+            </div>
           )}
         </div>
         <div style={{ flexShrink: 0, textAlign: "right" }}>
@@ -177,17 +212,18 @@ export default function AllocationAuditTrail({
   projectId,
   personId,
   organisationId,
+  includeActed = true,
   title = "Allocation audit trail",
 }: {
   projectId?:      string;
   personId?:       string;
   organisationId?: string;
+  includeActed?:   boolean;
   title?:          string;
 }) {
   const [entries,  setEntries]  = useState<AuditEntry[]>([]);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState<string | null>(null);
-  // null = collapsed, click a tab to reveal
   const [filter,   setFilter]   = useState<FilterType | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [page,     setPage]     = useState(1);
@@ -201,6 +237,9 @@ export default function AllocationAuditTrail({
       if (projectId)      params.set("projectId",      projectId);
       if (personId)       params.set("personId",       personId);
       if (organisationId) params.set("organisationId", organisationId);
+      // Include entries where this person was the actor (e.g. PMs making changes)
+      if (personId && includeActed) params.set("includeActed", "true");
+
       const res  = await fetch(`/api/allocations/audit?${params}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load");
@@ -210,9 +249,8 @@ export default function AllocationAuditTrail({
     } finally {
       setLoading(false);
     }
-  }, [projectId, personId, organisationId]);
+  }, [projectId, personId, organisationId, includeActed]);
 
-  // Load when filter is first opened
   useEffect(() => {
     if (filter !== null && entries.length === 0 && !loading && !error) {
       void load();
@@ -220,24 +258,27 @@ export default function AllocationAuditTrail({
   }, [filter, entries.length, loading, error, load]);
 
   function toggleExpanded(id: string) {
-    setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setExpanded(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
   }
 
-  const allEntries = entries;
   const counts = {
-    all:     allEntries.length,
-    created: allEntries.filter(e => FILTER_GROUPS.created.includes(e.action)).length,
-    updated: allEntries.filter(e => FILTER_GROUPS.updated.includes(e.action)).length,
-    deleted: allEntries.filter(e => FILTER_GROUPS.deleted.includes(e.action)).length,
-    weekly:  allEntries.filter(e => FILTER_GROUPS.weekly.includes(e.action)).length,
+    all:     entries.length,
+    created: entries.filter(e => FILTER_GROUPS.created.includes(e.action)).length,
+    updated: entries.filter(e => FILTER_GROUPS.updated.includes(e.action)).length,
+    deleted: entries.filter(e => FILTER_GROUPS.deleted.includes(e.action)).length,
+    weekly:  entries.filter(e => FILTER_GROUPS.weekly.includes(e.action)).length,
   };
 
   const filtered = filter === null ? []
-    : filter === "all" ? allEntries
-    : allEntries.filter(e => FILTER_GROUPS[filter].includes(e.action));
+    : filter === "all" ? entries
+    : entries.filter(e => FILTER_GROUPS[filter].includes(e.action));
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const paged      = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const btn = (active: boolean): React.CSSProperties => ({
     padding: "4px 10px", borderRadius: 6, border: "1px solid",
@@ -261,20 +302,20 @@ export default function AllocationAuditTrail({
             <button type="button" onClick={() => setExpanded(new Set(filtered.map(e => e.id)))} style={btn(false)}>Expand all</button>
           )}
           {filter !== null && (
-            <button type="button" onClick={load} title="Refresh" style={{ ...btn(false), padding: "4px 8px" }}>{"\u21bb"}</button>
+            <button type="button" onClick={load} title="Refresh" style={{ ...btn(false), padding: "4px 8px" }}>&#x21bb;</button>
           )}
-          <span style={{ fontSize: 11, color: "#94a3b8" }}>{allEntries.length} event{allEntries.length !== 1 ? "s" : ""}</span>
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>{entries.length} event{entries.length !== 1 ? "s" : ""}</span>
         </div>
       </div>
 
-      {/* Filter tabs - click to reveal */}
+      {/* Filter tabs */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
         <span style={{ fontSize: 11, color: "#94a3b8", marginRight: 4 }}>Click to view:</span>
         {(["all", "created", "updated", "deleted", "weekly"] as FilterType[]).map(f => (
           <button key={f} type="button"
             onClick={() => { setFilter(prev => prev === f ? null : f); setPage(1); setExpanded(new Set()); }}
             style={btn(filter === f)}>
-            {f === "all" ? `All (${counts.all})`
+            {f === "all"     ? `All (${counts.all})`
               : f === "created" ? `New (${counts.created})`
               : f === "updated" ? `Updated (${counts.updated})`
               : f === "deleted" ? `Removed (${counts.deleted})`
@@ -283,7 +324,6 @@ export default function AllocationAuditTrail({
         ))}
       </div>
 
-      {/* States */}
       {filter === null && (
         <div style={{ padding: "16px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>
           Select a filter above to view allocation history.
@@ -299,7 +339,6 @@ export default function AllocationAuditTrail({
         <div style={{ padding: "16px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>No events found.</div>
       )}
 
-      {/* Timeline */}
       {filter !== null && !loading && !error && paged.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
           {paged.map(entry => (
@@ -308,12 +347,11 @@ export default function AllocationAuditTrail({
         </div>
       )}
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 12 }}>
-          <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ ...btn(false), opacity: page === 1 ? 0.4 : 1 }}>{"\u2190"} Prev</button>
+          <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ ...btn(false), opacity: page === 1 ? 0.4 : 1 }}>&#x2190; Prev</button>
           <span style={{ fontSize: 11, color: "#64748b" }}>Page {page} of {totalPages}</span>
-          <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ ...btn(false), opacity: page === totalPages ? 0.4 : 1 }}>Next {"\u2192"}</button>
+          <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ ...btn(false), opacity: page === totalPages ? 0.4 : 1 }}>Next &#x2192;</button>
         </div>
       )}
     </div>
