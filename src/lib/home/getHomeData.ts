@@ -3,6 +3,7 @@ import "server-only";
 
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
+import { loadExecutiveBriefing } from "@/lib/server/home/loadExecutiveBriefing";
 
 type RagLetter = "G" | "A" | "R";
 
@@ -34,6 +35,7 @@ type HomeOk = {
   };
   approvals: { count: number; items: any[] };
   rag: { project_id: string; title: string; rag: RagLetter; health: number }[];
+  briefing?: any;
 };
 
 type HomeErr = { ok: false; error: string; meta?: any };
@@ -94,6 +96,7 @@ function emptyHome(user: { id: string; email?: string | null }, activeOrgId: str
     },
     approvals: { count: 0, items: [] },
     rag: [],
+    briefing: null,
   };
 }
 
@@ -361,6 +364,25 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
     ? Math.round(rag.reduce((sum, r) => sum + safeNum(r.health), 0) / rag.length)
     : 0;
 
+  // Build live RAG counts and project scores for the briefing
+  const liveRagCounts = {
+    g: rag.filter((r) => r.rag === "G").length,
+    a: rag.filter((r) => r.rag === "A").length,
+    r: rag.filter((r) => r.rag === "R").length,
+  };
+
+  const projectScores = Object.fromEntries(
+    rag.map((r) => [r.project_id, { score: r.health, rag: r.rag }])
+  );
+
+  // Generate briefing with real RAID counts and org scope
+  const briefing = await loadExecutiveBriefing({
+    projectScores,
+    liveRagCounts,
+    projectIds,
+    organisationId: activeOrgId,
+  }).catch(() => null);
+
   return {
     ok: true,
     user: { id: user.id, email: user.email },
@@ -378,5 +400,6 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
     },
     approvals,
     rag,
+    briefing,
   };
 }

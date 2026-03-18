@@ -40,12 +40,16 @@ function safeStr(x: unknown): string {
 export async function loadExecutiveBriefing(args: {
   projectScores?: Record<string, { score: number; rag: "G" | "A" | "R" }>;
   liveRagCounts?: { g: number; a: number; r: number };
+  projectIds?: string[];
+  organisationId?: string | null;
 }): Promise<BriefingData | null> {
   try {
     const supabase = await createClient();
 
-    const projectScores = args.projectScores ?? {};
-    const liveRagCounts = args.liveRagCounts ?? { g: 0, a: 0, r: 0 };
+    const projectScores  = args.projectScores  ?? {};
+    const liveRagCounts  = args.liveRagCounts  ?? { g: 0, a: 0, r: 0 };
+    const projectIds     = args.projectIds     ?? Object.keys(projectScores);
+    const organisationId = args.organisationId ?? null;
 
     const scoreVals = Object.values(projectScores)
       .map((x) => Number(x?.score))
@@ -57,17 +61,58 @@ export async function loadExecutiveBriefing(args: {
         : null;
 
     const projectCount = Object.keys(projectScores).length;
-    const overdueApprovals = 0; // Placeholder for future logic
-    const highRaid = 0;         // Placeholder for future logic
 
+    // -- Query actual RAID high/critical items --------------------------------
+    let highRaid = 0;
+    if (projectIds.length > 0) {
+      try {
+        const { count } = await supabase
+          .from("raid_items")
+          .select("id", { count: "exact", head: true })
+          .in("project_id", projectIds)
+          .in("status", ["Open", "open", "OPEN", "active", "Active"])
+          .in("priority", ["High", "high", "HIGH", "Critical", "critical", "CRITICAL"]);
+        highRaid = count ?? 0;
+      } catch {
+        // fail-open: keep highRaid = 0 if query errors
+      }
+    } else if (organisationId) {
+      // fallback: query by org if no project IDs
+      try {
+        const { count } = await supabase
+          .from("raid_items")
+          .select("id", { count: "exact", head: true })
+          .eq("organisation_id", organisationId)
+          .in("status", ["Open", "open", "OPEN", "active", "Active"])
+          .in("priority", ["High", "high", "HIGH", "Critical", "critical", "CRITICAL"]);
+        highRaid = count ?? 0;
+      } catch {
+        // fail-open
+      }
+    }
+
+    // -- Query overdue approvals ----------------------------------------------
+    let overdueApprovals = 0;
+    if (organisationId) {
+      try {
+        const { count } = await supabase
+          .from("approval_chains")
+          .select("id", { count: "exact", head: true })
+          .eq("organisation_id", organisationId)
+          .eq("status", "pending")
+          .lt("due_date", new Date().toISOString());
+        overdueApprovals = count ?? 0;
+      } catch {
+        // fail-open: approval table schema may differ
+      }
+    }
+
+    // -- Derive sentiment -----------------------------------------------------
     const dominant =
-      liveRagCounts.r > 0
-        ? "red"
-        : liveRagCounts.a > 0
-          ? "amber"
-          : liveRagCounts.g > 0
-            ? "green"
-            : "neutral";
+      liveRagCounts.r > 0 ? "red"
+      : liveRagCounts.a > 0 ? "amber"
+      : liveRagCounts.g > 0 ? "green"
+      : "neutral";
 
     const executive_summary =
       dominant === "red"
@@ -94,8 +139,8 @@ export async function loadExecutiveBriefing(args: {
         sentiment: highRaid > 0 ? "amber" : "green",
         body:
           highRaid > 0
-            ? `${highRaid} high-severity RAID items are currently flagged across the portfolio.`
-            : "No major cross-portfolio RAID escalation is currently detected.",
+            ? `${highRaid} high or critical RAID item${highRaid === 1 ? " is" : "s are"} currently open across the portfolio and require attention.`
+            : "No high or critical RAID items are currently open across the portfolio.",
       },
       {
         id: "delivery",
@@ -118,8 +163,15 @@ export async function loadExecutiveBriefing(args: {
 
     const talking_points = [
       `Portfolio mix is ${liveRagCounts.g} green / ${liveRagCounts.a} amber / ${liveRagCounts.r} red.`,
-      avgHealth != null ? `Average health is ${avgHealth}%.` : "Average health is still being established from live data.",
-      overdueApprovals > 0 ? `${overdueApprovals} overdue approvals need action.` : "No major approval backlog is currently highlighted.",
+      avgHealth != null
+        ? `Average health is ${avgHealth}%.`
+        : "Average health is still being established from live data.",
+      highRaid > 0
+        ? `${highRaid} high or critical RAID item${highRaid === 1 ? "" : "s"} require attention.`
+        : "No high-priority RAID items are currently flagged.",
+      overdueApprovals > 0
+        ? `${overdueApprovals} overdue approval${overdueApprovals === 1 ? "" : "s"} need action.`
+        : "No major approval backlog is currently highlighted.",
     ];
 
     return {
@@ -129,23 +181,18 @@ export async function loadExecutiveBriefing(args: {
       talking_points,
       gaps: [],
       signals_summary: {
-        project_count: projectCount,
-        rag: {
-          g: liveRagCounts.g,
-          a: liveRagCounts.a,
-          r: liveRagCounts.r,
-          unscored: 0,
-        },
-        avg_health: avgHealth,
+        project_count:     projectCount,
+        rag:               { g: liveRagCounts.g, a: liveRagCounts.a, r: liveRagCounts.r, unscored: 0 },
+        avg_health:        avgHealth,
         overdue_approvals: overdueApprovals,
-        high_raid: highRaid,
+        high_raid:         highRaid,
       },
       generated_at: new Date().toISOString(),
     };
   } catch (e: any) {
     return {
       ok: false,
-      error: safeStr(e?.message || e),
+      error:        safeStr(e?.message || e),
       generated_at: new Date().toISOString(),
     };
   }
