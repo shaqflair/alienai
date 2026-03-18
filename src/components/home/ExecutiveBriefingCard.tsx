@@ -1,11 +1,10 @@
-
 "use client";
 // src/components/home/ExecutiveBriefingCard.tsx
 // Render-only version.
 // Receives aggregated briefing data from the server/homepage payload.
 // No client-side AI fetches here.
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Sparkles,
@@ -23,11 +22,14 @@ import {
 } from "lucide-react";
 import type { BriefingData } from "@/lib/server/home/loadExecutiveBriefing";
 
-/* -- Error boundary -------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* Error boundary                                                              */
+/* -------------------------------------------------------------------------- */
+
 type EBState = { crashed: boolean };
 
 class CardErrorBoundary extends React.Component<{ children: React.ReactNode }, EBState> {
-  constructor(props: any) {
+  constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { crashed: false };
   }
@@ -36,7 +38,7 @@ class CardErrorBoundary extends React.Component<{ children: React.ReactNode }, E
     return { crashed: true };
   }
 
-  componentDidCatch(err: any) {
+  componentDidCatch(err: unknown) {
     console.error("[ExecutiveBriefingCard]", err);
   }
 
@@ -45,7 +47,10 @@ class CardErrorBoundary extends React.Component<{ children: React.ReactNode }, E
   }
 }
 
-/* -- Types ----------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* Types                                                                       */
+/* -------------------------------------------------------------------------- */
+
 type Sentiment = "green" | "amber" | "red" | "neutral";
 type SectionId = "health" | "risk" | "delivery" | "finance";
 
@@ -66,7 +71,10 @@ type Gap = {
 
 export type RagLiveCounts = { g: number; a: number; r: number };
 
-/* -- Helpers --------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                     */
+/* -------------------------------------------------------------------------- */
+
 function safeStr(x: unknown): string {
   if (typeof x === "string") return x;
   if (x == null) return "";
@@ -78,15 +86,15 @@ function timeAgo(iso: string): string {
     const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
     if (!Number.isFinite(diff) || diff < 0) return "";
     if (diff < 60) return "just now";
-    if (diff < 3600) return Math.floor(diff / 60) + "m ago";
-    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
-    return Math.floor(diff / 86400) + "d ago";
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
   } catch {
     return "";
   }
 }
 
-const S: Record<
+const SENTIMENT_STYLES: Record<
   Sentiment,
   { bar: string; bg: string; border: string; text: string; badge: string }
 > = {
@@ -120,7 +128,7 @@ const S: Record<
   },
 };
 
-const G: Record<Gap["severity"], { dot: string; text: string; bg: string }> = {
+const GAP_STYLES: Record<Gap["severity"], { dot: string; text: string; bg: string }> = {
   high: {
     dot: "bg-red-500",
     text: "text-red-700",
@@ -139,22 +147,277 @@ const G: Record<Gap["severity"], { dot: string; text: string; bg: string }> = {
 };
 
 function getOverall(sections: NarrativeSection[]): Sentiment {
-  if (!Array.isArray(sections) || !sections.length) return "neutral";
-  if (sections.some((s) => s?.sentiment === "red")) return "red";
-  if (sections.some((s) => s?.sentiment === "amber")) return "amber";
-  if (sections.every((s) => s?.sentiment === "green")) return "green";
+  if (!sections.length) return "neutral";
+  if (sections.some((s) => s.sentiment === "red")) return "red";
+  if (sections.some((s) => s.sentiment === "amber")) return "amber";
+  if (sections.every((s) => s.sentiment === "green")) return "green";
   return "neutral";
 }
 
-function SectionIcon({ id }: { id: SectionId }) {
+function getOverallLabel(sentiment: Sentiment): string {
+  if (sentiment === "red") return "Action required";
+  if (sentiment === "amber") return "Monitor";
+  if (sentiment === "green") return "On track";
+  return "Neutral";
+}
+
+function getBarWidth(sentiment: Sentiment): string {
+  if (sentiment === "green") return "90%";
+  if (sentiment === "amber") return "60%";
+  if (sentiment === "red") return "30%";
+  return "50%";
+}
+
+const SectionIcon = React.memo(function SectionIcon({ id }: { id: SectionId }) {
   if (id === "health") return <Activity className="h-4 w-4" />;
   if (id === "risk") return <AlertTriangle className="h-4 w-4" />;
   if (id === "delivery") return <Truck className="h-4 w-4" />;
   if (id === "finance") return <DollarSign className="h-4 w-4" />;
   return null;
-}
+});
 
-/* -- Inner component ------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* Small memo blocks                                                           */
+/* -------------------------------------------------------------------------- */
+
+const MetricPills = React.memo(function MetricPills({
+  projectCount,
+  rag,
+  avgHealth,
+  overdueApprovals,
+  highRaid,
+}: {
+  projectCount: number;
+  rag?: { g: number; a: number; r: number } | null;
+  avgHealth?: number | null;
+  overdueApprovals?: number | null;
+  highRaid?: number | null;
+}) {
+  if (!rag && projectCount <= 0 && avgHealth == null && !overdueApprovals && !highRaid) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700">
+        <Activity className="h-3 w-3 text-gray-400" />
+        {projectCount} projects
+      </span>
+
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">
+        {rag?.g ?? 0} Green
+      </span>
+
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+        {rag?.a ?? 0} Amber
+      </span>
+
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
+        {rag?.r ?? 0} Red
+      </span>
+
+      {avgHealth != null && (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600">
+          Avg health {avgHealth}%
+        </span>
+      )}
+
+      {(overdueApprovals ?? 0) > 0 && (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
+          <AlertTriangle className="h-3 w-3" />
+          {overdueApprovals} overdue approvals
+        </span>
+      )}
+
+      {(highRaid ?? 0) > 0 && (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+          {highRaid} high-severity RAID
+        </span>
+      )}
+    </div>
+  );
+});
+
+const SectionsGrid = React.memo(function SectionsGrid({
+  sections,
+}: {
+  sections: NarrativeSection[];
+}) {
+  if (!sections.length) return null;
+
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {sections.map((sec, i) => {
+        const sentiment = sec?.sentiment ?? "neutral";
+        const st = SENTIMENT_STYLES[sentiment] ?? SENTIMENT_STYLES.neutral;
+        const sentLabel = safeStr(sentiment);
+
+        return (
+          <div
+            key={sec?.id ?? i}
+            className={`rounded-xl border p-4 ${st.bg} ${st.border}`}
+          >
+            <div className="mb-2 flex items-center gap-2">
+              <span className={st.text}>
+                <SectionIcon id={sec?.id as SectionId} />
+              </span>
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                {safeStr(sec?.title)}
+              </span>
+              <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${st.badge}`}>
+                {sentLabel.charAt(0).toUpperCase() + sentLabel.slice(1)}
+              </span>
+            </div>
+            <p className="text-xs leading-relaxed text-gray-700">{safeStr(sec?.body)}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
+const GapsPanel = React.memo(function GapsPanel({
+  gaps,
+  showGaps,
+  onToggle,
+  onNavigate,
+}: {
+  gaps: Gap[];
+  showGaps: boolean;
+  onToggle: () => void;
+  onNavigate: (href: string) => void;
+}) {
+  if (!gaps.length) return null;
+
+  const highG = gaps.filter((g) => g?.severity === "high");
+  const otherG = gaps.filter((g) => g?.severity !== "high");
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-gray-100"
+      >
+        <div className="flex items-center gap-2.5">
+          <Shield className="h-4 w-4 shrink-0 text-gray-500" />
+          <span className="text-sm font-semibold text-gray-800">Governance gaps</span>
+
+          {highG.length > 0 && (
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+              {highG.length}
+            </span>
+          )}
+
+          {otherG.length > 0 && (
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-gray-300 px-1.5 text-[10px] font-bold text-gray-700">
+              {otherG.length}
+            </span>
+          )}
+        </div>
+
+        <ChevronRight
+          className={`h-4 w-4 text-gray-400 transition-transform duration-200${showGaps ? " rotate-90" : ""}`}
+        />
+      </button>
+
+      {showGaps && (
+        <div className="mt-2 space-y-1.5">
+          {gaps.map((g, i) => {
+            const gs = GAP_STYLES[g?.severity] ?? GAP_STYLES.medium;
+
+            return (
+              <div
+                key={i}
+                className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${gs.bg}`}
+              >
+                <div className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${gs.dot}`} />
+
+                <div className="min-w-0 flex-1">
+                  {g?.project && (
+                    <div className="mb-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                      {safeStr(g.project)}
+                    </div>
+                  )}
+                  <div className={`text-xs font-medium ${gs.text}`}>{safeStr(g?.detail)}</div>
+                </div>
+
+                {g?.href && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(g.href!)}
+                    className="flex shrink-0 items-center gap-0.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700"
+                  >
+                    Fix <ChevronRight className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+const TalkingPoints = React.memo(function TalkingPoints({
+  points,
+  copied,
+  onCopy,
+}: {
+  points: string[];
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  if (!points.length) return null;
+
+  return (
+    <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ClipboardList className="h-4 w-4 shrink-0 text-indigo-500" />
+          <span className="text-xs font-bold uppercase tracking-wider text-indigo-700">
+            Board talking points
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={onCopy}
+          className="flex items-center gap-1 text-xs font-medium text-indigo-500 transition-colors hover:text-indigo-700"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3 w-3" />
+              <span>Copied</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3" />
+              <span>Copy all</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      <ol className="space-y-2">
+        {points.map((tp, i) => (
+          <li key={i} className="flex items-start gap-2.5">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-indigo-200 bg-indigo-100 text-[10px] font-bold text-indigo-600">
+              {i + 1}
+            </span>
+            <span className="text-xs leading-relaxed text-gray-700">{safeStr(tp)}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+});
+
+/* -------------------------------------------------------------------------- */
+/* Main inner                                                                  */
+/* -------------------------------------------------------------------------- */
+
 function BriefingInner({
   data,
   liveRagCounts,
@@ -168,88 +431,128 @@ function BriefingInner({
   const [showGaps, setShowGaps] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
+  const copyTimeoutRef = useRef<number | null>(null);
+
   const loading = !data;
   const fetchErr = data && !data.ok ? safeStr(data.error) || "Failed to load briefing" : null;
   const refreshed = data?.generated_at ?? "";
 
-  const copy = useCallback(() => {
-    const pts = data?.talking_points;
-    if (!Array.isArray(pts) || !pts.length) return;
+  const sections = useMemo<NarrativeSection[]>(
+    () => (Array.isArray(data?.sections) ? (data.sections as NarrativeSection[]) : []),
+    [data?.sections]
+  );
 
-    const text = pts.map((t, i) => `${i + 1}. ${safeStr(t)}`).join("\n");
-    navigator.clipboard
-      ?.writeText(text)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      })
-      .catch(() => {});
-  }, [data]);
+  const gaps = useMemo<Gap[]>(
+    () => (Array.isArray(data?.gaps) ? (data.gaps as Gap[]) : []),
+    [data?.gaps]
+  );
 
-  const sections = Array.isArray(data?.sections) ? (data.sections as NarrativeSection[]) : [];
-  const gaps = Array.isArray(data?.gaps) ? (data.gaps as Gap[]) : [];
-  const points = Array.isArray(data?.talking_points) ? data.talking_points : [];
+  const points = useMemo<string[]>(
+    () => (Array.isArray(data?.talking_points) ? data.talking_points.map((x) => safeStr(x)) : []),
+    [data?.talking_points]
+  );
+
   const sig = data?.signals_summary ?? null;
 
-  const displayRag =
-    liveRagCounts && data?.ok
-      ? { g: liveRagCounts.g, a: liveRagCounts.a, r: liveRagCounts.r }
-      : sig?.rag;
+  const displayRag = useMemo(() => {
+    if (liveRagCounts && data?.ok) {
+      return {
+        g: liveRagCounts.g,
+        a: liveRagCounts.a,
+        r: liveRagCounts.r,
+      };
+    }
+    return sig?.rag ?? null;
+  }, [liveRagCounts, data?.ok, sig]);
 
-  const overall = getOverall(sections);
-  const os = S[overall] ?? S.neutral;
-  const highG = gaps.filter((g) => g?.severity === "high");
-  const otherG = gaps.filter((g) => g?.severity !== "high");
-  const label =
-    overall === "red"
-      ? "Action required"
-      : overall === "amber"
-        ? "Monitor"
-        : overall === "green"
-          ? "On track"
-          : "Neutral";
-  const barW =
-    overall === "green"
-      ? "90%"
-      : overall === "amber"
-        ? "60%"
-        : overall === "red"
-          ? "30%"
-          : "50%";
+  const overall = useMemo(() => getOverall(sections), [sections]);
+  const overallStyle = SENTIMENT_STYLES[overall] ?? SENTIMENT_STYLES.neutral;
+  const overallLabel = useMemo(() => getOverallLabel(overall), [overall]);
+  const barWidth = useMemo(() => getBarWidth(overall), [overall]);
+
+  const onRefresh = useCallback(() => {
+    router.refresh();
+  }, [router]);
+
+  const onToggleCollapsed = useCallback(() => {
+    setCollapsed((v) => !v);
+  }, []);
+
+  const onToggleGaps = useCallback(() => {
+    setShowGaps((v) => !v);
+  }, []);
+
+  const onNavigate = useCallback(
+    (href: string) => {
+      try {
+        router.push(href);
+      } catch {
+        // no-op
+      }
+    },
+    [router]
+  );
+
+  const copy = useCallback(() => {
+    if (!points.length || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      return;
+    }
+
+    const text = points.map((t, i) => `${i + 1}. ${safeStr(t)}`).join("\n");
+
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(true);
+
+        if (copyTimeoutRef.current) {
+          window.clearTimeout(copyTimeoutRef.current);
+        }
+
+        copyTimeoutRef.current = window.setTimeout(() => {
+          setCopied(false);
+          copyTimeoutRef.current = null;
+        }, 2000);
+      })
+      .catch(() => {});
+  }, [points]);
 
   return (
     <div
-      className="rounded-2xl border border-gray-100 bg-white overflow-hidden"
+      className="overflow-hidden rounded-2xl border border-gray-100 bg-white"
       style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-50">
+      <div className="flex items-center justify-between border-b border-gray-50 px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100">
             <Sparkles className="h-4 w-4 text-indigo-600" />
           </div>
+
           <div>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-semibold text-gray-900">Executive Briefing</h3>
+
               {data?.ok && !loading && (
-                <span className={"text-[10px] font-bold px-2 py-0.5 rounded-full " + os.badge}>
-                  {label}
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${overallStyle.badge}`}>
+                  {overallLabel}
                 </span>
               )}
             </div>
-            <p className="text-xs text-gray-400 mt-0.5">
+
+            <p className="mt-0.5 text-xs text-gray-400">
               {"AI-generated portfolio narrative · "}
-              {refreshed ? "Updated " + timeAgo(refreshed) : loading ? "Loading..." : "Ready"}
+              {refreshed ? `Updated ${timeAgo(refreshed)}` : loading ? "Loading..." : "Ready"}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           {points.length > 0 && (
             <button
               type="button"
               onClick={copy}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
               {copied ? (
                 <>
@@ -267,20 +570,22 @@ function BriefingInner({
 
           <button
             type="button"
-            onClick={() => router.refresh()}
-            className="h-8 w-8 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors"
+            onClick={onRefresh}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50"
             title="Refresh"
+            aria-label="Refresh"
           >
             <RefreshCw className="h-3.5 w-3.5" />
           </button>
 
           <button
             type="button"
-            onClick={() => setCollapsed((v) => !v)}
-            className="h-8 w-8 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors"
+            onClick={onToggleCollapsed}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50"
+            aria-label={collapsed ? "Expand briefing" : "Collapse briefing"}
           >
             <ChevronRight
-              className={"h-3.5 w-3.5 transition-transform duration-200" + (collapsed ? "" : " rotate-90")}
+              className={`h-3.5 w-3.5 transition-transform duration-200${collapsed ? "" : " rotate-90"}`}
             />
           </button>
         </div>
@@ -290,13 +595,13 @@ function BriefingInner({
         <div>
           {/* Skeleton */}
           {loading && (
-            <div className="p-6 space-y-4 animate-pulse">
-              <div className="h-4 bg-gray-100 rounded w-3/4" />
-              <div className="h-4 bg-gray-100 rounded w-full" />
-              <div className="h-4 bg-gray-100 rounded w-5/6" />
-              <div className="grid grid-cols-2 gap-3 mt-4">
+            <div className="animate-pulse space-y-4 p-6">
+              <div className="h-4 w-3/4 rounded bg-gray-100" />
+              <div className="h-4 w-full rounded bg-gray-100" />
+              <div className="h-4 w-5/6 rounded bg-gray-100" />
+              <div className="mt-4 grid grid-cols-2 gap-3">
                 {[0, 1, 2, 3].map((n) => (
-                  <div key={n} className="h-24 bg-gray-50 rounded-xl" />
+                  <div key={n} className="h-24 rounded-xl bg-gray-50" />
                 ))}
               </div>
             </div>
@@ -305,15 +610,15 @@ function BriefingInner({
           {/* Error */}
           {fetchErr && !loading && (
             <div className="p-6">
-              <div className="rounded-xl border border-red-100 bg-red-50 p-4 flex items-start gap-3">
-                <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+              <div className="flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
                 <div>
                   <div className="text-sm font-semibold text-red-800">Briefing unavailable</div>
-                  <div className="text-xs text-red-700 mt-0.5">{fetchErr}</div>
+                  <div className="mt-0.5 text-xs text-red-700">{fetchErr}</div>
                   <button
                     type="button"
-                    onClick={() => router.refresh()}
-                    className="mt-2 text-xs text-red-600 hover:text-red-800 font-medium underline"
+                    onClick={onRefresh}
+                    className="mt-2 text-xs font-medium text-red-600 underline hover:text-red-800"
                   >
                     Refresh page
                   </button>
@@ -324,210 +629,58 @@ function BriefingInner({
 
           {/* Content */}
           {data?.ok && !fetchErr && !loading && (
-            <div className="p-6 space-y-5">
-              {/* Bar */}
-              <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+            <div className="space-y-5 p-6">
+              {/* Health bar */}
+              <div className="h-1 overflow-hidden rounded-full bg-gray-100">
                 <div
                   className="h-full rounded-full transition-all duration-700"
-                  style={{ width: barW, background: os.bar }}
+                  style={{ width: barWidth, background: overallStyle.bar }}
                 />
               </div>
 
               {/* Summary */}
               {safeStr(data.executive_summary) && (
-                <div className={"rounded-xl border p-4 " + os.bg + " " + os.border}>
-                  <p className={"text-sm font-medium leading-relaxed " + os.text}>
+                <div className={`rounded-xl border p-4 ${overallStyle.bg} ${overallStyle.border}`}>
+                  <p className={`text-sm font-medium leading-relaxed ${overallStyle.text}`}>
                     {safeStr(data.executive_summary)}
                   </p>
                 </div>
               )}
 
               {/* Pills */}
-              {(displayRag || sig) && (
-                <div className="flex flex-wrap gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700">
-                    <Activity className="h-3 w-3 text-gray-400" />
-                    {sig?.project_count ?? 0} projects
-                  </span>
+              <MetricPills
+                projectCount={sig?.project_count ?? 0}
+                rag={displayRag}
+                avgHealth={sig?.avg_health ?? null}
+                overdueApprovals={sig?.overdue_approvals ?? 0}
+                highRaid={sig?.high_raid ?? 0}
+              />
 
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">
-                    {displayRag?.g ?? sig?.rag?.g ?? 0} Green
-                  </span>
-
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-                    {displayRag?.a ?? sig?.rag?.a ?? 0} Amber
-                  </span>
-
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
-                    {displayRag?.r ?? sig?.rag?.r ?? 0} Red
-                  </span>
-
-                  {sig?.avg_health != null && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600">
-                      Avg health {sig.avg_health}%
-                    </span>
-                  )}
-
-                  {(sig?.overdue_approvals ?? 0) > 0 && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
-                      <AlertTriangle className="h-3 w-3" />
-                      {sig!.overdue_approvals} overdue approvals
-                    </span>
-                  )}
-
-                  {(sig?.high_raid ?? 0) > 0 && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-                      {sig!.high_raid} high-severity RAID
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* 4 sections */}
-              {sections.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {sections.map((sec, i) => {
-                    const st = S[sec?.sentiment as Sentiment] ?? S.neutral;
-                    const sentLabel = safeStr(sec?.sentiment);
-
-                    return (
-                      <div
-                        key={sec?.id ?? i}
-                        className={"rounded-xl border p-4 " + st.bg + " " + st.border}
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={st.text}>
-                            <SectionIcon id={sec?.id as SectionId} />
-                          </span>
-                          <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                            {safeStr(sec?.title)}
-                          </span>
-                          <span className={"ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full " + st.badge}>
-                            {sentLabel.charAt(0).toUpperCase() + sentLabel.slice(1)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-700 leading-relaxed">{safeStr(sec?.body)}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {/* Sections */}
+              <SectionsGrid sections={sections} />
 
               {/* Gaps */}
-              {gaps.length > 0 && (
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setShowGaps((v) => !v)}
-                    className="w-full flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-left hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <Shield className="h-4 w-4 text-gray-500 shrink-0" />
-                      <span className="text-sm font-semibold text-gray-800">Governance gaps</span>
-                      {highG.length > 0 && (
-                        <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-red-500 text-[10px] font-bold text-white">
-                          {highG.length}
-                        </span>
-                      )}
-                      {otherG.length > 0 && (
-                        <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-gray-300 text-[10px] font-bold text-gray-700">
-                          {otherG.length}
-                        </span>
-                      )}
-                    </div>
-                    <ChevronRight
-                      className={"h-4 w-4 text-gray-400 transition-transform duration-200" + (showGaps ? " rotate-90" : "")}
-                    />
-                  </button>
-
-                  {showGaps && (
-                    <div className="mt-2 space-y-1.5">
-                      {gaps.map((g, i) => {
-                        const gs = G[g?.severity] ?? G.medium;
-                        return (
-                          <div key={i} className={"flex items-start gap-3 rounded-xl border px-4 py-3 " + gs.bg}>
-                            <div className={"h-2 w-2 rounded-full mt-1.5 shrink-0 " + gs.dot} />
-                            <div className="min-w-0 flex-1">
-                              {g?.project && (
-                                <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
-                                  {safeStr(g.project)}
-                                </div>
-                              )}
-                              <div className={"text-xs font-medium " + gs.text}>{safeStr(g?.detail)}</div>
-                            </div>
-                            {g?.href && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  try {
-                                    router.push(g.href!);
-                                  } catch {}
-                                }}
-                                className="shrink-0 text-xs text-gray-400 hover:text-gray-700 font-medium flex items-center gap-0.5 transition-colors"
-                              >
-                                Fix <ChevronRight className="h-3 w-3" />
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
+              <GapsPanel
+                gaps={gaps}
+                showGaps={showGaps}
+                onToggle={onToggleGaps}
+                onNavigate={onNavigate}
+              />
 
               {/* Talking points */}
-              {points.length > 0 && (
-                <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <ClipboardList className="h-4 w-4 text-indigo-500 shrink-0" />
-                      <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider">
-                        Board talking points
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={copy}
-                      className="text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
-                    >
-                      {copied ? (
-                        <>
-                          <Check className="h-3 w-3" />
-                          <span>Copied</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="h-3 w-3" />
-                          <span>Copy all</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  <ol className="space-y-2">
-                    {points.map((tp, i) => (
-                      <li key={i} className="flex items-start gap-2.5">
-                        <span className="h-5 w-5 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-[10px] font-bold text-indigo-600 shrink-0 mt-0.5">
-                          {i + 1}
-                        </span>
-                        <span className="text-xs text-gray-700 leading-relaxed">{safeStr(tp)}</span>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
+              <TalkingPoints points={points} copied={copied} onCopy={copy} />
 
               {/* Footer */}
               <div className="flex items-center justify-between pt-1">
                 <p className="text-[11px] text-gray-400">
-                  {data.generated_at ? "Generated " + new Date(data.generated_at).toLocaleString() : ""}
+                  {data.generated_at ? `Generated ${new Date(data.generated_at).toLocaleString()}` : ""}
                   {" · AI-assisted -- verify before presenting"}
                 </p>
+
                 <button
                   type="button"
-                  onClick={() => router.refresh()}
-                  className="text-xs text-gray-400 hover:text-gray-600 font-medium flex items-center gap-1 transition-colors"
+                  onClick={onRefresh}
+                  className="flex items-center gap-1 text-xs font-medium text-gray-400 transition-colors hover:text-gray-600"
                 >
                   <RefreshCw className="h-3 w-3" />
                   <span>Refresh</span>
@@ -540,6 +693,10 @@ function BriefingInner({
     </div>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Export                                                                      */
+/* -------------------------------------------------------------------------- */
 
 function ExecutiveBriefingCard({
   data,
