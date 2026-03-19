@@ -393,12 +393,15 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
     rag.map((r) => [r.project_id, { score: r.health, rag: r.rag }])
   );
 
-  // Briefing uses confirmed project IDs only
+  // Briefing uses confirmed project IDs only.
+  // liveHealthScore must be passed — the function returns null without it
+  // (guard added to prevent stale score flash on the client).
   const briefing = await loadExecutiveBriefing({
     projectScores,
     liveRagCounts,
     projectIds: confirmedProjectIds,
     organisationId: activeOrgId,
+    liveHealthScore: portfolioHealth,
   }).catch(() => null);
 
   return {
