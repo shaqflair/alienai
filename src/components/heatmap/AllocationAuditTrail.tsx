@@ -215,13 +215,13 @@ export default function AllocationAuditTrail({
   includeActed?:   boolean;
   title?:          string;
 }) {
-  const [entries,  setEntries]  = useState<AuditEntry[]>([]);
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
-  // Default to "all" so data loads immediately and counts are visible
-  const [filter,   setFilter]   = useState<FilterType>("all");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [page,     setPage]     = useState(1);
+  const [entries,    setEntries]    = useState<AuditEntry[]>([]);
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
+  const [filter,     setFilter]     = useState<FilterType>("all");
+  const [expanded,   setExpanded]   = useState<Set<string>>(new Set());
+  const [page,       setPage]       = useState(1);
+  const [collapsed,  setCollapsed]  = useState(true);
   const PAGE_SIZE = 20;
 
   const load = useCallback(async () => {
