@@ -421,9 +421,7 @@ function loadSavedViews(): SavedView[] {
   if (typeof window === "undefined") return [];
   const arr = safeParseJson<SavedView[]>(window.localStorage.getItem(LS_KEY_VIEWS));
   if (!Array.isArray(arr)) return [];
-  return arr
-    .filter((v) => v && typeof v === "object" && typeof (v as any).id === "string")
-    .slice(0, 50);
+  return arr.filter((v) => v && typeof v === "object" && typeof (v as any).id === "string").slice(0, 50);
 }
 function persistSavedViews(next: SavedView[]) {
   if (typeof window !== "undefined") {
@@ -660,39 +658,42 @@ function rowsArrayFrom(state: RowsState): WbsRow[] {
   return out;
 }
 
+function buildRowsState(rows: WbsRow[]): RowsState {
+  const byId: Record<string, WbsRow> = {};
+  const order: string[] = [];
+
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const id = safeStr(r?.id) || uuidish();
+    byId[id] = {
+      id,
+      level: clamp(Number((r as any)?.level ?? 0), 0, 10),
+      deliverable: safeStr((r as any)?.deliverable),
+      description: safeStr((r as any)?.description),
+      acceptance_criteria: safeStr((r as any)?.acceptance_criteria),
+      owner: safeStr((r as any)?.owner),
+      status: (((r as any)?.status ?? "not_started") as WbsStatus) || "not_started",
+      effort: normalizeEffort((r as any)?.effort),
+      due_date: safeStr((r as any)?.due_date),
+      predecessor: safeStr((r as any)?.predecessor),
+      tags: Array.isArray((r as any)?.tags)
+        ? (r as any).tags.map((t: any) => safeStr(t)).filter(Boolean)
+        : [],
+    };
+    order.push(id);
+  }
+
+  if (!order.length) {
+    const nid = uuidish();
+    byId[nid] = { id: nid, level: 0, deliverable: "", effort: "", status: "not_started" as WbsStatus };
+    order.push(nid);
+  }
+
+  return { byId, order };
+}
+
 function rowsReducer(state: RowsState, action: RowsAction): RowsState {
   if (action.type === "HYDRATE" || action.type === "REPLACE_ALL") {
-    const byId: Record<string, WbsRow> = {};
-    const order: string[] = [];
-    const rows = Array.isArray(action.rows) ? action.rows : [];
-
-    for (const r of rows) {
-      const id = safeStr(r?.id) || uuidish();
-      byId[id] = {
-        id,
-        level: clamp(Number((r as any)?.level ?? 0), 0, 10),
-        deliverable: safeStr((r as any)?.deliverable),
-        description: safeStr((r as any)?.description),
-        acceptance_criteria: safeStr((r as any)?.acceptance_criteria),
-        owner: safeStr((r as any)?.owner),
-        status: (((r as any)?.status ?? "not_started") as WbsStatus) || "not_started",
-        effort: normalizeEffort((r as any)?.effort),
-        due_date: safeStr((r as any)?.due_date),
-        predecessor: safeStr((r as any)?.predecessor),
-        tags: Array.isArray((r as any)?.tags)
-          ? (r as any).tags.map((t: any) => safeStr(t)).filter(Boolean)
-          : [],
-      };
-      order.push(id);
-    }
-
-    if (!order.length) {
-      const nid = uuidish();
-      byId[nid] = { id: nid, level: 0, deliverable: "", effort: "", status: "not_started" as WbsStatus };
-      order.push(nid);
-    }
-
-    return { byId, order };
+    return buildRowsState(action.rows);
   }
 
   if (action.type === "UPDATE") {
@@ -1174,30 +1175,22 @@ export default function WBSEditor({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  const [docMeta, setDocMeta] = useState(() => {
-    const d = normalizeInitial(initialJson);
-    return {
-      version: 1 as const,
-      type: "wbs" as const,
-      title: d.title || "Work Breakdown Structure",
-      due_date: d.due_date || "",
-      auto_rollup: d.auto_rollup !== false,
-    };
-  });
-  const [title, setTitle] = useState<string>(
-    () => normalizeInitial(initialJson)?.title || "Work Breakdown Structure"
-  );
+  const initialDoc = useMemo(() => normalizeInitial(initialJson), [initialJson]);
+
+  const [docMeta, setDocMeta] = useState(() => ({
+    version: 1 as const,
+    type: "wbs" as const,
+    title: initialDoc.title || "Work Breakdown Structure",
+    due_date: initialDoc.due_date || "",
+    auto_rollup: initialDoc.auto_rollup !== false,
+  }));
+  const [title, setTitle] = useState<string>(() => initialDoc.title || "Work Breakdown Structure");
 
   const [rowsState, dispatchRows] = useReducer(
     rowsReducer,
-    undefined as any,
-    () => ({ byId: {}, order: [] } as RowsState)
+    initialDoc.rows ?? [],
+    (rows) => buildRowsState(rows)
   );
-
-  useEffect(() => {
-    const d = normalizeInitial(initialJson);
-    dispatchRows({ type: "HYDRATE", rows: d.rows ?? [] });
-  }, []); // eslint-disable-line
 
   const [msg, setMsg] = useState("");
   const [msgKind, setMsgKind] = useState<"info" | "error" | "success">("info");
@@ -1207,8 +1200,9 @@ export default function WBSEditor({
   const [lastSavedAt, setLastSavedAt] = useState("");
   const [artifactCreateAttempted, setArtifactCreateAttempted] = useState(false);
 
-  const [artifactIdLocal, setArtifactIdLocal] = useState<string>(() => safeStr(artifactId).trim());
-  const artifactIdRef = useRef<string>(safeStr(artifactId).trim());
+  const initialArtifactId = useMemo(() => safeStr(artifactId).trim(), [artifactId]);
+  const [artifactIdLocal, setArtifactIdLocal] = useState<string>(initialArtifactId);
+  const artifactIdRef = useRef<string>(initialArtifactId);
 
   const [exportingXlsx, setExportingXlsx] = useState(false);
   const [openRowId, setOpenRowId] = useState<string | null>(null);
@@ -1251,7 +1245,7 @@ export default function WBSEditor({
     }
   }, [initialJson]);
 
-  const rowsArr = useMemo(() => rowsArrayFrom(rowsState as RowsState), [rowsState]);
+  const rowsArr = useMemo(() => rowsArrayFrom(rowsState), [rowsState]);
   const coded = useMemo(() => computeCodes(rowsArr ?? []), [rowsArr]);
   const rolled = useMemo(
     () => deriveRollups(coded, docMeta.auto_rollup !== false),
@@ -1262,21 +1256,59 @@ export default function WBSEditor({
     [coded, selectedRowId]
   );
 
+  const makeSerializedContent = useCallback(() => {
+    return serialize({
+      version: 1,
+      type: "wbs",
+      title: title.trim() || "Work Breakdown Structure",
+      due_date: safeStr(docMeta.due_date || ""),
+      auto_rollup: docMeta.auto_rollup !== false,
+      rows: computeCodes(rowsArr ?? []),
+    });
+  }, [title, docMeta.due_date, docMeta.auto_rollup, rowsArr]);
+
   function flashMessage(text: string, kind: "info" | "error" | "success" = "info", ttl = 1200) {
     setMsgKind(kind);
     setMsg(text);
-    if (ttl > 0) {
+    if (ttl > 0 && typeof window !== "undefined") {
       window.setTimeout(() => setMsg(""), ttl);
     }
   }
 
+  const setResolvedArtifactId = useCallback(
+    (nextId: string) => {
+      const safeId = safeStr(nextId).trim();
+      if (!safeId) return "";
+      artifactIdRef.current = safeId;
+      setArtifactIdLocal((prev) => (prev === safeId ? prev : safeId));
+
+      try {
+        window.dispatchEvent(
+          new CustomEvent("artifact-created", {
+            detail: { artifactId: safeId, projectId: safeStr(projectId).trim() },
+          })
+        );
+      } catch {}
+
+      try {
+        const u = new URL(window.location.href);
+        if (u.searchParams.get("artifactId") !== safeId) {
+          u.searchParams.set("artifactId", safeId);
+          window.history.replaceState({}, "", `${u.pathname}?${u.searchParams.toString()}${u.hash || ""}`);
+        }
+      } catch {}
+
+      return safeId;
+    },
+    [projectId]
+  );
+
   useEffect(() => {
     const v = safeStr(artifactId).trim();
-    if (v && v !== artifactIdLocal) {
-      artifactIdRef.current = v;
-      setArtifactIdLocal(v);
+    if (v && v !== artifactIdRef.current) {
+      setResolvedArtifactId(v);
     }
-  }, [artifactId, artifactIdLocal]);
+  }, [artifactId, setResolvedArtifactId]);
 
   useEffect(() => {
     if (dirty) return;
@@ -1294,7 +1326,7 @@ export default function WBSEditor({
       dispatchRows({ type: "HYDRATE", rows: next.rows ?? [] });
       setSaveMode("idle");
     }
-  }, [initialFingerprint, artifactId, dirty, initialJson]);
+  }, [initialFingerprint, dirty, initialJson]);
 
   useEffect(() => {
     setSavedViews(loadSavedViews());
@@ -1328,6 +1360,43 @@ export default function WBSEditor({
     setSaveMode("dirty");
   }
 
+  async function ensureArtifactIdOrCreate(content: any): Promise<string> {
+    const existing = safeStr(artifactIdRef.current).trim();
+    if (existing) return existing;
+
+    const safeProjectId = safeStr(projectId).trim();
+    if (!safeProjectId) throw new Error("Missing projectId");
+
+    const body = {
+      projectId: safeProjectId,
+      project_id: safeProjectId,
+      title: safeStr(title).trim() || "Work Breakdown Structure",
+      type: "wbs",
+      artifact_type: "wbs",
+      content_json: content,
+      contentJson: content,
+      content: JSON.stringify(content),
+      content_json_string: JSON.stringify(content),
+    };
+
+    const j = await tryCreateArtifactViaEndpoints(body);
+    const newId =
+      safeStr((j as any)?.id) ||
+      safeStr((j as any)?.artifact?.id) ||
+      safeStr((j as any)?.data?.id) ||
+      safeStr((j as any)?.data?.artifact?.id);
+
+    if (!newId) throw new Error("Create succeeded but no artifact id returned");
+
+    setResolvedArtifactId(newId);
+
+    try {
+      router.refresh();
+    } catch {}
+
+    return safeStr(newId).trim();
+  }
+
   async function requestCreateArtifactIfNeeded(
     _reason: "edit" | "focus" | "autosave"
   ): Promise<void> {
@@ -1344,15 +1413,7 @@ export default function WBSEditor({
     setArtifactCreateAttempted(true);
 
     const p = (async (): Promise<string> => {
-      const content = serialize({
-        version: 1,
-        type: "wbs",
-        title: title.trim() || "Work Breakdown Structure",
-        due_date: safeStr(docMeta.due_date || ""),
-        auto_rollup: docMeta.auto_rollup !== false,
-        rows: computeCodes(rowsArr ?? []),
-      });
-
+      const content = makeSerializedContent();
       return await ensureArtifactIdOrCreate(content);
     })();
 
@@ -1371,6 +1432,19 @@ export default function WBSEditor({
     } finally {
       createPromiseRef.current = null;
     }
+  }
+
+  async function ensureArtifactReady(reason: "focus" | "autosave" | "manual"): Promise<string> {
+    if (!artifactIdRef.current) {
+      await requestCreateArtifactIfNeeded(reason === "manual" ? "focus" : reason);
+    }
+
+    const id = safeStr(artifactIdRef.current).trim();
+    if (!id) {
+      throw new Error("Missing artifactId");
+    }
+
+    return id;
   }
 
   const updateRow = useCallback(
@@ -1627,73 +1701,6 @@ export default function WBSEditor({
 
   const visibleRows = useMemo(() => applyCollapseStateToVisible(filtered), [filtered, collapsed]);
 
-  async function ensureArtifactIdOrCreate(content: any): Promise<string> {
-    const existing = artifactIdRef.current;
-    if (existing) return existing;
-
-    const safeProjectId = safeStr(projectId).trim();
-    if (!safeProjectId) throw new Error("Missing projectId");
-
-    const body = {
-      projectId: safeProjectId,
-      project_id: safeProjectId,
-      title: safeStr(title).trim() || "Work Breakdown Structure",
-      type: "wbs",
-      artifact_type: "wbs",
-      content_json: content,
-      contentJson: content,
-      content: JSON.stringify(content),
-      content_json_string: JSON.stringify(content),
-    };
-
-    const j = await tryCreateArtifactViaEndpoints(body);
-    const newId =
-      safeStr((j as any)?.id) ||
-      safeStr((j as any)?.artifact?.id) ||
-      safeStr((j as any)?.data?.id) ||
-      safeStr((j as any)?.data?.artifact?.id);
-
-    if (!newId) throw new Error("Create succeeded but no artifact id returned");
-
-    artifactIdRef.current = newId;
-    setArtifactIdLocal(newId);
-
-    try {
-      window.dispatchEvent(
-        new CustomEvent("artifact-created", {
-          detail: { artifactId: newId, projectId: safeProjectId },
-        })
-      );
-    } catch {}
-
-    try {
-      const u = new URL(window.location.href);
-      if (!u.searchParams.get("artifactId")) {
-        u.searchParams.set("artifactId", newId);
-        router.replace(u.pathname + "?" + u.searchParams.toString());
-      }
-    } catch {}
-
-    try {
-      router.refresh();
-    } catch {}
-
-    return newId;
-  }
-
-  async function ensureArtifactReady(reason: "focus" | "autosave" | "manual"): Promise<string> {
-    if (!artifactIdRef.current) {
-      await requestCreateArtifactIfNeeded(reason === "manual" ? "focus" : reason);
-    }
-
-    const id = safeStr(artifactIdRef.current).trim();
-    if (!id) {
-      throw new Error("Missing artifactId");
-    }
-
-    return id;
-  }
-
   async function saveInternal(opts?: { silent?: boolean }) {
     if (saving || readOnly) return;
 
@@ -1716,18 +1723,17 @@ export default function WBSEditor({
       return;
     }
 
+    if (!safeArtifactId) {
+      setSaveMode("error");
+      if (!silent) setMsg("Missing artifactId");
+      return;
+    }
+
     setSaving(true);
     setSaveMode("saving");
 
     try {
-      const content = serialize({
-        version: 1,
-        type: "wbs",
-        title: title.trim() || "Work Breakdown Structure",
-        due_date: safeStr(docMeta.due_date || ""),
-        auto_rollup: docMeta.auto_rollup !== false,
-        rows: computeCodes(rowsArr ?? []),
-      });
+      const content = makeSerializedContent();
 
       const resp = await fetch(`/api/artifacts/${safeArtifactId}/content-json`, {
         method: "POST",
@@ -1751,13 +1757,16 @@ export default function WBSEditor({
         rows: (content as any)?.rows ?? [],
       });
 
+      setResolvedArtifactId(safeArtifactId);
       setDirty(false);
       setSaveMode("saved");
       setLastSavedAt(new Date().toISOString());
 
       if (!silent) {
         setMsg("Saved");
-        setTimeout(() => setMsg(""), 1200);
+        if (typeof window !== "undefined") {
+          window.setTimeout(() => setMsg(""), 1200);
+        }
       }
     } catch (e: any) {
       setSaveMode("error");
@@ -1816,7 +1825,7 @@ export default function WBSEditor({
     setExportingXlsx(true);
     try {
       await requestCreateArtifactIfNeeded("focus");
-      const eid = artifactIdRef.current;
+      const eid = safeStr(artifactIdRef.current).trim();
       if (!eid) throw new Error("Missing artifactId");
       const base = `WBS_${eid.slice(0, 8)}_${todayISO()}`;
       const qs = new URLSearchParams();
@@ -1844,7 +1853,7 @@ export default function WBSEditor({
 
     setMsg("");
     await requestCreateArtifactIfNeeded("focus");
-    const eid = artifactIdRef.current;
+    const eid = safeStr(artifactIdRef.current).trim();
     if (!eid) {
       flashMessage("Missing artifactId", "error", 1800);
       return;
@@ -1896,24 +1905,26 @@ export default function WBSEditor({
           return next;
         });
 
-        for (let k = 0; k < children.length; k++) {
-          const c = children[k] ?? {};
-          insertAt(insertIndex + k, {
-            id: uuidish(),
-            level: clamp(baseLevel + 1, 0, 10),
-            deliverable: safeStr((c as any).deliverable),
-            description: safeStr((c as any).description),
-            acceptance_criteria: safeStr((c as any).acceptance_criteria),
-            owner: safeStr((c as any).owner),
-            status: ((((c as any).status ?? "not_started") as WbsStatus) || "not_started") as WbsStatus,
-            effort: normalizeEffort((c as any).effort),
-            due_date: safeStr((c as any).due_date),
-            predecessor: safeStr((c as any).predecessor),
-            tags: Array.isArray((c as any).tags)
-              ? (c as any).tags.map((t: any) => safeStr(t)).filter(Boolean)
-              : [],
-          });
+        const normalizedChildren: WbsRow[] = children.map((c) => ({
+          id: uuidish(),
+          level: clamp(baseLevel + 1, 0, 10),
+          deliverable: safeStr((c as any).deliverable),
+          description: safeStr((c as any).description),
+          acceptance_criteria: safeStr((c as any).acceptance_criteria),
+          owner: safeStr((c as any).owner),
+          status: ((((c as any).status ?? "not_started") as WbsStatus) || "not_started") as WbsStatus,
+          effort: normalizeEffort((c as any).effort),
+          due_date: safeStr((c as any).due_date),
+          predecessor: safeStr((c as any).predecessor),
+          tags: Array.isArray((c as any).tags)
+            ? (c as any).tags.map((t: any) => safeStr(t)).filter(Boolean)
+            : [],
+        }));
+
+        for (let k = 0; k < normalizedChildren.length; k++) {
+          dispatchRows({ type: "INSERT_AT", index: insertIndex + k, row: normalizedChildren[k] });
         }
+        markDirty();
 
         setExpanded((p) => {
           const n = new Set(p);
@@ -1933,7 +1944,7 @@ export default function WBSEditor({
     setValidateOpen(true);
     setValidateSummary("Validating...");
     await requestCreateArtifactIfNeeded("focus");
-    const eid = artifactIdRef.current;
+    const eid = safeStr(artifactIdRef.current).trim();
     if (!eid) {
       setValidateSummary("Missing artifactId");
       return;
@@ -1975,7 +1986,7 @@ export default function WBSEditor({
     setGenLoading(true);
     setGeneratedDoc(null);
     await requestCreateArtifactIfNeeded("focus");
-    const eid = artifactIdRef.current;
+    const eid = safeStr(artifactIdRef.current).trim();
     if (!eid) {
       setGenOpen(false);
       setGenLoading(false);
@@ -2748,6 +2759,24 @@ export default function WBSEditor({
               >
                 {visibleRows.length}/{rolled.length}
               </span>
+
+              {!!artifactIdLocal && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "#8b949e",
+                    background: "#f6f8fa",
+                    border: "1px solid #e8ecf0",
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    fontWeight: 600,
+                    fontFamily: "ui-monospace, monospace",
+                  }}
+                  title={artifactIdLocal}
+                >
+                  {artifactIdLocal.slice(0, 8)}
+                </span>
+              )}
             </div>
           </div>
 
