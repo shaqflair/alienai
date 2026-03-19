@@ -8,8 +8,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/* ---------------- helpers ---------------- */
-
 function noStoreJson(data: unknown, init?: ResponseInit) {
   return NextResponse.json(data, {
     ...(init ?? {}),
@@ -36,7 +34,6 @@ function parseIntClamp(v: string | null, def: number, min: number, max: number) 
 }
 
 async function resolveOrgIdForUser(supabase: any, userId: string, requestedOrgId: string | null) {
-  // If caller supplies orgId, verify membership and use it
   const reqOrg = safeStr(requestedOrgId).trim();
   if (reqOrg) {
     const m = await supabase
@@ -50,7 +47,6 @@ async function resolveOrgIdForUser(supabase: any, userId: string, requestedOrgId
     return { orgId: reqOrg, scope: "org:param" as const };
   }
 
-  // Single-org fallback: first org membership
   const mem = await supabase
     .from("organisation_members")
     .select("organisation_id")
@@ -64,12 +60,6 @@ async function resolveOrgIdForUser(supabase: any, userId: string, requestedOrgId
   return { orgId: String(mem.data.organisation_id), scope: "org:first-membership" as const };
 }
 
-/* ---------------- route ---------------- */
-
-/**
- * GET /api/executive/approvals?limit=50&orgId=...
- * Returns org-scoped approval counts + top items (live, no cron dependency).
- */
 export async function GET(req: Request) {
   try {
     const supabase = await sb();
@@ -81,91 +71,192 @@ export async function GET(req: Request) {
 
     const { orgId, scope } = await resolveOrgIdForUser(supabase, user.id, orgIdParam);
 
-    // Live pending approvals joined to org via artifacts->projects
-    const { data: steps, error } = await supabase
-      .from("artifact_approval_steps")
-      .select(
-        `
-        id,
-        artifact_id,
-        step_order,
-        name,
-        step_status,
-        approver_type,
-        approver_ref,
-        due_at,
-        created_at,
-        artifacts:artifact_id (
-          id,
-          title,
-          artifact_type,
-          project_id,
-          projects:project_id (
-            id,
-            name,
-            organisation_id
-          )
-        )
-      `
-      )
-      .eq("step_status", "pending")
-      .eq("artifacts.projects.organisation_id", orgId)
-      .order("due_at", { ascending: true, nullsFirst: false })
-      .limit(limit);
+    // Step 1: Get all project IDs for this org (not pipeline)
+    const { data: projectRows, error: projErr } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("organisation_id", orgId)
+      .is("deleted_at", null);
 
-    if (error) return err("Failed to load approvals", 500, { error });
+    if (projErr) return err("Failed to load projects", 500, { error: projErr });
+
+    const projectIds = (projectRows ?? []).map((p: any) => String(p.id)).filter(Boolean);
+
+    if (!projectIds.length) {
+      return ok({ orgId, scope, counts: { waiting: 0, at_risk: 0, breached: 0 }, items: [] });
+    }
 
     const now = Date.now();
     const DAY = 24 * 60 * 60 * 1000;
-
+    let items: any[] = [];
     let waiting = 0;
     let at_risk = 0;
     let breached = 0;
 
-    const items =
-      (steps ?? []).map((s: any) => {
-        waiting += 1;
+    // Strategy 1: artifact_approval_steps (charter / financial plan approvals)
+    // Fix: get artifact IDs for org projects first, then query steps
+    const { data: artifactRows, error: artErr } = await supabase
+      .from("artifacts")
+      .select("id, title, artifact_type, project_id")
+      .in("project_id", projectIds)
+      .is("deleted_at", null);
 
-        const dueAt = s?.due_at ? new Date(s.due_at).getTime() : null;
-        const isBreached = typeof dueAt === "number" && dueAt < now;
-        const isAtRisk =
-          typeof dueAt === "number" && dueAt >= now && dueAt <= now + 3 * DAY;
+    if (!artErr && Array.isArray(artifactRows) && artifactRows.length > 0) {
+      const artifactIds = artifactRows.map((a: any) => String(a.id)).filter(Boolean);
+      const artifactMap = new Map<string, any>();
+      for (const a of artifactRows) artifactMap.set(String(a.id), a);
 
-        if (isBreached) breached += 1;
-        else if (isAtRisk) at_risk += 1;
+      const { data: steps, error: stepsErr } = await supabase
+        .from("artifact_approval_steps")
+        .select("id, artifact_id, step_order, name, step_status, approver_type, approver_ref, due_at, created_at")
+        .eq("step_status", "pending")
+        .in("artifact_id", artifactIds)
+        .order("due_at", { ascending: true, nullsFirst: false })
+        .limit(limit);
 
-        const art = s?.artifacts ?? null;
-        const proj = art?.projects ?? null;
+      if (!stepsErr && Array.isArray(steps)) {
+        for (const s of steps) {
+          waiting += 1;
+          const dueAt = s?.due_at ? new Date(s.due_at).getTime() : null;
+          const isBreached = typeof dueAt === "number" && dueAt < now;
+          const isAtRisk = typeof dueAt === "number" && dueAt >= now && dueAt <= now + 3 * DAY;
 
-        return {
-          step_id: s.id,
-          artifact_id: s.artifact_id,
-          step_order: s.step_order,
-          step_name: safeStr(s.name).trim(),
-          due_at: s.due_at ?? null,
-          risk: isBreached ? "breached" : isAtRisk ? "at_risk" : "waiting",
-          artifact: art
-            ? {
-                id: art.id,
-                title: safeStr(art.title).trim(),
-                artifact_type: safeStr(art.artifact_type).trim(),
-              }
-            : null,
-          project: proj
-            ? {
-                id: proj.id,
-                name: safeStr(proj.name).trim(),
-              }
-            : null,
-        };
-      }) ?? [];
+          if (isBreached) breached += 1;
+          else if (isAtRisk) at_risk += 1;
 
-    return ok({
-      orgId,
-      scope,
-      counts: { waiting, at_risk, breached },
-      items,
+          const art = artifactMap.get(String(s.artifact_id)) ?? null;
+          items.push({
+            step_id: s.id,
+            artifact_id: s.artifact_id,
+            step_order: s.step_order,
+            step_name: safeStr(s.name).trim(),
+            due_at: s.due_at ?? null,
+            risk: isBreached ? "breached" : isAtRisk ? "at_risk" : "waiting",
+            source: "artifact_approval_steps",
+            artifact: art ? {
+              id: art.id,
+              title: safeStr(art.title).trim(),
+              artifact_type: safeStr(art.artifact_type).trim(),
+            } : null,
+            project: art ? { id: art.project_id, name: null } : null,
+          });
+        }
+      }
+    }
+
+    // Strategy 2: approvals table (direct project approvals)
+    {
+      const { data: approvalRows, error: approvalErr } = await supabase
+        .from("approvals")
+        .select("id, title, status, type, project_id, created_at, due_at")
+        .in("project_id", projectIds)
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
+        .limit(limit);
+
+      if (!approvalErr && Array.isArray(approvalRows)) {
+        for (const a of approvalRows) {
+          waiting += 1;
+          const dueAt = a?.due_at ? new Date(a.due_at).getTime() : null;
+          const isBreached = typeof dueAt === "number" && dueAt < now;
+          const isAtRisk = typeof dueAt === "number" && dueAt >= now && dueAt <= now + 3 * DAY;
+
+          if (isBreached) breached += 1;
+          else if (isAtRisk) at_risk += 1;
+
+          items.push({
+            step_id: a.id,
+            artifact_id: a.id,
+            step_order: 1,
+            step_name: safeStr(a.type || a.title).trim() || "Approval",
+            due_at: a.due_at ?? null,
+            risk: isBreached ? "breached" : isAtRisk ? "at_risk" : "waiting",
+            source: "approvals",
+            artifact: {
+              id: a.id,
+              title: safeStr(a.title).trim(),
+              artifact_type: safeStr(a.type).trim() || "approval",
+            },
+            project: { id: a.project_id, name: null },
+          });
+        }
+      }
+    }
+
+    // Strategy 3: artifact_approvals table (if exists)
+    {
+      const { data: aaRows, error: aaErr } = await supabase
+        .from("artifact_approvals")
+        .select("id, artifact_id, status, created_at, due_at, approver_id")
+        .in("project_id", projectIds)
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
+        .limit(limit);
+
+      if (!aaErr && Array.isArray(aaRows)) {
+        for (const a of aaRows) {
+          // dedupe with artifact_approval_steps
+          const alreadyCounted = items.some(i => i.artifact_id === a.artifact_id && i.source === "artifact_approval_steps");
+          if (alreadyCounted) continue;
+
+          waiting += 1;
+          const dueAt = a?.due_at ? new Date(a.due_at).getTime() : null;
+          const isBreached = typeof dueAt === "number" && dueAt < now;
+          const isAtRisk = typeof dueAt === "number" && dueAt >= now && dueAt <= now + 3 * DAY;
+          if (isBreached) breached += 1;
+          else if (isAtRisk) at_risk += 1;
+
+          items.push({
+            step_id: a.id,
+            artifact_id: a.artifact_id,
+            step_order: 1,
+            step_name: "Approval",
+            due_at: a.due_at ?? null,
+            risk: isBreached ? "breached" : isAtRisk ? "at_risk" : "waiting",
+            source: "artifact_approvals",
+            artifact: null,
+            project: null,
+          });
+        }
+      }
+    }
+
+    // Enrich project names where missing
+    if (items.some(i => i.project?.id && !i.project?.name)) {
+      const missingProjIds = [...new Set(
+        items
+          .filter(i => i.project?.id && !i.project?.name)
+          .map(i => i.project.id)
+      )];
+
+      if (missingProjIds.length) {
+        const { data: projNames } = await supabase
+          .from("projects")
+          .select("id, title, name")
+          .in("id", missingProjIds);
+
+        const nameMap = new Map<string, string>();
+        for (const p of projNames ?? []) {
+          nameMap.set(String(p.id), safeStr(p.title || p.name).trim() || "Project");
+        }
+        for (const item of items) {
+          if (item.project?.id && !item.project?.name) {
+            item.project.name = nameMap.get(item.project.id) ?? null;
+          }
+        }
+      }
+    }
+
+    // Sort: breached first, then at_risk, then soonest due
+    items.sort((a, b) => {
+      const rw = (r: string) => r === "breached" ? 2 : r === "at_risk" ? 1 : 0;
+      if (rw(b.risk) !== rw(a.risk)) return rw(b.risk) - rw(a.risk);
+      const ad = a.due_at ? new Date(a.due_at).getTime() : Infinity;
+      const bd = b.due_at ? new Date(b.due_at).getTime() : Infinity;
+      return ad - bd;
     });
+
+    return ok({ orgId, scope, counts: { waiting, at_risk, breached }, items });
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
     const lc = msg.toLowerCase();
