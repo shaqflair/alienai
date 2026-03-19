@@ -13,6 +13,8 @@ import { computeHealthFromData, type HealthResult } from "@/lib/server/project-h
 import { getCachedBriefing } from "./briefing-actions";
 import ProjectDailyBriefing from "@/components/projects/ProjectDailyBriefing";
 import ProjectDateEditor from "@/components/projects/ProjectDateEditor";
+import Gate1Modal from "@/components/projects/Gate1Modal";
+import GateStatusPanel from "@/components/projects/GateStatusPanel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -403,9 +405,14 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid)
       .is("deleted_at", null)
       .limit(100000),
-    getCachedBriefing(projectUuid),
+   getCachedBriefing(projectUuid),
+    supabase
+      .from("project_gates")
+      .select("id, gate_number, gate_name, status, passed_at, passed_by, override, override_reason, pass_count, warn_count, fail_count, criteria_snapshot")
+      .eq("project_id", projectUuid)
+      .eq("gate_number", 1)
+      .maybeSingle(),
   ]);
-
   const resource         = resourceData.status === "fulfilled" ? resourceData.value : null;
   const periods          = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
   const changes          = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
@@ -417,7 +424,8 @@ export default async function ProjectPage({
   const keyArtifacts     = keyArtifactsResult.status === "fulfilled" ? keyArtifactsResult.value.data ?? [] : [];
   const orgMembersBase   = orgMembersBaseResult.status === "fulfilled" ? orgMembersBaseResult.value.data ?? [] : [];
   const cachedBriefing   = briefingResult.status === "fulfilled" ? briefingResult.value.briefing : null;
-
+  const gateResult       = (results as any)[12]; // index 12 = gate query
+  const gateRecord       = gateResult?.status === "fulfilled" ? gateResult.value?.data ?? null : null;
   const spendRows   = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
   const spentAmount = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
   const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
@@ -689,16 +697,26 @@ export default async function ProjectPage({
           <ProjectRaidRaiseButton projectId={projectUuid} projectTitle={projectTitle} projectCode={projectCode || null} />
           <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">+ New artifact</Link>
           <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">Project Charter</Link>
-          {project?.resource_status === "pipeline" && (
-            <form action={convertPipelineToConfirmed} style={{ display: "contents" }}>
-              <input type="hidden" name="project_id" value={project.id}/>
-              <input type="hidden" name="return_to" value={`/projects/${projectRefForUrls}`}/>
-              <button type="submit" className="action-btn" style={{ background: "#7c3aed", borderColor: "#7c3aed", color: "white" }}>
-                Convert to confirmed
-              </button>
-            </form>
-          )}
-        </div>
+        
+{project?.resource_status === "pipeline" && (
+  <Gate1Modal
+    projectId={projectUuid}
+    isAdmin={org.isAdmin}
+    returnTo={`/projects/${projectRefForUrls}`}
+  />
+)}        </div>
+      )}
+
+      {/* ── Stat cards ── */}
+    {/* ── Gate 1 status — shown for confirmed/active projects ── */}
+      {safeStr(project?.resource_status).toLowerCase() !== "pipeline" && (
+        <GateStatusPanel
+          projectId={projectUuid}
+          projectTitle={projectTitle}
+          isAdmin={org.isAdmin}
+          gateRecord={gateRecord}
+          returnTo={`/projects/${projectRefForUrls}`}
+        />
       )}
 
       {/* ── Stat cards ── */}
