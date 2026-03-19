@@ -79,6 +79,7 @@ export async function GET(req: Request) {
       )
       .in("organisation_id", orgIds)
       .is("deleted_at", null)
+      .neq("resource_status", "pipeline")
       .order("updated_at", { ascending: false });
 
     if (error) return noStoreJson({ ok: false, error: error.message }, { status: 500 });

@@ -86,10 +86,11 @@ export async function GET(req: Request) {
     const { data: projects, error: projErr } = await supabase
       .from("projects")
       .select(
-        "id, title, project_code, created_at, updated_at, status, lifecycle_status, project_manager_id, deleted_at, closed_at, organisation_id"
+        "id, title, project_code, created_at, updated_at, status, lifecycle_status, resource_status, project_manager_id, deleted_at, closed_at, organisation_id"
       )
       .in("organisation_id", orgIds)
-      .is("deleted_at", null);
+      .is("deleted_at", null)
+      .neq("resource_status", "pipeline");
 
     if (projErr)
       return noStoreJson({ ok: false, error: projErr.message }, { status: 500 });
