@@ -16,6 +16,7 @@ type ProjectRow = {
   pm_name?: string | null;
   pm_user_id?: string | null;
   project_manager_id?: string | null;
+  resource_status?: string | null; // needed so client-side pipeline filter works
 };
 
 type HomeOk = {
@@ -110,13 +111,14 @@ function mapProjectRow(p: any): ProjectRow {
     pm_name: safeStr(p?.pm_name).trim() || null,
     pm_user_id: safeStr(p?.pm_user_id).trim() || null,
     project_manager_id: safeStr(p?.project_manager_id).trim() || null,
+    resource_status: safeStr(p?.resource_status).trim() || null, // include so client can filter pipeline
   };
 }
 
 async function loadActiveProjectsForOrg(supabase: any, orgId: string): Promise<ProjectRow[]> {
   const { data, error } = await supabase
     .from("projects")
-    .select("id,title,client_name,project_code,department,pm_name,pm_user_id,project_manager_id,created_at,deleted_at,status")
+    .select("id,title,client_name,project_code,department,pm_name,pm_user_id,project_manager_id,resource_status,created_at,deleted_at,status")
     .eq("organisation_id", orgId)
     .is("deleted_at", null)
     .neq("status", "closed")
@@ -290,28 +292,32 @@ function buildRag(
   highRisks: number,
   openLessons: number,
 ) {
-  return projects.slice(0, 8).map((p, i) => {
-    const health = clamp01to100(
-      Math.max(
-        25,
-        Math.min(
-          95,
-          85 -
-            (highRisks ? 8 : 0) -
-            (openRisks > 10 ? 10 : 0) -
-            (openLessons > 5 ? 6 : 0) -
-            i,
+  // Only confirmed projects contribute to RAG — pipeline is excluded
+  return projects
+    .filter((p) => safeStr(p.resource_status).toLowerCase() !== "pipeline")
+    .slice(0, 8)
+    .map((p, i) => {
+      const health = clamp01to100(
+        Math.max(
+          25,
+          Math.min(
+            95,
+            85 -
+              (highRisks ? 8 : 0) -
+              (openRisks > 10 ? 10 : 0) -
+              (openLessons > 5 ? 6 : 0) -
+              i,
+          ),
         ),
-      ),
-    );
+      );
 
-    return {
-      project_id: p.id,
-      title: p.title || "Project",
-      rag: ragFromHealth(health),
-      health,
-    };
-  });
+      return {
+        project_id: p.id,
+        title: p.title || "Project",
+        rag: ragFromHealth(health),
+        health,
+      };
+    });
 }
 
 export async function getHomeData(): Promise<HomeOk | HomeErr> {
@@ -344,27 +350,39 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
 
   let projects: ProjectRow[] = [];
   try {
+    // Loads ALL non-closed projects (including pipeline) so the client component
+    // can display them in the pipeline tab. Pipeline is filtered in:
+    // - buildRag() below (excluded from RAG/health scores)
+    // - activeProjects useMemo in HomePage (excluded from active list & stats)
+    // - dashboard-summary API (excluded from RAID, milestones, briefing)
     projects = activeOrgId ? await loadActiveProjectsForOrg(supabase, activeOrgId) : [];
   } catch {
     projects = [];
   }
 
-  const projectIds = projects.map((p) => p.id).filter(Boolean);
-  if (projectIds.length === 0) return emptyHome({ id: user.id, email: user.email }, activeOrgId);
+  const allProjectIds = projects.map((p) => p.id).filter(Boolean);
+  if (allProjectIds.length === 0) return emptyHome({ id: user.id, email: user.email }, activeOrgId);
+
+  // Confirmed-only IDs for stats (RAID, lessons, RAG, briefing)
+  const confirmedProjectIds = projects
+    .filter((p) => safeStr(p.resource_status).toLowerCase() !== "pipeline")
+    .map((p) => p.id)
+    .filter(Boolean);
 
   const [openLessons, raidCounts, approvals] = await Promise.all([
-    loadOpenLessonsCount(supabase, projectIds),
-    loadRaidCounts(supabase, projectIds),
+    loadOpenLessonsCount(supabase, confirmedProjectIds),
+    loadRaidCounts(supabase, confirmedProjectIds),
     loadApprovalInbox(supabase, user.id),
   ]);
 
+  // RAG is built from confirmed projects only
   const rag = buildRag(projects, raidCounts.openRisks, raidCounts.highRisks, openLessons);
 
   const portfolioHealth = rag.length
     ? Math.round(rag.reduce((sum, r) => sum + safeNum(r.health), 0) / rag.length)
     : 0;
 
-  // Build live RAG counts and project scores for the briefing
+  // Live RAG counts and project scores — confirmed only
   const liveRagCounts = {
     g: rag.filter((r) => r.rag === "G").length,
     a: rag.filter((r) => r.rag === "A").length,
@@ -375,11 +393,11 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
     rag.map((r) => [r.project_id, { score: r.health, rag: r.rag }])
   );
 
-  // Generate briefing with real RAID counts and org scope
+  // Briefing uses confirmed project IDs only
   const briefing = await loadExecutiveBriefing({
     projectScores,
     liveRagCounts,
-    projectIds,
+    projectIds: confirmedProjectIds,
     organisationId: activeOrgId,
   }).catch(() => null);
 
@@ -389,7 +407,7 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
     isExec,
     roles,
     active_org_id: activeOrgId,
-    projects,
+    projects, // full list — client filters pipeline via resource_status
     kpis: {
       portfolioHealth,
       openRisks: raidCounts.openRisks,
