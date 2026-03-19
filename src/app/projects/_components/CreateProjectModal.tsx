@@ -317,14 +317,19 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
           style={{
             position: "fixed",
             inset: 0,
+            height: "100dvh",
             background: "rgba(10,10,10,.28)",
             backdropFilter: "blur(6px)",
             display: "flex",
             alignItems: "flex-start",
             justifyContent: "center",
             zIndex: 1000,
-            padding: "24px 20px",
+            paddingTop: 56,
+            paddingRight: 20,
+            paddingBottom: 24,
+            paddingLeft: 20,
             overflowY: "auto",
+            boxSizing: "border-box",
           }}
         >
           <div
@@ -337,7 +342,7 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
               boxShadow: "0 30px 80px rgba(0,0,0,.16)",
               display: "flex",
               flexDirection: "column",
-              maxHeight: "calc(100dvh - 48px)",
+              maxHeight: "calc(100dvh - 80px)",
               minHeight: 0,
               overflow: "hidden",
               border: `1px solid ${UI.rule}`,
@@ -346,133 +351,128 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
           >
             <div
               style={{
-                background: UI.white,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                padding: "24px 28px 0",
                 flexShrink: 0,
+                background: UI.white,
               }}
             >
-              <div
+              <div style={{ maxWidth: 420 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: ".14em",
+                    textTransform: "uppercase",
+                    color: UI.ink4,
+                    marginBottom: 10,
+                  }}
+                >
+                  Portfolio setup
+                </div>
+                <h2
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 750,
+                    margin: 0,
+                    letterSpacing: "-.03em",
+                    color: UI.ink,
+                    lineHeight: 1,
+                  }}
+                >
+                  Create project
+                </h2>
+                <p
+                  style={{
+                    fontSize: 13,
+                    color: UI.ink3,
+                    margin: "8px 0 0",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  Define ownership, timeline and portfolio metadata before the
+                  project enters delivery governance.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={close}
                 style={{
+                  background: UI.white,
+                  border: `1px solid ${UI.rule}`,
+                  cursor: "pointer",
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
                   display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                  padding: "24px 28px 0",
+                  alignItems: "center",
+                  justifyContent: "center",
                   flexShrink: 0,
                 }}
               >
-                <div style={{ maxWidth: 420 }}>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      letterSpacing: ".14em",
-                      textTransform: "uppercase",
-                      color: UI.ink4,
-                      marginBottom: 10,
-                    }}
-                  >
-                    Portfolio setup
-                  </div>
-                  <h2
-                    style={{
-                      fontSize: 24,
-                      fontWeight: 750,
-                      margin: 0,
-                      letterSpacing: "-.03em",
-                      color: UI.ink,
-                      lineHeight: 1,
-                    }}
-                  >
-                    Create project
-                  </h2>
-                  <p
-                    style={{
-                      fontSize: 13,
-                      color: UI.ink3,
-                      margin: "8px 0 0",
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    Define ownership, timeline and portfolio metadata before the
-                    project enters delivery governance.
-                  </p>
-                </div>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M18 6 6 18M6 6l12 12"
+                    stroke={UI.ink3}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
 
-                <button
-                  type="button"
-                  onClick={close}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "20px 28px 0",
+                flexShrink: 0,
+                background: UI.white,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={stepDotStyle(step === 1, step > 1)}>
+                  {step > 1 ? "✓" : "1"}
+                </div>
+                <span
                   style={{
-                    background: UI.white,
-                    border: `1px solid ${UI.rule}`,
-                    cursor: "pointer",
-                    width: 34,
-                    height: 34,
-                    borderRadius: 10,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: step === 1 ? UI.ink : UI.ink4,
+                    textTransform: "uppercase",
+                    letterSpacing: ".1em",
                   }}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M18 6 6 18M6 6l12 12"
-                      stroke={UI.ink3}
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </button>
+                  Basics
+                </span>
               </div>
 
               <div
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "20px 28px 0",
-                  flexShrink: 0,
+                  flex: 1,
+                  height: 1,
+                  background: step > 1 ? UI.ink : UI.rule,
+                  transition: "background .2s ease",
                 }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={stepDotStyle(step === 1, step > 1)}>
-                    {step > 1 ? "✓" : "1"}
-                  </div>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: step === 1 ? UI.ink : UI.ink4,
-                      textTransform: "uppercase",
-                      letterSpacing: ".1em",
-                    }}
-                  >
-                    Basics
-                  </span>
-                </div>
+              />
 
-                <div
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={stepDotStyle(step === 2)}>2</div>
+                <span
                   style={{
-                    flex: 1,
-                    height: 1,
-                    background: step > 1 ? UI.ink : UI.rule,
-                    transition: "background .2s ease",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: step === 2 ? UI.ink : UI.ink4,
+                    textTransform: "uppercase",
+                    letterSpacing: ".1em",
                   }}
-                />
-
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={stepDotStyle(step === 2)}>2</div>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: step === 2 ? UI.ink : UI.ink4,
-                      textTransform: "uppercase",
-                      letterSpacing: ".1em",
-                    }}
-                  >
-                    Heatmap
-                  </span>
-                </div>
+                >
+                  Heatmap
+                </span>
               </div>
             </div>
 
@@ -561,7 +561,6 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                         }}
                         autoComplete="off"
                       />
-
                       {pmOpen && members.length > 0 && (
                         <div style={{ ...menuStyle, maxHeight: 220 }}>
                           {filteredPmMembers.length > 0 ? (
@@ -602,22 +601,14 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                               </div>
                             ))
                           ) : (
-                            <div
-                              style={{
-                                padding: "10px 14px",
-                                fontSize: 13,
-                                color: UI.ink4,
-                              }}
-                            >
+                            <div style={{ padding: "10px 14px", fontSize: 13, color: UI.ink4 }}>
                               No members found
                             </div>
                           )}
                         </div>
                       )}
                     </div>
-                    <p style={hintStyle}>
-                      Assign now or later for delivery accountability.
-                    </p>
+                    <p style={hintStyle}>Assign now or later for delivery accountability.</p>
                   </Field>
 
                   <Field label="Sponsor">
@@ -641,7 +632,6 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                         }}
                         autoComplete="off"
                       />
-
                       {sponsorOpen && members.length > 0 && (
                         <div style={{ ...menuStyle, maxHeight: 220 }}>
                           {filteredSponsorMembers.length > 0 ? (
@@ -682,22 +672,14 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                               </div>
                             ))
                           ) : (
-                            <div
-                              style={{
-                                padding: "10px 14px",
-                                fontSize: 13,
-                                color: UI.ink4,
-                              }}
-                            >
+                            <div style={{ padding: "10px 14px", fontSize: 13, color: UI.ink4 }}>
                               No members found
                             </div>
                           )}
                         </div>
                       )}
                     </div>
-                    <p style={hintStyle}>
-                      Executive accountable for budget and decision control.
-                    </p>
+                    <p style={hintStyle}>Executive accountable for budget and decision control.</p>
                   </Field>
 
                   <Field label="Project type">
@@ -716,18 +698,10 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                       <option value="Product">Product</option>
                       <option value="Other">Other</option>
                     </select>
-                    <p style={hintStyle}>
-                      Used for reporting, filtering and portfolio segmentation.
-                    </p>
+                    <p style={hintStyle}>Used for reporting, filtering and portfolio segmentation.</p>
                   </Field>
 
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 12,
-                    }}
-                  >
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     <Field label="Start date">
                       <input
                         style={inputStyle}
@@ -736,7 +710,6 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                         onChange={(e) => setStartDate(e.target.value)}
                       />
                     </Field>
-
                     <Field label="Finish date">
                       <input
                         style={inputStyle}
@@ -761,21 +734,8 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                     }}
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                      <rect
-                        x="3"
-                        y="3"
-                        width="18"
-                        height="18"
-                        rx="2"
-                        stroke={UI.ink3}
-                        strokeWidth="2"
-                      />
-                      <path
-                        d="M3 9h18M9 9v12M15 9v12"
-                        stroke={UI.ink3}
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      />
+                      <rect x="3" y="3" width="18" height="18" rx="2" stroke={UI.ink3} strokeWidth="2" />
+                      <path d="M3 9h18M9 9v12M15 9v12" stroke={UI.ink3} strokeWidth="2" strokeLinecap="round" />
                     </svg>
                     <span
                       style={{
@@ -801,16 +761,9 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                   </Field>
 
                   <Field label="Resource status">
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: 8,
-                      }}
-                    >
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                       {(["confirmed", "pipeline"] as const).map((s) => {
                         const active = resStatus === s;
-
                         return (
                           <button
                             key={s}
@@ -860,14 +813,7 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                   </Field>
 
                   <Field label="Project colour">
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        alignItems: "center",
-                        flexWrap: "wrap",
-                      }}
-                    >
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       {COLOURS.map((c) => (
                         <button
                           key={c}
@@ -879,17 +825,13 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                             height: 28,
                             borderRadius: "50%",
                             background: c,
-                            border:
-                              colour === c
-                                ? "2px solid #111111"
-                                : "1px solid rgba(0,0,0,.08)",
+                            border: colour === c ? "2px solid #111111" : "1px solid rgba(0,0,0,.08)",
                             cursor: "pointer",
                             transform: colour === c ? "scale(1.08)" : "scale(1)",
                             transition: "transform .15s ease, border-color .15s ease",
                           }}
                         />
                       ))}
-
                       <span
                         style={{
                           fontSize: 11,
@@ -906,9 +848,7 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                         {code || "PRJ"}
                       </span>
                     </div>
-                    <p style={hintStyle}>
-                      Used to identify the project visually in portfolio views.
-                    </p>
+                    <p style={hintStyle}>Used to identify the project visually in portfolio views.</p>
                   </Field>
                 </>
               )}
@@ -970,7 +910,6 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                     <span style={{ fontSize: 11, color: UI.ink4 }}>
                       Add role requirements after creation.
                     </span>
-
                     <button
                       type="button"
                       onClick={handleSubmit}
