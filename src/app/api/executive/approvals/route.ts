@@ -34,6 +34,13 @@ function parseIntClamp(v: string | null, def: number, min: number, max: number) 
   return Math.max(min, Math.min(max, n));
 }
 
+function formatPendingAgeLabel(pendingDays: number | null) {
+  if (pendingDays == null) return "Unknown";
+  if (pendingDays <= 0) return "Today";
+  if (pendingDays === 1) return "1 day";
+  return `${pendingDays} days`;
+}
+
 async function resolveOrgIdForUser(supabase: any, userId: string, requestedOrgId: string | null) {
   const reqOrg = safeStr(requestedOrgId).trim();
 
@@ -90,9 +97,7 @@ export async function GET(req: Request) {
       return err("Failed to load projects", 500, { error: projErr.message });
     }
 
-    const projectIds = (projectRows ?? [])
-      .map((p: any) => safeStr(p.id))
-      .filter(Boolean);
+    const projectIds = (projectRows ?? []).map((p: any) => safeStr(p.id)).filter(Boolean);
 
     if (!projectIds.length) {
       return ok({
@@ -153,9 +158,12 @@ export async function GET(req: Request) {
 
       const pendingSince = r.step_pending_since ?? r.artifact_submitted_at ?? null;
 
-      const dueMs = pendingSince
-        ? new Date(pendingSince).getTime() + SLA_DAYS * DAY
-        : null;
+      const pendingMs =
+        pendingSince != null ? Math.max(0, now - new Date(pendingSince).getTime()) : null;
+
+      const pendingDays = pendingMs != null ? Math.floor(pendingMs / DAY) : null;
+
+      const dueMs = pendingSince ? new Date(pendingSince).getTime() + SLA_DAYS * DAY : null;
 
       const isBreached = dueMs != null && dueMs < now;
       const isAtRisk = dueMs != null && !isBreached && dueMs <= now + 2 * DAY;
@@ -165,6 +173,9 @@ export async function GET(req: Request) {
       if (isBreached) breached += 1;
       else if (isAtRisk) at_risk += 1;
 
+      const approverUserId = safeStr(r.pending_user_id) || null;
+      const approverEmail = safeStr(r.pending_email) || null;
+
       items.push({
         step_id: stepId || safeStr(r.artifact_id),
         artifact_id: safeStr(r.artifact_id),
@@ -173,6 +184,8 @@ export async function GET(req: Request) {
         step_name: safeStr(r.step_name).trim() || "Approval",
         due_at: dueMs ? new Date(dueMs).toISOString() : null,
         pending_since: pendingSince,
+        pending_days: pendingDays,
+        pending_age_label: formatPendingAgeLabel(pendingDays),
         risk,
         artifact: {
           id: safeStr(r.artifact_id),
@@ -185,8 +198,9 @@ export async function GET(req: Request) {
           name: null,
         },
         approver: {
-          user_id: safeStr(r.pending_user_id) || null,
-          email: safeStr(r.pending_email) || null,
+          user_id: approverUserId,
+          email: approverEmail,
+          label: approverEmail || approverUserId || "Unassigned",
         },
       });
     }
@@ -215,6 +229,37 @@ export async function GET(req: Request) {
           }
         }
       }
+
+      const approverUserIds = [
+        ...new Set(items.map((i) => safeStr(i.approver?.user_id)).filter(Boolean)),
+      ];
+
+      if (approverUserIds.length) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", approverUserIds);
+
+        const profileNameMap = new Map<string, string>();
+        for (const p of profiles ?? []) {
+          const id = safeStr((p as any)?.id);
+          const fullName = safeStr((p as any)?.full_name).trim();
+          if (id && fullName) profileNameMap.set(id, fullName);
+        }
+
+        for (const item of items) {
+          const approverUserId = safeStr(item.approver?.user_id);
+          if (!approverUserId) continue;
+
+          const fullName = profileNameMap.get(approverUserId);
+          if (!fullName) continue;
+
+          item.approver.name = fullName;
+          item.approver.label = item.approver.email
+            ? `${fullName} (${item.approver.email})`
+            : fullName;
+        }
+      }
     }
 
     items.sort((a, b) => {
@@ -240,11 +285,7 @@ export async function GET(req: Request) {
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
     const lc = msg.toLowerCase();
-    const status = lc.includes("unauthorized")
-      ? 401
-      : lc.includes("forbidden")
-        ? 403
-        : 400;
+    const status = lc.includes("unauthorized") ? 401 : lc.includes("forbidden") ? 403 : 400;
 
     return err(msg, status);
   }
