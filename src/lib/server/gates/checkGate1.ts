@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// src/lib/server/gates/checkGate1.ts
+import "server-only";
 import { createClient } from "@/utils/supabase/server";
 
 export type GateCriterionStatus = "pass" | "fail" | "warn";
@@ -43,45 +44,45 @@ export async function checkGate1(projectId: string): Promise<Gate1Result> {
     dependencyCount,
   ] = await Promise.all([
 
-    // 1. Project Charter — must exist and be approved
+    // 1. Project Charter — must exist and be approved (check both artifact_type and type columns)
     supabase
       .from("artifacts")
       .select("id, approval_status, title")
       .eq("project_id", projectId)
-      .eq("artifact_type", "project_charter")
+      .or("artifact_type.eq.project_charter,type.eq.PROJECT_CHARTER")
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
 
-    // 2. WBS — must exist with content
+    // 2. WBS — must exist with content (check both artifact_type and type columns)
     supabase
       .from("artifacts")
       .select("id, content_json, title")
       .eq("project_id", projectId)
-      .eq("artifact_type", "wbs")
+      .or("artifact_type.eq.wbs,type.eq.WBS")
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
 
-    // 3. Schedule — must exist
+    // 3. Schedule — must exist (check both artifact_type and type columns)
     supabase
       .from("artifacts")
       .select("id, title")
       .eq("project_id", projectId)
-      .eq("artifact_type", "schedule")
+      .or("artifact_type.eq.schedule,type.eq.SCHEDULE")
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
 
-    // 4. Stakeholder Register — must exist
+    // 4. Stakeholder Register — must exist (check both artifact_type and type columns)
     supabase
       .from("artifacts")
       .select("id, title")
       .eq("project_id", projectId)
-      .eq("artifact_type", "stakeholder_register")
+      .or("artifact_type.eq.stakeholder_register,type.eq.STAKEHOLDER_REGISTER")
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(1)
