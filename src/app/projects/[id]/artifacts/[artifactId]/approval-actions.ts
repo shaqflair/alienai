@@ -112,6 +112,11 @@ function getStepMinApprovals(step: any, approverCount?: number) {
   return base;
 }
 
+function getStepOrderValue(step: any, fallback = 1) {
+  const raw = firstFinite(step?.step_order, step?.step_index, step?.sequence, step?.order_no, step?.sort_order, fallback);
+  return Math.max(1, Number(raw || fallback));
+}
+
 async function requireUser() {
   const supabase = await createClient();
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -174,6 +179,7 @@ async function getArtifact(supabase: any, artifactId: string) {
         "version",
         "updated_at",
         "approval_chain_id",
+        "approval_step_index",
         "status",
         "current_draft_rev",
         "current_version_no",
@@ -405,13 +411,99 @@ async function getOrganisationIdForProject(supabase: any, projectId: string): Pr
   return null;
 }
 
+async function verifyRuntimeApprovalChainHealth(
+  supabase: any,
+  args: {
+    artifactId: string;
+    chainId: string;
+  }
+) {
+  const { data: steps, error: stepsErr } = await supabase
+    .from("artifact_approval_steps")
+    .select("id, artifact_id, approval_step_id, chain_id, step_order, status, created_at")
+    .eq("artifact_id", args.artifactId)
+    .eq("chain_id", args.chainId)
+    .order("step_order", { ascending: true });
+
+  if (stepsErr) throwDb(stepsErr, "artifact_approval_steps.select(verify_runtime)");
+
+  const runtimeSteps = Array.isArray(steps) ? (steps as any[]) : [];
+  if (!runtimeSteps.length) {
+    throw new Error(`Runtime approval chain ${args.chainId} created no artifact_approval_steps.`);
+  }
+
+  const missingDefinitionLink = runtimeSteps.find((s: any) => !safeStr(s?.approval_step_id).trim());
+  if (missingDefinitionLink) {
+    throw new Error(
+      `Runtime approval chain ${args.chainId} has artifact step ${safeStr(
+        missingDefinitionLink?.id
+      )} with null approval_step_id.`
+    );
+  }
+
+  const runtimeStepIds = runtimeSteps.map((s: any) => safeStr(s?.id).trim()).filter(Boolean);
+
+  const { data: approvers, error: approversErr } = await supabase
+    .from("approval_step_approvers")
+    .select("id, step_id, user_id, email, role, status")
+    .in("step_id", runtimeStepIds);
+
+  if (approversErr) throwDb(approversErr, "approval_step_approvers.select(verify_runtime)");
+
+  const approverRows = Array.isArray(approvers) ? (approvers as any[]) : [];
+  const approverCountByStepId = new Map<string, number>();
+
+  for (const row of approverRows) {
+    const sid = safeStr((row as any)?.step_id).trim();
+    if (!sid) continue;
+    approverCountByStepId.set(sid, (approverCountByStepId.get(sid) ?? 0) + 1);
+  }
+
+  const stepWithoutApprover = runtimeSteps.find(
+    (s: any) => (approverCountByStepId.get(safeStr(s?.id).trim()) ?? 0) <= 0
+  );
+  if (stepWithoutApprover) {
+    throw new Error(
+      `Runtime approval chain ${args.chainId} has artifact step ${safeStr(
+        stepWithoutApprover?.id
+      )} with no approval_step_approvers rows.`
+    );
+  }
+
+  const firstPendingStep =
+    runtimeSteps.find((s: any) => lower((s as any)?.status) === "pending") ??
+    runtimeSteps.find((s: any) => lower((s as any)?.status) === "active") ??
+    runtimeSteps[0] ??
+    null;
+
+  return {
+    runtimeSteps,
+    firstPendingStep,
+  };
+}
+
 async function updateArtifactSubmitted(
   supabase: any,
   args: { artifactId: string; projectId: string; chainId: string; actorId: string; nowIso: string }
 ) {
+  const { data: firstPendingStep, error: firstStepErr } = await supabase
+    .from("artifact_approval_steps")
+    .select("id, step_order, status")
+    .eq("artifact_id", args.artifactId)
+    .eq("chain_id", args.chainId)
+    .eq("status", "pending")
+    .order("step_order", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (firstStepErr) throwDb(firstStepErr, "artifact_approval_steps.select(first_pending_for_submit)");
+
+  const firstStepOrder = Math.max(1, Number(firstPendingStep?.step_order ?? 1));
+
   const patch: any = {
     approval_chain_id: args.chainId,
     approval_status: "submitted",
+    approval_step_index: firstStepOrder,
     submitted_at: args.nowIso,
     submitted_by: args.actorId,
     is_locked: true,
@@ -423,7 +515,9 @@ async function updateArtifactSubmitted(
     .update(patch)
     .eq("id", args.artifactId)
     .eq("project_id", args.projectId)
-    .select("id, project_id, approval_status, approval_chain_id, is_locked, submitted_at, submitted_by, status")
+    .select(
+      "id, project_id, approval_status, approval_chain_id, approval_step_index, is_locked, submitted_at, submitted_by, status"
+    )
     .maybeSingle();
 
   if (error) throwDb(error, "artifacts.update(submit_runtime_minimal)");
@@ -431,7 +525,9 @@ async function updateArtifactSubmitted(
   if (!data?.id) {
     const { data: probe, error: probeErr } = await supabase
       .from("artifacts")
-      .select("id, project_id, approval_status, approval_chain_id, is_locked, submitted_at, submitted_by, status")
+      .select(
+        "id, project_id, approval_status, approval_chain_id, approval_step_index, is_locked, submitted_at, submitted_by, status"
+      )
       .eq("id", args.artifactId)
       .maybeSingle();
 
@@ -444,12 +540,25 @@ async function updateArtifactSubmitted(
   const updatedStatus = lower((data as any).approval_status);
   const updatedChainId = safeStr((data as any).approval_chain_id).trim();
   const updatedLocked = (data as any).is_locked === true;
+  const updatedStepIndex = Number((data as any).approval_step_index ?? 0);
+  const updatedWorkflowStatus = lower((data as any).status);
 
-  if (updatedStatus !== "submitted" || updatedChainId !== args.chainId || !updatedLocked) {
+  if (
+    updatedStatus !== "submitted" ||
+    updatedChainId !== args.chainId ||
+    !updatedLocked ||
+    updatedStepIndex !== firstStepOrder ||
+    updatedWorkflowStatus !== "submitted"
+  ) {
     throw new Error(
-      `Artifact submit verification failed. expected_status=submitted actual_status=${safeStr((data as any).approval_status)} expected_chain_id=${args.chainId} actual_chain_id=${updatedChainId}`
+      `Artifact submit verification failed. expected_status=submitted actual_status=${safeStr(
+        (data as any).approval_status
+      )} expected_chain_id=${args.chainId} actual_chain_id=${updatedChainId} expected_step_index=${firstStepOrder} actual_step_index=${updatedStepIndex} expected_workflow_status=submitted actual_workflow_status=${safeStr(
+        (data as any).status
+      )}`
     );
   }
+
   return data as any;
 }
 
@@ -1162,7 +1271,7 @@ async function progressApprovalChain(
     if (counted.approvedCount < threshold) {
       await keepArtifactOnCurrentApprovalStep(supabase, {
         artifactId: args.artifactId,
-        currentStepIndex: Math.max(0, args.currentPos),
+        currentStepIndex: getStepOrderValue(args.currentStep, 1),
       });
 
       return {
@@ -1187,7 +1296,7 @@ async function progressApprovalChain(
     await activateStep(supabase, nextStep.id, args.nowIso);
     await moveArtifactToNextApprovalStep(supabase, {
       artifactId: args.artifactId,
-      nextStepIndex: Math.max(0, args.currentPos + 1),
+      nextStepIndex: getStepOrderValue(nextStep, getStepOrderValue(args.currentStep, 1) + 1),
     });
 
     return {
@@ -1705,6 +1814,20 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   const runtimeChainId = safeStr(runtime?.chainId).trim();
   if (!runtimeChainId) throw new Error("Runtime approval chain build returned no chainId.");
 
+  let runtimeHealth: {
+    runtimeSteps: any[];
+    firstPendingStep: any | null;
+  };
+  try {
+    runtimeHealth = await verifyRuntimeApprovalChainHealth(adminDbForBuilder, {
+      artifactId,
+      chainId: runtimeChainId,
+    });
+  } catch (error) {
+    await cancelApprovalChainArtifacts(adminDbForBuilder, runtimeChainId, artifactId);
+    throw error;
+  }
+
   const editSessionId = await getMyActiveEditSessionId(supabase, {
     artifactId,
     userId: user.id,
@@ -1773,21 +1896,27 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
     chainId: runtimeChainId,
     before: {
       approval_status: a0.approval_status,
+      approval_step_index: a0.approval_step_index ?? null,
       is_locked: a0.is_locked,
       approval_chain_id: a0.approval_chain_id ?? null,
       current_draft_rev: a0.current_draft_rev ?? null,
       current_version_no: a0.current_version_no ?? null,
       last_saved_version_id: a0.last_saved_version_id ?? null,
+      status: a0.status ?? null,
     },
     after: {
       approval_status: safeStr(updatedArtifact?.approval_status || "submitted"),
+      approval_step_index: Number(updatedArtifact?.approval_step_index ?? runtimeHealth.firstPendingStep?.step_order ?? 1),
       is_locked: updatedArtifact?.is_locked === true,
       approval_chain_id: safeStr(updatedArtifact?.approval_chain_id || runtimeChainId),
       submitted_at: safeStr(updatedArtifact?.submitted_at || nowIso),
       submitted_by: safeStr(updatedArtifact?.submitted_by || user.id),
+      status: safeStr(updatedArtifact?.status || "submitted"),
       runtime_steps_created: true,
       runtime_artifact_type: safeStr(runtime?.chosenType || normalizeArtifactType(a0.type)),
-      runtime_step_count: Array.isArray(runtime?.stepIds) ? runtime.stepIds.length : 0,
+      runtime_step_count: runtimeHealth.runtimeSteps.length,
+      runtime_first_pending_step_id: safeStr(runtimeHealth.firstPendingStep?.id) || null,
+      runtime_first_pending_step_order: Number(runtimeHealth.firstPendingStep?.step_order ?? 1),
       approval_submission_snapshot_created: true,
       approval_submission_snapshot_session_id: editSessionId,
     },
@@ -1932,7 +2061,7 @@ export async function approveStep(projectId: string, artifactId: string, comment
         min_approvals: threshold,
         next_step_id: nextStepId,
         next_step_status: safeStr(nextStep?.status || "active"),
-        approval_step_index: Math.max(0, currentPos + 1),
+        approval_step_index: Math.max(1, getStepOrderValue(nextStep, getStepOrderValue(currentStep, 1) + 1)),
         acted_as_delegate: actedAsDelegate,
         delegated_from_user_id: delegatedFromUserId,
         approval_slot_id: safeStr(atomic.slot_id) || safeStr(approverInfo.matchedApprover?.id) || null,
