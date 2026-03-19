@@ -1,4 +1,4 @@
-// src/app/api/artifacts/[id]/content-json/route.ts
+// src/app/api/artifacts/[artifactId]/content-json/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -175,7 +175,7 @@ function canonicalArtifactType(row: any) {
 /** ✅ Tight compatibility rules (includes Stakeholder Register) */
 function isTypeCompatible(canonicalType: string, contentJson: any) {
   const cjType = safeStr(contentJson?.type).trim().toLowerCase();
-  if (!cjType) return true; // allow missing, but block explicit mismatches
+  if (!cjType) return true;
 
   const isScheduleLike = /schedule|gantt|roadmap/.test(canonicalType);
   const isWbsLike = /wbs|work_breakdown|workbreakdown/.test(canonicalType);
@@ -191,9 +191,6 @@ function isTypeCompatible(canonicalType: string, contentJson: any) {
 /* ───────────────────────── Column existence helper ───────────────────────── */
 
 async function hasArtifactColumn(supabase: any, columnName: string): Promise<boolean> {
-  // Uses Postgres information_schema via RPC-less query:
-  // In Supabase, direct select from information_schema is usually allowed for authenticated,
-  // but if it’s blocked in your setup, we just return false.
   try {
     const { data, error } = await supabase
       .from("information_schema.columns")
@@ -212,34 +209,38 @@ async function hasArtifactColumn(supabase: any, columnName: string): Promise<boo
 
 /* ───────────────────────── Routes ───────────────────────── */
 
-type RouteCtx = { params: Promise<{ id: string }> };
+type RouteCtx = { params: Promise<{ artifactId: string }> };
 
 /**
- * GET /api/artifacts/:id/content-json?projectId=...
+ * GET /api/artifacts/:artifactId/content-json?projectId=...
  * projectId is optional: if missing, we resolve from artifacts row (and still enforce membership).
  */
 export async function GET(req: NextRequest, ctx: RouteCtx) {
   try {
     const supabase = await createClient();
-    const { id } = await ctx.params;
+    const { artifactId } = await ctx.params;
 
-    const artifactId = safeStr(id).trim();
-    if (!artifactId) return jsonErr("Missing artifactId", 400, { params: { id } });
-    if (!isUuid(artifactId)) return jsonErr("Invalid artifactId", 400);
+    const safeArtifactId = safeStr(artifactId).trim();
+    if (!safeArtifactId) return jsonErr("Missing artifactId", 400, { params: { artifactId } });
+    if (!isUuid(safeArtifactId)) return jsonErr("Invalid artifactId", 400);
 
     const url = new URL(req.url);
     let projectId = safeStr(url.searchParams.get("projectId")).trim();
 
-    // If projectId not provided, resolve via artifacts row
     if (!projectId) {
       const { data: a0, error: a0Err } = await supabase
         .from("artifacts")
         .select("id, project_id")
-        .eq("id", artifactId)
+        .eq("id", safeArtifactId)
         .maybeSingle();
 
-      if (a0Err)
-        return jsonErr("Failed to load artifact", 500, { message: a0Err.message, code: a0Err.code, hint: a0Err.hint });
+      if (a0Err) {
+        return jsonErr("Failed to load artifact", 500, {
+          message: a0Err.message,
+          code: a0Err.code,
+          hint: a0Err.hint,
+        });
+      }
       if (!a0?.project_id) return jsonErr("Not found", 404);
 
       projectId = String(a0.project_id);
@@ -252,12 +253,17 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
     const { data: art, error: artErr } = await supabase
       .from("artifacts")
       .select("id, project_id, title, type, artifact_type, is_current, content_json, updated_at, created_at, is_locked")
-      .eq("id", artifactId)
+      .eq("id", safeArtifactId)
       .eq("project_id", projectId)
       .maybeSingle();
 
-    if (artErr)
-      return jsonErr("Failed to load artifact", 500, { message: artErr.message, code: artErr.code, hint: artErr.hint });
+    if (artErr) {
+      return jsonErr("Failed to load artifact", 500, {
+        message: artErr.message,
+        code: artErr.code,
+        hint: artErr.hint,
+      });
+    }
     if (!art) return jsonErr("Not found", 404);
 
     return jsonOk({
@@ -283,18 +289,18 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
 }
 
 /**
- * POST /api/artifacts/:id/content-json
+ * POST /api/artifacts/:artifactId/content-json
  * - projectId is optional: if missing, resolve from artifact row.
  * - Optional concurrency: header If-Match: <artifact.updated_at from GET>
  */
 export async function POST(req: NextRequest, ctx: RouteCtx) {
   try {
     const supabase = await createClient();
-    const { id } = await ctx.params;
+    const { artifactId } = await ctx.params;
 
-    const artifactId = safeStr(id).trim();
-    if (!artifactId) return jsonErr("Missing artifactId", 400, { params: { id } });
-    if (!isUuid(artifactId)) return jsonErr("Invalid artifactId", 400);
+    const safeArtifactId = safeStr(artifactId).trim();
+    if (!safeArtifactId) return jsonErr("Missing artifactId", 400, { params: { artifactId } });
+    if (!isUuid(safeArtifactId)) return jsonErr("Invalid artifactId", 400);
 
     const body = await req.json().catch(() => ({}));
 
@@ -306,16 +312,20 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       return jsonErr("content_json must be an object", 400);
     }
 
-    // Resolve projectId if missing
     if (!projectId) {
       const { data: a0, error: a0Err } = await supabase
         .from("artifacts")
         .select("id, project_id")
-        .eq("id", artifactId)
+        .eq("id", safeArtifactId)
         .maybeSingle();
 
-      if (a0Err)
-        return jsonErr("Failed to load artifact", 500, { message: a0Err.message, code: a0Err.code, hint: a0Err.hint });
+      if (a0Err) {
+        return jsonErr("Failed to load artifact", 500, {
+          message: a0Err.message,
+          code: a0Err.code,
+          hint: a0Err.hint,
+        });
+      }
       if (!a0?.project_id) return jsonErr("Not found", 404);
 
       projectId = String(a0.project_id);
@@ -329,12 +339,17 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
     const { data: art, error: artErr } = await supabase
       .from("artifacts")
       .select("id, project_id, is_locked, title, type, artifact_type, updated_at")
-      .eq("id", artifactId)
+      .eq("id", safeArtifactId)
       .eq("project_id", projectId)
       .maybeSingle();
 
-    if (artErr)
-      return jsonErr("Failed to load artifact", 500, { message: artErr.message, code: artErr.code, hint: artErr.hint });
+    if (artErr) {
+      return jsonErr("Failed to load artifact", 500, {
+        message: artErr.message,
+        code: artErr.code,
+        hint: artErr.hint,
+      });
+    }
     if (!art) return jsonErr("Not found", 404);
 
     if ((art as any).is_locked) return jsonErr("Artifact is locked", 409);
@@ -347,7 +362,6 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       });
     }
 
-    // ✅ Optimistic concurrency
     const ifMatch = safeStr(req.headers.get("if-match")).trim();
     if (ifMatch && safeStr((art as any).updated_at).trim() !== ifMatch) {
       return jsonErr("Conflict: artifact was updated by someone else. Refresh and retry.", 409, {
@@ -357,8 +371,6 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
     }
 
     const finalTitle = title || safeStr((art as any)?.title);
-
-    // Only set last_saved_at if the column exists
     const canSetLastSavedAt = await hasArtifactColumn(supabase, "last_saved_at");
 
     const patch: any = {
@@ -368,9 +380,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
     if (title) patch.title = title;
     if (canSetLastSavedAt) patch.last_saved_at = new Date().toISOString();
 
-    // ✅ Do NOT set updated_at manually (trigger does it)
-    // ✅ Enforce atomic concurrency by also filtering updated_at in the UPDATE
-    let q = supabase.from("artifacts").update(patch).eq("id", artifactId).eq("project_id", projectId);
+    let q = supabase.from("artifacts").update(patch).eq("id", safeArtifactId).eq("project_id", projectId);
     if (ifMatch) q = q.eq("updated_at", ifMatch);
 
     const { data: updated, error: upErr } = await q
