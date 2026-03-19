@@ -158,54 +158,6 @@ async function getOrgMembership(supabase: any, organisationId: string, userId: s
 
 // ── Server actions ────────────────────────────────────────────────────────────
 
-async function convertPipelineToConfirmed(formData: FormData) {
-  "use server";
-  const supabase = await createClient();
-  const { data: { user }, error: uErr } = await supabase.auth.getUser();
-  if (uErr) throw uErr;
-  if (!user) redirect("/login");
-
-  const activeOrgId = await getActiveOrgId();
-  if (!activeOrgId) redirect("/projects?err=no_active_org");
-
-  const projectId = safeStr(formData.get("project_id")).trim();
-  const returnTo  = safeStr(formData.get("return_to")).trim() || "/projects";
-  if (!projectId) redirect(`${returnTo}?err=missing_project_id`);
-
-  const { data: projRow, error: projErr } = await supabase
-    .from("projects")
-    .select("id, organisation_id, resource_status")
-    .eq("id", projectId)
-    .maybeSingle();
-
-  if (projErr) throw projErr;
-  if (!projRow?.id || String(projRow.organisation_id) !== activeOrgId)
-    redirect(`${returnTo}?err=forbidden`);
-
-  const { data: memRows, error: memErr } = await supabase
-    .from("project_members")
-    .select("role, removed_at, is_active")
-    .eq("project_id", projectId)
-    .eq("user_id", user.id)
-    .is("removed_at", null);
-
-  if (memErr) throw memErr;
-
-  const myRole = bestProjectRole(memRows as any);
-  const org = await getOrgMembership(supabase, activeOrgId, user.id);
-  if (!(org.isAdmin || myRole === "owner" || myRole === "editor"))
-    redirect(`${returnTo}?err=forbidden`);
-
-  const { error: upErr } = await supabase
-    .from("projects")
-    .update({ resource_status: "confirmed" })
-    .eq("id", projectId)
-    .eq("resource_status", "pipeline");
-
-  if (upErr) throw upErr;
-  redirect(`${returnTo}?msg=converted_to_confirmed`);
-}
-
 async function assignPmAction(formData: FormData) {
   "use server";
   const supabase = await createClient();
@@ -344,6 +296,7 @@ export default async function ProjectPage({
     orgMembersBaseResult,
     spendResult,
     briefingResult,
+    gateQueryResult,
   ] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
     supabase
@@ -405,14 +358,17 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid)
       .is("deleted_at", null)
       .limit(100000),
-   getCachedBriefing(projectUuid),
+    getCachedBriefing(projectUuid),
+    // Gate 1 record — fails gracefully if table doesn't exist yet
     supabase
       .from("project_gates")
       .select("id, gate_number, gate_name, status, passed_at, passed_by, override, override_reason, pass_count, warn_count, fail_count, criteria_snapshot")
       .eq("project_id", projectUuid)
       .eq("gate_number", 1)
-      .maybeSingle(),
+      .maybeSingle()
+      .catch(() => ({ data: null, error: null })),
   ]);
+
   const resource         = resourceData.status === "fulfilled" ? resourceData.value : null;
   const periods          = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
   const changes          = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
@@ -424,8 +380,8 @@ export default async function ProjectPage({
   const keyArtifacts     = keyArtifactsResult.status === "fulfilled" ? keyArtifactsResult.value.data ?? [] : [];
   const orgMembersBase   = orgMembersBaseResult.status === "fulfilled" ? orgMembersBaseResult.value.data ?? [] : [];
   const cachedBriefing   = briefingResult.status === "fulfilled" ? briefingResult.value.briefing : null;
-  const gateResult       = (results as any)[12]; // index 12 = gate query
-  const gateRecord       = gateResult?.status === "fulfilled" ? gateResult.value?.data ?? null : null;
+  const gateRecord       = gateQueryResult.status === "fulfilled" ? (gateQueryResult.value as any)?.data ?? null : null;
+
   const spendRows   = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
   const spentAmount = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
   const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
@@ -697,18 +653,17 @@ export default async function ProjectPage({
           <ProjectRaidRaiseButton projectId={projectUuid} projectTitle={projectTitle} projectCode={projectCode || null} />
           <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">+ New artifact</Link>
           <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">Project Charter</Link>
-        
-{project?.resource_status === "pipeline" && (
-  <Gate1Modal
-    projectId={projectUuid}
-    isAdmin={org.isAdmin}
-    returnTo={`/projects/${projectRefForUrls}`}
-  />
-)}        </div>
+          {project?.resource_status === "pipeline" && (
+            <Gate1Modal
+              projectId={projectUuid}
+              isAdmin={org.isAdmin}
+              returnTo={`/projects/${projectRefForUrls}`}
+            />
+          )}
+        </div>
       )}
 
-      {/* ── Stat cards ── */}
-    {/* ── Gate 1 status — shown for confirmed/active projects ── */}
+      {/* ── Gate 1 status — shown for confirmed/active projects ── */}
       {safeStr(project?.resource_status).toLowerCase() !== "pipeline" && (
         <GateStatusPanel
           projectId={projectUuid}
@@ -741,16 +696,17 @@ export default async function ProjectPage({
             {pmName === "Unassigned" ? "Not assigned" : (pmJobTitle || "Assigned")}
           </div>
         </div>
-       <div className="stat-card" style={{ gridColumn: "span 2" }}>
-  <ProjectDateEditor
-    projectId={projectUuid}
-    projectTitle={projectTitle}
-    startDate={project?.start_date ?? null}
-    finishDate={project?.finish_date ?? null}
-    resourceStatus={safeStr(project?.resource_status)}
-    canEdit={canEdit}
-  />
-</div>      </div>
+        <div className="stat-card" style={{ gridColumn: "span 2" }}>
+          <ProjectDateEditor
+            projectId={projectUuid}
+            projectTitle={projectTitle}
+            startDate={project?.start_date ?? null}
+            finishDate={project?.finish_date ?? null}
+            resourceStatus={safeStr(project?.resource_status)}
+            canEdit={canEdit}
+          />
+        </div>
+      </div>
 
       {/* ── Description + health ── */}
       <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, marginBottom: 16 }}>
