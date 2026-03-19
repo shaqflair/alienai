@@ -23,7 +23,7 @@ function fmtDisplay(d: string | null | undefined) {
   } catch { return d; }
 }
 
-/* ── Inline edit for Pipeline ────────────────────────────────────────── */
+/* - Inline edit for Pipeline - */
 
 function PipelineDateEdit({
   projectId, startDate, finishDate, onSaved,
@@ -79,11 +79,11 @@ function PipelineDateEdit({
               cursor: "pointer", whiteSpace: "nowrap", alignSelf: "center",
             }}
           >
-            ✏ Edit dates
+            - Edit dates
           </button>
         </div>
         <div style={{ fontSize: 10, color: "#8b949e", marginTop: 2 }}>
-          Pipeline project — dates can be edited directly.
+          Pipeline project -- dates can be edited directly.
         </div>
       </div>
     );
@@ -133,14 +133,14 @@ function PipelineDateEdit({
           disabled={saving}
           style={{ flex: 2, padding: "8px 0", borderRadius: 8, border: "1px solid #0d1117", background: saving ? "#8b949e" : "#0d1117", color: "white", fontSize: 12, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer" }}
         >
-          {saving ? "Saving…" : "Save dates"}
+          {saving ? "Saving..." : "Save dates"}
         </button>
       </div>
     </div>
   );
 }
 
-/* ── CR modal for Active projects ────────────────────────────────────── */
+/* - CR modal for Active projects - */
 
 function DateChangeRequestModal({
   projectId, projectTitle, startDate, finishDate, onClose,
@@ -220,7 +220,7 @@ function DateChangeRequestModal({
             <h2 style={{ fontSize: 17, fontWeight: 750, color: "#0d1117", margin: 0, letterSpacing: "-0.02em" }}>
               Request Date Change
             </h2>
-            <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 7, border: "1px solid #e8ecf0", background: "#f6f8fa", cursor: "pointer", fontSize: 13, color: "#57606a" }}>✕</button>
+            <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 7, border: "1px solid #e8ecf0", background: "#f6f8fa", cursor: "pointer", fontSize: 13, color: "#57606a" }}>-</button>
           </div>
           <p style={{ fontSize: 12, color: "#57606a", margin: "6px 0 0", lineHeight: 1.5 }}>
             Date changes on active projects require a change request. This will be sent for approval before any dates are updated.
@@ -229,7 +229,7 @@ function DateChangeRequestModal({
 
         {done ? (
           <div style={{ padding: 24, textAlign: "center" }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>✓</div>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>-</div>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#0d1117", marginBottom: 6 }}>Change request submitted</div>
             <p style={{ fontSize: 13, color: "#57606a", marginBottom: 20, lineHeight: 1.6 }}>
               Your date change request has been raised and is pending approval. The project dates will only be updated once approved.
@@ -239,7 +239,7 @@ function DateChangeRequestModal({
                 href={`/projects/${projectId}/change`}
                 style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, background: "#0d1117", color: "white", fontSize: 12, fontWeight: 600, textDecoration: "none" }}
               >
-                View change request →
+                View change request -
               </a>
             )}
             <button onClick={onClose} style={{ display: "block", margin: "12px auto 0", fontSize: 12, color: "#8b949e", background: "none", border: "none", cursor: "pointer" }}>
@@ -290,7 +290,7 @@ function DateChangeRequestModal({
                 <div style={{ fontSize: 11, color: "#3b82f6", marginTop: 6 }}>
                   {startChanged && finishChanged ? "Both dates changed" : startChanged ? "Start date changed" : "Finish date changed"}
                   {finishChanged && finishDate && newFinish > finishDate && (
-                    <span style={{ color: "#b45309" }}> · Finish moved out by {Math.ceil((new Date(newFinish).getTime() - new Date(finishDate).getTime()) / 86400000)} days</span>
+                    <span style={{ color: "#b45309" }}> - Finish moved out by {Math.ceil((new Date(newFinish).getTime() - new Date(finishDate).getTime()) / 86400000)} days</span>
                   )}
                 </div>
               )}
@@ -306,7 +306,7 @@ function DateChangeRequestModal({
                 onChange={(e) => { setReason(e.target.value); setError(null); }}
                 placeholder="e.g. Supplier delayed delivery of key component by 3 weeks. Baseline end date needs to move accordingly."
                 rows={3}
-                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e8ecf0", fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", lineHeight: 1.5, boxSizing: "border-box" }}
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e8ecf0", fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", lineHeight: 1.5, boxSizing: "border-box", color: "#0d1117", background: "white" }
               />
             </div>
 
@@ -320,7 +320,7 @@ function DateChangeRequestModal({
                 onChange={(e) => setImpact(e.target.value)}
                 placeholder="e.g. No impact on budget. UAT phase compressed by 1 week. Go-live date maintained."
                 rows={2}
-                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e8ecf0", fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", lineHeight: 1.5, boxSizing: "border-box" }}
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e8ecf0", fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", lineHeight: 1.5, boxSizing: "border-box", color: "#0d1117", background: "white" }
               />
             </div>
 
@@ -339,7 +339,7 @@ function DateChangeRequestModal({
                 disabled={submitting || !hasChange}
                 style={{ flex: 2, padding: "10px 0", borderRadius: 8, border: "1px solid #0d1117", background: submitting || !hasChange ? "#8b949e" : "#0d1117", color: "white", fontSize: 12, fontWeight: 700, cursor: submitting || !hasChange ? "not-allowed" : "pointer" }}
               >
-                {submitting ? "Submitting…" : "Submit change request"}
+                {submitting ? "Submitting..." : "Submit change request"}
               </button>
             </div>
           </div>
@@ -350,7 +350,7 @@ function DateChangeRequestModal({
   );
 }
 
-/* ── Shared date stat cell ───────────────────────────────────────────── */
+/* - Shared date stat cell - */
 
 function DateStatCell({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
@@ -362,7 +362,7 @@ function DateStatCell({ label, value, sub }: { label: string; value: string; sub
   );
 }
 
-/* ── Main export ─────────────────────────────────────────────────────── */
+/* - Main export - */
 
 export default function ProjectDateEditor({
   projectId, projectTitle, startDate, finishDate, resourceStatus, canEdit,
@@ -381,7 +381,7 @@ export default function ProjectDateEditor({
     );
   }
 
-  // Pipeline — inline edit
+  // Pipeline -- inline edit
   if (isPipeline) {
     return (
       <PipelineDateEdit
@@ -393,7 +393,7 @@ export default function ProjectDateEditor({
     );
   }
 
-  // Active — show dates + CR button
+  // Active -- show dates + CR button
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
@@ -410,11 +410,11 @@ export default function ProjectDateEditor({
           cursor: "pointer", transition: "all 0.15s",
         }}
       >
-        📅 Request date change
+        - Request date change
       </button>
 
       <div style={{ fontSize: 10, color: "#8b949e" }}>
-        Active project — date changes require a change request and approval.
+        Active project -- date changes require a change request and approval.
       </div>
 
       {showCrModal && (
