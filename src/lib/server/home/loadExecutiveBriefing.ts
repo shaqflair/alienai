@@ -156,7 +156,6 @@ async function loadFinanceSummary(args: {
     }
     if (!ids.length) return noData;
 
-    // Query budget_amount and budget_days directly from projects table
     const { data, error } = await supabase
       .from("projects")
       .select("id, title, project_code, budget_amount, budget_days")
@@ -212,6 +211,12 @@ export async function loadExecutiveBriefing(args: {
   organisationId?: string | null;
   liveHealthScore?: number | null;
 }): Promise<BriefingData | null> {
+  // ── FIX: bail early if liveHealthScore hasn't arrived yet.
+  // This prevents a first render with the stale projectScores average (e.g. 85%)
+  // before the authoritative live score (e.g. 92%) is available, which caused
+  // both the flash in the executive briefing and the mismatch in talking point 2.
+  if (args.liveHealthScore == null) return null;
+
   try {
     const supabase = await createClient();
     const nowIso = new Date().toISOString();
@@ -220,21 +225,18 @@ export async function loadExecutiveBriefing(args: {
     const organisationId = args.organisationId ?? null;
 
     const scoreEntries = Object.entries(projectScores);
-    const scoreVals: number[] = [];
     const derivedProjectIds: string[] = [];
-    for (const [projectId, value] of scoreEntries) {
+    for (const [projectId] of scoreEntries) {
       const cleanId = safeStr(projectId).trim();
       if (cleanId) derivedProjectIds.push(cleanId);
-      const score = safeNum(value?.score);
-      if (score != null) scoreVals.push(score);
     }
 
     const projectIds = uniqNonEmptyStrings([...(args.projectIds ?? []), ...derivedProjectIds]);
 
-    // Use the live portfolio API score if passed, otherwise average from project scores
-    const avgHealth = args.liveHealthScore != null
-      ? Math.round(args.liveHealthScore)
-      : averageRounded(scoreVals);
+    // Always use liveHealthScore as the single source of truth for avg health.
+    // Never fall back to averaging projectScores — that produced a different
+    // number (e.g. 85%) and caused the flash + talking-point mismatch.
+    const avgHealth = Math.round(args.liveHealthScore);
 
     const projectCount = projectIds.length || scoreEntries.length;
 
@@ -263,7 +265,7 @@ export async function loadExecutiveBriefing(args: {
     });
 
     const healthSentiment: Sentiment =
-      avgHealth == null ? dominant : avgHealth < 70 ? "red" : avgHealth < 85 ? "amber" : "green";
+      avgHealth < 70 ? "red" : avgHealth < 85 ? "amber" : "green";
 
     const riskSentiment: Sentiment =
       highRaid > 0 ? (highRaid >= 5 ? "red" : "amber") : "green";
@@ -271,7 +273,6 @@ export async function loadExecutiveBriefing(args: {
     const deliverySentiment: Sentiment =
       liveRagCounts.r > 0 ? "red" : liveRagCounts.a > 0 ? "amber" : liveRagCounts.g > 0 ? "green" : "neutral";
 
-    // Build RAID body with project names
     let raidBody: string;
     if (highRaid === 0) {
       raidBody = "No high or critical RAID items are currently open across the portfolio.";
@@ -287,9 +288,7 @@ export async function loadExecutiveBriefing(args: {
         id: "health",
         title: "Health",
         sentiment: healthSentiment,
-        body: avgHealth != null
-          ? `Average portfolio health is ${avgHealth}%. Current mix: ${liveRagCounts.g} green, ${liveRagCounts.a} amber, ${liveRagCounts.r} red.`
-          : "Average health is not yet available from live scoring.",
+        body: `Average portfolio health is ${avgHealth}%. Current mix: ${liveRagCounts.g} green, ${liveRagCounts.a} amber, ${liveRagCounts.r} red.`,
       },
       {
         id: "risk",
@@ -319,7 +318,7 @@ export async function loadExecutiveBriefing(args: {
 
     const talking_points = [
       `Portfolio mix is ${liveRagCounts.g} green / ${liveRagCounts.a} amber / ${liveRagCounts.r} red.`,
-      avgHealth != null ? `Average health is ${avgHealth}%.` : "Average health is still being established from live data.",
+      `Average health is ${avgHealth}%.`,
       highRaid > 0
         ? `${highRaid} high or critical RAID item${highRaid === 1 ? "" : "s"} require attention${raidProjectNames.length > 0 ? ` (${raidProjectNames.join(", ")})` : ""}.`
         : "No high-priority RAID items are currently flagged.",
