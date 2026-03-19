@@ -9,10 +9,6 @@ import type {
 import { insertRoleRequirements } from "../../actions";
 import { updateAllocation, deleteAllocationDirect } from "../../../allocations/actions";
 
-/* =============================================================================
-   HELPERS + CONSTANTS
-============================================================================= */
-
 const UTIL_COLOURS = {
   empty:    { bg: "#f8fafc", text: "#cbd5e1", border: "#f1f5f9" },
   low:      { bg: "rgba(16,185,129,0.09)",  text: "#059669", border: "rgba(16,185,129,0.2)" },
@@ -49,7 +45,6 @@ function avatarCol(name: string) {
   return AVATAR_COLS[name.charCodeAt(0) % AVATAR_COLS.length];
 }
 
-/** Derive week periods directly from allocation rows when project has no dates */
 function derivePeriodsFromAllocations(allocations: AllocationRow[]): WeekPeriod[] {
   const weekKeys = Array.from(new Set(allocations.map(a => a.weekStartDate)))
     .filter(Boolean)
@@ -72,10 +67,6 @@ const ROLES = [
 
 const SENIORITY = ["Junior","Mid","Senior","Lead","Principal","Director"];
 
-/* =============================================================================
-   SMALL SHARED COMPONENTS
-============================================================================= */
-
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   return (
     <div style={{
@@ -96,17 +87,12 @@ function SectionHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div style={{
-      display: "flex", alignItems: "center",
-      justifyContent: "space-between", marginBottom: "16px",
-    }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
         <span style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>{icon}</span>
         <div>
           <div style={{ fontSize: "15px", fontWeight: 800, color: "#0f172a" }}>{title}</div>
-          {subtitle && (
-            <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "1px" }}>{subtitle}</div>
-          )}
+          {subtitle && <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "1px" }}>{subtitle}</div>}
         </div>
       </div>
       {action}
@@ -137,10 +123,6 @@ function StatPill({ label, value, colour }: { label: string; value: string | num
   );
 }
 
-/* =============================================================================
-   ICON COMPONENTS
-============================================================================= */
-
 const IconBudget = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
     <rect x="2" y="6" width="20" height="13" rx="2" stroke="#64748b" strokeWidth="1.8"/>
@@ -163,10 +145,6 @@ const IconGrid = () => (
   </svg>
 );
 
-/* =============================================================================
-   EDIT ALLOCATION MODAL
-============================================================================= */
-
 const labelStyle: React.CSSProperties = {
   display: "block", fontSize: "10px", fontWeight: 800,
   color: "#94a3b8", textTransform: "uppercase",
@@ -181,12 +159,17 @@ const inputStyle: React.CSSProperties = {
   fontFamily: "inherit", outline: "none",
 };
 
-function EditAllocationModal({ member, projectId, onClose }: { member: TeamMember; projectId: string; onClose: () => void }) {
+// -- PATCH 1 + 2: isPipeline prop, locked type for pipeline ---------------------
+
+function EditAllocationModal({ member, projectId, isPipeline, onClose }: {
+  member: TeamMember; projectId: string; isPipeline?: boolean; onClose: () => void;
+}) {
   const CAPACITY_OPTIONS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
   const [startDate,   setStartDate]   = useState((member as any).firstWeek ?? "");
   const [endDate,     setEndDate]     = useState((member as any).lastWeek  ?? "");
   const [daysPerWeek, setDaysPerWeek] = useState((member as any).avgDaysPerWeek || 5);
-  const [allocType,   setAllocType]   = useState(member.allocationType || "confirmed");
+  // Pipeline allocations are always soft
+  const [allocType,   setAllocType]   = useState(isPipeline ? "soft" : (member.allocationType || "confirmed"));
   const [error,       setError]       = useState<string | null>(null);
   const [isPending,   startTransition] = useTransition();
   const [showDelete,  setShowDelete]  = useState(false);
@@ -225,19 +208,25 @@ function EditAllocationModal({ member, projectId, onClose }: { member: TeamMembe
         <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: "15px", fontWeight: 800, color: "#0f172a" }}>Edit allocation</div>
-            <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>{member.fullName} · {member.weekCount}w · {member.totalDaysAllocated}d total</div>
+            <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>{member.fullName} - {member.weekCount}w - {member.totalDaysAllocated}d total</div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "18px", lineHeight: 1, padding: "4px" }}>×</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "18px", lineHeight: 1, padding: "4px" }}>x</button>
         </div>
 
         <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: "14px" }}>
           {error && <div style={{ padding: "8px 12px", borderRadius: "8px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#dc2626", fontSize: "12px" }}>{error}</div>}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-            <div><label style={labelStyle}>Start date</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inputStyle} /></div>
-            <div><label style={labelStyle}>End date</label><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={inputStyle} /></div>
+            <div>
+              <label style={labelStyle}>Start date</label>
+              <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ ...inputStyle, color: "#0f172a", colorScheme: "light" }} />
+            </div>
+            <div>
+              <label style={labelStyle}>End date</label>
+              <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ ...inputStyle, color: "#0f172a", colorScheme: "light" }} />
+            </div>
           </div>
-          {weekCount > 0 && <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "-8px" }}>{weekCount} week{weekCount !== 1 ? "s" : ""} · {Math.round(weekCount * daysPerWeek * 10) / 10}d total</div>}
+          {weekCount > 0 && <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "-8px" }}>{weekCount} week{weekCount !== 1 ? "s" : ""} - {Math.round(weekCount * daysPerWeek * 10) / 10}d total</div>}
 
           <div>
             <label style={labelStyle}>Days / week</label>
@@ -250,17 +239,26 @@ function EditAllocationModal({ member, projectId, onClose }: { member: TeamMembe
 
           <div>
             <label style={labelStyle}>Type</label>
-            <div style={{ display: "flex", gap: "8px" }}>
-              {(["confirmed", "soft"] as const).map(t => (
-                <button key={t} type="button" onClick={() => setAllocType(t)} style={{ flex: 1, padding: "7px", borderRadius: "7px", border: `1.5px solid ${allocType === t ? "#00b8db" : "#e2e8f0"}`, background: allocType === t ? "rgba(0,184,219,0.08)" : "white", color: allocType === t ? "#0e7490" : "#64748b", fontSize: "12px", fontWeight: 700, cursor: "pointer", textTransform: "capitalize" }}>{t === "confirmed" ? "✓ Confirmed" : "○ Soft"}</button>
-              ))}
-            </div>
+            {isPipeline ? (
+              // Pipeline: locked to soft, no toggle
+              <div style={{ padding: "8px 12px", borderRadius: "7px", border: "1.5px solid #e8ecf0", background: "#f8fafc", fontSize: "12px", fontWeight: 700, color: "#475569", textAlign: "center" }}>
+                Soft only (pipeline project)
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: "8px" }}>
+                {(["confirmed", "soft"] as const).map(t => (
+                  <button key={t} type="button" onClick={() => setAllocType(t)} style={{ flex: 1, padding: "7px", borderRadius: "7px", border: `1.5px solid ${allocType === t ? "#00b8db" : "#e2e8f0"}`, background: allocType === t ? "rgba(0,184,219,0.08)" : "white", color: allocType === t ? "#0e7490" : "#64748b", fontSize: "12px", fontWeight: 700, cursor: "pointer", textTransform: "capitalize" }}>
+                    {t === "confirmed" ? "Confirmed" : "Soft"}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
         <div style={{ padding: "12px 20px 16px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           {!showDelete ? (
-            <button onClick={() => setShowDelete(true)} style={{ background: "none", border: "none", color: "#ef4444", fontSize: "12px", fontWeight: 600, cursor: "pointer", padding: 0 }}>🗑 Remove allocation</button>
+            <button onClick={() => setShowDelete(true)} style={{ background: "none", border: "none", color: "#ef4444", fontSize: "12px", fontWeight: 600, cursor: "pointer", padding: 0 }}>Remove allocation</button>
           ) : (
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <span style={{ fontSize: "12px", color: "#ef4444", fontWeight: 600 }}>Sure?</span>
@@ -278,18 +276,25 @@ function EditAllocationModal({ member, projectId, onClose }: { member: TeamMembe
   );
 }
 
-/* =============================================================================
-   1. TEAM MEMBERS
-============================================================================= */
+// -- PATCH 3 + 4: TeamMemberCard accepts and passes isPipeline -----------------
 
-function TeamMemberCard({ member, projectColour, projectId }: { member: TeamMember; projectColour: string; projectId: string }) {
+function TeamMemberCard({ member, projectColour, projectId, isPipeline }: {
+  member: TeamMember; projectColour: string; projectId: string; isPipeline?: boolean;
+}) {
   const tier = utilTier(member.avgUtilisationPct);
   const col  = UTIL_COLOURS[tier];
   const [showEdit, setShowEdit] = useState(false);
 
   return (
     <>
-      {showEdit && <EditAllocationModal member={member} projectId={projectId} onClose={() => setShowEdit(false)} />}
+      {showEdit && (
+        <EditAllocationModal
+          member={member}
+          projectId={projectId}
+          isPipeline={isPipeline}
+          onClose={() => setShowEdit(false)}
+        />
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 0", borderBottom: "1px solid #f1f5f9" }}>
         <Avatar name={member.fullName} size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -298,8 +303,8 @@ function TeamMemberCard({ member, projectColour, projectId }: { member: TeamMemb
             {member.allocationType === "soft" && <span style={{ marginLeft: "6px", fontSize: "10px", color: "#64748b", background: "#f1f5f9", borderRadius: "4px", padding: "1px 5px", fontWeight: 600 }}>Soft</span>}
           </div>
           <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "1px" }}>
-            {member.roleOnProject || member.jobTitle || "--"} · {member.weekCount}w · {member.totalDaysAllocated}d total
-            {(member as any).avgDaysPerWeek > 0 && <span style={{ color: "#64748b" }}> · {(member as any).avgDaysPerWeek}d/wk</span>}
+            {member.roleOnProject || member.jobTitle || "--"} - {member.weekCount}w - {member.totalDaysAllocated}d total
+            {(member as any).avgDaysPerWeek > 0 && <span style={{ color: "#64748b" }}> - {(member as any).avgDaysPerWeek}d/wk</span>}
             {member.employmentType === "part_time" && <span style={{ color: "#f59e0b", marginLeft: "4px", fontWeight: 600 }}>PT</span>}
           </div>
           <div style={{ marginTop: "6px" }}>
@@ -312,13 +317,17 @@ function TeamMemberCard({ member, projectColour, projectId }: { member: TeamMemb
           <div style={{ fontSize: "14px", fontWeight: 800, fontFamily: "'DM Mono', monospace", color: utilColour(member.avgUtilisationPct), background: col.bg, border: `1px solid ${col.border}`, borderRadius: "6px", padding: "3px 8px" }}>{member.avgUtilisationPct}%</div>
           <div style={{ fontSize: "10px", color: "#94a3b8", marginTop: "3px" }}>avg util</div>
         </div>
-        <button type="button" onClick={() => setShowEdit(true)} style={{ fontSize: "11px", color: "#00b8db", fontWeight: 600, padding: "5px 10px", border: "1px solid #bae6f0", borderRadius: "6px", whiteSpace: "nowrap", flexShrink: 0, background: "white", cursor: "pointer" }}>✏️ Edit</button>
+        <button type="button" onClick={() => setShowEdit(true)} style={{ fontSize: "11px", color: "#00b8db", fontWeight: 600, padding: "5px 10px", border: "1px solid #bae6f0", borderRadius: "6px", whiteSpace: "nowrap", flexShrink: 0, background: "white", cursor: "pointer" }}>Edit</button>
       </div>
     </>
   );
 }
 
-function TeamSection({ members, projectColour, projectId }: { members: TeamMember[]; projectColour: string; projectId: string }) {
+// -- PATCH 5 + 6: TeamSection accepts and passes isPipeline --------------------
+
+function TeamSection({ members, projectColour, projectId, isPipeline }: {
+  members: TeamMember[]; projectColour: string; projectId: string; isPipeline?: boolean;
+}) {
   return (
     <Card>
       <SectionHeader
@@ -328,17 +337,21 @@ function TeamSection({ members, projectColour, projectId }: { members: TeamMembe
         action={<a href={`/allocations/new?project_id=${projectId}&return_to=/projects/${projectId}`} style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "7px", background: "#00b8db", border: "none", color: "white", fontSize: "12px", fontWeight: 700, textDecoration: "none" }}>+ Allocate</a>}
       />
       {members.length === 0 ? (
-        <div style={{ padding: "24px 0", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>No one allocated yet. <a href={`/allocations/new?project_id=${projectId}&return_to=/projects/${projectId}`} style={{ color: "#00b8db", fontWeight: 600 }}>Add a person →</a></div>
+        <div style={{ padding: "24px 0", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>No one allocated yet. <a href={`/allocations/new?project_id=${projectId}&return_to=/projects/${projectId}`} style={{ color: "#00b8db", fontWeight: 600 }}>Add a person</a></div>
       ) : (
-        members.map(m => <TeamMemberCard key={m.personId} member={m} projectColour={projectColour} projectId={projectId} />)
+        members.map(m => (
+          <TeamMemberCard
+            key={m.personId}
+            member={m}
+            projectColour={projectColour}
+            projectId={projectId}
+            isPipeline={isPipeline}
+          />
+        ))
       )}
     </Card>
   );
 }
-
-/* =============================================================================
-   2. BUDGET
-============================================================================= */
 
 function BudgetSection({ budget, colour }: { budget: BudgetSummary; colour: string }) {
   const pct        = budget.utilisationPct ?? 0;
@@ -359,7 +372,7 @@ function BudgetSection({ budget, colour }: { budget: BudgetSummary; colour: stri
           <div style={{ height: "8px", background: "#f1f5f9", borderRadius: "4px", overflow: "hidden" }}>
             <div style={{ height: "100%", borderRadius: "4px", width: `${Math.min(pct, 100)}%`, background: utilColour(pct), transition: "width 0.4s" }} />
           </div>
-          {overBudget && <p style={{ fontSize: "11px", color: "#ef4444", marginTop: "5px", fontWeight: 600 }}>⚠ {Math.abs(budget.remainingDays!)}d over budget</p>}
+          {overBudget && <p style={{ fontSize: "11px", color: "#ef4444", marginTop: "5px", fontWeight: 600 }}>{Math.abs(budget.remainingDays!)}d over budget</p>}
         </div>
       )}
       <div style={{ display: "flex", gap: "16px", padding: "10px 12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
@@ -369,8 +382,8 @@ function BudgetSection({ budget, colour }: { budget: BudgetSummary; colour: stri
         </div>
         {budget.budgetAmount != null && (
           <div>
-            <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "2px" }}>Budget (£)</div>
-            <div style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a", fontFamily: "'DM Mono', monospace" }}>£{budget.budgetAmount.toLocaleString()}</div>
+            <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "2px" }}>Budget</div>
+            <div style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a", fontFamily: "'DM Mono', monospace" }}>GBP{budget.budgetAmount.toLocaleString()}</div>
           </div>
         )}
       </div>
@@ -378,14 +391,9 @@ function BudgetSection({ budget, colour }: { budget: BudgetSummary; colour: stri
   );
 }
 
-/* =============================================================================
-   3. MINI HEATMAP — derives periods from allocations when project has no dates
-============================================================================= */
-
 function MiniHeatmap({ allocations, members, periods, colour }: { allocations: AllocationRow[]; members: TeamMember[]; periods: WeekPeriod[]; colour: string }) {
   const today = new Date().toISOString().split("T")[0];
 
-  // ✅ KEY FIX: if periods is empty (no project start_date), derive from actual allocation weeks
   const resolvedPeriods = periods.length > 0
     ? periods
     : derivePeriodsFromAllocations(allocations);
@@ -406,7 +414,6 @@ function MiniHeatmap({ allocations, members, periods, colour }: { allocations: A
         title="Weekly allocation"
         subtitle={visiblePeriods.length > 0 ? `${visiblePeriods.length} weeks shown` : "No weeks to display"}
       />
-
       {members.length === 0 ? (
         <div style={{ padding: "16px 0", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>No allocations to display.</div>
       ) : visiblePeriods.length === 0 ? (
@@ -415,7 +422,6 @@ function MiniHeatmap({ allocations, members, periods, colour }: { allocations: A
         </div>
       ) : (
         <div style={{ minWidth: "max-content" }}>
-          {/* Period header */}
           <div style={{ display: "flex", marginBottom: "6px" }}>
             <div style={{ width: "140px", minWidth: "140px", flexShrink: 0 }} />
             {visiblePeriods.map(p => {
@@ -427,8 +433,6 @@ function MiniHeatmap({ allocations, members, periods, colour }: { allocations: A
               );
             })}
           </div>
-
-          {/* Person rows */}
           {members.map(member => (
             <div key={member.personId} style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
               <div style={{ width: "140px", minWidth: "140px", flexShrink: 0, display: "flex", alignItems: "center", gap: "6px", paddingRight: "8px" }}>
@@ -437,7 +441,6 @@ function MiniHeatmap({ allocations, members, periods, colour }: { allocations: A
                   {member.fullName.split(" ")[0]}
                 </div>
               </div>
-
               {visiblePeriods.map(p => {
                 const alloc = lookup.get(member.personId)?.get(p.key);
                 const pct   = alloc?.utilisationPct ?? 0;
@@ -447,7 +450,7 @@ function MiniHeatmap({ allocations, members, periods, colour }: { allocations: A
                 return (
                   <div key={p.key}
                     style={{ width: cellW - 2, minWidth: cellW - 2, height: "28px", borderRadius: "4px", flexShrink: 0, marginRight: "2px", background: alloc ? col.bg : (isCurrent ? "rgba(0,184,219,0.04)" : "#f8fafc"), border: `1px solid ${alloc ? col.border : (isCurrent ? "rgba(0,184,219,0.15)" : "#f1f5f9")}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "9px", fontWeight: 700, fontFamily: "'DM Mono', monospace", color: alloc ? col.text : "#e2e8f0", position: "relative" }}
-                    title={alloc ? `${alloc.daysAllocated}d · ${pct}% util` : "Not allocated"}
+                    title={alloc ? `${alloc.daysAllocated}d - ${pct}% util` : "Not allocated"}
                   >
                     {alloc ? `${alloc.daysAllocated}d` : ""}
                     {alloc && <div style={{ position: "absolute", bottom: 0, left: 0, height: "2px", borderRadius: "0 0 3px 3px", width: `${Math.min(pct, 100)}%`, background: col.text, opacity: 0.5 }} />}
@@ -456,8 +459,6 @@ function MiniHeatmap({ allocations, members, periods, colour }: { allocations: A
               })}
             </div>
           ))}
-
-          {/* Legend */}
           <div style={{ display: "flex", gap: "12px", marginTop: "12px", paddingTop: "10px", borderTop: "1px solid #f1f5f9" }}>
             {[{ tier: "low", label: "< 75%" }, { tier: "mid", label: "75-95%" }, { tier: "high", label: "95-110%" }, { tier: "critical", label: "> 110%" }].map(l => {
               const col = UTIL_COLOURS[l.tier as keyof typeof UTIL_COLOURS];
@@ -475,10 +476,6 @@ function MiniHeatmap({ allocations, members, periods, colour }: { allocations: A
   );
 }
 
-/* =============================================================================
-   4. ROLE REQUIREMENTS
-============================================================================= */
-
 type NewRole = { role_title: string; seniority_level: string; required_days_per_week: number; start_date: string; end_date: string };
 
 function RoleRequirementRow({ role }: { role: RoleRequirement }) {
@@ -488,13 +485,13 @@ function RoleRequirementRow({ role }: { role: RoleRequirement }) {
       <div style={{ width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0, background: role.isFilled ? "#10b981" : "#f59e0b", boxShadow: `0 0 0 3px ${role.isFilled ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)"}` }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a" }}>{role.seniorityLevel} {role.roleTitle}</div>
-        <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>{role.startDate} → {role.endDate} · {weeks}w · {role.requiredDaysPerWeek}d/wk</div>
+        <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>{role.startDate} to {role.endDate} - {weeks}w - {role.requiredDaysPerWeek}d/wk</div>
         {role.notes && <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px", fontStyle: "italic" }}>{role.notes}</div>}
       </div>
       <div style={{ textAlign: "right", flexShrink: 0 }}>
         <div style={{ fontSize: "13px", fontWeight: 700, fontFamily: "'DM Mono', monospace", color: role.isFilled ? "#10b981" : "#f59e0b" }}>{role.totalDemandDays}d</div>
         {role.isFilled ? (
-          <div style={{ fontSize: "10px", color: "#10b981", marginTop: "2px", fontWeight: 600 }}>✓ {role.filledByName || "Filled"}</div>
+          <div style={{ fontSize: "10px", color: "#10b981", marginTop: "2px", fontWeight: 600 }}>{role.filledByName || "Filled"}</div>
         ) : (
           <div style={{ fontSize: "10px", color: "#f59e0b", marginTop: "2px", fontWeight: 600, background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: "4px", padding: "1px 6px" }}>Unfilled</div>
         )}
@@ -533,11 +530,11 @@ function AddRoleForm({ projectId, startDate, endDate, onSaved }: { projectId: st
           <div style={{ display: "grid", gridTemplateColumns: "140px 1fr auto", gap: "8px" }}>
             <select value={role.seniority_level} onChange={e => updateRole(i, "seniority_level", e.target.value)} style={inputStyle}>{SENIORITY.map(s => <option key={s} value={s}>{s}</option>)}</select>
             <select value={role.role_title} onChange={e => updateRole(i, "role_title", e.target.value)} style={inputStyle}><option value="">Select role...</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select>
-            {roles.length > 1 && <button type="button" onClick={() => removeRole(i)} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "16px", lineHeight: 1, padding: "0 4px" }}>×</button>}
+            {roles.length > 1 && <button type="button" onClick={() => removeRole(i)} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "16px", lineHeight: 1, padding: "0 4px" }}>x</button>}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px", gap: "8px" }}>
-            <div><label style={labelStyle}>Start</label><input type="date" value={role.start_date} onChange={e => updateRole(i, "start_date", e.target.value)} style={inputStyle} /></div>
-            <div><label style={labelStyle}>End</label><input type="date" value={role.end_date} onChange={e => updateRole(i, "end_date", e.target.value)} style={inputStyle} /></div>
+            <div><label style={labelStyle}>Start</label><input type="date" value={role.start_date} onChange={e => updateRole(i, "start_date", e.target.value)} style={{ ...inputStyle, color: "#0f172a", colorScheme: "light" }} /></div>
+            <div><label style={labelStyle}>End</label><input type="date" value={role.end_date} onChange={e => updateRole(i, "end_date", e.target.value)} style={{ ...inputStyle, color: "#0f172a", colorScheme: "light" }} /></div>
             <div>
               <label style={labelStyle}>Days/week</label>
               <div style={{ display: "flex", gap: "4px" }}>
@@ -562,8 +559,8 @@ function RoleRequirementsSection({ roles, projectId, startDate, endDate }: { rol
   const filled   = roles.filter(r =>  r.isFilled).length;
   return (
     <Card>
-      <SectionHeader icon={<IconClipboard />} title="Role requirements" subtitle={`${roles.length} roles · ${unfilled} unfilled · ${filled} filled`}
-        action={<button type="button" onClick={() => setShowForm(s => !s)} style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "7px", background: showForm ? "#f1f5f9" : "#00b8db", border: "none", color: showForm ? "#64748b" : "white", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>{showForm ? "× Cancel" : "+ Add roles"}</button>}
+      <SectionHeader icon={<IconClipboard />} title="Role requirements" subtitle={`${roles.length} roles - ${unfilled} unfilled - ${filled} filled`}
+        action={<button type="button" onClick={() => setShowForm(s => !s)} style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "7px", background: showForm ? "#f1f5f9" : "#00b8db", border: "none", color: showForm ? "#64748b" : "white", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>{showForm ? "x Cancel" : "+ Add roles"}</button>}
       />
       {roles.length === 0 && !showForm ? (
         <div style={{ padding: "20px 0", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>No role requirements defined yet.</div>
@@ -581,12 +578,12 @@ function RoleRequirementsSection({ roles, projectId, startDate, endDate }: { rol
   );
 }
 
-/* =============================================================================
-   MAIN EXPORT
-============================================================================= */
+// -- PATCH 7: Main export passes isPipeline to TeamSection --------------------
 
 export default function ProjectResourcePanel({ data, periods }: { data: ProjectResourceData; periods: WeekPeriod[] }) {
   const { project, teamMembers, allocations, roleRequirements, budgetSummary } = data;
+  const isPipeline = String(project.resource_status || "").toLowerCase() === "pipeline";
+
   return (
     <>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');`}</style>
@@ -600,7 +597,12 @@ export default function ProjectResourcePanel({ data, periods }: { data: ProjectR
           <div style={{ height: "1.5px", flex: 1, background: "linear-gradient(90deg, transparent, #e2e8f0)" }} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "14px" }}>
-          <TeamSection members={teamMembers} projectColour={project.colour} projectId={project.id} />
+          <TeamSection
+            members={teamMembers}
+            projectColour={project.colour}
+            projectId={project.id}
+            isPipeline={isPipeline}
+          />
           <BudgetSection budget={budgetSummary} colour={project.colour} />
         </div>
         <MiniHeatmap allocations={allocations} members={teamMembers} periods={periods} colour={project.colour} />
@@ -609,4 +611,3 @@ export default function ProjectResourcePanel({ data, periods }: { data: ProjectR
     </>
   );
 }
-
