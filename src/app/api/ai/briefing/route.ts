@@ -415,7 +415,7 @@ async function computeWbsStatsFromArtifacts(
   projectIds: string[],
   days: number | null
 ) {
-  const { data: rows, error } = await supabase
+ const { data: rows, error } = await supabase
     .from("artifacts")
     .select("id, project_id, type, updated_at, created_at, content_json, content")
     .in("project_id", projectIds)
@@ -437,15 +437,8 @@ async function computeWbsStatsFromArtifacts(
 
   for (const r of rows || []) {
     const doc = safeJson((r as any)?.content_json) ?? safeJson((r as any)?.content) ?? null;
-    if (
-      !(
-        String(doc?.type || "")
-          .trim()
-          .toLowerCase() === "wbs" &&
-        Number(doc?.version) === 1 &&
-        Array.isArray(doc?.rows)
-      )
-    ) {
+    // Accept any doc with a rows array — don't require type/version fields
+    if (!doc || !Array.isArray(doc?.rows)) {
       continue;
     }
 
@@ -1217,7 +1210,8 @@ export async function GET(req: Request) {
     const safePanel = panel || {};
     const rpcWbs = safePanel?.wbs || {};
 
-    const wbsFromArtifacts = await computeWbsStatsFromArtifacts(supabase, projectIds, days);
+   // WBS includes pipeline projects — use full org scope not active-only filtered list
+    const wbsFromArtifacts = await computeWbsStatsFromArtifacts(supabase, uniqStrings(scopedIdsRaw), days);
 
     let projectCreatedAtMap: Map<string, Date> | undefined;
     try {
