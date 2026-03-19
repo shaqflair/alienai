@@ -31,7 +31,6 @@ function cfgFor(action: string) {
   };
 }
 
-/** Format ISO date YYYY-MM-DD to UK DD/MM/YYYY */
 function toUkDate(iso: string | null | undefined): string {
   if (!iso) return "";
   const s = iso.split("T")[0];
@@ -40,7 +39,6 @@ function toUkDate(iso: string | null | undefined): string {
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
-/** Fix any remaining corrupted ? arrows in old stored summaries */
 function fixArrows(s: string): string {
   return s.replace(/ \? /g, " -> ");
 }
@@ -83,10 +81,8 @@ function DiffDetail({ entry }: { entry: AuditEntry }) {
     );
   };
 
-  // Format a date value that may already be UK format or still ISO
   const fmt = (d: string | null | undefined) => {
     if (!d) return "";
-    // Already UK format (DD/MM/YYYY)
     if (/^\d{2}\/\d{2}\/\d{4}$/.test(d)) return d;
     return toUkDate(d);
   };
@@ -148,8 +144,6 @@ function EntryRow({ entry, expanded, onToggle }: {
 }) {
   const cfg       = cfgFor(entry.action);
   const hasDetail = !!(entry.after || entry.before);
-
-  // Fix corrupted arrows in summary
   const rawSummary = (entry.after as any)?.summary ?? (entry.before as any)?.summary ?? null;
   const summary    = rawSummary ? fixArrows(rawSummary) : null;
 
@@ -224,7 +218,8 @@ export default function AllocationAuditTrail({
   const [entries,  setEntries]  = useState<AuditEntry[]>([]);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState<string | null>(null);
-  const [filter,   setFilter]   = useState<FilterType | null>(null);
+  // Default to "all" so data loads immediately and counts are visible
+  const [filter,   setFilter]   = useState<FilterType>("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [page,     setPage]     = useState(1);
   const PAGE_SIZE = 20;
@@ -237,7 +232,6 @@ export default function AllocationAuditTrail({
       if (projectId)      params.set("projectId",      projectId);
       if (personId)       params.set("personId",       personId);
       if (organisationId) params.set("organisationId", organisationId);
-      // Include entries where this person was the actor (e.g. PMs making changes)
       if (personId && includeActed) params.set("includeActed", "true");
 
       const res  = await fetch(`/api/allocations/audit?${params}`, { cache: "no-store" });
@@ -251,11 +245,10 @@ export default function AllocationAuditTrail({
     }
   }, [projectId, personId, organisationId, includeActed]);
 
+  // Load immediately on mount — no click required
   useEffect(() => {
-    if (filter !== null && entries.length === 0 && !loading && !error) {
-      void load();
-    }
-  }, [filter, entries.length, loading, error, load]);
+    void load();
+  }, [load]);
 
   function toggleExpanded(id: string) {
     setExpanded(prev => {
@@ -273,8 +266,8 @@ export default function AllocationAuditTrail({
     weekly:  entries.filter(e => FILTER_GROUPS.weekly.includes(e.action)).length,
   };
 
-  const filtered = filter === null ? []
-    : filter === "all" ? entries
+  const filtered = filter === "all"
+    ? entries
     : entries.filter(e => FILTER_GROUPS[filter].includes(e.action));
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -295,25 +288,25 @@ export default function AllocationAuditTrail({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>{title}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {filter !== null && expanded.size > 0 && (
+          {expanded.size > 0 && (
             <button type="button" onClick={() => setExpanded(new Set())} style={btn(false)}>Collapse all</button>
           )}
-          {filter !== null && filtered.length > 0 && expanded.size === 0 && (
+          {filtered.length > 0 && expanded.size === 0 && (
             <button type="button" onClick={() => setExpanded(new Set(filtered.map(e => e.id)))} style={btn(false)}>Expand all</button>
           )}
-          {filter !== null && (
-            <button type="button" onClick={load} title="Refresh" style={{ ...btn(false), padding: "4px 8px" }}>&#x21bb;</button>
-          )}
-          <span style={{ fontSize: 11, color: "#94a3b8" }}>{entries.length} event{entries.length !== 1 ? "s" : ""}</span>
+          <button type="button" onClick={load} title="Refresh" style={{ ...btn(false), padding: "4px 8px" }}>&#x21bb;</button>
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>
+            {loading ? "Loading…" : `${entries.length} event${entries.length !== 1 ? "s" : ""}`}
+          </span>
         </div>
       </div>
 
       {/* Filter tabs */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
-        <span style={{ fontSize: 11, color: "#94a3b8", marginRight: 4 }}>Click to view:</span>
+        <span style={{ fontSize: 11, color: "#94a3b8", marginRight: 4 }}>Filter:</span>
         {(["all", "created", "updated", "deleted", "weekly"] as FilterType[]).map(f => (
           <button key={f} type="button"
-            onClick={() => { setFilter(prev => prev === f ? null : f); setPage(1); setExpanded(new Set()); }}
+            onClick={() => { setFilter(f); setPage(1); setExpanded(new Set()); }}
             style={btn(filter === f)}>
             {f === "all"     ? `All (${counts.all})`
               : f === "created" ? `New (${counts.created})`
@@ -324,22 +317,30 @@ export default function AllocationAuditTrail({
         ))}
       </div>
 
-      {filter === null && (
-        <div style={{ padding: "16px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>
-          Select a filter above to view allocation history.
-        </div>
-      )}
-      {filter !== null && loading && (
-        <div style={{ padding: "24px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>Loading...</div>
-      )}
-      {filter !== null && error && !loading && (
-        <div style={{ padding: "10px 14px", borderRadius: 8, background: "#fff5f5", border: "1px solid #fecaca", fontSize: 12, color: "#dc2626" }}>{error}</div>
-      )}
-      {filter !== null && !loading && !error && filtered.length === 0 && (
-        <div style={{ padding: "16px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>No events found.</div>
+      {/* Loading */}
+      {loading && (
+        <div style={{ padding: "24px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>Loading…</div>
       )}
 
-      {filter !== null && !loading && !error && paged.length > 0 && (
+      {/* Error */}
+      {error && !loading && (
+        <div style={{ padding: "10px 14px", borderRadius: 8, background: "#fff5f5", border: "1px solid #fecaca", fontSize: 12, color: "#dc2626", marginBottom: 8 }}>
+          {error}
+          <button type="button" onClick={load} style={{ marginLeft: 10, fontSize: 11, color: "#dc2626", fontWeight: 700, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Empty */}
+      {!loading && !error && filtered.length === 0 && (
+        <div style={{ padding: "16px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>
+          No {filter !== "all" ? filter : ""} events found.
+        </div>
+      )}
+
+      {/* Entries */}
+      {!loading && !error && paged.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
           {paged.map(entry => (
             <EntryRow key={entry.id} entry={entry} expanded={expanded.has(entry.id)} onToggle={() => toggleExpanded(entry.id)} />
@@ -347,6 +348,7 @@ export default function AllocationAuditTrail({
         </div>
       )}
 
+      {/* Pagination */}
       {totalPages > 1 && (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 12 }}>
           <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ ...btn(false), opacity: page === 1 ? 0.4 : 1 }}>&#x2190; Prev</button>
