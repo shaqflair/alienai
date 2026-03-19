@@ -1,12 +1,5 @@
-﻿// src/app/api/executive/approvals/pending/route.ts — v5
-// ✅ AP-F1: Shared portfolio scope via resolvePortfolioScope(supabase, user.id)
-// ✅ AP-F2: Active-only filtering via filterActiveProjectIds with scoped FAIL-OPEN
-// ✅ AP-F3: Supports dashboard filters (GET): name/code/pm/dept
-// ✅ AP-F4: Reads exec_approval_cache only for scoped project ids
-// ✅ AP-F5: No-store on all responses
-// ✅ AP-F6: De-dupes newest per (project_id + approver_label + sla_status)
-// ✅ AP-F7: Returns scope/debug metadata for drift checks
-
+﻿// src/app/api/executive/approvals/pending/route.ts
+// Reads live from v_pending_artifact_approvals_all instead of stale exec_approval_cache
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -54,180 +47,16 @@ function clampDays(v: string | null): 7 | 14 | 30 | 60 {
   return 60;
 }
 
-function looksMissingRelation(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
-}
-
-function looksMissingColumn(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return msg.includes("column") && msg.includes("does not exist");
-}
-
-function projectCodeLabel(pc: any): string {
-  if (typeof pc === "string") return pc.trim();
-  if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
-  if (pc && typeof pc === "object") {
-    const v =
-      safeStr(pc.project_code) ||
-      safeStr(pc.code) ||
-      safeStr(pc.value) ||
-      safeStr(pc.id);
-    return v.trim();
-  }
-  return "";
-}
-
-type PortfolioFilters = {
-  projectName?: string[];
-  projectCode?: string[];
-  projectManagerId?: string[];
-  department?: string[];
-};
-
-function hasAnyFilters(f: PortfolioFilters) {
-  return (
-    (f.projectName && f.projectName.length) ||
-    (f.projectCode && f.projectCode.length) ||
-    (f.projectManagerId && f.projectManagerId.length) ||
-    (f.department && f.department.length)
-  );
-}
-
-function parseFiltersFromUrl(url: URL): PortfolioFilters {
-  const name = uniqStrings(
-    url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim())
-  );
-  const code = uniqStrings(
-    url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim())
-  );
-  const pm = uniqStrings(
-    url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim())
-  );
-  const dept = uniqStrings(
-    url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim())
-  );
-
-  const out: PortfolioFilters = {};
-  if (name.length) out.projectName = name;
-  if (code.length) out.projectCode = code;
-  if (pm.length) out.projectManagerId = pm;
-  if (dept.length) out.department = dept;
-  return out;
-}
-
 async function normalizeActiveIds(supabase: any, rawIds: string[]) {
-  const failOpen = (reason: string) => ({
-    ids: rawIds,
-    ok: false,
-    error: reason,
-  });
-
   try {
     const r: any = await filterActiveProjectIds(supabase, rawIds);
-
-    if (Array.isArray(r)) {
-      const ids = r.filter(Boolean);
-      if (!ids.length && rawIds.length) {
-        return failOpen("active filter returned 0 ids; failing open");
-      }
-      return { ids, ok: true, error: null as string | null };
-    }
-
-    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
-    if (!ids.length && rawIds.length) {
-      return failOpen("active filter returned 0 ids; failing open");
-    }
-
-    return {
-      ids,
-      ok: !r?.error,
-      error: r?.error ? safeStr(r.error?.message || r.error) : null,
-    };
+    const ids = Array.isArray(r) ? r.filter(Boolean)
+      : Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
+    if (!ids.length && rawIds.length) return { ids: rawIds, ok: false, error: "active filter returned 0; failing open" };
+    return { ids, ok: true, error: null as string | null };
   } catch (e: any) {
-    return failOpen(safeStr(e?.message || e || "active filter failed"));
+    return { ids: rawIds, ok: false, error: safeStr(e?.message || e) };
   }
-}
-
-// Filter projects within scoped candidates using best-effort project metadata reads.
-async function applyProjectFilters(
-  supabase: any,
-  scopedProjectIds: string[],
-  filters: PortfolioFilters
-) {
-  const meta: any = { applied: false, filters, notes: [] as string[] };
-
-  if (!scopedProjectIds.length) {
-    return { projectIds: [], meta: { ...meta, applied: true } };
-  }
-
-  if (!hasAnyFilters(filters)) {
-    return { projectIds: scopedProjectIds, meta };
-  }
-
-  const selectSets = [
-    "id, title, project_code, project_manager_id, department",
-    "id, title, project_code, project_manager_id",
-    "id, title, project_code, department",
-    "id, title, project_code",
-  ];
-
-  let rows: any[] = [];
-  let lastErr: any = null;
-
-  for (const sel of selectSets) {
-    const { data, error } = await supabase
-      .from("projects")
-      .select(sel)
-      .in("id", scopedProjectIds)
-      .limit(20000);
-
-    if (!error && Array.isArray(data)) {
-      rows = data;
-      lastErr = null;
-      break;
-    }
-
-    lastErr = error;
-    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
-  }
-
-  if (!rows.length) {
-    meta.applied = true;
-    meta.notes.push("Could not read projects for filtering; falling back to unfiltered scope.");
-    if (lastErr?.message) meta.notes.push(lastErr.message);
-    return { projectIds: scopedProjectIds, meta };
-  }
-
-  const nameNeedles = (filters.projectName ?? []).map((s) => s.toLowerCase());
-  const codeNeedles = (filters.projectCode ?? []).map((s) => s.toLowerCase());
-  const pmSet = new Set((filters.projectManagerId ?? []).map((s) => s));
-  const deptNeedles = (filters.department ?? []).map((s) => s.toLowerCase());
-
-  const filtered = rows.filter((p) => {
-    const title = safeStr(p?.title).toLowerCase();
-    const code = projectCodeLabel(p?.project_code).toLowerCase();
-
-    if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
-    if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
-
-    if (pmSet.size) {
-      const pm = safeStr(p?.project_manager_id).trim();
-      if (!pm || !pmSet.has(pm)) return false;
-    }
-
-    if (deptNeedles.length) {
-      const dept = safeStr(p?.department).toLowerCase().trim();
-      if (!dept || !deptNeedles.some((d) => dept.includes(d))) return false;
-    }
-
-    return true;
-  });
-
-  const outIds = filtered.map((p) => String(p?.id || "").trim()).filter(Boolean);
-  meta.applied = true;
-  meta.counts = { before: scopedProjectIds.length, after: outIds.length };
-  return { projectIds: outIds, meta };
 }
 
 export async function GET(req: Request) {
@@ -235,157 +64,147 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? "200"), 1), 500);
     const days = clampDays(url.searchParams.get("days"));
-    const filters = parseFiltersFromUrl(url);
 
     const supabase = await createClient();
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr || !user) return noStoreJson({ ok: false, error: "unauthorized" }, { status: 401 });
 
-    const {
-      data: { user },
-      error: userErr,
-    } = await supabase.auth.getUser();
-
-    if (userErr || !user) {
-      return noStoreJson({ ok: false, error: "unauthorized" }, { status: 401 });
-    }
-
+    // Resolve org-wide scope
     const sharedScope = await resolvePortfolioScope(supabase, user.id);
     const organisationId = sharedScope.organisationId ?? null;
-    const scopeMeta = sharedScope.meta ?? {};
     const scopedRaw: string[] = Array.isArray(sharedScope.rawProjectIds)
       ? sharedScope.rawProjectIds
-      : Array.isArray(sharedScope.projectIds)
-        ? sharedScope.projectIds
-        : [];
+      : Array.isArray(sharedScope.projectIds) ? sharedScope.projectIds : [];
 
     const active = await normalizeActiveIds(supabase, scopedRaw);
     const scopedActive = active.ids;
 
-    const filtered = await applyProjectFilters(supabase, scopedActive, filters);
-    const projectIds = filtered.projectIds;
+    if (!scopedActive.length) {
+      return noStoreJson({
+        ok: true, scope: "portfolio", organisationId, days,
+        source: "v_pending_artifact_approvals_all", items: [],
+        meta: { scopeCounts: { scopedIdsRaw: scopedRaw.length, scopedIdsActive: 0 } },
+      });
+    }
+
+    // Filter out pipeline projects
+    const { data: nonPipelineRows } = await supabase
+      .from("projects")
+      .select("id")
+      .in("id", scopedActive)
+      .neq("resource_status", "pipeline")
+      .is("deleted_at", null);
+
+    const projectIds = uniqStrings((nonPipelineRows ?? []).map((p: any) => p.id));
 
     if (!projectIds.length) {
       return noStoreJson({
-        ok: true,
-        scope: "portfolio",
-        organisationId,
-        days,
-        source: "exec_approval_cache",
-        items: [],
-        meta: {
-          cache_miss: false,
-          window_days: days,
-          scopeMeta,
-          scopeCounts: {
-            scopedIdsRaw: scopedRaw.length,
-            scopedIdsActive: scopedActive.length,
-            scopedIdsFiltered: 0,
-          },
-          active_filter_ok: active.ok,
-          active_filter_error: active.error,
-          filters: filtered.meta,
-        },
+        ok: true, scope: "portfolio", organisationId, days,
+        source: "v_pending_artifact_approvals_all", items: [],
+        meta: { scopeCounts: { scopedIdsRaw: scopedRaw.length, scopedIdsActive: scopedActive.length, scopedIdsFiltered: 0 } },
       });
     }
 
-    const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
-    const { data: cacheDataRaw, error: cacheErr } = await supabase
-      .from("exec_approval_cache")
-      .select(
-        "organisation_id, project_id, project_title, project_code, sla_status, approver_label, window_days, computed_at"
-      )
+    // Query the live view directly
+    const { data: pending, error: pendingErr } = await supabase
+      .from("v_pending_artifact_approvals_all")
+      .select([
+        "artifact_id", "project_id", "artifact_type", "title",
+        "approval_status", "artifact_step_id", "chain_id",
+        "step_order", "step_name", "step_status",
+        "pending_user_id", "pending_email",
+        "artifact_submitted_at", "step_pending_since",
+      ].join(","))
       .in("project_id", projectIds)
-      .order("computed_at", { ascending: false })
-      .limit(Math.max(limit * 4, 500));
+      .limit(limit);
 
-    if (cacheErr) {
-      return noStoreJson({ ok: false, error: cacheErr.message }, { status: 500 });
+    if (pendingErr) {
+      return noStoreJson({ ok: false, error: pendingErr.message }, { status: 500 });
     }
 
-    const cacheData = Array.isArray(cacheDataRaw) ? cacheDataRaw : [];
+    const SLA_DAYS = 5;
+    const now = Date.now();
+    const DAY = 864e5;
 
-    if (!cacheData.length) {
-      return noStoreJson({
-        ok: true,
-        scope: "portfolio",
-        organisationId,
-        days,
-        source: "none",
-        items: [],
-        meta: {
-          cache_miss: true,
-          window_days: days,
-          scopeMeta,
-          scopeCounts: {
-            scopedIdsRaw: scopedRaw.length,
-            scopedIdsActive: scopedActive.length,
-            scopedIdsFiltered: projectIds.length,
-          },
-          active_filter_ok: active.ok,
-          active_filter_error: active.error,
-          filters: filtered.meta,
-        },
+    // Dedupe by step id
+    const stepsSeen = new Set<string>();
+    const items: any[] = [];
+
+    for (const r of pending ?? []) {
+      const stepId = safeStr(r.artifact_step_id).trim();
+      if (stepId && stepsSeen.has(stepId)) continue;
+      if (stepId) stepsSeen.add(stepId);
+
+      const pendingSince = r.step_pending_since ?? r.artifact_submitted_at;
+      const dueMs = pendingSince ? new Date(pendingSince).getTime() + SLA_DAYS * DAY : null;
+      const slaStatus = !dueMs ? "ok"
+        : now > dueMs ? "overdue"
+        : (dueMs - now) <= 2 * DAY ? "at_risk"
+        : "ok";
+
+      items.push({
+        // Fields matching exec_approval_cache shape so UI works unchanged
+        project_id:     safeStr(r.project_id),
+        project_title:  null, // enriched below
+        project_code:   null, // enriched below
+        approver_label: safeStr(r.pending_email || r.pending_user_id),
+        sla_status,
+        window_days:    days,
+        computed_at:    pendingSince ?? null,
+        // Extended fields
+        artifact_id:    safeStr(r.artifact_id),
+        artifact_type:  safeStr(r.artifact_type),
+        title:          safeStr(r.title).trim() || "Untitled",
+        step_id:        stepId || null,
+        chain_id:       safeStr(r.chain_id) || null,
+        step_name:      safeStr(r.step_name).trim() || "Approval",
       });
     }
 
-    const filteredToWindow = cacheData.filter((row: any) => {
-      const rowDays = Number(row?.window_days);
-      if (Number.isFinite(rowDays)) return rowDays <= days;
+    // Enrich project title + code
+    if (items.length > 0) {
+      const uniqueProjIds = [...new Set(items.map(i => i.project_id).filter(Boolean))];
+      if (uniqueProjIds.length) {
+        const { data: projRows } = await supabase
+          .from("projects")
+          .select("id, title, project_code")
+          .in("id", uniqueProjIds);
 
-      const computedAt = safeStr(row?.computed_at).trim();
-      if (computedAt) return computedAt >= sinceIso;
+        const projMap = new Map<string, any>();
+        for (const p of projRows ?? []) projMap.set(String(p.id), p);
 
-      return true;
-    });
-
-    const dedupeKey = (r: any) =>
-      `${safeStr(r?.project_id)}|${safeStr(r?.approver_label)}|${safeStr(r?.sla_status)}`;
-
-    const best = new Map<string, any>();
-    for (const r of filteredToWindow) {
-      const k = dedupeKey(r);
-      const prev = best.get(k);
-      if (!prev) {
-        best.set(k, r);
-      } else {
-        const a = safeStr(prev?.computed_at);
-        const b = safeStr(r?.computed_at);
-        if (b && (!a || b > a)) best.set(k, r);
+        for (const item of items) {
+          const p = projMap.get(item.project_id);
+          if (p) {
+            item.project_title = safeStr(p.title).trim() || null;
+            item.project_code  = p.project_code ?? null;
+          }
+        }
       }
     }
-
-    const out = Array.from(best.values()).slice(0, limit);
 
     return noStoreJson({
       ok: true,
       scope: "portfolio",
       organisationId,
       days,
-      source: "exec_approval_cache",
-      items: out,
+      source: "v_pending_artifact_approvals_all",
+      items,
       meta: {
-        total_cached: cacheData.length,
-        filtered_to_window: filteredToWindow.length,
-        deduped: out.length,
+        total: items.length,
         window_days: days,
-        scopeMeta,
         scopeCounts: {
-          scopedIdsRaw: scopedRaw.length,
-          scopedIdsActive: scopedActive.length,
+          scopedIdsRaw:      scopedRaw.length,
+          scopedIdsActive:   scopedActive.length,
           scopedIdsFiltered: projectIds.length,
         },
-        active_filter_ok: active.ok,
+        active_filter_ok:    active.ok,
         active_filter_error: active.error,
-        filters: filtered.meta,
       },
     });
   } catch (e: any) {
     return noStoreJson(
-      {
-        ok: false,
-        error: "pending_approvals_failed",
-        message: e?.message ?? String(e),
-      },
+      { ok: false, error: "pending_approvals_failed", message: e?.message ?? String(e) },
       { status: 500 }
     );
   }
