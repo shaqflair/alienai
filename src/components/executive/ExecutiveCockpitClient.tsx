@@ -19,12 +19,16 @@
 //   ✅ FIX-ECC14: Remove "Scope: ORG" labels (tile + drawer)
 //   ✅ FIX-ECC15: Risk Signals endpoint corrected → /api/executive/risk-signals (not /approvals/risk-signals)
 //   ✅ FIX-ECC16: If primary endpoint returns 0 but Brain has data → show Brain fallback (count + items)
-//
-// ACCESS CONTROL:
 //   ✅ FIX-ECC17: Dashboard tiles visible to all org members — shows all project data
 //   ✅ FIX-ECC18: Drill-down "Open" links locked for non-members (shows lock icon + "No access")
-//                 Pass memberProjectIds (array of project UUIDs user is member of) and isAdmin prop
-//                 from the parent server component. Admins bypass all project-level checks.
+//   ✅ FIX-ECC19: Pending tile count prefers /pending meta.total (not just items.length)
+//   ✅ FIX-ECC20: Pending tile/body show approver + pending age label from live route
+//
+// ACCESS CONTROL:
+//   Dashboard tiles visible to all org members — shows all project data
+//   Drill-down "Open" links locked for non-members (shows lock icon + "No access")
+//   Pass memberProjectIds (array of project UUIDs user is member of) and isAdmin prop
+//   from the parent server component. Admins bypass all project-level checks.
 //
 // Aliena $100M polish:
 //   ✅ UI-POLISH1: Add Executive AI assistant avatar button in header (Ask ΛliΞnΛ)
@@ -54,9 +58,6 @@ import {
   X,
   Copy,
   Lock,
-  Sparkles,
-  MessageSquareText,
-  Shield,
 } from "lucide-react";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
@@ -74,6 +75,8 @@ type Payload =
       blockers?: any[];
       breaches?: any[];
       signals?: any[];
+      meta?: any;
+      counts?: any;
     }>
   | ApiErr;
 
@@ -249,7 +252,6 @@ function extractList(payload: any, preferredKeys: string[] = ["items"]): any[] {
   return [];
 }
 
-// ✅ FIX-ECC12: resolve person labels safely (never show UUIDs / "user:<uuid>")
 function resolvePersonLabel(it: any): string {
   const candidates = [
     it?.display_name,
@@ -262,6 +264,9 @@ function resolvePersonLabel(it: any): string {
     it?.email,
     it?.user_email,
     it?.approver_email,
+    it?.approver?.label,
+    it?.approver?.name,
+    it?.approver?.email,
   ]
     .map((v) => safeStr(v).trim())
     .filter(Boolean);
@@ -288,7 +293,21 @@ function timeAgo(iso: string) {
 }
 
 function ageFromItem(it: any): string {
+  const explicit =
+    safeStr(it?.pending_age_label).trim() ||
+    safeStr(it?.age_label).trim() ||
+    "";
+  if (explicit) return explicit;
+
+  const days = Number(it?.pending_days);
+  if (Number.isFinite(days)) {
+    if (days <= 0) return "Today";
+    if (days === 1) return "1 day";
+    return `${days} days`;
+  }
+
   const ts =
+    it?.pending_since ??
     it?.submitted_at ??
     it?.created_at ??
     it?.computed_at ??
@@ -367,14 +386,12 @@ function bestHref(item: any, fallbackHref: string): string {
     return `/projects/${projectRef}`;
   }
 
-  // ✅ FIX-UI1: approvals/bottlenecks doesn't exist — fall back to /approvals
   if (kind.includes("approval") || kind.includes("approver") || kind.includes("bottleneck") || kind.includes("blocking"))
     return "/approvals";
 
   return fallbackHref || "/approvals";
 }
 
-/** Extract a project UUID from an item (for access checks). */
 function extractProjectId(item: any): string {
   return safeStr(item?.meta?.project_id).trim() || safeStr(item?.project_id).trim() || "";
 }
@@ -538,7 +555,6 @@ function Drawer({
         className="relative w-full max-w-[520px] h-full bg-white/85 border-l border-slate-200/70 flex flex-col"
         style={{ backdropFilter: "blur(18px) saturate(1.6)", boxShadow: "0 24px 80px rgba(0,0,0,0.15)" }}
       >
-        {/* Header */}
         <div className="px-5 py-4 border-b border-slate-200/70 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Governance Brain</div>
@@ -553,15 +569,23 @@ function Drawer({
           </button>
         </div>
 
-        {/* Items */}
         <div className="flex-1 overflow-auto p-5">
           {!items.length ? (
             <div className="text-center py-10 text-sm text-slate-500">No items available</div>
           ) : (
             <div className="space-y-2.5">
               {items.slice(0, 25).map((it, idx) => {
-                const label = safeStr(it?.title || it?.name || it?.label || it?.project_title || it?.project_name || "---");
-                const sub = safeStr(
+                const label = safeStr(
+                  it?.title ||
+                    it?.name ||
+                    it?.label ||
+                    it?.project_title ||
+                    it?.project_name ||
+                    "---"
+                );
+                const approver = resolvePersonLabel(it);
+                const age = ageFromItem(it);
+                const subPrimary = safeStr(
                   it?.project_name ||
                     it?.project_title ||
                     it?.sla_status ||
@@ -571,10 +595,20 @@ function Drawer({
                     it?.itemType ||
                     ""
                 );
-                const due = safeStr(it?.dueDate || it?.due_date || "");
-                const age = ageFromItem(it);
+                const due = safeStr(it?.dueDate || it?.due_date || it?.due_at || "");
                 const href = bestHref(it, fallbackHref);
                 const hasAccess = canAccess(it);
+
+                const subParts = [subPrimary];
+                if (
+                  approver &&
+                  approver !== "Unknown user" &&
+                  approver !== "Unassigned" &&
+                  !subPrimary.toLowerCase().includes(approver.toLowerCase())
+                ) {
+                  subParts.push(`Pending with ${approver}`);
+                }
+                if (due) subParts.push(`Due ${fmtUkDateOnly(due)}`);
 
                 return (
                   <div
@@ -585,11 +619,9 @@ function Drawer({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="text-[13px] font-semibold text-slate-900 truncate">{label}</div>
-                        {(sub || due) && (
+                        {subParts.filter(Boolean).length > 0 && (
                           <div className="mt-1 text-[11px] text-slate-500 font-medium truncate">
-                            {sub}
-                            {sub && due ? " • " : ""}
-                            {due ? `Due ${fmtUkDateOnly(due)}` : ""}
+                            {subParts.filter(Boolean).join(" • ")}
                           </div>
                         )}
                       </div>
@@ -620,7 +652,7 @@ function Drawer({
                       <button
                         type="button"
                         onClick={() => {
-                          const txt = `${label}${due ? ` — due ${fmtUkDateOnly(due)}` : ""}`;
+                          const txt = `${label}${subParts.filter(Boolean).length ? ` — ${subParts.filter(Boolean).join(" • ")}` : ""}`;
                           navigator.clipboard?.writeText(txt);
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-indigo-700 transition-colors"
@@ -753,7 +785,6 @@ function CockpitTile({
           </div>
         </div>
 
-        {/* ✅ FIX-UI2: Show a clear empty state when count is 0 and there's no child content */}
         {count === 0 && !error && !children && (
           <div className="mt-1 flex items-center gap-2 rounded-xl border border-slate-100/80 bg-slate-50/60 px-3 py-2.5 text-[11px] font-medium text-slate-400">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
@@ -763,7 +794,6 @@ function CockpitTile({
 
         {count !== null && !error && children && <div className="mt-auto">{children}</div>}
 
-        {/* ✅ FIX-UI3: Only show VIEW DETAILS when count > 0 */}
         {href && count !== null && count > 0 && !error && (
           <div className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider" style={{ color: acc.bar }}>
             View details <ArrowUpRight className="h-3 w-3" />
@@ -1039,6 +1069,7 @@ function BottlenecksBody({ items }: { items: any[] }) {
 
 function PendingApprovalsBody({ items }: { items: any[] }) {
   const overdue = items.filter((it) => /breach|overdue|breached|r/.test(safeLower(it?.sla_status || it?.sla_state || it?.state || ""))).length;
+
   return (
     <div>
       {overdue > 0 && (
@@ -1048,7 +1079,45 @@ function PendingApprovalsBody({ items }: { items: any[] }) {
           </span>
         </div>
       )}
-      <MicroList items={items} tone="emerald" labelKey="project_title" subKey="sla_status" ageKey="computed_at" />
+
+      <div className="space-y-1.5 mt-3 pt-3 border-t border-slate-100/80">
+        {items.slice(0, 3).map((it, i) => {
+          const title = safeStr(it?.title || it?.project_title || it?.project_name || "Untitled");
+          const project = safeStr(it?.project_title || it?.project_name || "");
+          const approver = resolvePersonLabel(it);
+          const status = safeStr(it?.sla_status || it?.sla_state || "");
+          const age = ageFromItem(it);
+
+          const subParts = [];
+          if (project && project !== title) subParts.push(project);
+          if (approver && approver !== "Unknown user" && approver !== "Unassigned") subParts.push(`Pending with ${approver}`);
+          if (status) subParts.push(status.replace(/_/g, " "));
+
+          return (
+            <m.div
+              key={i}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.1 + i * 0.06 }}
+              className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 bg-white/52 border border-slate-100/70 hover:bg-white/80 transition-all"
+              style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold text-slate-800 truncate">{title}</div>
+                {subParts.length > 0 && (
+                  <div className="text-[10px] text-slate-400 truncate">{subParts.join(" • ")}</div>
+                )}
+              </div>
+              {age && (
+                <div className="shrink-0 text-[10px] text-slate-400 font-medium" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+                  {age}
+                </div>
+              )}
+            </m.div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1145,7 +1214,6 @@ export default function ExecutiveCockpitClient({
   const [bottlenecks, setBottlenecks] = React.useState<Payload | null>(null);
   const [fatalError, setFatalError] = React.useState<string | null>(null);
 
-  // Drawer state
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [drawerTitle, setDrawerTitle] = React.useState("");
   const [drawerSubtitle, setDrawerSubtitle] = React.useState<string | undefined>(undefined);
@@ -1165,7 +1233,6 @@ export default function ExecutiveCockpitClient({
     []
   );
 
-  // ✅ UI-POLISH1: Curated "Ask ΛliΞnΛ" drawer
   const openAskAliena = React.useCallback(() => {
     const curated = [
       {
@@ -1267,14 +1334,25 @@ export default function ExecutiveCockpitClient({
     return () => ac.abort();
   }, [load]);
 
-  function getCount(p: Payload | null): number | null {
+  function getCount(p: Payload | null, preferredKeys?: string[]): number | null {
     if (!p || isErr(p)) return null;
-    return extractList(p).length;
+
+    const pp: any = p;
+
+    if (typeof pp?.counts?.pending === "number") return pp.counts.pending;
+    if (typeof pp?.counts?.waiting === "number") return pp.counts.waiting;
+    if (typeof pp?.meta?.pending === "number") return pp.meta.pending;
+    if (typeof pp?.meta?.total === "number") return pp.meta.total;
+    if (typeof pp?.total === "number") return pp.total;
+
+    return extractList(p, preferredKeys).length;
   }
+
   function getItems(p: Payload | null, keys?: string[]): any[] {
     if (!p || isErr(p)) return [];
     return extractList(p, keys);
   }
+
   function getError(p: Payload | null): string | null {
     if (p && isErr(p)) return (p as ApiErr).message ?? (p as ApiErr).error;
     return null;
@@ -1355,12 +1433,13 @@ export default function ExecutiveCockpitClient({
     return saw ? sum : null;
   })();
 
-  function pickCount(primary: Payload | null, fallback: number | null): number | null {
-    const c = getCount(primary);
+  function pickCount(primary: Payload | null, fallback: number | null, preferredKeys?: string[]): number | null {
+    const c = getCount(primary, preferredKeys);
     if (c == null) return fallback;
     if (c === 0 && (fallback ?? 0) > 0) return fallback;
     return c;
   }
+
   function pickItems(primary: any[], fallback: any[]): any[] {
     if (primary.length) return primary;
     if (fallback.length) return fallback;
@@ -1374,7 +1453,7 @@ export default function ExecutiveCockpitClient({
       short: "Pending",
       icon: <CheckCircle2 className="h-5 w-5" />,
       tone: "emerald" as ToneKey,
-      count: pickCount(pendingApprovals, brainPendingCount),
+      count: pickCount(pendingApprovals, brainPendingCount, ["items", "pending"]),
       error: getError(pendingApprovals),
       href: "/approvals",
       items: pickItems(paItems, brainPortfolioItems),
@@ -1390,9 +1469,8 @@ export default function ExecutiveCockpitClient({
       short: "Blocking",
       icon: <Users className="h-5 w-5" />,
       tone: "amber" as ToneKey,
-      count: pickCount(whoBlocking, brainWhoBlocking.length ? brainWhoBlocking.length : null),
+      count: pickCount(whoBlocking, brainWhoBlocking.length ? brainWhoBlocking.length : null, ["items", "blockers"]),
       error: getError(whoBlocking),
-      // ✅ FIX-UI1: was /approvals/bottlenecks (404) — corrected to /approvals
       href: "/approvals",
       items: pickItems(wbItems, brainWhoBlocking),
       body: wbItems.length ? <WhoBlockingBody items={wbItems} /> : brainWhoBlocking.length ? <WhoBlockingBody items={brainWhoBlocking} /> : null,
@@ -1403,7 +1481,7 @@ export default function ExecutiveCockpitClient({
       short: "SLA",
       icon: <Clock3 className="h-5 w-5" />,
       tone: "cyan" as ToneKey,
-      count: pickCount(slaRadar, brainSlaBreachedTotal),
+      count: pickCount(slaRadar, brainSlaBreachedTotal, ["items", "breaches"]),
       error: getError(slaRadar),
       href: "/approvals",
       items: pickItems(slaItems, brainSlaSample),
@@ -1415,7 +1493,7 @@ export default function ExecutiveCockpitClient({
       short: "Risks",
       icon: <AlertTriangle className="h-5 w-5" />,
       tone: "rose" as ToneKey,
-      count: pickCount(riskSignals, brainRiskCount),
+      count: pickCount(riskSignals, brainRiskCount, ["items", "signals"]),
       error: getError(riskSignals),
       href: "/approvals",
       items: pickItems(rsItems, []),
@@ -1441,7 +1519,6 @@ export default function ExecutiveCockpitClient({
       tone: "slate" as ToneKey,
       count: pickCount(bottlenecks, brainWhoBlocking.length ? brainWhoBlocking.length : null),
       error: getError(bottlenecks),
-      // ✅ FIX-UI1: was /approvals/bottlenecks (404) — corrected to /approvals
       href: "/approvals",
       items: pickItems(bottItems, brainWhoBlocking),
       body: bottItems.length ? <BottlenecksBody items={bottItems} /> : brainWhoBlocking.length ? <BottlenecksBody items={brainWhoBlocking} /> : null,
