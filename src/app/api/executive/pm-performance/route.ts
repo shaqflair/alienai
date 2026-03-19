@@ -122,6 +122,7 @@ export async function GET(req: Request) {
       )
       .in("organisation_id", orgIds)
       .is("deleted_at", null)
+      .neq("resource_status", "pipeline")
       .in("project_manager_id", userIds);
 
     if (projErr)
