@@ -359,14 +359,19 @@ export default async function ProjectPage({
       .is("deleted_at", null)
       .limit(100000),
     getCachedBriefing(projectUuid),
-    // Gate 1 record — fails gracefully if table doesn't exist yet
-    supabase
-      .from("project_gates")
-      .select("id, gate_number, gate_name, status, passed_at, passed_by, override, override_reason, pass_count, warn_count, fail_count, criteria_snapshot")
-      .eq("project_id", projectUuid)
-      .eq("gate_number", 1)
-      .maybeSingle()
-      .catch(() => ({ data: null, error: null })),
+    // Gate 1 record — wrapped in async IIFE so allSettled catches table-not-found errors
+    (async () => {
+      try {
+        return await supabase
+          .from("project_gates")
+          .select("id, gate_number, gate_name, status, passed_at, passed_by, override, override_reason, pass_count, warn_count, fail_count, criteria_snapshot")
+          .eq("project_id", projectUuid)
+          .eq("gate_number", 1)
+          .maybeSingle();
+      } catch {
+        return { data: null, error: null };
+      }
+    })(),
   ]);
 
   const resource         = resourceData.status === "fulfilled" ? resourceData.value : null;
