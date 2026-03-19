@@ -104,11 +104,12 @@ export async function GET(req: Request) {
     }
 
     // ✅ select only real columns
-    const { data: projects, error: projErr } = await supabase
+       const { data: projects, error: projErr } = await supabase
       .from("projects")
       .select("id, title, project_code, updated_at, status, lifecycle_status, deleted_at, closed_at")
       .in("organisation_id", orgIds)
       .is("deleted_at", null)
+      .neq("resource_status", "pipeline")
       .order("updated_at", { ascending: true });
 
     if (projErr) return noStoreJson({ ok: false, error: projErr.message }, { status: 500 });
