@@ -16,10 +16,6 @@ import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import VirtualizedWbsList from "./wbs/VirtualizedWbsList";
 
-/* ═══════════════════════════════════════════════════════════
-   TYPES
-═══════════════════════════════════════════════════════════ */
-
 type WbsStatus = "not_started" | "in_progress" | "done" | "blocked";
 type Effort = "S" | "M" | "L" | "";
 
@@ -47,10 +43,6 @@ const LS_KEY_MYWORK = "wbs_my_work_owner_v1";
 
 const LazyWbsAssistantRail = dynamic(() => import("./wbs/WbsAssistantRail"), { ssr: false, loading: () => null });
 
-/* ═══════════════════════════════════════════════════════════
-   SVG ICONS
-═══════════════════════════════════════════════════════════ */
-
 const IC = {
   ChevRight: () => <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3.5 2l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
   ChevDown:  () => <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
@@ -65,10 +57,6 @@ const IC = {
   Download:  () => <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v6M3.5 5l2.5 2 2.5-2M1.5 9v.5A1 1 0 002.5 10.5h7a1 1 0 001-1V9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>,
 };
 
-/* ═══════════════════════════════════════════════════════════
-   DESIGN TOKENS — matches WeeklyReportEditor
-═══════════════════════════════════════════════════════════ */
-
 const T = {
   page:    { minHeight: "100vh", background: "#f6f8fa", fontFamily: "'Geist', -apple-system, sans-serif" } as React.CSSProperties,
   header:  { background: "#ffffff", borderBottom: "1px solid #e8ecf0", padding: "0 28px", display: "flex", alignItems: "center", gap: 12, height: 56, position: "sticky" as const, top: 0, zIndex: 30 },
@@ -81,10 +69,6 @@ const T = {
   lbl:     { fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase" as const, color: "#8b949e", marginBottom: 4, display: "block" },
 };
 
-/* ═══════════════════════════════════════════════════════════
-   STATUS CONFIG
-═══════════════════════════════════════════════════════════ */
-
 const STATUS_CFG: Record<WbsStatus, { label: string; dot: string; bg: string; border: string; text: string; track: string }> = {
   not_started: { label: "Not started", dot: "#94a3b8", bg: "#f8fafc", border: "#e2e8f0", text: "#475569", track: "#cbd5e1" },
   in_progress: { label: "In progress",  dot: "#f59e0b", bg: "#fffbeb", border: "#fde68a", text: "#92400e", track: "#f59e0b" },
@@ -93,10 +77,6 @@ const STATUS_CFG: Record<WbsStatus, { label: string; dot: string; bg: string; bo
 };
 
 const LEVEL_STRIPE = ["#0d1117", "#6366f1", "#3b82f6", "#0d9488", "#f59e0b", "#ef4444"];
-
-/* ═══════════════════════════════════════════════════════════
-   UTILS
-═══════════════════════════════════════════════════════════ */
 
 function uuidish() {
   try { return (globalThis as any)?.crypto?.randomUUID?.() ?? `r_${Math.random().toString(16).slice(2)}_${Date.now()}`; }
@@ -195,10 +175,6 @@ async function syncWbsItems(args: { projectId: string; artifactId: string; rows:
   catch (e) { console.warn("[WBS sync] error", e); }
 }
 
-/* ═══════════════════════════════════════════════════════════
-   ROWS STATE REDUCER
-═══════════════════════════════════════════════════════════ */
-
 type RowsState = { byId: Record<string, WbsRow>; order: string[] };
 type RowsAction =
   | { type: "HYDRATE"; rows: WbsRow[] } | { type: "UPDATE"; id: string; patch: Partial<WbsRow> }
@@ -238,10 +214,6 @@ function rowsReducer(state: RowsState, action: RowsAction): RowsState {
   return state;
 }
 
-/* ═══════════════════════════════════════════════════════════
-   ROW CARD
-═══════════════════════════════════════════════════════════ */
-
 type RolledRow = WbsRow & { _derivedStatus?: WbsStatus; _derivedProgress?: number; _isParent?: boolean };
 
 const WbsRowCard = React.memo(function WbsRowCard(props: {
@@ -275,7 +247,6 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
 
   return (
     <div style={cardStyle} onClick={() => onSelect(r.id)}>
-      {/* Main row */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px 8px" }}>
         <div style={{ width: r.level * 18, flexShrink: 0 }} />
         {isParent ? (
@@ -308,7 +279,6 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
         </div>
       </div>
 
-      {/* Fields row */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, padding: "0 12px 10px" }} onClick={(e) => e.stopPropagation()}>
         <div>
           <div style={T.lbl}>Status</div>
@@ -343,7 +313,6 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
         </div>
       </div>
 
-      {/* Details panel */}
       {detailsOpen && (
         <div style={{ borderTop: "1px solid #e8ecf0", padding: "14px 12px", display: "grid", gridTemplateColumns: "1fr 2fr", gap: 14, background: "#fafbfc" }} onClick={(e) => e.stopPropagation()}>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -370,10 +339,6 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
   );
 });
 
-/* ═══════════════════════════════════════════════════════════
-   MAIN COMPONENT
-═══════════════════════════════════════════════════════════ */
-
 export default function WBSEditor({ projectId, artifactId, initialJson, readOnly }: {
   projectId: string; artifactId: string; initialJson: any; readOnly?: boolean;
 }) {
@@ -391,7 +356,11 @@ export default function WBSEditor({ projectId, artifactId, initialJson, readOnly
   const [saving, setSaving] = useState(false);
   const [saveMode, setSaveMode] = useState<"idle"|"dirty"|"saving"|"saved"|"error">("idle");
   const [lastSavedAt, setLastSavedAt] = useState("");
+
+  // ── artifactId: state for rendering + ref for closures (never stale) ──
   const [artifactIdLocal, setArtifactIdLocal] = useState<string>(() => safeStr(artifactId).trim());
+  const artifactIdRef = useRef<string>(safeStr(artifactId).trim());
+
   const [exportingXlsx, setExportingXlsx] = useState(false);
   const [openRowId, setOpenRowId] = useState<string | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
@@ -409,7 +378,11 @@ export default function WBSEditor({ projectId, artifactId, initialJson, readOnly
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [genOpen, setGenOpen] = useState(false); const [genLoading, setGenLoading] = useState(false); const [generatedDoc, setGeneratedDoc] = useState<any | null>(null);
 
-const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); const autosaveInFlightRef = useRef(false); const createPromiseRef = useRef<Promise<string> | null>(null);
+  const lastHydratedRef = useRef("");
+  const autosaveTimerRef = useRef<any>(null);
+  const autosaveInFlightRef = useRef(false);
+  const createPromiseRef = useRef<Promise<string> | null>(null);
+
   const initialFingerprint = useMemo(() => { try { return typeof initialJson === "string" ? initialJson : JSON.stringify(initialJson ?? {}); } catch { return String(initialJson ?? ""); } }, [initialJson]);
 
   const rowsArr = useMemo(() => rowsArrayFrom(rowsState as RowsState), [rowsState]);
@@ -417,20 +390,28 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
   const rolled = useMemo(() => deriveRollups(coded, docMeta.auto_rollup !== false), [coded, docMeta.auto_rollup]);
   const selectedRow = useMemo(() => coded.find((r) => r.id === selectedRowId) ?? null, [coded, selectedRowId]);
 
-  useEffect(() => { const v = safeStr(artifactId).trim(); if (v && v !== artifactIdLocal) setArtifactIdLocal(v); }, [artifactId]); // eslint-disable-line
+  // Keep ref + state in sync when artifactId prop changes
+  useEffect(() => {
+    const v = safeStr(artifactId).trim();
+    if (v && v !== artifactIdLocal) {
+      artifactIdRef.current = v; // update ref first so closures see it immediately
+      setArtifactIdLocal(v);
+    }
+  }, [artifactId]); // eslint-disable-line
+
   useEffect(() => { if (dirty) return; if (initialFingerprint && initialFingerprint !== lastHydratedRef.current) { lastHydratedRef.current = initialFingerprint; const next = normalizeInitial(initialJson); setDocMeta({ version: 1, type: "wbs", title: next.title || "Work Breakdown Structure", due_date: next.due_date || "", auto_rollup: next.auto_rollup !== false }); setTitle(next.title || "Work Breakdown Structure"); dispatchRows({ type: "HYDRATE", rows: next.rows ?? [] }); setSaveMode("idle"); } }, [initialFingerprint, artifactId, dirty, initialJson]); // eslint-disable-line
   useEffect(() => { setSavedViews(loadSavedViews()); if (typeof window !== "undefined") setMyWorkOwner(safeStr(window.localStorage.getItem(LS_KEY_MYWORK))); }, []);
   useEffect(() => { if (!openRowId) return; function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpenRowId(null); } function onPtr(e: PointerEvent) { if (!(e.target as HTMLElement)?.closest?.("[data-wbs-rowmenu]")) setOpenRowId(null); } window.addEventListener("keydown", onKey); window.addEventListener("pointerdown", onPtr, { capture: true }); return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pointerdown", onPtr, { capture: true } as any); }; }, [openRowId]);
 
   function markDirty() { if (readOnly) return; if (!dirty) setDirty(true); setSaveMode("dirty"); void requestCreateArtifactIfNeeded("edit"); }
 
- async function requestCreateArtifactIfNeeded(_reason: "edit"|"focus"|"autosave"): Promise<void> {
+  async function requestCreateArtifactIfNeeded(_reason: "edit"|"focus"|"autosave"): Promise<void> {
     if (readOnly) return;
-    if (safeStr(artifactIdLocal).trim()) return;
+    if (artifactIdRef.current) return; // use ref — never stale in closures
 
     // If a create is already in-flight, await IT instead of bailing out.
-    // Fixes the race where markDirty fires create and autosave runs saveInternal
-    // before artifactIdLocal is populated — causing "Missing artifactId" + save error.
+    // This is the core fix: prevents autosave from running saveInternal before
+    // the artifactId is available, which caused "Missing artifactId" + save error.
     if (createPromiseRef.current) {
       try { await createPromiseRef.current; } catch { /* logged below */ }
       return;
@@ -454,6 +435,7 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
       createPromiseRef.current = null;
     }
   }
+
   const updateRow = useCallback((id: string, patch: Partial<WbsRow>) => { markDirty(); dispatchRows({ type: "UPDATE", id, patch }); }, [readOnly, dirty]); // eslint-disable-line
   function updateDoc(patch: Partial<WbsDocV1>) { markDirty(); setDocMeta((prev) => ({ ...prev, title: patch.title ?? prev.title, due_date: patch.due_date ?? prev.due_date, auto_rollup: patch.auto_rollup ?? prev.auto_rollup })); }
   function insertAt(index: number, row: WbsRow) { markDirty(); dispatchRows({ type: "INSERT_AT", index, row }); }
@@ -498,12 +480,16 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
   const visibleRows = useMemo(() => applyCollapseStateToVisible(filtered), [filtered, collapsed]); // eslint-disable-line
 
   async function ensureArtifactIdOrCreate(content: any): Promise<string> {
-    const existing = safeStr(artifactIdLocal).trim(); if (existing) return existing;
+    // Use ref — never stale regardless of when this closure was created
+    const existing = artifactIdRef.current;
+    if (existing) return existing;
     const safeProjectId = safeStr(projectId).trim(); if (!safeProjectId) throw new Error("Missing projectId");
     const body = { projectId: safeProjectId, project_id: safeProjectId, title: (safeStr(title).trim() || "Work Breakdown Structure").trim(), type: "wbs", artifact_type: "wbs", content_json: content, contentJson: content, content: JSON.stringify(content), content_json_string: JSON.stringify(content) };
     const j = await tryCreateArtifactViaEndpoints(body);
     const newId = safeStr((j as any)?.id) || safeStr((j as any)?.artifact?.id) || safeStr((j as any)?.data?.id) || safeStr((j as any)?.data?.artifact?.id);
     if (!newId) throw new Error("Create succeeded but no artifact id returned");
+    // Update ref FIRST so all in-flight closures see the new id before React re-renders
+    artifactIdRef.current = newId;
     setArtifactIdLocal(newId);
     try { window.dispatchEvent(new CustomEvent("artifact-created", { detail: { artifactId: newId, projectId: safeProjectId } })); } catch {}
     try { const u = new URL(window.location.href); if (!u.searchParams.get("artifactId")) { u.searchParams.set("artifactId", newId); router.replace(u.pathname + "?" + u.searchParams.toString()); } } catch {}
@@ -514,7 +500,9 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
   async function saveInternal(opts?: { silent?: boolean }) {
     if (saving || readOnly) return;
     const silent = !!opts?.silent; setMsg("");
-    const safeProjectId = safeStr(projectId).trim(); const safeArtifactId = safeStr(artifactIdLocal).trim();
+    const safeProjectId = safeStr(projectId).trim();
+    // Use ref so we always get the current artifactId even inside stale closures
+    const safeArtifactId = artifactIdRef.current;
     if (!safeProjectId || !safeArtifactId) { if (!silent) setMsg("Missing project or artifact id"); setSaveMode("error"); return; }
     setSaving(true); setSaveMode("saving");
     try {
@@ -541,7 +529,7 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
 
   async function exportXlsx() {
     if (exportingXlsx) return; setMsg(""); setExportingXlsx(true);
-    try { await requestCreateArtifactIfNeeded("focus"); const eid = safeStr(artifactIdLocal).trim(); if (!eid) throw new Error("Missing artifactId"); const base = `WBS_${eid.slice(0, 8)}_${todayISO()}`; const qs = new URLSearchParams(); qs.set("projectId", projectId); qs.set("artifactId", eid); qs.set("filename", base); const resp = await fetch(`/api/artifacts/wbs/export/xlsx?${qs.toString()}`, { method: "GET" }); if (!resp.ok) { const j = await safeJson(resp); throw new Error(safeStr((j as any)?.error) || `Export failed (${resp.status})`); } const blob = await resp.blob(); downloadBlob(blob, pickFilenameFromDisposition(resp.headers.get("content-disposition"), `${base}.xlsx`)); setMsg("XLSX downloaded"); setTimeout(() => setMsg(""), 1200); }
+    try { await requestCreateArtifactIfNeeded("focus"); const eid = artifactIdRef.current; if (!eid) throw new Error("Missing artifactId"); const base = `WBS_${eid.slice(0, 8)}_${todayISO()}`; const qs = new URLSearchParams(); qs.set("projectId", projectId); qs.set("artifactId", eid); qs.set("filename", base); const resp = await fetch(`/api/artifacts/wbs/export/xlsx?${qs.toString()}`, { method: "GET" }); if (!resp.ok) { const j = await safeJson(resp); throw new Error(safeStr((j as any)?.error) || `Export failed (${resp.status})`); } const blob = await resp.blob(); downloadBlob(blob, pickFilenameFromDisposition(resp.headers.get("content-disposition"), `${base}.xlsx`)); setMsg("XLSX downloaded"); setTimeout(() => setMsg(""), 1200); }
     catch (e: any) { setMsg(e?.message ?? "Export failed"); }
     finally { setExportingXlsx(false); }
   }
@@ -549,7 +537,7 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
   async function aiExpand(rowId: string) {
     const base = coded.find((r) => r.id === rowId); if (!base) return;
     setMsg(""); await requestCreateArtifactIfNeeded("focus");
-    const eid = safeStr(artifactIdLocal).trim(); if (!eid) { setMsg("Missing artifactId"); setTimeout(() => setMsg(""), 1200); return; }
+    const eid = artifactIdRef.current; if (!eid) { setMsg("Missing artifactId"); setTimeout(() => setMsg(""), 1200); return; }
     startTransition(async () => {
       try {
         const resp = await fetch(`/api/ai/wbs/expand`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, artifactId: eid, row: { id: base.id, level: base.level, deliverable: base.deliverable, description: base.description, acceptance_criteria: base.acceptance_criteria, owner: base.owner, due_date: base.due_date, predecessor: base.predecessor, tags: base.tags ?? [] } }) });
@@ -566,13 +554,13 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
 
   async function aiValidate() {
     setMsg(""); setValidateOpen(true); setValidateSummary("Validating..."); await requestCreateArtifactIfNeeded("focus");
-    const eid = safeStr(artifactIdLocal).trim(); if (!eid) { setValidateSummary("Missing artifactId"); return; }
+    const eid = artifactIdRef.current; if (!eid) { setValidateSummary("Missing artifactId"); return; }
     startTransition(async () => { try { const resp = await fetch(`/api/ai/wbs/validate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, artifactId: eid, due_date: docMeta.due_date ?? "", rows: computeCodes(rowsArr ?? []) }) }); const j = await resp.json().catch(() => ({})); if (!resp.ok) throw new Error((j as any)?.error || `AI validate failed (${resp.status})`); const issues = Array.isArray((j as any)?.issues) ? (j as any).issues : []; setAiIssues(issues.map((x: any) => ({ severity: (x?.severity ?? "low") as any, message: safeStr(x?.message), rowId: safeStr(x?.rowId) }))); const summary = issues.length ? `Found ${issues.length} improvement(s)` : "Looks good — no issues found."; setValidateSummary(summary); setMsg(summary); setTimeout(() => setMsg(""), 1200); } catch (e: any) { setValidateSummary(e?.message ?? "AI validate failed"); } });
   }
 
   async function generateWbs() {
     setGenOpen(true); setGenLoading(true); setGeneratedDoc(null); await requestCreateArtifactIfNeeded("focus");
-    const eid = safeStr(artifactIdLocal).trim(); if (!eid) { setGenOpen(false); setGenLoading(false); return; }
+    const eid = artifactIdRef.current; if (!eid) { setGenOpen(false); setGenLoading(false); return; }
     try { const resp = await fetch(`/api/ai/wbs/generate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, artifactId: eid, due_date: docMeta.due_date ?? "" }) }); const j = await resp.json().catch(() => ({})); if (!resp.ok) throw new Error((j as any)?.error || `Generate failed (${resp.status})`); setGeneratedDoc((j as any)?.generated ?? null); }
     catch (e: any) { setMsg(e?.message ?? "Generate failed"); setTimeout(() => setMsg(""), 1200); setGenOpen(false); }
     finally { setGenLoading(false); }
@@ -631,16 +619,14 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
     );
   }
 
-  // Stats
   const overallProgress = useMemo(() => { const leaves = (rolled as any[]).filter((r) => !r._isParent); if (!leaves.length) return 0; let wSum = 0, pSum = 0; for (const x of leaves) { const w = effortWeight(normalizeEffort(x.effort)); wSum += w; pSum += w * statusScore((((x.status ?? "not_started") as WbsStatus) || "not_started") as WbsStatus); } return wSum ? Math.round((pSum / wSum) * 100) : 0; }, [rolled]);
   const totalRows = rolled.length;
   const doneCount = (rolled as any[]).filter((r) => !r._isParent && ((r.status ?? "not_started") as WbsStatus) === "done").length;
   const blockedCount = (rolled as any[]).filter((r) => statusShownForRow(r, docMeta.auto_rollup !== false) === "blocked").length;
   const hasActiveFilters = !!(q || ownerFilter || statusFilter || tagFilter || dueFrom || dueTo || onlyOverdue || onlyBlocked || leavesOnly || onlyMissingEffort);
 
-  // Save indicator
   const SaveBadge = () => {
-    if (!readOnly && !safeStr(artifactIdLocal).trim()) return <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "#fff5f5", border: "1px solid #fecaca", color: "#b91c1c", fontWeight: 600 }}>Missing ID</span>;
+    if (!readOnly && !artifactIdRef.current) return <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "#fff5f5", border: "1px solid #fecaca", color: "#b91c1c", fontWeight: 600 }}>Missing ID</span>;
     if (saveMode === "saving") return <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "#f6f8fa", border: "1px solid #e8ecf0", color: "#8b949e", fontWeight: 600 }}>Saving…</span>;
     if (saveMode === "dirty") return <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "#fffbeb", border: "1px solid #fde68a", color: "#b45309", fontWeight: 600 }}>Unsaved</span>;
     if (saveMode === "saved") return <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#15803d", fontWeight: 600 }}>Saved {lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>;
@@ -652,17 +638,14 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
     ...T.btn, background: active ? "#0d1117" : "#f6f8fa", border: `1px solid ${active ? "#0d1117" : "#e8ecf0"}`, color: active ? "#ffffff" : "#57606a",
   });
 
-  /* ── RENDER ── */
   return (
     <div style={T.page}>
-      {/* ── Header ── */}
       <header style={T.header}>
         <div style={{ width: 32, height: 32, borderRadius: 9, background: "#0d1117", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="4" height="4" rx="1" fill="white" fillOpacity="0.9"/><rect x="7" y="1.5" width="8" height="2" rx="0.75" fill="white" fillOpacity="0.5"/><rect x="1" y="6.5" width="4" height="4" rx="1" fill="white" fillOpacity="0.7"/><rect x="7" y="7" width="8" height="2" rx="0.75" fill="white" fillOpacity="0.5"/><rect x="1" y="12" width="4" height="3" rx="1" fill="white" fillOpacity="0.5"/><rect x="7" y="12.5" width="6" height="2" rx="0.75" fill="white" fillOpacity="0.5"/></svg>
         </div>
         <input value={title} onFocus={() => void requestCreateArtifactIfNeeded("focus")} onChange={(e) => { setTitle(e.target.value); markDirty(); setDocMeta((prev) => ({ ...prev, title: e.target.value })); }} disabled={!!readOnly} style={{ flex: 1, fontSize: 16, fontWeight: 700, color: "#0d1117", background: "transparent", border: "none", outline: "none", fontFamily: "inherit", minWidth: 0 }} placeholder="Work Breakdown Structure" />
 
-        {/* Stats */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 12, padding: "3px 8px", borderRadius: 20, background: "#f6f8fa", border: "1px solid #e8ecf0", color: "#57606a", fontWeight: 600 }}>{totalRows} items</span>
           <span style={{ fontSize: 12, padding: "3px 8px", borderRadius: 20, background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#15803d", fontWeight: 600 }}>{doneCount} done</span>
@@ -675,23 +658,21 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <SaveBadge />
           <button onClick={exportXlsx} disabled={exportingXlsx} style={{ ...T.btn, opacity: exportingXlsx ? 0.4 : 1 }}><IC.Download />{exportingXlsx ? "…" : "XLSX"}</button>
-          <button onClick={generateWbs} disabled={readOnly || genLoading} style={{ ...T.btnVio, opacity: (readOnly || genLoading) ? 0.4 : 1 }}><IC.Sparkle />{genLoading ? "Generating…" : "AI Generate"}</button>          <button onClick={aiValidate} disabled={readOnly || isPending} style={{ ...T.btn, opacity: (readOnly || isPending) ? 0.4 : 1 }}>Validate</button>
+          <button onClick={generateWbs} disabled={readOnly || genLoading} style={{ ...T.btnVio, opacity: (readOnly || genLoading) ? 0.4 : 1 }}><IC.Sparkle />{genLoading ? "Generating…" : "AI Generate"}</button>
+          <button onClick={aiValidate} disabled={readOnly || isPending} style={{ ...T.btn, opacity: (readOnly || isPending) ? 0.4 : 1 }}>Validate</button>
           <button onClick={async () => { await requestCreateArtifactIfNeeded("focus"); const last = coded?.[coded.length - 1]?.id; if (last) addSibling(last); }} disabled={readOnly || !coded?.length} style={{ ...T.btn, opacity: (readOnly || !coded?.length) ? 0.4 : 1 }}>+ Add item</button>
           <button onClick={save} disabled={readOnly || saving} style={{ ...(dirty ? T.btnDark : T.btn), opacity: (readOnly || saving) ? 0.4 : 1 }}>{saving ? "Saving…" : dirty ? "Save" : "Saved"}</button>
         </div>
       </header>
 
-      {/* Progress bar */}
       <div style={{ height: 3, background: "#e8ecf0", position: "relative", overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${overallProgress}%`, background: "#0d1117", transition: "width 0.7s ease" }} />
       </div>
 
       <div style={{ maxWidth: 1600, margin: "0 auto", padding: "20px 28px 64px", display: "flex", flexDirection: "column", gap: 14 }}>
 
-        {/* ── Filter bar ── */}
         <div style={{ ...T.card, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-            {/* Search */}
             <div style={{ position: "relative", width: 240 }}>
               <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#8b949e" }} width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.4"/><path d="M9 9l2.5 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" style={{ ...T.input, width: "100%", paddingLeft: 30 }} />
@@ -734,7 +715,6 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
             </div>
           </div>
 
-          {/* Date range row */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid #e8ecf0", paddingTop: 10 }}>
             <span style={{ fontSize: 12, color: "#8b949e", fontWeight: 500 }}>Due between</span>
             <input type="date" value={dueFrom} onChange={(e) => setDueFrom(e.target.value)} style={{ ...T.input, width: "auto" }} />
@@ -743,7 +723,6 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
           </div>
         </div>
 
-        {/* ── Effort warning ── */}
         {missingEffortCount > 0 && (
           <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -760,9 +739,7 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
           </div>
         )}
 
-        {/* ── Main grid ── */}
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 340px", gap: 16 }}>
-          {/* Row list */}
           <div>
             {visibleRows.length === 0 ? (
               <div style={{ ...T.card, padding: "56px 24px", textAlign: "center" }}>
@@ -793,9 +770,7 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
             {readOnly && <p style={{ fontSize: 11, textAlign: "center", color: "#8b949e", padding: "8px 0" }}>Read-only mode</p>}
           </div>
 
-          {/* Right rail */}
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* AI Assistant */}
             <div style={{ ...T.card, overflow: "hidden", position: "sticky", top: 74 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #e8ecf0", background: "#fafbfc" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -814,7 +789,7 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
                   </div>
                 ) : (
                   <LazyWbsAssistantRail projectId={projectId} readOnly={!!readOnly} selectedRow={selectedRow}
-                    onEnsureArtifact={async () => { await requestCreateArtifactIfNeeded("focus"); return safeStr(artifactIdLocal).trim(); }}
+                    onEnsureArtifact={async () => { await requestCreateArtifactIfNeeded("focus"); return artifactIdRef.current; }}
                     onUpdateRow={(rowId, patch) => updateRow(rowId, patch)}
                     onAppendDescription={(rowId, block) => { const row = coded.find((x) => x.id === rowId); const existing = safeStr(row?.description); updateRow(rowId, { description: existing ? `${existing}\n\n${block}` : block }); }}
                     onExpandChildren={(rowId) => aiExpand(rowId)}
@@ -824,7 +799,6 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
               </div>
             </div>
 
-            {/* Validation report */}
             {validateOpen && (
               <div style={{ ...T.card, overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #e8ecf0", background: "#fafbfc" }}>
@@ -846,7 +820,6 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
               </div>
             )}
 
-            {/* Generated WBS */}
             {genOpen && (
               <div style={{ ...T.card, overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #e8ecf0", background: "#fafbfc" }}>
@@ -877,7 +850,6 @@ const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); 
         </div>
       </div>
 
-      {/* Toast */}
       {!!msg && (
         <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 9999 }}>
           <div style={{ padding: "8px 16px", borderRadius: 10, background: "#ffffff", border: "1px solid #e8ecf0", boxShadow: "0 4px 16px rgba(0,0,0,0.1)", fontSize: 13, color: "#0d1117", fontWeight: 500, fontFamily: "inherit" }}>{msg}</div>
