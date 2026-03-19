@@ -1,6 +1,5 @@
 // FILE: src/app/heatmap/page.tsx
 import "server-only";
-
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
@@ -18,11 +17,9 @@ function safeStr(x: unknown) {
 function norm(x: unknown) {
   return safeStr(x).trim();
 }
-
 function defaultDateFrom(): string {
   return new Date().toISOString().split("T")[0];
 }
-
 function defaultDateTo(from: string): string {
   const d = new Date(from);
   d.setMonth(d.getMonth() + 6);
@@ -57,7 +54,6 @@ export default async function HeatmapPage({
   if (!user) redirect(`/login?next=${encodeURIComponent("/heatmap")}`);
 
   const sp = (await (searchParams as any)) ?? {};
-
   const orgId = await getActiveOrgId().catch(() => null);
   const organisationId = orgId ? String(orgId) : null;
   if (!organisationId) redirect("/projects?err=missing_org");
@@ -83,7 +79,7 @@ export default async function HeatmapPage({
   const personIds   = asArray(sp?.person);
   const projectIds  = asArray(sp?.project);
 
-  // Manager filter -- show only direct reports
+  // Manager filter — show only direct reports
   let effectivePersonIds = personIds;
   if (sp?.manager) {
     const { data: reports } = await supabase
@@ -128,6 +124,7 @@ export default async function HeatmapPage({
         projectIds,
         roles: [],
         pmIds: [],
+        organisationId: organisationId!,
       }}
       managerFilter={sp?.manager ? {
         active: true,

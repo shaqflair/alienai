@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/heatmap/_components/HeatmapClient.tsx
 
 import { useState, useCallback, useRef, useEffect, useTransition } from "react";
@@ -28,7 +28,7 @@ const PERSON_COL = 280;
 type CS={personId:string;personName:string;projectId:string;projectTitle:string;projectCode:string|null;colour:string;periodKey:string;startDate:string;endDate:string;daysAllocated:number;capacityDays:number;};
 export type PersonOption={id:string;name:string;department:string|null;jobTitle:string|null;};
 type PO={id:string;title:string;code:string|null;status:string;colour:string;};
-type Filters={granularity:Granularity;dateFrom:string;dateTo:string;departments:string[];statuses:string[];personIds:string[];projectIds:string[];roles:string[];pmIds:string[];};
+type Filters={granularity:Granularity;dateFrom:string;dateTo:string;departments:string[];statuses:string[];personIds:string[];projectIds:string[];roles:string[];pmIds:string[];organisationId?:string;};
 
 // -- Shared styles ------------------------------------------------------------
 const MLS:React.CSSProperties={display:"block",fontSize:"10px",fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"5px"};
@@ -110,66 +110,24 @@ function MultiDropdown({
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <label style={MLS}>{label}</label>
-      <button
-        type="button"
-        onClick={() => { setOpen(o => !o); setQ(""); }}
-        style={{
-          width: "100%", padding: "8px 10px", borderRadius: "8px",
-          border: `1.5px solid ${selected.length > 0 ? "#00b8db" : "#e2e8f0"}`,
-          background: selected.length > 0 ? "rgba(0,184,219,0.06)" : "white",
-          color: "#0f172a", fontSize: "12px", fontFamily: "inherit",
-          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between",
-          textAlign: "left",
-        }}
-      >
+      <button type="button" onClick={() => { setOpen(o => !o); setQ(""); }}
+        style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", border: `1.5px solid ${selected.length > 0 ? "#00b8db" : "#e2e8f0"}`, background: selected.length > 0 ? "rgba(0,184,219,0.06)" : "white", color: "#0f172a", fontSize: "12px", fontFamily: "inherit", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", textAlign: "left" }}>
         <span style={{ color: selected.length > 0 ? "#0e7490" : "#94a3b8", fontWeight: selected.length > 0 ? 600 : 400 }}>
-          {selected.length > 0
-            ? (renderSelected ? renderSelected() : `${selected.length} selected`)
-            : placeholder}
+          {selected.length > 0 ? (renderSelected ? renderSelected() : `${selected.length} selected`) : placeholder}
         </span>
-        <span style={{ fontSize: "10px", color: "#94a3b8", marginLeft: "6px" }}>
-          {open ? "^" : "v"}
-        </span>
+        <span style={{ fontSize: "10px", color: "#94a3b8", marginLeft: "6px" }}>{open ? "^" : "v"}</span>
       </button>
-
       {open && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200,
-          background: "white", border: "1.5px solid #e2e8f0", borderRadius: "10px",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.1)", overflow: "hidden",
-        }}>
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200, background: "white", border: "1.5px solid #e2e8f0", borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.1)", overflow: "hidden" }}>
           <div style={{ padding: "8px" }}>
-            <input
-              autoFocus
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              placeholder={`Search ${label.toLowerCase()}...`}
-              style={{ ...MIS, fontSize: "12px", padding: "6px 10px" }}
-            />
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder={`Search ${label.toLowerCase()}...`} style={{ ...MIS, fontSize: "12px", padding: "6px 10px" }} />
           </div>
           <div style={{ maxHeight: "200px", overflowY: "auto" }}>
-            {filtered.length === 0 && (
-              <div style={{ padding: "10px 12px", fontSize: "12px", color: "#94a3b8", textAlign: "center" }}>No results</div>
-            )}
+            {filtered.length === 0 && <div style={{ padding: "10px 12px", fontSize: "12px", color: "#94a3b8", textAlign: "center" }}>No results</div>}
             {filtered.map(o => (
-              <button
-                key={o.id}
-                type="button"
-                onClick={() => onToggle(o.id)}
-                style={{
-                  width: "100%", textAlign: "left", padding: "8px 12px",
-                  border: "none", borderBottom: "1px solid #f8fafc",
-                  background: selected.includes(o.id) ? "rgba(0,184,219,0.07)" : "white",
-                  cursor: "pointer", display: "flex", alignItems: "center", gap: "8px",
-                  fontFamily: "inherit",
-                }}
-              >
-                <div style={{
-                  width: "14px", height: "14px", borderRadius: "4px", flexShrink: 0,
-                  border: `2px solid ${selected.includes(o.id) ? "#00b8db" : "#e2e8f0"}`,
-                  background: selected.includes(o.id) ? "#00b8db" : "white",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
+              <button key={o.id} type="button" onClick={() => onToggle(o.id)}
+                style={{ width: "100%", textAlign: "left", padding: "8px 12px", border: "none", borderBottom: "1px solid #f8fafc", background: selected.includes(o.id) ? "rgba(0,184,219,0.07)" : "white", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", fontFamily: "inherit" }}>
+                <div style={{ width: "14px", height: "14px", borderRadius: "4px", flexShrink: 0, border: `2px solid ${selected.includes(o.id) ? "#00b8db" : "#e2e8f0"}`, background: selected.includes(o.id) ? "#00b8db" : "white", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {selected.includes(o.id) && <span style={{ color: "white", fontSize: "9px", lineHeight: 1 }}>ok</span>}
                 </div>
                 {renderOption ? renderOption(o) : (
@@ -225,46 +183,34 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
       "",
       "PEOPLE - PER-PERIOD BREAKDOWN:",
     ];
-
     for (const p of data.people) {
       const cap = p.defaultCapacityDays;
       lines.push(`\n> ${p.fullName} | ${p.jobTitle || p.department || "no role"} | ${cap}d/wk capacity`);
-
       const periodRows = data.periods.map(period => {
         const cell = p.summaryCells.find(c => c.periodKey === period.key);
         if (!cell || cell.capacityDays === 0) return `  ${period.label}: NO DATA`;
-        const pct    = cell.utilisationPct;
-        const alloc  = cell.daysAllocated;
+        const pct   = cell.utilisationPct;
+        const alloc = cell.daysAllocated;
         const totalCap = cell.capacityDays;
-        const avail  = Math.max(0, totalCap - alloc);
-        const status = pct === 0   ? "FULLY AVAILABLE"
-                     : pct < 75   ? "available"
-                     : pct < 95   ? "busy"
-                     : pct <= 110 ? "at limit"
-                     : "OVERALLOCATED";
+        const avail = Math.max(0, totalCap - alloc);
+        const status = pct === 0 ? "FULLY AVAILABLE" : pct < 75 ? "available" : pct < 95 ? "busy" : pct <= 110 ? "at limit" : "OVERALLOCATED";
         return `  ${period.label}: ${pct}% [${alloc}d allocated / ${totalCap}d capacity = ${avail}d free] - ${status}`;
       });
       lines.push(...periodRows);
-
       const projList = p.projects.map(pr => `${pr.projectCode || pr.projectTitle}(${pr.totalDays}d total)`).join(", ");
       lines.push(`  Projects: ${projList || "none assigned"}`);
     }
-
     if (data.pipelineGaps.length > 0) {
       lines.push("\n\nPIPELINE RESOURCE GAPS:");
       for (const g of data.pipelineGaps) {
-        const gapStr = g.cells.filter(c => c.gapDays > 0)
-          .map(c => `${c.periodKey}: needs ${c.gapDays}d (weighted: ${c.weightedDemand.toFixed(1)}d at ${g.winProbability}% win prob)`)
-          .join(", ");
+        const gapStr = g.cells.filter(c => c.gapDays > 0).map(c => `${c.periodKey}: needs ${c.gapDays}d (weighted: ${c.weightedDemand.toFixed(1)}d at ${g.winProbability}% win prob)`).join(", ");
         lines.push(`* ${g.projectTitle} - ${gapStr || "no gaps"}`);
       }
     }
-
     lines.push("\n\nINSTRUCTIONS FOR AI:");
     lines.push("- 0% utilisation = person has NO allocations that period = they ARE available");
     lines.push("- Answer availability questions using the per-period data above, not just averages");
     lines.push("- Cite specific periods and day counts in your answers");
-
     return lines.join("\n");
   }
 
@@ -274,143 +220,57 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
     setMessages(m => [...m, userMsg]);
     setQuestion("");
     setLoading(true);
-
     try {
-      const res = await fetch("/api/heatmap/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          context: buildContext(),
-          messages: [...messages, userMsg].map(m => ({ role: m.role, content: m.content })),
-        }),
-      });
+      const res = await fetch("/api/heatmap/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ context: buildContext(), messages: [...messages, userMsg].map(m => ({ role: m.role, content: m.content })) }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Request failed");
       setMessages(m => [...m, { role: "assistant", content: json.text }]);
     } catch (e: any) {
       setMessages(m => [...m, { role: "assistant", content: `Error: ${e.message}` }]);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   return (
-    <div style={{
-      position: "fixed", right: 0, top: 0, bottom: 0, width: "420px", zIndex: 1500,
-      background: "white", borderLeft: "1.5px solid #e2e8f0",
-      boxShadow: "-8px 0 32px rgba(0,0,0,0.1)",
-      display: "flex", flexDirection: "column",
-      fontFamily: "'DM Sans', sans-serif",
-      animation: "slideInRight 0.2s ease",
-    }}>
-      <div style={{
-        padding: "16px 20px", borderBottom: "1px solid #f1f5f9",
-        background: "linear-gradient(135deg, rgba(0,184,219,0.06) 0%, transparent 60%)",
-        display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0,
-      }}>
+    <div style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: "420px", zIndex: 1500, background: "white", borderLeft: "1.5px solid #e2e8f0", boxShadow: "-8px 0 32px rgba(0,0,0,0.1)", display: "flex", flexDirection: "column", fontFamily: "'DM Sans', sans-serif", animation: "slideInRight 0.2s ease" }}>
+      <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9", background: "linear-gradient(135deg, rgba(0,184,219,0.06) 0%, transparent 60%)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div>
-          <div style={{ fontSize: "15px", fontWeight: 800, color: "#0f172a", display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "18px" }}>*</span> Resource AI Advisor
-          </div>
-          <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>
-            Ask anything about your team's capacity
-          </div>
+          <div style={{ fontSize: "15px", fontWeight: 800, color: "#0f172a", display: "flex", alignItems: "center", gap: "8px" }}><span style={{ fontSize: "18px" }}>*</span> Resource AI Advisor</div>
+          <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>Ask anything about your team's capacity</div>
         </div>
         <button onClick={onClose} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "20px", lineHeight: 1 }}>x</button>
       </div>
-
       <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
         {messages.length === 0 && (
           <div>
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "#64748b", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              Suggested questions
-            </div>
+            <div style={{ fontSize: "12px", fontWeight: 700, color: "#64748b", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Suggested questions</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               {PRESET_QUESTIONS.map(q => (
-                <button key={q} type="button" onClick={() => ask(q)} style={{
-                  padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #e2e8f0",
-                  background: "white", color: "#334155", fontSize: "12px", cursor: "pointer",
-                  textAlign: "left", fontFamily: "inherit", fontWeight: 500,
-                  transition: "all 0.15s", lineHeight: 1.4,
-                }}
+                <button key={q} type="button" onClick={() => ask(q)} style={{ padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #e2e8f0", background: "white", color: "#334155", fontSize: "12px", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontWeight: 500, transition: "all 0.15s", lineHeight: 1.4 }}
                   onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#00b8db"; (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,184,219,0.04)"; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#e2e8f0"; (e.currentTarget as HTMLButtonElement).style.background = "white"; }}
-                >
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#e2e8f0"; (e.currentTarget as HTMLButtonElement).style.background = "white"; }}>
                   {q}
                 </button>
               ))}
             </div>
           </div>
         )}
-
         {messages.map((m, i) => (
-          <div key={i} style={{
-            display: "flex", flexDirection: "column",
-            alignItems: m.role === "user" ? "flex-end" : "flex-start",
-          }}>
-            <div style={{
-              maxWidth: "90%", padding: "10px 14px", borderRadius: m.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-              background: m.role === "user" ? "#00b8db" : "#f8fafc",
-              color: m.role === "user" ? "white" : "#0f172a",
-              fontSize: "13px", lineHeight: 1.6,
-              border: m.role === "assistant" ? "1px solid #e2e8f0" : "none",
-              whiteSpace: "pre-wrap",
-            }}>
-              {m.content}
-            </div>
+          <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" }}>
+            <div style={{ maxWidth: "90%", padding: "10px 14px", borderRadius: m.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: m.role === "user" ? "#00b8db" : "#f8fafc", color: m.role === "user" ? "white" : "#0f172a", fontSize: "13px", lineHeight: 1.6, border: m.role === "assistant" ? "1px solid #e2e8f0" : "none", whiteSpace: "pre-wrap" }}>{m.content}</div>
           </div>
         ))}
-
         {loading && (
           <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", background: "#f8fafc", borderRadius: "12px 12px 12px 2px", border: "1px solid #e2e8f0", width: "fit-content" }}>
-            {[0, 1, 2].map(i => (
-              <div key={i} style={{
-                width: "6px", height: "6px", borderRadius: "50%", background: "#00b8db",
-                animation: `bounce 1s ease infinite ${i * 0.15}s`,
-              }} />
-            ))}
+            {[0, 1, 2].map(i => <div key={i} style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#00b8db", animation: `bounce 1s ease infinite ${i * 0.15}s` }} />)}
           </div>
         )}
         <div ref={bottomRef} />
       </div>
-
       <div style={{ padding: "12px 16px", borderTop: "1px solid #f1f5f9", flexShrink: 0 }}>
-        {messages.length > 0 && (
-          <button type="button" onClick={() => setMessages([])} style={{
-            background: "none", border: "none", color: "#94a3b8", fontSize: "11px",
-            cursor: "pointer", padding: 0, marginBottom: "8px", display: "block",
-          }}>
-            New conversation
-          </button>
-        )}
+        {messages.length > 0 && <button type="button" onClick={() => setMessages([])} style={{ background: "none", border: "none", color: "#94a3b8", fontSize: "11px", cursor: "pointer", padding: 0, marginBottom: "8px", display: "block" }}>New conversation</button>}
         <div style={{ display: "flex", gap: "8px" }}>
-          <input
-            value={question}
-            onChange={e => setQuestion(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(question); } }}
-            placeholder="Ask about capacity, availability, risks..."
-            style={{
-              flex: 1, padding: "9px 12px", borderRadius: "8px",
-              border: "1.5px solid #e2e8f0", fontSize: "13px",
-              fontFamily: "inherit", color: "#0f172a", outline: "none",
-            }}
-            onFocus={e => { e.target.style.borderColor = "#00b8db"; }}
-            onBlur={e => { e.target.style.borderColor = "#e2e8f0"; }}
-          />
-          <button
-            type="button"
-            onClick={() => ask(question)}
-            disabled={!question.trim() || loading}
-            style={{
-              padding: "9px 14px", borderRadius: "8px", border: "none",
-              background: !question.trim() || loading ? "#e2e8f0" : "#00b8db",
-              color: !question.trim() || loading ? "#94a3b8" : "white",
-              fontSize: "13px", fontWeight: 700, cursor: !question.trim() ? "not-allowed" : "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            ^
-          </button>
+          <input value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(question); } }} placeholder="Ask about capacity, availability, risks..." style={{ flex: 1, padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #e2e8f0", fontSize: "13px", fontFamily: "inherit", color: "#0f172a", outline: "none" }} onFocus={e => { e.target.style.borderColor = "#00b8db"; }} onBlur={e => { e.target.style.borderColor = "#e2e8f0"; }} />
+          <button type="button" onClick={() => ask(question)} disabled={!question.trim() || loading} style={{ padding: "9px 14px", borderRadius: "8px", border: "none", background: !question.trim() || loading ? "#e2e8f0" : "#00b8db", color: !question.trim() || loading ? "#94a3b8" : "white", fontSize: "13px", fontWeight: 700, cursor: !question.trim() ? "not-allowed" : "pointer", fontFamily: "inherit" }}>^</button>
         </div>
       </div>
     </div>
@@ -426,25 +286,9 @@ function HCell({cell,cw,cur}:{cell:AllocationCell|null;cw:number;cur:boolean}){
   const pct=cell?.utilisationPct??0,c=UC[tier(pct)],ex=cell?.hasException??false;
   const isLeaveOnly = ex && pct===0;
   const cap = cell?.capacityDays??0;
-  const avail = cell?.daysAllocated!==undefined ? cap - cell.daysAllocated : cap;
-  const tooltip = isLeaveOnly
-    ? `Leave / exception this week - ${cap}d available, 0d allocated`
-    : cell ? `${cell.daysAllocated}d / ${cell.capacityDays}d (${pct}%)${ex?" - Capacity exception":""}`
-    : "---";
-  return<div title={tooltip} style={{
-    width:cw-2,minWidth:cw-2,height:"34px",borderRadius:"5px",
-    background: isLeaveOnly ? "rgba(99,102,241,0.08)" : cur&&pct===0 ? "rgba(0,184,219,0.04)" : c.bg,
-    border:`1px solid ${isLeaveOnly?"rgba(99,102,241,0.4)":ex?"rgba(99,102,241,0.35)":cur?"rgba(0,184,219,0.2)":c.border}`,
-    display:"flex",alignItems:"center",justifyContent:"center",gap:"3px",
-    fontSize:"11px",fontWeight:700,fontFamily:"'DM Mono',monospace",
-    color: isLeaveOnly?"#818cf8" : pct===0?"#e2e8f0":c.text,
-    cursor:cell&&cell.allocationIds.length>0?"pointer":"default",
-    transition:"all 0.1s",position:"relative",flexShrink:0,
-  }}>
-    {isLeaveOnly
-      ? <><span style={{fontSize:"12px",lineHeight:1}}>X</span><span style={{fontSize:"9px",fontWeight:700,color:"#818cf8",letterSpacing:"0.04em"}}>LEAVE</span></>
-      : pct>0 ? ulabel(pct) : "--"
-    }
+  const tooltip = isLeaveOnly ? `Leave / exception this week - ${cap}d available, 0d allocated` : cell ? `${cell.daysAllocated}d / ${cell.capacityDays}d (${pct}%)${ex?" - Capacity exception":""}` : "---";
+  return<div title={tooltip} style={{width:cw-2,minWidth:cw-2,height:"34px",borderRadius:"5px",background:isLeaveOnly?"rgba(99,102,241,0.08)":cur&&pct===0?"rgba(0,184,219,0.04)":c.bg,border:`1px solid ${isLeaveOnly?"rgba(99,102,241,0.4)":ex?"rgba(99,102,241,0.35)":cur?"rgba(0,184,219,0.2)":c.border}`,display:"flex",alignItems:"center",justifyContent:"center",gap:"3px",fontSize:"11px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:isLeaveOnly?"#818cf8":pct===0?"#e2e8f0":c.text,cursor:cell&&cell.allocationIds.length>0?"pointer":"default",transition:"all 0.1s",position:"relative",flexShrink:0}}>
+    {isLeaveOnly?<><span style={{fontSize:"12px",lineHeight:1}}>X</span><span style={{fontSize:"9px",fontWeight:700,color:"#818cf8",letterSpacing:"0.04em"}}>LEAVE</span></>:pct>0?ulabel(pct):"--"}
     {ex&&!isLeaveOnly&&<div style={{position:"absolute",top:"3px",right:"3px",width:"5px",height:"5px",borderRadius:"50%",background:"#818cf8",boxShadow:"0 0 0 1px white"}}/>}
     {pct>0&&<div style={{position:"absolute",bottom:0,left:0,height:"3px",borderRadius:"0 0 4px 4px",width:`${Math.min(pct,100)}%`,background:c.text,opacity:0.4}}/>}
   </div>;
@@ -457,9 +301,13 @@ function PipeCell({cell,cw}:{cell:PipelineGapRow["cells"][number]|null;cw:number
 
 function PHeaders({periods,cw}:{periods:PeriodHeader[];cw:number}){return<div style={{display:"flex",gap:"2px"}}>{periods.map(p=><div key={p.key} style={{width:cw,minWidth:cw,flexShrink:0,textAlign:"center",padding:"0 2px"}}>{p.subLabel&&<div style={{fontSize:"9px",fontWeight:700,color:"#94a3b8",fontFamily:"'DM Mono',monospace",marginBottom:"1px"}}>{p.subLabel}</div>}<div style={{fontSize:"11px",fontWeight:p.isCurrentPeriod?800:500,color:p.isCurrentPeriod?"#00b8db":"#475569",background:p.isCurrentPeriod?"rgba(0,184,219,0.08)":"transparent",borderRadius:"5px",padding:"2px 0"}}>{p.label}</div></div>)}</div>;}
 
-// -- HeatmapPersonRow -- with audit trail toggle ------------------------------
+// -- HeatmapPersonRow — eager audit trail load --------------------------------
 function HeatmapPersonRow({person,periods,cw,expanded,onToggle,onCell}:{person:PersonRow;periods:PeriodHeader[];cw:number;expanded:boolean;onToggle:()=>void;onCell:(s:CS)=>void}){
   const [showAudit, setShowAudit] = useState(false);
+  // Pre-mount audit trail when row is expanded so data loads immediately
+  const [auditMounted, setAuditMounted] = useState(false);
+  useEffect(() => { if (expanded && !auditMounted) setAuditMounted(true); }, [expanded, auditMounted]);
+
   return(
     <div style={{borderBottom:"1px solid #f1f5f9"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 0",cursor:"pointer",background:expanded?"rgba(0,184,219,0.02)":"transparent"}} onClick={onToggle}>
@@ -485,18 +333,10 @@ function HeatmapPersonRow({person,periods,cw,expanded,onToggle,onCell}:{person:P
             :person.projects.map(proj=>(
               <div key={proj.projectId} style={{display:"flex",alignItems:"center",padding:"3px 0",gap:"2px"}}>
                 <div style={{width:PERSON_COL,minWidth:PERSON_COL,flexShrink:0,display:"grid",gridTemplateColumns:"22px 72px 1fr 80px",gap:"4px",paddingRight:"12px",alignItems:"center"}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
-                    <div style={{width:"3px",height:"22px",borderRadius:"2px",background:proj.colour}}/>
-                  </div>
-                  <div style={{fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:proj.colour,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={proj.projectCode||"---"}>
-                    {proj.projectCode||<span style={{color:"#e2e8f0"}}>---</span>}
-                  </div>
-                  <div style={{fontSize:"11px",fontWeight:600,color:"#334155",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={proj.projectTitle}>
-                    {proj.projectTitle}
-                  </div>
-                  <div style={{fontSize:"10px",color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:proj.roleOnProject?"normal":"italic"}} title={proj.roleOnProject||"---"}>
-                    {proj.roleOnProject||<span style={{color:"#e2e8f0"}}>---</span>}
-                  </div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:"3px",height:"22px",borderRadius:"2px",background:proj.colour}}/></div>
+                  <div style={{fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:proj.colour,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={proj.projectCode||"---"}>{proj.projectCode||<span style={{color:"#e2e8f0"}}>---</span>}</div>
+                  <div style={{fontSize:"11px",fontWeight:600,color:"#334155",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={proj.projectTitle}>{proj.projectTitle}</div>
+                  <div style={{fontSize:"10px",color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:proj.roleOnProject?"normal":"italic"}} title={proj.roleOnProject||"---"}>{proj.roleOnProject||<span style={{color:"#e2e8f0"}}>---</span>}</div>
                 </div>
                 <div style={{display:"flex",gap:"2px"}}>{periods.map(p=>{
                   const c=proj.cells.find(c=>c.periodKey===p.key);
@@ -508,16 +348,14 @@ function HeatmapPersonRow({person,periods,cw,expanded,onToggle,onCell}:{person:P
           }
           <div style={{paddingLeft:`${PERSON_COL+22}px`,padding:"4px 0 6px",display:"flex",alignItems:"center",gap:"16px"}}>
             <a href={`/allocations/new?person_id=${person.personId}&return_to=/heatmap`} style={{fontSize:"11px",color:"#00b8db",fontWeight:600,textDecoration:"none"}}>+ Allocate to project</a>
-            <button
-              type="button"
-              onClick={e=>{e.stopPropagation();setShowAudit(v=>!v);}}
-              style={{background:"none",border:"none",fontSize:"11px",color:showAudit?"#7c3aed":"#94a3b8",fontWeight:600,cursor:"pointer",padding:0,fontFamily:"inherit"}}
-            >
-              {showAudit?"- Hide history":"- View change history"}
+            <button type="button" onClick={e=>{e.stopPropagation();setShowAudit(v=>!v);}}
+              style={{background:"none",border:"none",fontSize:"11px",color:showAudit?"#7c3aed":"#94a3b8",fontWeight:600,cursor:"pointer",padding:0,fontFamily:"inherit"}}>
+              {showAudit?"- Hide history":"+ View change history"}
             </button>
           </div>
-          {showAudit&&(
-            <div style={{marginLeft:PERSON_COL+22,marginRight:16,marginBottom:12,padding:"16px",background:"white",borderRadius:10,border:"1px solid #e2e8f0"}}>
+          {/* Always mount when expanded, hide/show with CSS for instant display */}
+          {auditMounted && (
+            <div style={{display:showAudit?"block":"none",marginLeft:PERSON_COL+22,marginRight:16,marginBottom:12,padding:"16px",background:"white",borderRadius:10,border:"1px solid #e2e8f0"}}>
               <AllocationAuditTrail
                 personId={person.personId}
                 title={`${person.fullName} - allocation history`}
@@ -680,7 +518,6 @@ export default function HeatmapClient({
           <button type="button" onClick={() => setShowAI(s => !s)} style={{display:"inline-flex",alignItems:"center",gap:"6px",padding:"8px 14px",borderRadius:"8px",border:`1.5px solid ${showAI?"#00b8db":"#e2e8f0"}`,background:showAI?"rgba(0,184,219,0.1)":"white",color:showAI?"#00b8db":"#64748b",fontSize:"12px",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
             <span style={{fontSize:"14px"}}>*</span> Ask AI
           </button>
-          <a href={`/api/heatmap/export/xlsx?organisationId=${(initialFilters as any).organisationId}&granularity=${filters.granularity}&dateFrom=${filters.dateFrom}&dateTo=${filters.dateTo}`} style={{display:"inline-flex",alignItems:"center",gap:"6px",padding:"8px 14px",borderRadius:"8px",border:"1.5px solid #e2e8f0",background:"white",color:"#64748b",fontSize:"12px",fontWeight:600,textDecoration:"none",fontFamily:"inherit"}} download>Export XLSX</a>
           <a href="/allocations/new" style={{display:"inline-flex",alignItems:"center",gap:"6px",padding:"8px 16px",borderRadius:"8px",background:"#00b8db",color:"white",fontSize:"13px",fontWeight:700,textDecoration:"none",boxShadow:"0 2px 10px rgba(0,184,219,0.3)"}}>+ Allocate resource</a>
         </div>
       </div>
@@ -713,46 +550,19 @@ export default function HeatmapClient({
       {showF && (
         <div style={{background:"white",border:"1.5px solid #e2e8f0",borderRadius:"12px",padding:"16px",marginBottom:"16px",display:"flex",flexDirection:"column",gap:"14px"}}>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:"16px"}}>
-            <MultiDropdown
-              label="People"
-              placeholder="All people"
-              options={peopleOpts}
-              selected={filters.personIds}
-              onToggle={tP}
+            <MultiDropdown label="People" placeholder="All people" options={peopleOpts} selected={filters.personIds} onToggle={tP}
               renderSelected={() => `${filters.personIds.length} person${filters.personIds.length > 1 ? "s" : ""}`}
-              renderOption={o => (
-                <div style={{minWidth:0}}>
-                  <div style={{fontSize:"12px",fontWeight:600,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label}</div>
-                  {o.sub&&<div style={{fontSize:"10px",color:"#94a3b8"}}>{o.sub}</div>}
-                </div>
-              )}
+              renderOption={o => (<div style={{minWidth:0}}><div style={{fontSize:"12px",fontWeight:600,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label}</div>{o.sub&&<div style={{fontSize:"10px",color:"#94a3b8"}}>{o.sub}</div>}</div>)}
             />
-            <MultiDropdown
-              label="Project"
-              placeholder="All projects"
-              options={projectOpts}
-              selected={filters.projectIds ?? []}
-              onToggle={tPr}
+            <MultiDropdown label="Project" placeholder="All projects" options={projectOpts} selected={filters.projectIds ?? []} onToggle={tPr}
               renderSelected={() => `${(filters.projectIds ?? []).length} project${(filters.projectIds ?? []).length > 1 ? "s" : ""}`}
-              renderOption={o => (
-                <div style={{minWidth:0,display:"flex",alignItems:"center",gap:"8px"}}>
-                  <div style={{width:"3px",height:"20px",borderRadius:"2px",background:o.colour||"#00b8db",flexShrink:0}}/>
-                  <div style={{minWidth:0}}>
-                    {o.sub && <div style={{fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:o.colour||"#64748b"}}>{o.sub}</div>}
-                    <div style={{fontSize:"12px",fontWeight:600,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label}</div>
-                  </div>
-                </div>
-              )}
+              renderOption={o => (<div style={{minWidth:0,display:"flex",alignItems:"center",gap:"8px"}}><div style={{width:"3px",height:"20px",borderRadius:"2px",background:o.colour||"#00b8db",flexShrink:0}}/><div style={{minWidth:0}}>{o.sub&&<div style={{fontSize:"10px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:o.colour||"#64748b"}}>{o.sub}</div>}<div style={{fontSize:"12px",fontWeight:600,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label}</div></div></div>)}
             />
             {allDepartments.length > 0 && (
               <div>
                 <label style={{...MLS}}>Department</label>
                 <div style={{display:"flex",flexWrap:"wrap",gap:"5px"}}>
-                  {allDepartments.map(d => (
-                    <button key={d} type="button" onClick={() => tD(d)} style={{padding:"4px 10px",borderRadius:"20px",border:"1.5px solid",borderColor:filters.departments.includes(d)?"#00b8db":"#e2e8f0",background:filters.departments.includes(d)?"rgba(0,184,219,0.1)":"white",color:filters.departments.includes(d)?"#00b8db":"#64748b",fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                      {d}
-                    </button>
-                  ))}
+                  {allDepartments.map(d => <button key={d} type="button" onClick={() => tD(d)} style={{padding:"4px 10px",borderRadius:"20px",border:"1.5px solid",borderColor:filters.departments.includes(d)?"#00b8db":"#e2e8f0",background:filters.departments.includes(d)?"rgba(0,184,219,0.1)":"white",color:filters.departments.includes(d)?"#00b8db":"#64748b",fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{d}</button>)}
                 </div>
               </div>
             )}
@@ -760,9 +570,7 @@ export default function HeatmapClient({
               <label style={{...MLS}}>Project status</label>
               <div style={{display:"flex",gap:"6px"}}>
                 {[{v:"confirmed",c:"#00b8db",l:"Confirmed"},{v:"pipeline",c:"#7c3aed",l:"Pipeline"}].map(s => (
-                  <button key={s.v} type="button" onClick={() => tS(s.v)} style={{padding:"5px 12px",borderRadius:"20px",border:"1.5px solid",borderColor:filters.statuses.includes(s.v)?s.c:"#e2e8f0",background:filters.statuses.includes(s.v)?`${s.c}15`:"white",color:filters.statuses.includes(s.v)?s.c:"#64748b",fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                    {s.l}
-                  </button>
+                  <button key={s.v} type="button" onClick={() => tS(s.v)} style={{padding:"5px 12px",borderRadius:"20px",border:"1.5px solid",borderColor:filters.statuses.includes(s.v)?s.c:"#e2e8f0",background:filters.statuses.includes(s.v)?`${s.c}15`:"white",color:filters.statuses.includes(s.v)?s.c:"#64748b",fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{s.l}</button>
                 ))}
               </div>
             </div>
@@ -770,11 +578,7 @@ export default function HeatmapClient({
               <div>
                 <label style={{...MLS}}>Role</label>
                 <div style={{display:"flex",flexWrap:"wrap",gap:"5px",maxHeight:"70px",overflowY:"auto"}}>
-                  {allRoles.map(r => (
-                    <button key={r} type="button" onClick={() => tR(r)} style={{padding:"4px 10px",borderRadius:"20px",border:"1.5px solid",borderColor:(filters.roles??[]).includes(r)?"#00b8db":"#e2e8f0",background:(filters.roles??[]).includes(r)?"rgba(0,184,219,0.1)":"white",color:(filters.roles??[]).includes(r)?"#00b8db":"#64748b",fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                      {r}
-                    </button>
-                  ))}
+                  {allRoles.map(r => <button key={r} type="button" onClick={() => tR(r)} style={{padding:"4px 10px",borderRadius:"20px",border:"1.5px solid",borderColor:(filters.roles??[]).includes(r)?"#00b8db":"#e2e8f0",background:(filters.roles??[]).includes(r)?"rgba(0,184,219,0.1)":"white",color:(filters.roles??[]).includes(r)?"#00b8db":"#64748b",fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{r}</button>)}
                 </div>
               </div>
             )}
@@ -800,11 +604,7 @@ export default function HeatmapClient({
             <div style={{overflow:"hidden",flex:1}}><PHeaders periods={data.periods} cw={cw}/></div>
           </div>
           <div style={{position:"relative"}}>
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search by name, project code, project name, role or department..."
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, project code, project name, role or department..."
               style={{width:"100%",boxSizing:"border-box",padding:"7px 32px 7px 32px",borderRadius:"8px",border:"1.5px solid #e2e8f0",fontSize:"12px",fontFamily:"inherit",color:"#0f172a",outline:"none",background:"#f8fafc"}}
               onFocus={e=>{e.target.style.borderColor="#00b8db";e.target.style.background="white";}}
               onBlur={e=>{e.target.style.borderColor="#e2e8f0";e.target.style.background="#f8fafc";}}
@@ -849,13 +649,13 @@ export default function HeatmapClient({
 
       <PipeSection gaps={data.pipelineGaps} periods={data.periods} cw={cw}/>
 
-    {/* -- Page-level allocation audit trail -- */}
-    <div style={{ margin: "24px 0 0", padding: "20px 24px", background: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
-      <AllocationAuditTrail
-       organisationId={initialFilters.organisationId ?? undefined}
-               title="Resource allocation history"
-   />
-    </div>
+      {/* Page-level allocation audit trail */}
+      <div style={{ margin: "24px 0 0", padding: "20px 24px", background: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+        <AllocationAuditTrail
+          organisationId={initialFilters.organisationId}
+          title="Resource allocation history"
+        />
+      </div>
 
     </div></div>
 
