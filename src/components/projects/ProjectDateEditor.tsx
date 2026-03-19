@@ -1,4 +1,5 @@
-﻿"use client";
+﻿// src/components/projects/ProjectDateEditor.tsx
+"use client";
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -272,7 +273,7 @@ function DateChangeRequestModal({
                     type="date"
                     value={newStart}
                     onChange={(e) => setNewStart(e.target.value)}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${startChanged ? "#3b82f6" : "#e8ecf0"}`, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: startChanged ? "#eff6ff" : "white" }}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${startChanged ? "#3b82f6" : "#e8ecf0"}`, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: startChanged ? "#eff6ff" : "white", color: "#0d1117", colorScheme: "light" }}
                   />
                 </div>
                 <div>
@@ -281,7 +282,7 @@ function DateChangeRequestModal({
                     type="date"
                     value={newFinish}
                     onChange={(e) => setNewFinish(e.target.value)}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${finishChanged ? "#3b82f6" : "#e8ecf0"}`, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: finishChanged ? "#eff6ff" : "white" }}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${finishChanged ? "#3b82f6" : "#e8ecf0"}`, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: finishChanged ? "#eff6ff" : "white", color: "#0d1117", colorScheme: "light" }}
                   />
                 </div>
               </div>
