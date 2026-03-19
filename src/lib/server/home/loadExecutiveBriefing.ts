@@ -51,11 +51,6 @@ function uniqNonEmptyStrings(values: unknown[]): string[] {
   return Array.from(out);
 }
 
-function averageRounded(values: number[]): number | null {
-  if (!values.length) return null;
-  return Math.round(values.reduce((sum, n) => sum + n, 0) / values.length);
-}
-
 function formatCurrency(n: number): string {
   const abs = Math.abs(n);
   if (abs >= 1_000_000) return `\u00a3${(n / 1_000_000).toFixed(1)}M`;
@@ -92,20 +87,36 @@ async function countHighRaidWithProjects(args: {
   projectIds: string[];
   organisationId: string | null;
 }): Promise<{ count: number; projectNames: string[] }> {
-  const { supabase, projectIds, organisationId } = args;
+  const { supabase, organisationId } = args;
   const openStatuses = ["Open", "open", "OPEN", "active", "Active"];
   const highPriorities = ["High", "high", "HIGH", "Critical", "critical", "CRITICAL"];
   try {
-    let query = supabase
+    // Always resolve confirmed-only project IDs — never query org-wide without
+    // filtering pipeline, or pipeline RAID items inflate the risk section.
+    let projectIds = args.projectIds.length ? args.projectIds : [];
+
+    if (!projectIds.length && organisationId) {
+      const { data: confirmedRows } = await supabase
+        .from("projects")
+        .select("id")
+        .eq("organisation_id", organisationId)
+        .is("deleted_at", null)
+        .neq("resource_status", "pipeline")
+        .neq("status", "closed")
+        .limit(2000);
+      projectIds = (confirmedRows ?? []).map((r: any) => String(r.id)).filter(Boolean);
+    }
+
+    if (!projectIds.length) return { count: 0, projectNames: [] };
+
+    const { data, error } = await supabase
       .from("raid_items")
       .select("id, title, project_id, projects(title, project_code)")
       .in("status", openStatuses)
       .in("priority", highPriorities)
+      .in("project_id", projectIds)
       .limit(10);
-    if (projectIds.length > 0) query = query.in("project_id", projectIds);
-    else if (organisationId) query = query.eq("organisation_id", organisationId);
-    else return { count: 0, projectNames: [] };
-    const { data, error } = await query;
+
     if (error) return { count: 0, projectNames: [] };
     const rows = data ?? [];
     const names = new Set<string>();
@@ -151,7 +162,16 @@ async function loadFinanceSummary(args: {
   try {
     let ids = projectIds;
     if (!ids.length && organisationId) {
-      const { data: projRows } = await supabase.from("projects").select("id").eq("organisation_id", organisationId).is("deleted_at", null).limit(50);
+      // Exclude pipeline projects from finance summary — only confirmed projects
+      // contribute to portfolio budget figures.
+      const { data: projRows } = await supabase
+        .from("projects")
+        .select("id")
+        .eq("organisation_id", organisationId)
+        .is("deleted_at", null)
+        .neq("resource_status", "pipeline")
+        .neq("status", "closed")
+        .limit(50);
       ids = (projRows ?? []).map((r: any) => r.id).filter(Boolean);
     }
     if (!ids.length) return noData;
@@ -211,9 +231,9 @@ export async function loadExecutiveBriefing(args: {
   organisationId?: string | null;
   liveHealthScore?: number | null;
 }): Promise<BriefingData | null> {
-  // ── FIX: bail early if liveHealthScore hasn't arrived yet.
-  // This prevents a first render with the stale projectScores average (e.g. 85%)
-  // before the authoritative live score (e.g. 92%) is available, which caused
+  // Bail early if liveHealthScore hasn't arrived yet.
+  // This prevents a first render with the stale projectScores average
+  // before the authoritative live score is available, which caused
   // both the flash in the executive briefing and the mismatch in talking point 2.
   if (args.liveHealthScore == null) return null;
 
@@ -234,8 +254,6 @@ export async function loadExecutiveBriefing(args: {
     const projectIds = uniqNonEmptyStrings([...(args.projectIds ?? []), ...derivedProjectIds]);
 
     // Always use liveHealthScore as the single source of truth for avg health.
-    // Never fall back to averaging projectScores — that produced a different
-    // number (e.g. 85%) and caused the flash + talking-point mismatch.
     const avgHealth = Math.round(args.liveHealthScore);
 
     const projectCount = projectIds.length || scoreEntries.length;

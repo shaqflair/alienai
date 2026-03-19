@@ -96,6 +96,8 @@ function appendFiltersToPath(path: string, filters: PortfolioFilters) {
   (filters.projectName ?? []).forEach((v) => sp.append("name", v));
   (filters.projectManagerId ?? []).forEach((v) => sp.append("pm", v));
   (filters.department ?? []).forEach((v) => sp.append("dept", v));
+  // Pass confirmed project IDs explicitly so sub-APIs can filter by them
+  (filters.projectId ?? []).forEach((v) => sp.append("projectId", v));
 
   const qs = sp.toString();
   return qs ? `${path}${path.includes("?") ? "&" : "?"}${qs}` : path;
@@ -121,6 +123,42 @@ async function fetchInternalJson<T>(
     return (await res.json().catch(() => null)) as T | null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Resolve confirmed-only project IDs for the active organisation.
+ * Pipeline projects are excluded from all stats — they only appear in
+ * resource activity as their own data series.
+ *
+ * If the caller already passed explicit projectId filters (user-selected),
+ * we honour those as-is rather than overriding them.
+ */
+async function getConfirmedProjectIds(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  filters: PortfolioFilters,
+): Promise<string[]> {
+  // If the caller already specified explicit project IDs, honour them as-is.
+  if (filters.projectId?.length) return filters.projectId;
+
+  try {
+    let query = supabase
+      .from("projects")
+      .select("id")
+      .is("deleted_at", null)
+      .neq("resource_status", "pipeline")
+      .neq("status", "closed");
+
+    // Narrow further if project code filters are present
+    if (filters.projectCode?.length) {
+      query = query.in("project_code", filters.projectCode);
+    }
+
+    const { data, error } = await query.limit(2000);
+    if (error || !data?.length) return [];
+    return (data as any[]).map((r) => String(r.id)).filter(Boolean);
+  } catch {
+    return [];
   }
 }
 
@@ -154,6 +192,16 @@ async function buildDashboardSummary(
   const dueDays = normalizeDays(input?.dueWindowDays ?? input?.dueDays);
   const filters = normalizeFilters(input?.filters);
 
+  // Resolve confirmed-only project IDs once and inject into filters so every
+  // downstream API (milestones, RAID, resource activity, AI events) only sees
+  // confirmed projects. Pipeline projects appear in resource activity via their
+  // own data series — they must not inflate RAID, milestone, or health stats.
+  const confirmedIds = await getConfirmedProjectIds(supabase, filters);
+  const confirmedFilters: PortfolioFilters = {
+    ...filters,
+    projectId: confirmedIds.length ? confirmedIds : filters.projectId,
+  };
+
   const [
     portfolioHealth,
     milestonesDue,
@@ -164,20 +212,22 @@ async function buildDashboardSummary(
     aiBriefingRaw,
     dueDigest,
   ] = await Promise.all([
-    fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/health?days=${days}`, filters)),
-    fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/milestones-due?days=${days}`, filters)),
-    fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/raid-panel?days=${days}`, filters)),
-    fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/financial-plan-summary?days=${days}`, filters)),
-    fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/recent-wins?days=7&limit=8`, filters)),
+    // All stats use confirmedFilters — pipeline excluded
+    fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/health?days=${days}`, confirmedFilters)),
+    fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/milestones-due?days=${days}`, confirmedFilters)),
+    fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/raid-panel?days=${days}`, confirmedFilters)),
+    fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/financial-plan-summary?days=${days}`, confirmedFilters)),
+    fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/recent-wins?days=7&limit=8`, confirmedFilters)),
+    // Resource activity intentionally uses original filters — pipeline appears as its own series
     fetchInternalJson<any>(req, appendFiltersToPath(`/api/portfolio/resource-activity?days=${days}`, filters)),
-    fetchInternalJson<any>(req, appendFiltersToPath(`/api/ai/briefing?days=${days}`, filters)),
+    fetchInternalJson<any>(req, appendFiltersToPath(`/api/ai/briefing?days=${days}`, confirmedFilters)),
     fetchInternalJson<any>(req, `/api/ai/events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         eventType: "artifact_due",
         windowDays: dueDays,
-        filters,
+        filters: confirmedFilters,
       }),
     }),
   ]);
