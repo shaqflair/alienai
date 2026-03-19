@@ -260,14 +260,16 @@ export default async function ProjectsPage({
   const toDate     = (sp.to_date   ?? "").trim();
 
   // ── 7. Filtering ─────────────────────────────────────────────────────────
-  const filtered = projects
+const filtered = projects
     .filter((p) => {
       const st = (p.status ?? "active").toLowerCase();
-      if (filter === "Active") return st !== "closed";
-      if (filter === "Closed") return st === "closed";
-      return true;
+      const pipeline = (p.resource_status ?? "").toLowerCase() === "pipeline";
+      if (filter === "Active")   return st !== "closed" && !pipeline;
+      if (filter === "Pipeline") return pipeline;
+      if (filter === "Closed")   return st === "closed";
+      return true; // "All"
     })
-    .filter((p) =>
+        .filter((p) =>
       !query ||
       p.title.toLowerCase().includes(query) ||
       (p.project_code ?? "").toLowerCase().includes(query) ||
@@ -290,20 +292,20 @@ export default async function ProjectsPage({
     });
 
   // ── 8. Summary counts ─────────────────────────────────────────────────────
-  const activeCt  = projects.filter((p) => (p.status ?? "active").toLowerCase() !== "closed").length;
-  const closedCt  = projects.filter((p) => (p.status ?? "").toLowerCase() === "closed").length;
-  const atRiskCt  = projects.filter((p) =>
-    (p.status ?? "active").toLowerCase() !== "closed" && p.rag === "R",
-  ).length;
+const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "pipeline";
+  const isActive   = (p: Project) => (p.status ?? "active").toLowerCase() !== "closed" && !isPipeline(p);
+
+  const activeCt   = projects.filter(isActive).length;
+  const pipelineCt = projects.filter(isPipeline).length;
+  const closedCt   = projects.filter((p) => (p.status ?? "").toLowerCase() === "closed").length;
+  const atRiskCt   = projects.filter((p) => isActive(p) && p.rag === "R").length;
 
   const healthAvg = (() => {
-    const scored = projects.filter(
-      (p) => (p.status ?? "active").toLowerCase() !== "closed" && p.health != null,
-    );
+    const scored = projects.filter((p) => isActive(p) && p.health != null);
     if (!scored.length) return null;
     return Math.round(scored.reduce((s, p) => s + (p.health ?? 0), 0) / scored.length);
   })();
-
+  
   // Helper: build href preserving all active params
   function tabHref(overrides: Record<string, string>) {
     const params = new URLSearchParams({
@@ -989,7 +991,7 @@ export default async function ProjectsPage({
         <div className="toolbar">
           {/* Filter tabs */}
           <div className="filter-tabs">
-            {(["Active", "Closed", "All"] as const).map((f) => (
+         {(["Active", "Pipeline", "Closed", "All"] as const).map((f) => (
               <Link
                 key={f}
                 href={tabHref({ filter: f })}
@@ -997,11 +999,13 @@ export default async function ProjectsPage({
               >
                 {f}
                 <span className="f-count">
-                  {f === "Active" ? activeCt : f === "Closed" ? closedCt : projects.length}
+                  {f === "Active"   ? activeCt
+                  : f === "Pipeline" ? pipelineCt
+                  : f === "Closed"   ? closedCt
+                  : projects.length}
                 </span>
               </Link>
-            ))}
-          </div>
+            ))}          </div>
 
           {/* Search */}
           <div className="search-zone">

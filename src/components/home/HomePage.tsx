@@ -1318,9 +1318,11 @@ export default function HomePage({
     });
   }, [projects, filterKey]);
 
-  const activeProjects = useMemo(() => {
+ const activeProjects = useMemo(() => {
     const truthy = (v: any) => v === true || v === "true" || v === 1 || v === "1";
     return (Array.isArray(filteredProjectsClient) ? filteredProjectsClient : []).filter((p: any) => {
+      // Exclude pipeline projects from all stats — they appear only in resource activity
+      if (String(p?.resource_status ?? "").toLowerCase() === "pipeline") return false;
       if (p?.deleted_at || p?.deletedAt) return false;
       if (truthy(p?.is_deleted) || truthy(p?.deleted)) return false;
       if (truthy(p?.is_archived) || truthy(p?.archived)) return false;
@@ -1331,7 +1333,6 @@ export default function HomePage({
       return !["closed", "cancel", "deleted", "archive", "inactive", "complete", "on_hold", "paused", "suspended"].some((k) => st.includes(k));
     });
   }, [filteredProjectsClient]);
-
   const sortedProjects = useMemo(
     () => [...activeProjects].sort((a: any, b: any) => {
       const ac = projectCodeLabel(a?.project_code);
