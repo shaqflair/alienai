@@ -57,6 +57,7 @@ type ViewState = {
 };
 
 type SavedView = { id: string; name: string; state: ViewState; createdAt: string };
+
 const LS_KEY_VIEWS = "wbs_saved_views_v1";
 const LS_KEY_MYWORK = "wbs_my_work_owner_v1";
 
@@ -439,6 +440,7 @@ function normalizeInitial(initialJson: any): WbsDocV1 {
       obj = null;
     }
   }
+
   if (
     obj &&
     typeof obj === "object" &&
@@ -469,6 +471,7 @@ function normalizeInitial(initialJson: any): WbsDocV1 {
       })),
     };
   }
+
   return {
     version: 1,
     type: "wbs",
@@ -541,10 +544,11 @@ function deriveRollups(
 ): Array<WbsRow & { _derivedStatus?: WbsStatus; _derivedProgress?: number; _isParent?: boolean }> {
   const out = rows.map((r) => ({
     ...r,
-    _derivedStatus: undefined as any,
-    _derivedProgress: undefined as any,
+    _derivedStatus: undefined as WbsStatus | undefined,
+    _derivedProgress: undefined as number | undefined,
     _isParent: false,
   }));
+
   if (!autoRollup) return out;
 
   for (let i = out.length - 1; i >= 0; i--) {
@@ -558,7 +562,7 @@ function deriveRollups(
     }
 
     const { start, end } = subtreeRange(out, i);
-    const leafs: any[] = [];
+    const leafs: Array<typeof out[number]> = [];
     for (let j = start + 1; j < end; j++) {
       if (!rowHasChildren(out, j)) leafs.push(out[j]);
     }
@@ -575,6 +579,7 @@ function deriveRollups(
       const s = (((x.status ?? "not_started") as WbsStatus) || "not_started") as WbsStatus;
       return s === "in_progress" || s === "done";
     });
+
     const derivedStatus: WbsStatus = anyBlocked
       ? "blocked"
       : allDone
@@ -594,6 +599,7 @@ function deriveRollups(
     out[i]._derivedStatus = derivedStatus;
     out[i]._derivedProgress = Math.max(0, Math.min(100, wSum ? Math.round((pSum / wSum) * 100) : 0));
   }
+
   return out;
 }
 
@@ -659,6 +665,7 @@ function rowsReducer(state: RowsState, action: RowsAction): RowsState {
     const byId: Record<string, WbsRow> = {};
     const order: string[] = [];
     const rows = Array.isArray(action.rows) ? action.rows : [];
+
     for (const r of rows) {
       const id = safeStr(r?.id) || uuidish();
       byId[id] = {
@@ -678,11 +685,13 @@ function rowsReducer(state: RowsState, action: RowsAction): RowsState {
       };
       order.push(id);
     }
+
     if (!order.length) {
       const nid = uuidish();
       byId[nid] = { id: nid, level: 0, deliverable: "", effort: "", status: "not_started" as WbsStatus };
       order.push(nid);
     }
+
     return { byId, order };
   }
 
@@ -1184,6 +1193,7 @@ export default function WBSEditor({
     undefined as any,
     () => ({ byId: {}, order: [] } as RowsState)
   );
+
   useEffect(() => {
     const d = normalizeInitial(initialJson);
     dispatchRows({ type: "HYDRATE", rows: d.rows ?? [] });
@@ -1235,9 +1245,7 @@ export default function WBSEditor({
 
   const initialFingerprint = useMemo(() => {
     try {
-      return typeof initialJson === "string"
-        ? initialJson
-        : JSON.stringify(initialJson ?? {});
+      return typeof initialJson === "string" ? initialJson : JSON.stringify(initialJson ?? {});
     } catch {
       return String(initialJson ?? "");
     }
@@ -1268,7 +1276,7 @@ export default function WBSEditor({
       artifactIdRef.current = v;
       setArtifactIdLocal(v);
     }
-  }, [artifactId]); // eslint-disable-line
+  }, [artifactId, artifactIdLocal]);
 
   useEffect(() => {
     if (dirty) return;
@@ -1286,7 +1294,7 @@ export default function WBSEditor({
       dispatchRows({ type: "HYDRATE", rows: next.rows ?? [] });
       setSaveMode("idle");
     }
-  }, [initialFingerprint, artifactId, dirty, initialJson]); // eslint-disable-line
+  }, [initialFingerprint, artifactId, dirty, initialJson]);
 
   useEffect(() => {
     setSavedViews(loadSavedViews());
@@ -1297,14 +1305,17 @@ export default function WBSEditor({
 
   useEffect(() => {
     if (!openRowId) return;
+
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpenRowId(null);
     }
     function onPtr(e: PointerEvent) {
       if (!(e.target as HTMLElement)?.closest?.("[data-wbs-rowmenu]")) setOpenRowId(null);
     }
+
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onPtr, { capture: true });
+
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("pointerdown", onPtr, { capture: true } as any);
@@ -1315,7 +1326,6 @@ export default function WBSEditor({
     if (readOnly) return;
     if (!dirty) setDirty(true);
     setSaveMode("dirty");
-    void requestCreateArtifactIfNeeded("edit");
   }
 
   async function requestCreateArtifactIfNeeded(
@@ -1323,15 +1333,8 @@ export default function WBSEditor({
   ): Promise<void> {
     if (artifactIdRef.current) return;
 
-if (createPromiseRef.current) {
-  await createPromiseRef.current;
-  return;
-}
-
     if (createPromiseRef.current) {
-      try {
-        await createPromiseRef.current;
-      } catch {}
+      await createPromiseRef.current;
       return;
     }
 
@@ -1349,10 +1352,12 @@ if (createPromiseRef.current) {
         auto_rollup: docMeta.auto_rollup !== false,
         rows: computeCodes(rowsArr ?? []),
       });
+
       return await ensureArtifactIdOrCreate(content);
     })();
 
     createPromiseRef.current = p;
+
     try {
       const id = await p;
       if (id) {
@@ -1362,6 +1367,7 @@ if (createPromiseRef.current) {
       }
     } catch (e) {
       console.warn("WBS auto-create failed:", e);
+      throw e;
     } finally {
       createPromiseRef.current = null;
     }
@@ -1373,7 +1379,7 @@ if (createPromiseRef.current) {
       dispatchRows({ type: "UPDATE", id, patch });
     },
     [readOnly, dirty]
-  ); // eslint-disable-line
+  );
 
   function updateDoc(patch: Partial<WbsDocV1>) {
     markDirty();
@@ -1465,18 +1471,37 @@ if (createPromiseRef.current) {
 
   function removeRow(id: string) {
     markDirty();
+
+    const rows = rowsArr;
+    const idx = rows.findIndex((r) => r.id === id);
+    if (idx < 0) return;
+
+    const target = rows[idx];
+    const removedIds = new Set<string>();
+    removedIds.add(target.id);
+
+    for (let i = idx + 1; i < rows.length; i++) {
+      if (rows[i].level <= target.level) break;
+      removedIds.add(rows[i].id);
+    }
+
     dispatchRows({ type: "REMOVE_SUBTREE", id });
+
     setCollapsed((p) => {
       const n = new Set(p);
-      n.delete(id);
+      removedIds.forEach((x) => n.delete(x));
       return n;
     });
+
     setExpanded((p) => {
       const n = new Set(p);
-      n.delete(id);
+      removedIds.forEach((x) => n.delete(x));
       return n;
     });
-    if (selectedRowId === id) setSelectedRowId(null);
+
+    if (selectedRowId && removedIds.has(selectedRowId)) {
+      setSelectedRowId(null);
+    }
   }
 
   function toggleDetails(rowId: string) {
@@ -1489,7 +1514,7 @@ if (createPromiseRef.current) {
   }
 
   function applyCollapseStateToVisible(rowsInOrder: typeof rolled) {
-    const out: any[] = [];
+    const out: typeof rolled = [];
     const stack: Array<{ level: number; id: string }> = [];
     for (let i = 0; i < rowsInOrder.length; i++) {
       const r = rowsInOrder[i];
@@ -1598,9 +1623,9 @@ if (createPromiseRef.current) {
       onlyMissingEffort,
       docMeta.auto_rollup,
     ]
-  ); // eslint-disable-line
+  );
 
-  const visibleRows = useMemo(() => applyCollapseStateToVisible(filtered), [filtered, collapsed]); // eslint-disable-line
+  const visibleRows = useMemo(() => applyCollapseStateToVisible(filtered), [filtered, collapsed]);
 
   async function ensureArtifactIdOrCreate(content: any): Promise<string> {
     const existing = artifactIdRef.current;
@@ -1612,7 +1637,7 @@ if (createPromiseRef.current) {
     const body = {
       projectId: safeProjectId,
       project_id: safeProjectId,
-      title: (safeStr(title).trim() || "Work Breakdown Structure").trim(),
+      title: safeStr(title).trim() || "Work Breakdown Structure",
       type: "wbs",
       artifact_type: "wbs",
       content_json: content,
@@ -1656,91 +1681,98 @@ if (createPromiseRef.current) {
     return newId;
   }
 
+  async function ensureArtifactReady(reason: "focus" | "autosave" | "manual"): Promise<string> {
+    if (!artifactIdRef.current) {
+      await requestCreateArtifactIfNeeded(reason === "manual" ? "focus" : reason);
+    }
+
+    const id = safeStr(artifactIdRef.current).trim();
+    if (!id) {
+      throw new Error("Missing artifactId");
+    }
+
+    return id;
+  }
+
   async function saveInternal(opts?: { silent?: boolean }) {
-  if (saving || readOnly) return;
+    if (saving || readOnly) return;
 
-  const silent = !!opts?.silent;
-  setMsg("");
+    const silent = !!opts?.silent;
+    setMsg("");
 
-  const safeProjectId = safeStr(projectId).trim();
-
-  // ✅ FIX: ensure artifact exists BEFORE saving
-  if (!artifactIdRef.current) {
-    try {
-      await requestCreateArtifactIfNeeded("autosave");
-    } catch (e) {
-      if (!silent) setMsg("Failed to create artifact");
+    const safeProjectId = safeStr(projectId).trim();
+    if (!safeProjectId) {
       setSaveMode("error");
+      if (!silent) setMsg("Missing project id");
       return;
     }
-  }
 
-  const safeArtifactId = artifactIdRef.current;
-
-  if (!safeProjectId || !safeArtifactId) {
-    if (!silent) setMsg("Missing project or artifact id");
-    setSaveMode("error");
-    return;
-  }
-
-  setSaving(true);
-  setSaveMode("saving");
-
-  try {
-    const content = serialize({
-      version: 1,
-      type: "wbs",
-      title: title.trim() || "Work Breakdown Structure",
-      due_date: safeStr(docMeta.due_date || ""),
-      auto_rollup: docMeta.auto_rollup !== false,
-      rows: computeCodes(rowsArr ?? []),
-    });
-
-    const resp = await fetch(`/api/artifacts/${safeArtifactId}/content-json`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        projectId: safeProjectId,
-        title: title.trim() || "Work Breakdown Structure",
-        content_json: content,
-      }),
-    });
-
-    const json = await resp.json().catch(() => null);
-
-    if (!resp.ok || (json as any)?.ok === false) {
-      throw new Error((json as any)?.error || `Save failed (${resp.status})`);
-    }
-
-    await syncWbsItems({
-      projectId: safeProjectId,
-      artifactId: safeArtifactId,
-      rows: (content as any)?.rows ?? [],
-    });
-
-    setDirty(false);
-    setSaveMode("saved");
-    setLastSavedAt(new Date().toISOString());
-
-    if (!silent) {
-      setMsg("Saved");
-      setTimeout(() => setMsg(""), 1200);
-    }
-  } catch (e: any) {
-    setSaveMode("error");
-    if (!silent) setMsg(e?.message || "Save failed");
-  } finally {
-    setSaving(false);
-  }
-}  async function save() {
+    let safeArtifactId = "";
     try {
-      await requestCreateArtifactIfNeeded("focus");
-      const eid = artifactIdRef.current;
-      if (!eid) throw new Error("Missing artifactId");
+      safeArtifactId = await ensureArtifactReady(silent ? "autosave" : "manual");
+    } catch (e: any) {
+      setSaveMode("error");
+      if (!silent) setMsg(e?.message || "Failed to create artifact");
+      return;
+    }
+
+    setSaving(true);
+    setSaveMode("saving");
+
+    try {
+      const content = serialize({
+        version: 1,
+        type: "wbs",
+        title: title.trim() || "Work Breakdown Structure",
+        due_date: safeStr(docMeta.due_date || ""),
+        auto_rollup: docMeta.auto_rollup !== false,
+        rows: computeCodes(rowsArr ?? []),
+      });
+
+      const resp = await fetch(`/api/artifacts/${safeArtifactId}/content-json`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: safeProjectId,
+          title: title.trim() || "Work Breakdown Structure",
+          content_json: content,
+        }),
+      });
+
+      const json = await resp.json().catch(() => null);
+
+      if (!resp.ok || (json as any)?.ok === false) {
+        throw new Error((json as any)?.error || `Save failed (${resp.status})`);
+      }
+
+      await syncWbsItems({
+        projectId: safeProjectId,
+        artifactId: safeArtifactId,
+        rows: (content as any)?.rows ?? [],
+      });
+
+      setDirty(false);
+      setSaveMode("saved");
+      setLastSavedAt(new Date().toISOString());
+
+      if (!silent) {
+        setMsg("Saved");
+        setTimeout(() => setMsg(""), 1200);
+      }
+    } catch (e: any) {
+      setSaveMode("error");
+      if (!silent) setMsg(e?.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function save() {
+    try {
       await saveInternal({ silent: false });
     } catch (e: any) {
       setSaveMode("error");
-      flashMessage(e?.message || "Unable to create artifact before save", "error", 2200);
+      flashMessage(e?.message || "Unable to save", "error", 2200);
     }
   }
 
@@ -1755,13 +1787,15 @@ if (createPromiseRef.current) {
       return;
     }
 
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+    }
 
     autosaveTimerRef.current = setTimeout(async () => {
-      if (autosaveInFlightRef.current) return;
+      if (autosaveInFlightRef.current || saving) return;
+
       autosaveInFlightRef.current = true;
       try {
-        await requestCreateArtifactIfNeeded("autosave");
         await saveInternal({ silent: true });
       } finally {
         autosaveInFlightRef.current = false;
@@ -1774,7 +1808,7 @@ if (createPromiseRef.current) {
         autosaveTimerRef.current = null;
       }
     };
-  }, [dirty, rowsState, title, docMeta.due_date, docMeta.auto_rollup, readOnly]); // eslint-disable-line
+  }, [dirty, rowsState, title, docMeta.due_date, docMeta.auto_rollup, readOnly, saving]);
 
   async function exportXlsx() {
     if (exportingXlsx) return;
@@ -1922,7 +1956,7 @@ if (createPromiseRef.current) {
         const issues = Array.isArray((j as any)?.issues) ? (j as any).issues : [];
         setAiIssues(
           issues.map((x: any) => ({
-            severity: (x?.severity ?? "low") as any,
+            severity: (x?.severity ?? "low") as "high" | "medium" | "low",
             message: safeStr(x?.message),
             rowId: safeStr(x?.rowId),
           }))
@@ -2048,7 +2082,7 @@ if (createPromiseRef.current) {
         window.removeEventListener("resize", onR);
         window.removeEventListener("scroll", onR, { capture: true } as any);
       };
-    }, [open, rowId, idx, coded.length]); // eslint-disable-line
+    }, [open, rowId, idx, coded.length]);
 
     const menuItems = [
       { label: "Add sibling", action: () => addSibling(rowId), disabled: !!readOnly, icon: <IC.UpDown /> },
@@ -2057,8 +2091,24 @@ if (createPromiseRef.current) {
       { label: "Indent", action: () => indent(rowId), disabled: !canIndent, icon: <IC.ArrRight /> },
       { label: "Outdent", action: () => outdent(rowId), disabled: !canOutdent, icon: <IC.ArrLeft /> },
       null,
-      { label: "AI Expand", action: async () => { await requestCreateArtifactIfNeeded("focus"); aiExpand(rowId); }, disabled: !!readOnly, icon: <IC.Sparkle /> },
-      { label: "AI Assistant", action: () => { setSelectedRowId(rowId); setAssistantOpen(true); }, disabled: !!readOnly, icon: <IC.Robot /> },
+      {
+        label: "AI Expand",
+        action: async () => {
+          await requestCreateArtifactIfNeeded("focus");
+          aiExpand(rowId);
+        },
+        disabled: !!readOnly,
+        icon: <IC.Sparkle />,
+      },
+      {
+        label: "AI Assistant",
+        action: () => {
+          setSelectedRowId(rowId);
+          setAssistantOpen(true);
+        },
+        disabled: !!readOnly,
+        icon: <IC.Robot />,
+      },
       null,
       { label: "Delete row", action: () => removeRow(rowId), disabled: !canDelete, danger: true, icon: <IC.Close /> },
     ];
@@ -2798,6 +2848,7 @@ if (createPromiseRef.current) {
                   const effortVal = normalizeEffort(r.effort);
                   const effortMissing = !isParent && effortVal === "";
                   const stripeColor = LEVEL_STRIPE[Math.min(r.level, LEVEL_STRIPE.length - 1)];
+
                   return (
                     <WbsRowCard
                       key={r.id}
