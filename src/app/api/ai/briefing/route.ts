@@ -419,7 +419,7 @@ async function computeWbsStatsFromArtifacts(
     .from("artifacts")
     .select("id, project_id, type, updated_at, created_at, content_json, content")
     .in("project_id", projectIds)
-    .eq("type", "wbs");
+    .eq("type", "WBS");
 
   if (error) throw new Error(error.message);
 

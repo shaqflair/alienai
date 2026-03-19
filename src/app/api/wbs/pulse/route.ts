@@ -331,7 +331,7 @@ export async function GET(req: Request) {
       .from("artifacts")
       .select("id, project_id, type, content_json, content")
       .in("project_id", projectIds)
-      .eq("type", "wbs")
+      .eq("type", "WBS")
       .limit(3000);
 
     if (error) return jsonErr(error.message, 500);
