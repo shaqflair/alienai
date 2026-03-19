@@ -278,7 +278,8 @@ export async function GET(req: Request) {
         .eq("organisation_id", orgId)
         .is("deleted_at", null)
         .eq("status", "active")
-        .in("lifecycle_status", ["active", "paused"]);
+        .neq("resource_status", "pipeline")
+        .is("deleted_at", null);
 
       const projectIds = (projRaw ?? [])
         .map((p: any) => safeStr(p?.id).trim())

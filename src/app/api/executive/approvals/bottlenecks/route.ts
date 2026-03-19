@@ -107,6 +107,7 @@ export async function GET(req: Request) {
         .select("id")
         .eq("organisation_id", orgId)
         .is("deleted_at", null)
+        .neq("resource_status", "pipeline")
         .limit(5000);
 
       const projectIds =
