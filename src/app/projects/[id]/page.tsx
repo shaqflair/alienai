@@ -12,6 +12,7 @@ import ProjectRaidRaiseButton from "./_components/ProjectRaidRaiseButton";
 import { computeHealthFromData, type HealthResult } from "@/lib/server/project-health";
 import { getCachedBriefing } from "./briefing-actions";
 import ProjectDailyBriefing from "@/components/projects/ProjectDailyBriefing";
+import ProjectDateEditor from "@/components/projects/ProjectDateEditor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -722,19 +723,16 @@ export default async function ProjectPage({
             {pmName === "Unassigned" ? "Not assigned" : (pmJobTitle || "Assigned")}
           </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: "#dbeafe" }}>📅</div>
-          <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Start Date</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>{formatDateShort(project?.start_date)}</div>
-          <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Kickoff</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: "#f3f4f6" }}>🏁</div>
-          <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>End Date</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>{formatDateShort(project?.finish_date)}</div>
-          <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Deadline</div>
-        </div>
-      </div>
+       <div className="stat-card" style={{ gridColumn: "span 2" }}>
+  <ProjectDateEditor
+    projectId={projectUuid}
+    projectTitle={projectTitle}
+    startDate={project?.start_date ?? null}
+    finishDate={project?.finish_date ?? null}
+    resourceStatus={safeStr(project?.resource_status)}
+    canEdit={canEdit}
+  />
+</div>      </div>
 
       {/* ── Description + health ── */}
       <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, marginBottom: 16 }}>
