@@ -286,19 +286,19 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
               boxShadow: "0 30px 80px rgba(0,0,0,.16)",
               display: "flex",
               flexDirection: "column",
-              maxHeight: "90vh",        // ← modal cap
+              maxHeight: "90vh",
               overflow: "hidden",
               border: `1px solid ${UI.rule}`,
             }}
           >
-            {/* ── Header ── flexShrink: 0 prevents it from compressing */}
+            {/* ── Header ── */}
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "flex-start",
                 padding: "24px 28px 0",
-                flexShrink: 0,          // ← FIX
+                flexShrink: 0,
               }}
             >
               <div style={{ maxWidth: 420 }}>
@@ -335,12 +335,12 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
               </button>
             </div>
 
-            {/* ── Step indicator ── flexShrink: 0 */}
+            {/* ── Step indicator ── */}
             <div
               style={{
                 display: "flex", alignItems: "center", gap: 12,
                 padding: "20px 28px 0",
-                flexShrink: 0,          // ← FIX
+                flexShrink: 0,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -372,15 +372,16 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
               </div>
             </div>
 
-            {/* ── Scrollable content ── flex: 1 + overflowY: auto */}
+            {/* ── Scrollable content ── */}
             <div
               style={{
                 padding: "22px 28px",
                 display: "flex", flexDirection: "column", gap: 18,
-                overflowY: "auto",      // ← scrolls when content overflows
+                overflowY: "auto",
                 flex: 1,
-                background: UI.white,
-              }}
+                minHeight: 0,           // ← THE FIX: flex items default to min-height:auto
+                background: UI.white,   //    which prevents shrinking below content size.
+              }}                        //    This lets the div actually scroll instead.
             >
               <div style={{
                 display: "inline-flex", alignItems: "center", gap: 6,
@@ -640,7 +641,7 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
               )}
             </div>
 
-            {/* ── Footer ── flexShrink: 0 keeps it always visible */}
+            {/* ── Footer ── */}
             <div
               style={{
                 padding: "16px 28px",
@@ -649,7 +650,7 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                 justifyContent: "space-between",
                 alignItems: "center",
                 background: UI.white,
-                flexShrink: 0,          // ← FIX
+                flexShrink: 0,
               }}
             >
               {step === 1 ? (
