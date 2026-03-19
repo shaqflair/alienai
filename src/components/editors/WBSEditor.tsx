@@ -409,7 +409,7 @@ export default function WBSEditor({ projectId, artifactId, initialJson, readOnly
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [genOpen, setGenOpen] = useState(false); const [genLoading, setGenLoading] = useState(false); const [generatedDoc, setGeneratedDoc] = useState<any | null>(null);
 
-  const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); const autosaveInFlightRef = useRef(false); const createInFlightRef = useRef(false);
+const lastHydratedRef = useRef(""); const autosaveTimerRef = useRef<any>(null); const autosaveInFlightRef = useRef(false); const createPromiseRef = useRef<Promise<string> | null>(null);
   const initialFingerprint = useMemo(() => { try { return typeof initialJson === "string" ? initialJson : JSON.stringify(initialJson ?? {}); } catch { return String(initialJson ?? ""); } }, [initialJson]);
 
   const rowsArr = useMemo(() => rowsArrayFrom(rowsState as RowsState), [rowsState]);
@@ -424,15 +424,36 @@ export default function WBSEditor({ projectId, artifactId, initialJson, readOnly
 
   function markDirty() { if (readOnly) return; if (!dirty) setDirty(true); setSaveMode("dirty"); void requestCreateArtifactIfNeeded("edit"); }
 
-  async function requestCreateArtifactIfNeeded(_reason: "edit"|"focus"|"autosave") {
-    if (readOnly || artifactIdLocal || createInFlightRef.current) return;
-    const safeProjectId = safeStr(projectId).trim(); if (!safeProjectId) return;
-    createInFlightRef.current = true;
-    try { const content = serialize({ version: 1, type: "wbs", title: title.trim() || "Work Breakdown Structure", due_date: safeStr(docMeta.due_date || ""), auto_rollup: docMeta.auto_rollup !== false, rows: computeCodes(rowsArr ?? []) }); const id = await ensureArtifactIdOrCreate(content); if (id) { try { router.refresh(); } catch {} } }
-    catch (e) { console.warn("WBS auto-create failed:", e); }
-    finally { createInFlightRef.current = false; }
-  }
+ async function requestCreateArtifactIfNeeded(_reason: "edit"|"focus"|"autosave"): Promise<void> {
+    if (readOnly) return;
+    if (safeStr(artifactIdLocal).trim()) return;
 
+    // If a create is already in-flight, await IT instead of bailing out.
+    // Fixes the race where markDirty fires create and autosave runs saveInternal
+    // before artifactIdLocal is populated — causing "Missing artifactId" + save error.
+    if (createPromiseRef.current) {
+      try { await createPromiseRef.current; } catch { /* logged below */ }
+      return;
+    }
+
+    const safeProjectId = safeStr(projectId).trim();
+    if (!safeProjectId) return;
+
+    const p = (async (): Promise<string> => {
+      const content = serialize({ version: 1, type: "wbs", title: title.trim() || "Work Breakdown Structure", due_date: safeStr(docMeta.due_date || ""), auto_rollup: docMeta.auto_rollup !== false, rows: computeCodes(rowsArr ?? []) });
+      return await ensureArtifactIdOrCreate(content);
+    })();
+
+    createPromiseRef.current = p;
+    try {
+      const id = await p;
+      if (id) { try { router.refresh(); } catch {} }
+    } catch (e) {
+      console.warn("WBS auto-create failed:", e);
+    } finally {
+      createPromiseRef.current = null;
+    }
+  }
   const updateRow = useCallback((id: string, patch: Partial<WbsRow>) => { markDirty(); dispatchRows({ type: "UPDATE", id, patch }); }, [readOnly, dirty]); // eslint-disable-line
   function updateDoc(patch: Partial<WbsDocV1>) { markDirty(); setDocMeta((prev) => ({ ...prev, title: patch.title ?? prev.title, due_date: patch.due_date ?? prev.due_date, auto_rollup: patch.auto_rollup ?? prev.auto_rollup })); }
   function insertAt(index: number, row: WbsRow) { markDirty(); dispatchRows({ type: "INSERT_AT", index, row }); }
@@ -654,8 +675,7 @@ export default function WBSEditor({ projectId, artifactId, initialJson, readOnly
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <SaveBadge />
           <button onClick={exportXlsx} disabled={exportingXlsx} style={{ ...T.btn, opacity: exportingXlsx ? 0.4 : 1 }}><IC.Download />{exportingXlsx ? "…" : "XLSX"}</button>
-          <button onClick={generateWbs} disabled={readOnly || genLoading} style={{ ...T.btnVio, opacity: (readOnly || genLoading) ? 0.4 : 1 }}>✦ {genLoading ? "Generating…" : "AI Generate"}</button>
-          <button onClick={aiValidate} disabled={readOnly || isPending} style={{ ...T.btn, opacity: (readOnly || isPending) ? 0.4 : 1 }}>Validate</button>
+          <button onClick={generateWbs} disabled={readOnly || genLoading} style={{ ...T.btnVio, opacity: (readOnly || genLoading) ? 0.4 : 1 }}><IC.Sparkle />{genLoading ? "Generating…" : "AI Generate"}</button>          <button onClick={aiValidate} disabled={readOnly || isPending} style={{ ...T.btn, opacity: (readOnly || isPending) ? 0.4 : 1 }}>Validate</button>
           <button onClick={async () => { await requestCreateArtifactIfNeeded("focus"); const last = coded?.[coded.length - 1]?.id; if (last) addSibling(last); }} disabled={readOnly || !coded?.length} style={{ ...T.btn, opacity: (readOnly || !coded?.length) ? 0.4 : 1 }}>+ Add item</button>
           <button onClick={save} disabled={readOnly || saving} style={{ ...(dirty ? T.btnDark : T.btn), opacity: (readOnly || saving) ? 0.4 : 1 }}>{saving ? "Saving…" : dirty ? "Save" : "Saved"}</button>
         </div>
