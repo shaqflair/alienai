@@ -1321,8 +1321,12 @@ export default function WBSEditor({
   async function requestCreateArtifactIfNeeded(
     _reason: "edit" | "focus" | "autosave"
   ): Promise<void> {
-    if (readOnly) return;
     if (artifactIdRef.current) return;
+
+if (createPromiseRef.current) {
+  await createPromiseRef.current;
+  return;
+}
 
     if (createPromiseRef.current) {
       try {
@@ -1653,74 +1657,82 @@ export default function WBSEditor({
   }
 
   async function saveInternal(opts?: { silent?: boolean }) {
-    if (saving || readOnly) return;
+  if (saving || readOnly) return;
 
-    const silent = !!opts?.silent;
-    if (!silent) setMsg("");
+  const silent = !!opts?.silent;
+  setMsg("");
 
-    if (createPromiseRef.current) {
-      try {
-        await createPromiseRef.current;
-      } catch {}
-    }
+  const safeProjectId = safeStr(projectId).trim();
 
-    const safeProjectId = safeStr(projectId).trim();
-    const safeArtifactId = artifactIdRef.current;
-
-    if (!safeProjectId || !safeArtifactId) {
-      if (!silent) flashMessage("Missing project or artifact id", "error", 1800);
+  // ✅ FIX: ensure artifact exists BEFORE saving
+  if (!artifactIdRef.current) {
+    try {
+      await requestCreateArtifactIfNeeded("autosave");
+    } catch (e) {
+      if (!silent) setMsg("Failed to create artifact");
       setSaveMode("error");
       return;
     }
-
-    setSaving(true);
-    setSaveMode("saving");
-
-    try {
-      const content = serialize({
-        version: 1,
-        type: "wbs",
-        title: title.trim() || "Work Breakdown Structure",
-        due_date: safeStr(docMeta.due_date || ""),
-        auto_rollup: docMeta.auto_rollup !== false,
-        rows: computeCodes(rowsArr ?? []),
-      });
-
-      const resp = await fetch(`/api/artifacts/${safeArtifactId}/content-json`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId: safeProjectId,
-          title: title.trim() || "Work Breakdown Structure",
-          content_json: content,
-        }),
-      });
-
-      const json = await resp.json().catch(() => null);
-      if (!resp.ok || (json as any)?.ok === false) {
-        throw new Error((json as any)?.error || `Save failed (${resp.status})`);
-      }
-
-      await syncWbsItems({
-        projectId: safeProjectId,
-        artifactId: safeArtifactId,
-        rows: (content as any)?.rows ?? [],
-      });
-
-      setDirty(false);
-      setSaveMode("saved");
-      setLastSavedAt(new Date().toISOString());
-
-      if (!silent) flashMessage("Saved", "success", 1200);
-    } catch (e: any) {
-      setSaveMode("error");
-      if (!silent) flashMessage(e?.message || "Save failed", "error", 2200);
-    } finally {
-      setSaving(false);
-    }
   }
 
-  async function save() {
+  const safeArtifactId = artifactIdRef.current;
+
+  if (!safeProjectId || !safeArtifactId) {
+    if (!silent) setMsg("Missing project or artifact id");
+    setSaveMode("error");
+    return;
+  }
+
+  setSaving(true);
+  setSaveMode("saving");
+
+  try {
+    const content = serialize({
+      version: 1,
+      type: "wbs",
+      title: title.trim() || "Work Breakdown Structure",
+      due_date: safeStr(docMeta.due_date || ""),
+      auto_rollup: docMeta.auto_rollup !== false,
+      rows: computeCodes(rowsArr ?? []),
+    });
+
+    const resp = await fetch(`/api/artifacts/${safeArtifactId}/content-json`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        projectId: safeProjectId,
+        title: title.trim() || "Work Breakdown Structure",
+        content_json: content,
+      }),
+    });
+
+    const json = await resp.json().catch(() => null);
+
+    if (!resp.ok || (json as any)?.ok === false) {
+      throw new Error((json as any)?.error || `Save failed (${resp.status})`);
+    }
+
+    await syncWbsItems({
+      projectId: safeProjectId,
+      artifactId: safeArtifactId,
+      rows: (content as any)?.rows ?? [],
+    });
+
+    setDirty(false);
+    setSaveMode("saved");
+    setLastSavedAt(new Date().toISOString());
+
+    if (!silent) {
+      setMsg("Saved");
+      setTimeout(() => setMsg(""), 1200);
+    }
+  } catch (e: any) {
+    setSaveMode("error");
+    if (!silent) setMsg(e?.message || "Save failed");
+  } finally {
+    setSaving(false);
+  }
+}  async function save() {
     try {
       await requestCreateArtifactIfNeeded("focus");
       const eid = artifactIdRef.current;
