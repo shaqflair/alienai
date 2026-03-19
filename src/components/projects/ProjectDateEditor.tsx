@@ -306,7 +306,7 @@ function DateChangeRequestModal({
                 onChange={(e) => { setReason(e.target.value); setError(null); }}
                 placeholder="e.g. Supplier delayed delivery of key component by 3 weeks. Baseline end date needs to move accordingly."
                 rows={3}
-                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e8ecf0", fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", lineHeight: 1.5, boxSizing: "border-box", color: "#0d1117", background: "white" }
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e8ecf0", fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", lineHeight: 1.5, boxSizing: "border-box", color: "#0d1117", background: "white" }}
               />
             </div>
 
@@ -320,7 +320,7 @@ function DateChangeRequestModal({
                 onChange={(e) => setImpact(e.target.value)}
                 placeholder="e.g. No impact on budget. UAT phase compressed by 1 week. Go-live date maintained."
                 rows={2}
-                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e8ecf0", fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", lineHeight: 1.5, boxSizing: "border-box", color: "#0d1117", background: "white" }
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e8ecf0", fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", lineHeight: 1.5, boxSizing: "border-box", color: "#0d1117", background: "white" }}
               />
             </div>
 
