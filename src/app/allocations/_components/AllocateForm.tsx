@@ -14,12 +14,13 @@ export type PersonOption = {
 };
 
 export type ProjectOption = {
-  id:          string;
-  title:       string;
-  project_code: string | null;
-  colour:      string | null;
-  start_date:  string | null;
-  finish_date: string | null;
+  id:              string;
+  title:           string;
+  project_code:    string | null;
+  colour:          string | null;
+  start_date:      string | null;
+  finish_date:     string | null;
+  resource_status: string | null; // "pipeline" | "confirmed" | null
 };
 
 type WeekRow = {
@@ -314,6 +315,16 @@ export default function AllocateForm({
   const selectedPerson  = people.find(p => p.user_id === personId);
   const selectedProject = projects.find(p => p.id === projectId);
 
+  // ── Pipeline detection ────────────────────────────────────────────────────
+  const isPipeline = (selectedProject?.resource_status ?? "").toLowerCase() === "pipeline";
+
+  // When project changes to pipeline — force soft allocation and clear person if needed
+  useEffect(() => {
+    if (isPipeline) {
+      setAllocType("soft");
+    }
+  }, [isPipeline]);
+
   // Auto-fill dates from selected project
   useEffect(() => {
     if (selectedProject) {
@@ -344,7 +355,17 @@ export default function AllocateForm({
       : durationMode === "total_duration" && totalDaysInput
       ? (parseFloat(totalDaysInput) || 0) * weekCount
       : effectiveDaysPerWeek * weekCount;
-  const formValid = !!personId && !!projectId && !!startDate && !!endDate && effectiveDaysPerWeek > 0;
+
+  // Pipeline: person optional, role required. Active: person required.
+  const personRequired = !isPipeline;
+  const roleRequired   = isPipeline;
+  const formValid =
+    (isPipeline ? true : !!personId) &&
+    !!projectId &&
+    !!startDate &&
+    !!endDate &&
+    effectiveDaysPerWeek > 0 &&
+    (isPipeline ? !!roleOnProject.trim() : true);
 
   const runCheck = useCallback(async () => {
     if (!personId || !projectId || !startDate || !endDate || daysPerWeek <= 0) {
@@ -373,12 +394,26 @@ export default function AllocateForm({
       <input type="hidden" name="return_to"       value={returnTo} />
       <input type="hidden" name="allocation_type" value={allocType} />
 
+      {/* Pipeline notice */}
+      {isPipeline && (
+        <div style={{ padding: "10px 14px", borderRadius: "10px", background: "rgba(124,58,237,0.06)", border: "1.5px solid rgba(124,58,237,0.2)", display: "flex", alignItems: "flex-start", gap: "10px" }}>
+          <span style={{ fontSize: "16px", flexShrink: 0 }}>◎</span>
+          <div>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "#6d28d9", marginBottom: "3px" }}>Pipeline project</div>
+            <div style={{ fontSize: "12px", color: "#7c3aed", lineHeight: 1.5 }}>
+              Allocations on pipeline projects are automatically set to <strong>Soft</strong> and appear as forecast demand on the heatmap.
+              Person is optional — you can reserve a role without assigning someone yet.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Person + Project */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
         <div>
-          <FieldLabel required>Person</FieldLabel>
+          <FieldLabel required={personRequired}>Person</FieldLabel>
           <Select value={personId} onChange={setPersonId}>
-            <option value="">Select person...</option>
+            <option value="">{isPipeline ? "Optional — assign later" : "Select person..."}</option>
             {people.map(p => (
               <option key={p.user_id} value={p.user_id}>
                 {p.full_name}{p.employment_type === "part_time" ? " (PT)" : ""} -- {p.default_capacity_days}d/wk
@@ -401,6 +436,9 @@ export default function AllocateForm({
               </div>
             </div>
           )}
+          {isPipeline && !personId && (
+            <FieldHint>Leave blank to reserve a role slot without a named person.</FieldHint>
+          )}
         </div>
 
         <div>
@@ -408,7 +446,7 @@ export default function AllocateForm({
           <Select value={projectId} onChange={setProjectId}>
             <option value="">Select project...</option>
             {projects.map(p => (
-              <option key={p.id} value={p.id}>{p.project_code ? `${p.project_code} -- ` : ""}{p.title}</option>
+              <option key={p.id} value={p.id}>{p.project_code ? `${p.project_code} -- ` : ""}{p.title}{p.resource_status === "pipeline" ? " (Pipeline)" : ""}</option>
             ))}
           </Select>
           <input type="hidden" name="project_id" value={projectId} />
@@ -419,6 +457,7 @@ export default function AllocateForm({
                 <div style={{ fontSize: "12px", fontWeight: 600, color: "#0f172a" }}>{selectedProject.title}</div>
                 <div style={{ fontSize: "11px", color: "#64748b", fontFamily: "'DM Mono', monospace" }}>
                   {selectedProject.project_code || "--"} {selectedProject.start_date || "?"} {"->"} {selectedProject.finish_date || "?"}
+                  {isPipeline && <span style={{ marginLeft: 6, color: "#7c3aed", fontWeight: 700 }}>PIPELINE</span>}
                 </div>
               </div>
             </div>
@@ -524,35 +563,57 @@ export default function AllocateForm({
       {/* Role + Allocation type */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
         <div>
-          <FieldLabel>Role on this project</FieldLabel>
+          <FieldLabel required={roleRequired}>Role on this project</FieldLabel>
           <input
             type="text"
             name="role_on_project"
             value={roleOnProject}
             onChange={e => setRoleOnProject(e.target.value)}
-            placeholder="e.g. Lead Designer"
-            style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1.5px solid #e2e8f0", background: "white", fontSize: "14px", fontFamily: "'DM Sans', sans-serif", color: "#0f172a", outline: "none", boxSizing: "border-box" }}
+            placeholder={isPipeline ? "e.g. Senior Developer (required)" : "e.g. Lead Designer"}
+            style={{
+              width: "100%", padding: "10px 14px", borderRadius: "8px",
+              border: `1.5px solid ${isPipeline && !roleOnProject.trim() ? "#f59e0b" : "#e2e8f0"}`,
+              background: "white", fontSize: "14px", fontFamily: "'DM Sans', sans-serif",
+              color: "#0f172a", outline: "none", boxSizing: "border-box",
+            }}
           />
           <FieldHint>
-            {selectedPerson?.job_title
-              ? `Pre-filled from ${selectedPerson.full_name.split(" ")[0]}'s job title -- edit if different for this project.`
-              : "Optional -- appears in heatmap swimlane rows."}
+            {isPipeline
+              ? "Required for pipeline allocations — defines the role being reserved."
+              : selectedPerson?.job_title
+                ? `Pre-filled from ${selectedPerson.full_name.split(" ")[0]}'s job title -- edit if different for this project.`
+                : "Optional -- appears in heatmap swimlane rows."}
           </FieldHint>
         </div>
         <div>
           <FieldLabel>Allocation type</FieldLabel>
-          <div style={{ display: "flex", gap: "6px" }}>
-            {([
-              { v: "confirmed", l: "Confirmed" },
-              { v: "soft",      l: "Soft" },
-            ] as const).map(opt => (
-              <button key={opt.v} type="button" onClick={() => setAllocType(opt.v)}
-                style={{ flex: 1, padding: "9px 8px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", fontWeight: 600, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", background: allocType === opt.v ? (opt.v === "confirmed" ? "#00b8db" : "#f8fafc") : "white", border: `1.5px solid ${allocType === opt.v ? (opt.v === "confirmed" ? "#00b8db" : "#64748b") : "#e2e8f0"}`, color: allocType === opt.v ? (opt.v === "confirmed" ? "white" : "#475569") : "#94a3b8" }}>
-                {opt.v === "confirmed" ? "* " : " "}{opt.l}
-              </button>
-            ))}
-          </div>
-          <FieldHint>Soft allocations are visible but flagged as tentative on the heatmap.</FieldHint>
+          {isPipeline ? (
+            // Pipeline — only soft allowed
+            <div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <div style={{ flex: 1, padding: "9px 8px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, fontFamily: "'DM Sans', sans-serif", background: "#f8fafc", border: "1.5px solid #64748b", color: "#475569", textAlign: "center" }}>
+                  Soft
+                </div>
+              </div>
+              <FieldHint>Pipeline allocations are always soft — they appear as forecast demand only.</FieldHint>
+            </div>
+          ) : (
+            // Active — both options available
+            <div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                {([
+                  { v: "confirmed", l: "Confirmed" },
+                  { v: "soft",      l: "Soft" },
+                ] as const).map(opt => (
+                  <button key={opt.v} type="button" onClick={() => setAllocType(opt.v)}
+                    style={{ flex: 1, padding: "9px 8px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", fontWeight: 600, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", background: allocType === opt.v ? (opt.v === "confirmed" ? "#00b8db" : "#f8fafc") : "white", border: `1.5px solid ${allocType === opt.v ? (opt.v === "confirmed" ? "#00b8db" : "#64748b") : "#e2e8f0"}`, color: allocType === opt.v ? (opt.v === "confirmed" ? "white" : "#475569") : "#94a3b8" }}>
+                    {opt.v === "confirmed" ? "* " : " "}{opt.l}
+                  </button>
+                ))}
+              </div>
+              <FieldHint>Soft allocations are visible but flagged as tentative on the heatmap.</FieldHint>
+            </div>
+          )}
         </div>
       </div>
 
@@ -564,8 +625,8 @@ export default function AllocateForm({
           style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1.5px solid #e2e8f0", background: "white", fontSize: "14px", fontFamily: "'DM Sans', sans-serif", color: "#0f172a", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
       </div>
 
-      {/* Capacity preview */}
-      {(checking || checkResult) && (
+      {/* Capacity preview — only when person is selected */}
+      {personId && (checking || checkResult) && (
         <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <div style={{ fontSize: "11px", fontWeight: 800, color: "#475569", letterSpacing: "0.08em", textTransform: "uppercase" }}>Capacity preview</div>
@@ -596,7 +657,11 @@ export default function AllocateForm({
       {/* Submit */}
       <div style={{ paddingTop: "16px", borderTop: "1.5px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
         <div style={{ fontSize: "12px", color: "#94a3b8" }}>
-          {formValid && weekCount > 0 ? `Will generate ${weekCount} allocation row${weekCount !== 1 ? "s" : ""} -> Supabase` : "Fill in all required fields to continue"}
+          {formValid && weekCount > 0
+            ? `Will generate ${weekCount} allocation row${weekCount !== 1 ? "s" : ""}${isPipeline && !personId ? " (role placeholder)" : ""}`
+            : isPipeline && !roleOnProject.trim()
+              ? "Role is required for pipeline allocations"
+              : "Fill in all required fields to continue"}
         </div>
         <div style={{ display: "flex", gap: "10px" }}>
           <a href={returnTo} style={{ padding: "9px 18px", borderRadius: "8px", border: "1.5px solid #e2e8f0", background: "white", color: "#64748b", fontSize: "13px", fontWeight: 600, fontFamily: "'DM Sans', sans-serif", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>

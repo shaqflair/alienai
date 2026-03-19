@@ -100,6 +100,7 @@ export default async function NewAllocationPage({
 
   people.sort((a, b) => a.full_name.localeCompare(b.full_name));
 
+  // Include resource_status so AllocateForm can detect pipeline projects
   const { data: projectRows } = await supabase
     .from("projects")
     .select("id, title, project_code, colour, start_date, finish_date, status, resource_status, lifecycle_status, deleted_at")
@@ -114,12 +115,13 @@ export default async function NewAllocationPage({
       return lifecycle !== "closed" && !status.includes("closed") && !status.includes("complete");
     })
     .map((p: any) => ({
-      id:           String(p.id),
-      title:        safeStr(p.title),
-      project_code: safeStr(p.project_code).trim() || null,
-      colour:       safeStr(p.colour).trim() || null,
-      start_date:   safeStr(p.start_date).trim() || null,
-      finish_date:  safeStr(p.finish_date).trim() || null,
+      id:              String(p.id),
+      title:           safeStr(p.title),
+      project_code:    safeStr(p.project_code).trim() || null,
+      colour:          safeStr(p.colour).trim() || null,
+      start_date:      safeStr(p.start_date).trim() || null,
+      finish_date:     safeStr(p.finish_date).trim() || null,
+      resource_status: safeStr(p.resource_status).trim() || null,
     } satisfies ProjectOption));
 
   return (
