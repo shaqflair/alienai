@@ -16,6 +16,9 @@ import ProjectDateEditor from "@/components/projects/ProjectDateEditor";
 import Gate1Modal from "@/components/projects/Gate1Modal";
 import GateStatusPanel from "@/components/projects/GateStatusPanel";
 import WinProbabilityEditor from "@/components/projects/WinProbabilityEditor";
+import { loadGate5Status } from "./gate5/gate5-actions";
+import { loadResourceJustificationData } from "./resource-justification-actions";
+import ResourceJustificationPanel from "@/components/projects/ResourceJustificationPanel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -292,6 +295,8 @@ export default async function ProjectPage({
     spendResult,
     briefingResult,
     gateQueryResult,
+    gate5Result,
+    justificationResult,
   ] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
     supabase
@@ -367,6 +372,8 @@ export default async function ProjectPage({
         return { data: null, error: null };
       }
     })(),
+    (async () => { try { return await loadGate5Status(projectUuid); } catch { return null; } })(),
+    (async () => { try { return await loadResourceJustificationData(projectUuid); } catch { return null; } })(),
   ]);
 
   const resource         = resourceData.status === "fulfilled" ? resourceData.value : null;
@@ -380,7 +387,9 @@ export default async function ProjectPage({
   const keyArtifacts     = keyArtifactsResult.status === "fulfilled" ? keyArtifactsResult.value.data ?? [] : [];
   const orgMembersBase   = orgMembersBaseResult.status === "fulfilled" ? orgMembersBaseResult.value.data ?? [] : [];
   const cachedBriefing   = briefingResult.status === "fulfilled" ? briefingResult.value.briefing : null;
-  const gateRecord       = gateQueryResult.status === "fulfilled" ? (gateQueryResult.value as any)?.data ?? null : null;
+  const gateRecord        = gateQueryResult.status === "fulfilled" ? (gateQueryResult.value as any)?.data ?? null : null;
+  const gate5Data         = gate5Result.status === "fulfilled" ? (gate5Result.value as any) : null;
+  const justificationData = justificationResult.status === "fulfilled" ? (justificationResult.value as any) : null;
 
   const spendRows   = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
   const spentAmount = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
@@ -666,6 +675,49 @@ export default async function ProjectPage({
 
 
 
+      {/* Gate 5 closure readiness badge */}
+      {!isPipeline && isActive && gate5Data && (() => {
+        const g5 = gate5Data;
+        const c = g5.riskLevel === "green"
+          ? { bg: "#f0fdf4", border: "#bbf7d0", text: "#15803d", accent: "#16a34a" }
+          : g5.riskLevel === "amber"
+          ? { bg: "#fffbeb", border: "#fde68a", text: "#92400e", accent: "#d97706" }
+          : { bg: "#fef2f2", border: "#fecaca", text: "#b91c1c", accent: "#dc2626" };
+        const urgencyLabel = g5.daysToEndDate !== null && g5.daysToEndDate < 0
+          ? `End date passed ${Math.abs(g5.daysToEndDate)}d ago`
+          : g5.daysToEndDate !== null && g5.daysToEndDate <= 30
+          ? `${g5.daysToEndDate}d to end date` : null;
+        return (
+          <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 12, padding: "14px 18px", marginBottom: 14, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 8, background: c.accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "monospace" }}>G5</span>
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>Gate 5 — Closure Readiness</div>
+                <div style={{ fontSize: 11, color: c.text, opacity: 0.8, marginTop: 1 }}>
+                  {g5.canClose ? "All mandatory checks passed — ready to close" : `${g5.mandatoryBlocked} mandatory item${g5.mandatoryBlocked > 1 ? "s" : ""} blocking closure`}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 180 }}>
+              <div style={{ height: 5, background: "#e2e8f0", borderRadius: 99, overflow: "hidden", flex: 1 }}>
+                <div style={{ height: "100%", width: `${g5.readinessScore}%`, background: c.accent, borderRadius: 99 }} />
+              </div>
+              <span style={{ fontSize: 16, fontWeight: 700, color: c.text, fontFamily: "monospace", minWidth: 42, textAlign: "right" }}>{g5.readinessScore}%</span>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20, background: "#dcfce7", color: "#15803d", border: "1px solid #bbf7d0" }}>{g5.passedChecks} passed</span>
+              {g5.mandatoryBlocked > 0 && <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20, background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>{g5.mandatoryBlocked} blocked</span>}
+              {urgencyLabel && <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20, background: c.bg, color: c.text, border: `1px solid ${c.border}` }}>{urgencyLabel}</span>}
+            </div>
+            <a href={`/projects/${projectRefForUrls}/gate5`} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600, background: c.accent, color: "#fff", textDecoration: "none", flexShrink: 0 }}>
+              {g5.canClose ? "View Gate 5 ✓" : "View & resolve →"}
+            </a>
+          </div>
+        );
+      })()}
+
       {/* Stat cards */}
       <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 16 }}>
         <div className="stat-card">
@@ -828,6 +880,22 @@ export default async function ProjectPage({
             <span style={{ flex: 1, height: 1, background: "var(--border)", display: "block" }}/>
           </div>
           <ProjectResourcePanel data={resource} periods={periods}/>
+          {justificationData && (
+            <div style={{ marginTop: 16 }}>
+              <ResourceJustificationPanel
+                projectId={projectUuid}
+                projectTitle={projectTitle}
+                initialJustification={justificationData.justification ?? null}
+                budgetSummary={justificationData.budgetSummary ?? null}
+                openCRs={justificationData.openCRs ?? []}
+                roleRequirements={justificationData.roleRequirements ?? []}
+                allocatedDays={resource?.budgetSummary?.allocatedDays ?? 0}
+                budgetDays={resource?.budgetSummary?.budgetDays ?? 0}
+                weeklyBurnRate={resource?.budgetSummary?.weeklyBurnRate ?? 0}
+                canEdit={canEdit}
+              />
+            </div>
+          )}
 
         </div>
       )}
