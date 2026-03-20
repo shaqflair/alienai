@@ -19,13 +19,9 @@ export const revalidate = 0;
 
 const TABLE = "change_requests";
 
-// Next.js 15+ async params
 type Ctx = { params: Promise<{ id: string }> };
 
-/* =========================
-   Response helpers
-========================= */
-
+/* ── Response helpers ── */
 function ok(data: any, init?: ResponseInit) {
   const item = (data && (data.item ?? data.data)) || null;
   const id = item?.id ?? data?.id ?? null;
@@ -44,10 +40,7 @@ function err(message: string, init?: ResponseInit & { extra?: any; code?: string
   return res;
 }
 
-/* =========================
-   Small utils
-========================= */
-
+/* ── Utils ── */
 function clamp(s: string, max: number) {
   const t = String(s ?? "");
   return t.length > max ? t.slice(0, max) : t;
@@ -63,10 +56,7 @@ function hasOwn(obj: any, key: string) {
 
 function asTags(x: any): string[] {
   if (!Array.isArray(x)) return [];
-  return x
-    .map((v) => safeStr(v).trim())
-    .filter(Boolean)
-    .slice(0, 25);
+  return x.map((v) => safeStr(v).trim()).filter(Boolean).slice(0, 25);
 }
 
 function isMissingRelation(errMsg: string) {
@@ -102,48 +92,29 @@ function isUuid(x: string) {
   );
 }
 
-/**
- * Resolve id from:
- * 1) ctx.params.id (Next route param) - async
- * 2) URL path segment after "/change/"
- * 3) body.id / body.change_id
- */
 async function pickId(req: Request, ctx: Ctx | undefined, body: any): Promise<string | null> {
-  // 1) Next route params (async)
   if (ctx?.params) {
     const params = await ctx.params;
     const p = safeStr(params?.id).trim();
     if (!isBadIdString(p)) return p;
   }
-
-  // 2) URL path: /api/change/<id> OR /api/change/<id>/...
   try {
     const pathname = new URL(req.url).pathname || "";
     const parts = pathname.split("/").filter(Boolean);
-
     const last = parts[parts.length - 1] || "";
     if (last.toLowerCase() !== "change" && !isBadIdString(last)) return last;
-
     const idx = parts.findIndex((x) => String(x).toLowerCase() === "change");
     if (idx !== -1 && parts[idx + 1]) {
       const candidate = safeStr(parts[idx + 1]).trim();
       if (!isBadIdString(candidate) && candidate.toLowerCase() !== "change") return candidate;
     }
-  } catch {
-    // ignore
-  }
-
-  // 3) Body fallback
+  } catch {}
   const b = safeStr(body?.id ?? body?.change_id).trim();
   if (!isBadIdString(b)) return b;
-
   return null;
 }
 
-/* =========================
-   GET (single OR project board)
-========================= */
-
+/* ── GET ── */
 export async function GET(req: Request, ctx: Ctx) {
   try {
     const supabase = await sb();
@@ -152,22 +123,13 @@ export async function GET(req: Request, ctx: Ctx) {
     const id = await pickId(req, ctx, null);
     if (!id) return err("Missing id", { status: 400, code: "missing_id" });
 
-    // 1) SINGLE change_request id
+    // Single change
     {
       const { data: change, error: chErr } = await supabase
-        .from(TABLE)
-        .select("*")
-        .eq("id", id)
-        .maybeSingle();
+        .from(TABLE).select("*").eq("id", id).maybeSingle();
 
       if (chErr) {
-        if (isMissingRelation(chErr.message)) {
-          return err("Database table missing: change_requests", {
-            status: 500,
-            code: "missing_relation",
-            extra: { table: TABLE },
-          });
-        }
+        if (isMissingRelation(chErr.message)) return err("Database table missing: change_requests", { status: 500, code: "missing_relation", extra: { table: TABLE } });
         return err(chErr.message || "Failed to load change", { status: 500, code: "db_error" });
       }
 
@@ -175,34 +137,21 @@ export async function GET(req: Request, ctx: Ctx) {
         const role = await requireProjectRole(supabase, change.project_id, user.id);
         if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
 
-        // approvals progress (best-effort)
         const approvals = await getApprovalProgressForArtifact({
-          supabase,
-          artifactId: change.id,
-          actorUserId: user.id,
+          supabase, artifactId: change.id, actorUserId: user.id,
         }).catch(() => null);
 
-        return ok({
-          mode: "change",
-          item: change,
-          role,
-          approvals,
-        });
+        return ok({ mode: "change", item: change, role, approvals });
       }
     }
 
-    // 2) PROJECT scope (uuid project_id OR human project_code)
+    // Project scope
     let projectId: string | null = null;
-
     if (isUuid(id)) {
       projectId = id;
     } else {
       const { data: proj, error: projErr } = await supabase
-        .from("projects")
-        .select("id, project_code, title")
-        .eq("project_code", id)
-        .maybeSingle();
-
+        .from("projects").select("id, project_code, title").eq("project_code", id).maybeSingle();
       if (projErr) return err(projErr.message || "Failed to resolve project", { status: 500, code: "db_error" });
       projectId = proj?.id ?? null;
     }
@@ -213,44 +162,19 @@ export async function GET(req: Request, ctx: Ctx) {
     if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
 
     const { data: items, error: itemsErr } = await supabase
-      .from(TABLE)
-      .select("*")
-      .eq("project_id", projectId)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: true });
+      .from(TABLE).select("*").eq("project_id", projectId).is("deleted_at", null).order("created_at", { ascending: true });
 
     if (itemsErr) {
-      if (isMissingRelation(itemsErr.message)) {
-        return err("Database table missing: change_requests", {
-          status: 500,
-          code: "missing_relation",
-          extra: { table: TABLE },
-        });
-      }
+      if (isMissingRelation(itemsErr.message)) return err("Database table missing: change_requests", { status: 500, code: "missing_relation", extra: { table: TABLE } });
       return err(itemsErr.message || "Failed to load changes", { status: 500, code: "db_error" });
     }
 
-    // add AI fields safely
     let withAI = items ?? [];
     try {
-      withAI = (items ?? []).map((it: any) => {
-        try {
-          return computeChangeAIFields(it);
-        } catch {
-          return it;
-        }
-      });
-    } catch {
-      // ignore
-    }
+      withAI = (items ?? []).map((it: any) => { try { return computeChangeAIFields(it); } catch { return it; } });
+    } catch {}
 
-    return ok({
-      mode: "project",
-      project_id: projectId,
-      role,
-      can_edit: canEdit(role),
-      items: withAI,
-    });
+    return ok({ mode: "project", project_id: projectId, role, can_edit: canEdit(role), items: withAI });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
     const status = msg === "Unauthorized" ? 401 : 500;
@@ -258,41 +182,24 @@ export async function GET(req: Request, ctx: Ctx) {
   }
 }
 
-/* =========================
-   POST (update)
-========================= */
-
+/* ── POST / PATCH (update) ── */
 export async function POST(req: Request, ctx: Ctx) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
 
     let body: any = {};
-    try {
-      body = await req.json();
-    } catch {
-      body = {};
-    }
+    try { body = await req.json(); } catch { body = {}; }
     if (!isObj(body)) body = {};
 
     const id = await pickId(req, ctx, body);
     if (!id) return err("Missing id", { status: 400, code: "missing_id" });
 
-    // updates must target a change row id
     const { data: existing, error: exErr } = await supabase
-      .from(TABLE)
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
+      .from(TABLE).select("*").eq("id", id).maybeSingle();
 
     if (exErr) {
-      if (isMissingRelation(exErr.message)) {
-        return err("Database table missing: change_requests", {
-          status: 500,
-          code: "missing_relation",
-          extra: { table: TABLE },
-        });
-      }
+      if (isMissingRelation(exErr.message)) return err("Database table missing: change_requests", { status: 500, code: "missing_relation", extra: { table: TABLE } });
       return err(exErr.message || "Failed to load change", { status: 500, code: "db_error" });
     }
     if (!existing) return err("Not found", { status: 404, code: "not_found" });
@@ -303,61 +210,139 @@ export async function POST(req: Request, ctx: Ctx) {
 
     const patch: any = {};
 
-    if (hasOwn(body, "title")) patch.title = clamp(safeStr(body.title), 140);
-    if (hasOwn(body, "description")) patch.description = clamp(safeStr(body.description), 5000);
+    // ── Core fields ──
+    if (hasOwn(body, "title"))
+      patch.title = clamp(safeStr(body.title), 140);
 
-    if (hasOwn(body, "priority")) patch.priority = normalizePriorityToDb(body.priority);
+    // description / summary — client sends both, accept either
+    if (hasOwn(body, "description"))
+      patch.description = clamp(safeStr(body.description), 5000);
+    else if (hasOwn(body, "summary"))
+      patch.description = clamp(safeStr(body.summary), 5000);
 
+    if (hasOwn(body, "priority"))
+      patch.priority = normalizePriorityToDb(body.priority);
+
+    if (hasOwn(body, "tags"))
+      patch.tags = asTags(body.tags);
+
+    // ── Requester ── client sends requester_name
+    if (hasOwn(body, "requester_name"))
+      patch.requester_name = clamp(safeStr(body.requester_name), 160);
+    else if (hasOwn(body, "requester"))
+      patch.requester_name = clamp(safeStr(body.requester), 160);
+
+    // ── Proposed change / justification fields ──
+    // Client sends proposedChange (the full combined string) AND individual fields.
+    // Store the full string in proposed_change, plus individual columns if they exist.
+    if (hasOwn(body, "proposedChange"))
+      patch.proposed_change = clamp(safeStr(body.proposedChange), 8000);
+    else if (hasOwn(body, "proposed_change"))
+      patch.proposed_change = clamp(safeStr(body.proposed_change), 8000);
+
+    // Individual breakdown fields (stored separately when columns exist)
+    const breakdown = ["justification", "financial", "schedule", "risks", "dependencies",
+                       "assumptions", "implementation_plan", "rollback_plan"] as const;
+    for (const field of breakdown) {
+      // camelCase variants sent by client
+      const camel: Record<string, string> = {
+        implementation_plan: "implementationPlan",
+        rollback_plan: "rollbackPlan",
+      };
+      const clientKey = camel[field] ?? field;
+      if (hasOwn(body, clientKey))
+        patch[field] = clamp(safeStr(body[clientKey]), 4000);
+      else if (hasOwn(body, field))
+        patch[field] = clamp(safeStr(body[field]), 4000);
+    }
+
+    // ── Impact analysis ──
+    // Client sends impactAnalysis: { days, cost, risk }
+    // Server stores as impact_days, impact_cost, impact_scope / impact_analysis JSON
+    const ia = body.impactAnalysis ?? body.impact_analysis ?? null;
+    if (isObj(ia)) {
+      const days = Number(ia.days ?? 0);
+      const cost = Number(ia.cost ?? 0);
+      const risk = clamp(safeStr(ia.risk ?? "None identified"), 280);
+
+      if (Number.isFinite(days)) patch.impact_days = days;
+      if (Number.isFinite(cost)) patch.impact_cost = cost;
+      patch.impact_scope = risk;
+
+      // Also store as JSON blob if the column exists
+      patch.impact_analysis = { days, cost, risk, highlights: ia.highlights ?? [] };
+    } else {
+      // Individual numeric fields (legacy)
+      if (hasOwn(body, "impact_cost")) {
+        const n = Number(body.impact_cost);
+        patch.impact_cost = Number.isFinite(n) ? n : null;
+      }
+      if (hasOwn(body, "impact_days")) {
+        const n = Number(body.impact_days);
+        patch.impact_days = Number.isFinite(n) ? n : null;
+      }
+      if (hasOwn(body, "impact_scope"))
+        patch.impact_scope = clamp(safeStr(body.impact_scope), 2000);
+    }
+
+    // ── Status / stage ──
     if (hasOwn(body, "stage")) {
       const st = normalizeDeliveryStatus(body.stage);
       if (st) patch.stage = st;
     }
-
+    if (hasOwn(body, "delivery_status")) {
+      const st = normalizeDeliveryStatus(body.delivery_status);
+      if (st) patch.delivery_status = st;
+    }
     if (hasOwn(body, "status")) {
       const s = safeStr(body.status).trim();
       if (s) patch.status = clamp(s, 60);
     }
 
-    if (hasOwn(body, "owner_id")) patch.owner_id = safeStr(body.owner_id) || null;
+    // ── Owner ──
+    if (hasOwn(body, "owner_id"))    patch.owner_id    = safeStr(body.owner_id) || null;
     if (hasOwn(body, "owner_label")) patch.owner_label = clamp(safeStr(body.owner_label), 120);
 
-    if (hasOwn(body, "impact_cost")) {
-      const n = Number(body.impact_cost);
-      patch.impact_cost = Number.isFinite(n) ? n : null;
-    }
-    if (hasOwn(body, "impact_days")) {
-      const n = Number(body.impact_days);
-      patch.impact_days = Number.isFinite(n) ? n : null;
-    }
-    if (hasOwn(body, "impact_scope")) patch.impact_scope = clamp(safeStr(body.impact_scope), 2000);
-
-    if (hasOwn(body, "tags")) patch.tags = asTags(body.tags);
-
-    // compute/refresh AI (best-effort)
+    // ── AI rollup (best-effort) ──
     try {
       const computed = computeChangeAIFields({ ...existing, ...patch });
-      if (computed && typeof computed === "object") {
-        if (hasOwn(computed, "ai_rollup")) patch.ai_rollup = (computed as any).ai_rollup;
+      if (computed && typeof computed === "object" && hasOwn(computed, "ai_rollup")) {
+        patch.ai_rollup = (computed as any).ai_rollup;
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
 
-    if (!Object.keys(patch).length) {
-      return ok({ item: existing });
-    }
+    // If nothing changed, return existing
+    if (!Object.keys(patch).length) return ok({ item: existing });
 
-    const { data: updated, error: upErr } = await supabase
-      .from(TABLE)
-      .update(patch)
-      .eq("id", existing.id)
-      .select("*")
-      .maybeSingle();
+    // Strip columns that don't exist in the table (best-effort introspection)
+    // We do this by attempting the update and retrying without unknown columns on error
+    let updated: any = null;
+    let upErr: any = null;
+
+    // First attempt — full patch
+    ({ data: updated, error: upErr } = await supabase
+      .from(TABLE).update(patch).eq("id", existing.id).select("*").maybeSingle());
+
+    // If column doesn't exist, strip the unknown column and retry
+    if (upErr) {
+      const msg = safeStr(upErr.message).toLowerCase();
+      const colMatch = msg.match(/column ["']?(\w+)["']? of relation/);
+      if (colMatch?.[1]) {
+        const badCol = colMatch[1];
+        const fallbackPatch = { ...patch };
+        delete fallbackPatch[badCol];
+
+        if (Object.keys(fallbackPatch).length) {
+          ({ data: updated, error: upErr } = await supabase
+            .from(TABLE).update(fallbackPatch).eq("id", existing.id).select("*").maybeSingle());
+        }
+      }
+    }
 
     if (upErr) return err(upErr.message || "Failed to update change", { status: 500, code: "db_error" });
     if (!updated) return err("Failed to update change", { status: 500, code: "db_error" });
 
-    // audit (best-effort)
+    // Audit (best-effort)
     try {
       await logChangeEvent(supabase, {
         projectId: existing.project_id,
@@ -370,15 +355,10 @@ export async function POST(req: Request, ctx: Ctx) {
         note: "Change updated",
         payload: { patch_keys: Object.keys(patch) },
       });
-    } catch {
-      // ignore
-    }
+    } catch {}
 
-    // approvals progress (best-effort)
     const approvals = await getApprovalProgressForArtifact({
-      supabase,
-      artifactId: existing.id,
-      actorUserId: user.id,
+      supabase, artifactId: existing.id, actorUserId: user.id,
     }).catch(() => null);
 
     return ok({ item: updated, approvals });
@@ -389,10 +369,7 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 }
 
-/* =========================
-   PATCH (explicit)
-========================= */
-
+/* ── PATCH (explicit — delegates to POST) ── */
 export async function PATCH(req: Request, ctx: Ctx) {
   try {
     return await POST(req, ctx);
@@ -403,10 +380,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
   }
 }
 
-/* =========================
-   DELETE
-========================= */
-
+/* ── DELETE ── */
 export async function DELETE(req: Request, ctx: Ctx) {
   try {
     const supabase = await sb();
@@ -416,19 +390,10 @@ export async function DELETE(req: Request, ctx: Ctx) {
     if (!id) return err("Missing id", { status: 400, code: "missing_id" });
 
     const { data: existing, error: exErr } = await supabase
-      .from(TABLE)
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
+      .from(TABLE).select("*").eq("id", id).maybeSingle();
 
     if (exErr) {
-      if (isMissingRelation(exErr.message)) {
-        return err("Database table missing: change_requests", {
-          status: 500,
-          code: "missing_relation",
-          extra: { table: TABLE },
-        });
-      }
+      if (isMissingRelation(exErr.message)) return err("Database table missing: change_requests", { status: 500, code: "missing_relation", extra: { table: TABLE } });
       return err(exErr.message || "Failed to load change", { status: 500, code: "db_error" });
     }
     if (!existing) return err("Not found", { status: 404, code: "not_found" });
@@ -441,23 +406,15 @@ export async function DELETE(req: Request, ctx: Ctx) {
 
     if (hasDeletedAt) {
       const { data: deleted, error: delErr } = await supabase
-        .from(TABLE)
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("id", existing.id)
-        .select("*")
-        .maybeSingle();
+        .from(TABLE).update({ deleted_at: new Date().toISOString() }).eq("id", existing.id).select("*").maybeSingle();
 
       if (delErr) return err(delErr.message || "Failed to delete change", { status: 500, code: "db_error" });
 
       try {
         await logChangeEvent(supabase, {
-          projectId: existing.project_id,
-          changeRequestId: existing.id,
-          actorUserId: user.id,
-          actorRole: role,
-          eventType: "deleted",
-          note: "Change deleted",
-          payload: {},
+          projectId: existing.project_id, changeRequestId: existing.id,
+          actorUserId: user.id, actorRole: role, eventType: "deleted",
+          note: "Change deleted", payload: {},
         });
       } catch {}
 
@@ -469,13 +426,9 @@ export async function DELETE(req: Request, ctx: Ctx) {
 
     try {
       await logChangeEvent(supabase, {
-        projectId: existing.project_id,
-        changeRequestId: existing.id,
-        actorUserId: user.id,
-        actorRole: role,
-        eventType: "deleted",
-        note: "Change deleted",
-        payload: {},
+        projectId: existing.project_id, changeRequestId: existing.id,
+        actorUserId: user.id, actorRole: role, eventType: "deleted",
+        note: "Change deleted", payload: {},
       });
     } catch {}
 
