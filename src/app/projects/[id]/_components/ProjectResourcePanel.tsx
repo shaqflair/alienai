@@ -518,11 +518,32 @@ function RoleRequirementRow({ role, onEdit, onDelete }: { role: RoleRequirement;
 }
 
 function EditRoleForm({ role, projectId, onSaved, onCancel }: { role: RoleRequirement; projectId: string; onSaved: () => void; onCancel: () => void }) {
-  const [roleTitle, setRoleTitle]     = useState(role.roleTitle);
-  const [seniority, setSeniority]     = useState(role.seniorityLevel);
-  const [startDate, setStartDate]     = useState(role.startDate);
-  const [endDate, setEndDate]         = useState(role.endDate);
-  const [daysPerWeek, setDaysPerWeek] = useState(role.requiredDaysPerWeek);
+  // Parse role string into seniority + title when extended columns aren't populated
+  function parseRoleString(roleStr: string): { seniority: string; title: string } {
+    const seniorityPrefixes = ["Junior", "Mid", "Senior", "Lead", "Principal", "Director"];
+    const trimmed = (roleStr || "").trim();
+    for (const s of seniorityPrefixes) {
+      if (trimmed.startsWith(s + " ")) {
+        return { seniority: s, title: trimmed.slice(s.length + 1).trim() };
+      }
+    }
+    return { seniority: "Senior", title: trimmed };
+  }
+
+  // Prefer explicit fields, fall back to parsing the combined role string
+  const roleStr = (role as any).role || role.roleTitle || "";
+  const parsed = parseRoleString(roleStr);
+  const initialTitle    = role.roleTitle    || parsed.title    || roleStr;
+  const initialSeniority = role.seniorityLevel || parsed.seniority || "Senior";
+  const initialStart    = role.startDate    || (role as any).start_date  || "";
+  const initialEnd      = role.endDate      || (role as any).end_date    || "";
+  const initialDays     = role.requiredDaysPerWeek || (role as any).required_days_per_week || 3;
+
+  const [roleTitle, setRoleTitle]     = useState(initialTitle);
+  const [seniority, setSeniority]     = useState(initialSeniority);
+  const [startDate, setStartDate]     = useState(initialStart);
+  const [endDate, setEndDate]         = useState(initialEnd);
+  const [daysPerWeek, setDaysPerWeek] = useState(initialDays);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
 
@@ -541,7 +562,10 @@ function EditRoleForm({ role, projectId, onSaved, onCancel }: { role: RoleRequir
       fd.set("required_days_per_week", String(daysPerWeek));
       await updateRoleRequirement(fd);
       onSaved();
-    } catch (err: any) { setError(err.message || "Save failed."); }
+    } catch (err: any) {
+      console.error("[EditRoleForm] save error:", err);
+      setError(err.message || "Save failed — check browser console for details.");
+    }
     finally { setSaving(false); }
   }
 
