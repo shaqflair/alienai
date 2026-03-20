@@ -946,16 +946,24 @@ export default function ChangeBoardDnd({
         </DragOverlay>
       </DndContext>
 
-      <ChangeCreateModal
-        open={createOpen}
-        onClose={() => { setCreateOpen(false); fetchData(); }}
-        projectId={projectUuid}
-        artifactId={artifactId ?? null}
-        initialStatus={createLane === "intake" ? "new" : (createLane as any)}
-      />
+           {/* ── Create Change ── */}
+      {createOpen ? (
+        <ChangeCreateModal
+          open={createOpen}
+          onClose={() => {
+            setCreateOpen(false);
+            fetchData();
+          }}
+          projectId={projectUuid}
+          artifactId={artifactId ?? null}
+          initialStatus={
+            createLane === "intake" ? "new" : (createLane as any)
+          }
+        />
+      ) : null}
 
-      <ChangeCreateModal
-             {editOpen ? (
+      {/* ── Edit Change ── */}
+      {editOpen ? (
         <ChangeCreateModal
           open={editOpen}
           onClose={() => {
@@ -973,6 +981,7 @@ export default function ChangeBoardDnd({
         />
       ) : null}
 
+      {/* ── AI Drawer ── */}
       {aiOpen ? (
         <ChangeAiDrawer
           open={aiOpen}
@@ -983,6 +992,7 @@ export default function ChangeBoardDnd({
         />
       ) : null}
 
+      {/* ── Timeline ── */}
       {timelineOpen && timelineChangeId ? (
         <ChangeTimeline
           open={timelineOpen}
@@ -993,6 +1003,7 @@ export default function ChangeBoardDnd({
         />
       ) : null}
 
+      {/* ── Attachments ── */}
       {attOpen && attChangeId ? (
         <AttachmentsDrawer
           open={attOpen}
