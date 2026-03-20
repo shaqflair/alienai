@@ -44,12 +44,42 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
+async function fetchOrgRateCard(supabase: any, projectId: string): Promise<Record<string, number>> {
+  try {
+    const { data: project } = await supabase
+      .from("projects")
+      .select("organisation_id")
+      .eq("id", projectId)
+      .maybeSingle();
+
+    const orgId = (project as any)?.organisation_id;
+    if (!orgId) return {};
+
+    const { data } = await supabase
+      .from("organisation_rate_cards")
+      .select("role_title, seniority_level, day_rate")
+      .eq("organisation_id", orgId)
+      .eq("is_active", true);
+
+    const map: Record<string, number> = {};
+    for (const row of data ?? []) {
+      // Full key: "Senior Project Manager"
+      map[`${row.seniority_level} ${row.role_title}`.trim()] = Number(row.day_rate);
+      // Role only key for partial match
+      if (!map[row.role_title]) map[row.role_title] = Number(row.day_rate);
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
 export async function loadResourceJustificationData(projectId: string): Promise<{
   justification: ResourceJustification | null;
   budgetSummary: ResourceBudgetSummary | null;
   openCRs: OpenCR[];
   roleRequirements: Array<{ id: string; role: string; required_days: number | null; filled_days: number | null }>;
-} | null> {
+} & { rateCard: Record<string, number> } | null> {
   try {
     const supabase = await createClient();
 
@@ -90,11 +120,14 @@ export async function loadResourceJustificationData(projectId: string): Promise<
         ? (rolesResult.value.data ?? []) as Array<{ id: string; role: string; required_days: number | null; filled_days: number | null }>
         : [];
 
+    const rateCard = await fetchOrgRateCard(supabase, projectId);
+
     return {
       justification,
       budgetSummary: null,
       openCRs,
       roleRequirements: roles,
+      rateCard,
     };
   } catch {
     // Table may not exist yet — return null so the panel simply doesn't render

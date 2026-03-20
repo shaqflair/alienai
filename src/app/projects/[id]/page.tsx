@@ -893,6 +893,7 @@ export default async function ProjectPage({
                 budgetDays={resource?.budgetSummary?.budgetDays ?? 0}
                 weeklyBurnRate={resource?.budgetSummary?.weeklyBurnRate ?? 0}
                 canEdit={canEdit}
+                rateCard={(justificationData as any).rateCard ?? {}}
               />
             </div>
           )}

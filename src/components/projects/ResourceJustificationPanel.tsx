@@ -34,7 +34,14 @@ const DEFAULT_RATE_CARD: Record<string, number> = {
   "QA Engineer": 550, "DevOps Engineer": 650, "Consultant": 800,
 };
 
-function getRateForRole(role: string): number {
+function getRateForRole(role: string, dbRateCard: Record<string, number> = {}): number {
+  // DB rate card takes priority over hardcoded defaults
+  if (dbRateCard[role]) return dbRateCard[role];
+  const dbKey = Object.keys(dbRateCard).find(k =>
+    role.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(role.toLowerCase())
+  );
+  if (dbKey) return dbRateCard[dbKey];
+  // Fall back to hardcoded defaults
   if (DEFAULT_RATE_CARD[role]) return DEFAULT_RATE_CARD[role];
   const key = Object.keys(DEFAULT_RATE_CARD).find(k =>
     role.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(role.toLowerCase())
@@ -89,16 +96,17 @@ function StatusBadge({ status }: { status: ResourceJustification["status"] }) {
 }
 
 /* ── Role budget row with inline rate editing ── */
-function RoleBudgetRow({ role, rateOverrides, onRateChange, canEdit }: {
+function RoleBudgetRow({ role, rateOverrides, onRateChange, canEdit, dbRateCard }: {
   role: RoleReq;
   rateOverrides: Record<string, number>;
   onRateChange: (id: string, rate: number) => void;
   canEdit: boolean;
+  dbRateCard?: Record<string, number>;
 }) {
   const [editingRate, setEditingRate] = useState(false);
   const [draftRate, setDraftRate] = useState("");
   const unfilled = Math.max(0, (role.required_days ?? 0) - (role.filled_days ?? 0));
-  const rate = rateOverrides[role.id] ?? getRateForRole(role.role);
+  const rate = rateOverrides[role.id] ?? getRateForRole(role.role, dbRateCard);
   const totalCost = unfilled * rate;
   const isFilled = unfilled === 0;
 
@@ -164,7 +172,7 @@ function RoleBudgetRow({ role, rateOverrides, onRateChange, canEdit }: {
 /* ── Main component ── */
 export default function ResourceJustificationPanel({
   projectId, projectTitle, initialJustification, budgetSummary,
-  openCRs, roleRequirements, allocatedDays, budgetDays, weeklyBurnRate, canEdit,
+  openCRs, roleRequirements, allocatedDays, budgetDays, weeklyBurnRate, canEdit, rateCard = {},
 }: {
   projectId: string;
   projectTitle: string;
@@ -176,6 +184,7 @@ export default function ResourceJustificationPanel({
   budgetDays: number;
   weeklyBurnRate: number;
   canEdit: boolean;
+  rateCard?: Record<string, number>;
 }) {
   const [justification, setJustification] = useState(initialJustification);
   const [justText, setJustText]             = useState(initialJustification?.justification_text || "");
@@ -195,7 +204,7 @@ export default function ResourceJustificationPanel({
   const totalUnfilledDays = unfilledRoles.reduce((s, r) => s + Math.max(0, (r.required_days ?? 0) - (r.filled_days ?? 0)), 0);
   const totalUnfilledCost = unfilledRoles.reduce((s, r) => {
     const unfilled = Math.max(0, (r.required_days ?? 0) - (r.filled_days ?? 0));
-    return s + unfilled * (rateOverrides[r.id] ?? getRateForRole(r.role));
+    return s + unfilled * (rateOverrides[r.id] ?? getRateForRole(r.role, rateCard));
   }, 0);
   const remainingBudgetGbp  = budgetSummary?.remainingGbp ?? null;
   const canFundFromBudget   = remainingBudgetGbp !== null && remainingBudgetGbp >= totalUnfilledCost && totalUnfilledCost > 0;
@@ -351,7 +360,7 @@ export default function ResourceJustificationPanel({
               </div>
               {roleRequirements.map(r => (
                 <RoleBudgetRow
-                  key={r.id} role={r} rateOverrides={rateOverrides}
+                  key={r.id} role={r} rateOverrides={rateOverrides} dbRateCard={rateCard}
                   onRateChange={(id, rate) => setRateOverrides(prev => ({ ...prev, [id]: rate }))}
                   canEdit={canEdit && !alreadySent}
                 />
