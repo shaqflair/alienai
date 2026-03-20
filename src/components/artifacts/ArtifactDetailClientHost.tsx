@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import ProjectCharterEditorFormLazy from "@/components/editors/ProjectCharterEditorFormLazy";
+import type { SectionComment } from "@/components/editors/ProjectCharterEditorFormLazy";
 import ArtifactCollaborationBanner from "@/components/artifacts/ArtifactCollaborationBanner";
 import ArtifactEditorReadOnlyOverlay from "@/components/artifacts/ArtifactEditorReadOnlyOverlay";
 import { useArtifactCollaboration } from "@/components/artifacts/useArtifactCollaboration";
@@ -109,6 +110,9 @@ export type ArtifactDetailClientHostProps = {
   approvalStatus?: string | null;
   submitForApprovalAction?: any | null;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
+  // NEW: approver inline-comment review mode
+  isApprover?: boolean;
+  requestChangesWithCommentsAction?: ((formData: FormData) => Promise<void>) | null;
 };
 
 function cx(...xs: Array<string | false | null | undefined>) {
@@ -142,9 +146,6 @@ function isApprovalLockedStatus(status: string | null | undefined) {
 
 /* -----------------------------------------------------------------------
    FinancialPlanEditorHost
-   - collaboration-aware autosave using artifact draft API
-   - autosave-safe revision handling
-   - respects read-only state when another user holds the lock
 ------------------------------------------------------------------------ */
 function FinancialPlanEditorHost({
   projectId,
@@ -437,6 +438,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     approvalStatus,
     submitForApprovalAction,
     updateArtifactJsonAction,
+    // NEW
+    isApprover = false,
+    requestChangesWithCommentsAction = null,
   } = props;
 
   const [openAI, setOpenAI] = useState(false);
@@ -503,6 +507,22 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     lockLayout ||
     collaboration.isReadOnly ||
     approvalLocked;
+
+  // Approver mode: the document is read-only for editing but MUST be
+  // fully visible and interactive for commenting. Skip the dim overlay.
+  const isApproverMode = isApprover && effectiveReadOnly && mode === "charter";
+
+  // Bridge: convert SectionComment[] → FormData → server action
+  const handleRequestChangesWithComments = useMemo(() => {
+    if (!requestChangesWithCommentsAction || !isApproverMode) return null;
+    return async (comments: SectionComment[]) => {
+      const fd = new FormData();
+      fd.set("comments_json", JSON.stringify(
+        comments.map((c) => ({ sectionKey: c.sectionKey, sectionTitle: c.sectionTitle, text: c.text }))
+      ));
+      await requestChangesWithCommentsAction(fd);
+    };
+  }, [requestChangesWithCommentsAction, isApproverMode]);
 
   const contentHeader = hideContentExportsRow ? null : (
     <div className="flex items-center justify-between gap-3">
@@ -620,85 +640,113 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           <section className={sectionClassName}>
             {contentHeader}
 
-            <div className="relative">
-              <div className={effectiveReadOnly ? "pointer-events-none select-none opacity-80" : ""}>
-                {mode === "charter" ? (
-                  <ProjectCharterEditorFormLazy
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={charterInitial}
-                    readOnly={effectiveReadOnly}
-                    artifactVersion={artifactVersion}
-                    projectTitle={projectTitle}
-                    projectManagerName={projectManagerName ?? undefined}
-                    legacyExports={effectiveLegacyExports}
-                    approvalEnabled={!!approvalEnabled}
-                    canSubmitOrResubmit={allowSubmitInEditor && !effectiveReadOnly}
-                    approvalStatus={approvalStatus ?? null}
-                    submitForApprovalAction={allowSubmitInEditor && !effectiveReadOnly ? submitForApprovalAction : null}
-                  />
-                ) : mode === "stakeholder" ? (
-                  <StakeholderRegisterEditor
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={rawContentJson ?? null}
-                    readOnly={effectiveReadOnly}
-                  />
-                ) : mode === "wbs" ? (
-                  <WBSEditor
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={rawContentJson ?? null}
-                    readOnly={effectiveReadOnly}
-                  />
-                ) : mode === "schedule" ? (
-                  <ScheduleGanttEditor
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={typedInitialJson ?? null}
-                    readOnly={effectiveReadOnly}
-                    projectTitle={projectTitle || ""}
-                    projectStartDate={projectStartDate ?? null}
-                    projectFinishDate={projectFinishDate ?? null}
-                    latestWbsJson={latestWbsJson ?? null}
-                    wbsArtifactId={wbsArtifactId ?? null}
-                  />
-                ) : mode === "closure" ? (
-                  <ProjectClosureReportEditor
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={typedInitialJson ?? null}
-                    readOnly={effectiveReadOnly}
-                  />
-                ) : mode === "weekly_report" ? (
-                  <WeeklyReportEditor
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={typedInitialJson ?? rawContentJson ?? null}
-                    readOnly={effectiveReadOnly}
-                    updateArtifactJsonAction={updateArtifactJsonAction}
-                  />
-                ) : (
-                  <div className="grid gap-3">
-                    {String(rawContentText ?? "").trim().length === 0 ? (
-                      <div className="text-sm text-slate-600">No content yet.</div>
-                    ) : null}
-
-                    <textarea
-                      rows={14}
-                      readOnly
-                      value={String(rawContentText ?? "")}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-900 whitespace-pre-wrap outline-none"
-                    />
-                  </div>
-                )}
-              </div>
-
-              <ArtifactEditorReadOnlyOverlay
-                show={effectiveReadOnly}
-                message={overlayMessage}
+            {/*
+              For approver mode on the charter:
+              - Do NOT wrap with pointer-events-none/opacity-80 (approver must read and click "Add Comment")
+              - Do NOT show ArtifactEditorReadOnlyOverlay (no blur tooltip)
+              For all other read-only states: keep existing behaviour unchanged
+            */}
+            {isApproverMode ? (
+              /* ── Approver: full-visibility, no dim, no overlay ── */
+              <ProjectCharterEditorFormLazy
+                projectId={projectId}
+                artifactId={artifactId}
+                initialJson={charterInitial}
+                readOnly={true}
+                lockLayout={true}
+                artifactVersion={artifactVersion}
+                projectTitle={projectTitle}
+                projectManagerName={projectManagerName ?? undefined}
+                legacyExports={effectiveLegacyExports}
+                approvalEnabled={!!approvalEnabled}
+                canSubmitOrResubmit={false}
+                approvalStatus={approvalStatus ?? null}
+                submitForApprovalAction={null}
+                isApprover={true}
+                onRequestChangesWithComments={handleRequestChangesWithComments}
               />
-            </div>
+            ) : (
+              /* ── Normal read-only or editable path ── */
+              <div className="relative">
+                <div className={effectiveReadOnly ? "pointer-events-none select-none opacity-80" : ""}>
+                  {mode === "charter" ? (
+                    <ProjectCharterEditorFormLazy
+                      projectId={projectId}
+                      artifactId={artifactId}
+                      initialJson={charterInitial}
+                      readOnly={effectiveReadOnly}
+                      artifactVersion={artifactVersion}
+                      projectTitle={projectTitle}
+                      projectManagerName={projectManagerName ?? undefined}
+                      legacyExports={effectiveLegacyExports}
+                      approvalEnabled={!!approvalEnabled}
+                      canSubmitOrResubmit={allowSubmitInEditor && !effectiveReadOnly}
+                      approvalStatus={approvalStatus ?? null}
+                      submitForApprovalAction={allowSubmitInEditor && !effectiveReadOnly ? submitForApprovalAction : null}
+                    />
+                  ) : mode === "stakeholder" ? (
+                    <StakeholderRegisterEditor
+                      projectId={projectId}
+                      artifactId={artifactId}
+                      initialJson={rawContentJson ?? null}
+                      readOnly={effectiveReadOnly}
+                    />
+                  ) : mode === "wbs" ? (
+                    <WBSEditor
+                      projectId={projectId}
+                      artifactId={artifactId}
+                      initialJson={rawContentJson ?? null}
+                      readOnly={effectiveReadOnly}
+                    />
+                  ) : mode === "schedule" ? (
+                    <ScheduleGanttEditor
+                      projectId={projectId}
+                      artifactId={artifactId}
+                      initialJson={typedInitialJson ?? null}
+                      readOnly={effectiveReadOnly}
+                      projectTitle={projectTitle || ""}
+                      projectStartDate={projectStartDate ?? null}
+                      projectFinishDate={projectFinishDate ?? null}
+                      latestWbsJson={latestWbsJson ?? null}
+                      wbsArtifactId={wbsArtifactId ?? null}
+                    />
+                  ) : mode === "closure" ? (
+                    <ProjectClosureReportEditor
+                      projectId={projectId}
+                      artifactId={artifactId}
+                      initialJson={typedInitialJson ?? null}
+                      readOnly={effectiveReadOnly}
+                    />
+                  ) : mode === "weekly_report" ? (
+                    <WeeklyReportEditor
+                      projectId={projectId}
+                      artifactId={artifactId}
+                      initialJson={typedInitialJson ?? rawContentJson ?? null}
+                      readOnly={effectiveReadOnly}
+                      updateArtifactJsonAction={updateArtifactJsonAction}
+                    />
+                  ) : (
+                    <div className="grid gap-3">
+                      {String(rawContentText ?? "").trim().length === 0 ? (
+                        <div className="text-sm text-slate-600">No content yet.</div>
+                      ) : null}
+
+                      <textarea
+                        rows={14}
+                        readOnly
+                        value={String(rawContentText ?? "")}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-900 whitespace-pre-wrap outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <ArtifactEditorReadOnlyOverlay
+                  show={effectiveReadOnly}
+                  message={overlayMessage}
+                />
+              </div>
+            )}
           </section>
 
           {!shouldHidePanels ? (
