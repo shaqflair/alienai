@@ -1,7 +1,7 @@
 // src/app/projects/[id]/gate5/page.tsx
 import "server-only";
 import React from "react";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { loadGate5Status } from "./gate5-actions";
 import Gate5Panel from "@/components/gate5/Gate5Panel";
@@ -21,84 +21,132 @@ export default async function Gate5Page({
 }: {
   params: Promise<{ id?: string }>;
 }) {
+  const supabase = await createClient();
+
+  // Auth check first
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) redirect("/login");
+
   const p = await params;
   const projectParam = normParam(p?.id);
   if (!projectParam) notFound();
 
-  const supabase = await createClient();
-
-  // Resolve human ID → UUID if needed
-  const { data: project } = await supabase
+  // Fetch project — use same broad select as main project page
+  const { data: project, error: projErr } = await supabase
     .from("projects")
-    .select("id, title, finish_date, end_date, target_end_date")
-    .or(`id.eq.${projectParam},project_code.eq.${projectParam},human_id.eq.${projectParam}`)
+    .select("id, title, finish_date, status, organisation_id")
+    .eq("id", projectParam)
     .maybeSingle();
 
-  if (!project) notFound();
-  const projectId = String((project as any).id);
+  if (projErr || !project) {
+    // Try by project_code as fallback
+    const { data: byCode } = await supabase
+      .from("projects")
+      .select("id, title, finish_date, status, organisation_id")
+      .eq("project_code", projectParam)
+      .maybeSingle();
+    if (!byCode) notFound();
+  }
 
-  const gate5Data = await loadGate5Status(projectId);
+  const resolvedProject = project ?? null;
+  if (!resolvedProject) notFound();
+
+  const projectId = String((resolvedProject as any).id);
+  const projectTitle = String((resolvedProject as any).title || "Project");
+
+  // Load gate5 data — returns null if tables don't exist yet
+  let gate5Data;
+  try {
+    gate5Data = await loadGate5Status(projectId);
+  } catch {
+    gate5Data = null;
+  }
+
+  // Provide a safe default if gate5 tables don't exist yet
+  const safeGate5 = gate5Data ?? {
+    checks: [],
+    totalChecks: 0,
+    passedChecks: 0,
+    mandatoryBlocked: 0,
+    readinessScore: 0,
+    daysToEndDate: null,
+    endDate: null,
+    riskLevel: "amber" as const,
+    canClose: false,
+  };
+
+  const scoreColor = safeGate5.canClose
+    ? { bg: "#dcfce7", text: "#15803d" }
+    : safeGate5.riskLevel === "red"
+    ? { bg: "#fee2e2", text: "#b91c1c" }
+    : { bg: "#fef3c7", text: "#92400e" };
 
   return (
-    <div className="w-full" style={{ background: "#f6f8fa", minHeight: "100vh", padding: "24px" }}>
-      {/* Page header */}
+    <div style={{ background: "#f6f8fa", minHeight: "100vh", padding: "24px", fontFamily: "'DM Sans', -apple-system, sans-serif" }}>
+
+      {/* Breadcrumb + header */}
       <div style={{ marginBottom: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#64748b", marginBottom: 8, fontFamily: "'DM Sans', sans-serif" }}>
-          <span>Projects</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#64748b", marginBottom: 12 }}>
+          <a href="/projects" style={{ color: "#64748b", textDecoration: "none" }}>Projects</a>
           <span>/</span>
-          <span style={{ color: "#0f172a", fontWeight: 500 }}>{(project as any).title || "Project"}</span>
+          <a href={`/projects/${projectId}`} style={{ color: "#64748b", textDecoration: "none" }}>{projectTitle}</a>
           <span>/</span>
-          <span style={{ color: "#0f172a", fontWeight: 500 }}>Gate 5</span>
+          <span style={{ color: "#0f172a", fontWeight: 600 }}>Gate 5</span>
         </div>
-        <div
-          style={{
-            padding: "16px 20px",
-            borderRadius: 12,
-            background: "#fff",
-            border: "1px solid #e8ecf0",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 16,
-            flexWrap: "wrap",
-          }}
-        >
+
+        <div style={{
+          padding: "20px 24px",
+          borderRadius: 12,
+          background: "#fff",
+          border: "1px solid #e8ecf0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 16,
+          flexWrap: "wrap",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+        }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: "#0f172a", fontFamily: "'DM Sans', sans-serif" }}>
-              Gate 5 — Project Closure
-            </h1>
-            <p style={{ margin: "4px 0 0", fontSize: 13, color: "#64748b", fontFamily: "'DM Sans', sans-serif" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: scoreColor.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: 14, fontWeight: 800, color: scoreColor.text, fontFamily: "monospace" }}>G5</span>
+              </div>
+              <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#0f172a" }}>
+                Gate 5 — Project Closure Readiness
+              </h1>
+            </div>
+            <p style={{ margin: 0, fontSize: 13, color: "#64748b", maxWidth: 560 }}>
               All activities must be complete before the project can formally close.
               Automated checks update live as your project data changes.
             </p>
           </div>
-          <div
-            style={{
-              padding: "8px 20px",
-              borderRadius: 8,
-              fontSize: 28,
-              fontWeight: 600,
-              background: gate5Data.canClose ? "#dcfce7" : gate5Data.riskLevel === "red" ? "#fee2e2" : "#fef3c7",
-              color: gate5Data.canClose ? "#15803d" : gate5Data.riskLevel === "red" ? "#b91c1c" : "#92400e",
-              fontFamily: "'DM Mono', monospace",
-              flexShrink: 0,
-            }}
-          >
-            {gate5Data.readinessScore}%
+          <div style={{
+            padding: "12px 24px",
+            borderRadius: 10,
+            background: scoreColor.bg,
+            color: scoreColor.text,
+            textAlign: "center",
+            flexShrink: 0,
+          }}>
+            <div style={{ fontSize: 32, fontWeight: 800, fontFamily: "monospace", lineHeight: 1 }}>
+              {safeGate5.readinessScore}%
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, marginTop: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              {safeGate5.canClose ? "Ready to close" : safeGate5.riskLevel === "red" ? "Not ready" : "In progress"}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Main panel */}
-      <div
-        style={{
-          background: "#fff",
-          borderRadius: 12,
-          border: "1px solid #e8ecf0",
-          padding: "24px",
-        }}
-      >
-        <Gate5Panel projectId={projectId} initialData={gate5Data} />
+      <div style={{
+        background: "#fff",
+        borderRadius: 12,
+        border: "1px solid #e8ecf0",
+        padding: "24px",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+      }}>
+        <Gate5Panel projectId={projectId} initialData={safeGate5} />
       </div>
     </div>
   );
