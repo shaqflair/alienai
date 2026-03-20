@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import type { ChangeItem, ChangePriority, ChangeStatus } from "@/lib/change/types";
 import { CHANGE_COLUMNS } from "@/lib/change/columns";
@@ -323,7 +323,6 @@ export default function ChangeDetailClient({
   initialPanel?: Panel;
 }) {
   const router = useRouter();
-  const pathname = usePathname();
   const sp = useSearchParams();
 
   /* ---------------- Theme ---------------- */
@@ -400,14 +399,16 @@ export default function ChangeDetailClient({
   const [draftAutoScan, setDraftAutoScan] = useState(true);
   const lastDraftSigRef = useRef<string>("");
 
+  // Read panel from URL only on first mount — do NOT sync on every searchParams change
+  // (router.replace in setPanelParam caused cascading re-renders that froze inputs)
   useEffect(() => {
     const qp = safeStr(sp?.get("panel")).trim().toLowerCase();
     const p2: Panel = qp === "timeline" ? "timeline" : qp === "attach" ? "attach" : qp === "comment" ? "comment" : qp === "ai" ? "ai" : "";
     setPanel(p2);
-
     if (p2 === "timeline") setTimelineOpen(true);
     if (p2 === "attach") setAttachOpen(true);
-  }, [sp]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — only run on mount
 
   function set<K extends keyof ChangeItem>(key: K, value: ChangeItem[K]) {
     setModel((m) => ({ ...m, [key]: value }));
@@ -505,11 +506,8 @@ export default function ChangeDetailClient({
   }
 
   function setPanelParam(next: Panel) {
-    const qp = new URLSearchParams(sp?.toString() || "");
-    if (!next) qp.delete("panel");
-    else qp.set("panel", next);
-    const url = qp.toString() ? `${pathname}?${qp.toString()}` : pathname;
-    router.replace(url);
+    // Update local state only — router.replace was causing re-renders that froze inputs
+    setPanel(next);
   }
 
   function validate(): { ok: true; payload: any } | { ok: false; msg: string } {
