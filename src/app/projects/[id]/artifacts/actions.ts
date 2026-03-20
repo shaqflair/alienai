@@ -127,6 +127,71 @@ async function auditBestEffort(
   }
 }
 
+async function snapshotToVersionsBestEffort(
+  supabase: any,
+  args: {
+    artifactId:  string;
+    projectId:   string;
+    contentJson: any;
+    userId:      string | null;
+  }
+) {
+  // Writes a snapshot to artifact_versions on every meaningful save.
+  // Uses a checksum to avoid duplicate entries when content hasn't changed.
+  // Never throws — snapshot failure must never block the actual save.
+  try {
+    const { data: art } = await supabase
+      .from("artifacts")
+      .select("type, artifact_type, version, title")
+      .eq("id", args.artifactId)
+      .maybeSingle();
+
+    const { data: proj } = await supabase
+      .from("projects")
+      .select("organisation_id")
+      .eq("id", args.projectId)
+      .maybeSingle();
+
+    const orgId    = (proj as any)?.organisation_id ?? null;
+    const artType  = String((art as any)?.artifact_type ?? (art as any)?.type ?? "").toLowerCase();
+    const version  = Number((art as any)?.version ?? 1);
+    const title    = String((art as any)?.title ?? "");
+
+    // Simple checksum: length + first 64 chars base64 encoded
+    const snapshotStr = JSON.stringify(args.contentJson ?? {});
+    const checksum = snapshotStr.length.toString(16) + "-" +
+      Buffer.from(snapshotStr.slice(0, 64)).toString("base64").replace(/[^a-z0-9]/gi, "").slice(0, 16);
+
+    // Only write if content changed since last snapshot
+    const { data: lastVer } = await supabase
+      .from("artifact_versions")
+      .select("checksum")
+      .eq("artifact_id", args.artifactId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if ((lastVer as any)?.checksum === checksum) return; // no change
+
+    await supabase.from("artifact_versions").insert({
+      artifact_id:     args.artifactId,
+      project_id:      args.projectId,
+      organisation_id: orgId,
+      artifact_type:   artType,
+      artifact_status: "draft",
+      title:           title || null,
+      version_no:      version,
+      source:          "editor_save",
+      snapshot:        args.contentJson ?? {},
+      checksum,
+      created_by:      args.userId,
+      created_at:      new Date().toISOString(),
+    });
+  } catch {
+    // best-effort — never block the save
+  }
+}
+
 async function demoteCurrentForProjectType(supabase: any, projectId: string, type: string) {
   const { error } = await supabase
     .from("artifacts")
@@ -202,22 +267,22 @@ export async function createArtifact(formData: FormData) {
     const { data: inserted, error: insErr } = await supabase
       .from("artifacts")
       .insert({
-        project_id:        projectId,
-        user_id:           user.id,
-        type:              rawType,
-        artifact_type:     toArtifactType(rawType),
-        content:           content || (existing.content ?? ""),
-        content_json:      existing.content_json ?? null,
-        approval_status:   "draft",
-        is_locked:         false,
-        version:           nextV,
-        is_current:        true,
-        is_baseline:       false,
-        root_artifact_id:  rootId,
-        parent_artifact_id:existing.id,
-        revision_type:     "revise",
-        revision_reason:   "New draft created",
-        updated_at:        new Date().toISOString(),
+        project_id:         projectId,
+        user_id:            user.id,
+        type:               rawType,
+        artifact_type:      toArtifactType(rawType),
+        content:            content || (existing.content ?? ""),
+        content_json:       existing.content_json ?? null,
+        approval_status:    "draft",
+        is_locked:          false,
+        version:            nextV,
+        is_current:         true,
+        is_baseline:        false,
+        root_artifact_id:   rootId,
+        parent_artifact_id: existing.id,
+        revision_type:      "revise",
+        revision_reason:    "New draft created",
+        updated_at:         new Date().toISOString(),
       })
       .select("id")
       .single();
@@ -246,20 +311,20 @@ export async function createArtifact(formData: FormData) {
   const { data: inserted, error } = await supabase
     .from("artifacts")
     .insert({
-      project_id:      projectId,
-      user_id:         user.id,
-      type:            rawType,
-      artifact_type:   toArtifactType(rawType),
+      project_id:       projectId,
+      user_id:          user.id,
+      type:             rawType,
+      artifact_type:    toArtifactType(rawType),
       content,
-      content_json:    null,
-      approval_status: "draft",
-      is_locked:       false,
-      version:         1,
-      is_current:      true,
-      is_baseline:     false,
-      root_artifact_id:    null,
-      parent_artifact_id:  null,
-      updated_at:          new Date().toISOString(),
+      content_json:     null,
+      approval_status:  "draft",
+      is_locked:        false,
+      version:          1,
+      is_current:       true,
+      is_baseline:      false,
+      root_artifact_id: null,
+      parent_artifact_id: null,
+      updated_at:       new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -271,13 +336,13 @@ export async function createArtifact(formData: FormData) {
   if (upErr) throwDb(upErr, "artifacts.create.backfill_root");
 
   await auditBestEffort(supabase, {
-    project_id:    projectId,
-    artifact_id:   inserted.id,
-    actor_user_id: user.id,
-    actor_email:   user.email,
-    action:        "create_artifact",
-    from_status:   null,
-    to_status:     "draft",
+    project_id:      projectId,
+    artifact_id:     inserted.id,
+    actor_user_id:   user.id,
+    actor_email:     user.email,
+    action:          "create_artifact",
+    from_status:     null,
+    to_status:       "draft",
     from_is_current: null,
     to_is_current:   true,
     meta: { type: rawType, version: 1 },
@@ -770,7 +835,7 @@ export async function createArtifactRevision(args: {
   revisionType?:   string;
 }): Promise<{ newArtifactId: string }> {
   const fd = new FormData();
-  fd.set("artifact_id",    normStr(args?.artifactId));
+  fd.set("artifact_id",     normStr(args?.artifactId));
   fd.set("revision_reason", normStr(args?.revisionReason) || "Revision created");
   fd.set("revision_type",   normStr(args?.revisionType)   || "material");
 
@@ -780,6 +845,8 @@ export async function createArtifactRevision(args: {
 
 /* =========================
    UPDATE JSON ARGS (wrapper — revalidates page)
+   Also snapshots to artifact_versions so History works in the
+   Weekly Report editor (and any other JSON-based editor).
 ========================= */
 
 export async function updateArtifactJsonArgs(args: {
@@ -794,6 +861,17 @@ export async function updateArtifactJsonArgs(args: {
     fd.set("content_json", JSON.stringify(args?.contentJson ?? {}));
 
     await updateArtifactJson(fd);
+
+    // Snapshot to artifact_versions — best-effort, never blocks save
+    const supabase = await createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    await snapshotToVersionsBestEffort(supabase, {
+      artifactId:  normStr(args?.artifactId),
+      projectId:   normStr(args?.projectId),
+      contentJson: args?.contentJson ?? {},
+      userId:      auth?.user?.id ?? null,
+    });
+
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Save failed" };
@@ -842,7 +920,7 @@ export async function updateArtifactJsonSilent(args: {
 
     if (error) return { ok: false, error: error.message };
 
-    // Financial plan audit — non-blocking, uses admin client to bypass RLS
+    // Financial plan audit — non-blocking
     if (isFinPlan && pId && aId && auth.user.id) {
       void auditFinancialPlanSave({
         projectId:  pId,
