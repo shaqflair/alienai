@@ -17,7 +17,7 @@ import Gate1Modal from "@/components/projects/Gate1Modal";
 import GateStatusPanel from "@/components/projects/GateStatusPanel";
 import WinProbabilityEditor from "@/components/projects/WinProbabilityEditor";
 import { loadGate5Status } from "./gate5/gate5-actions";
-import { loadResourceJustificationData } from "./resource-justification-actions";
+import { loadResourceJustificationData, loadOrgRateCardRoles } from "./resource-justification-actions";
 import ResourceJustificationPanel from "@/components/projects/ResourceJustificationPanel";
 
 export const runtime = "nodejs";
@@ -297,6 +297,7 @@ export default async function ProjectPage({
     gateQueryResult,
     gate5Result,
     justificationResult,
+    rateCardRolesResult,
   ] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
     supabase
@@ -374,6 +375,7 @@ export default async function ProjectPage({
     })(),
     (async () => { try { return await loadGate5Status(projectUuid); } catch { return null; } })(),
     (async () => { try { return await loadResourceJustificationData(projectUuid); } catch { return null; } })(),
+    (async () => { try { return await loadOrgRateCardRoles(projectUuid); } catch { return null; } })(),
   ]);
 
   const resource         = resourceData.status === "fulfilled" ? resourceData.value : null;
@@ -390,6 +392,7 @@ export default async function ProjectPage({
   const gateRecord        = gateQueryResult.status === "fulfilled" ? (gateQueryResult.value as any)?.data ?? null : null;
   const gate5Data         = gate5Result.status === "fulfilled" ? (gate5Result.value as any) : null;
   const justificationData = justificationResult.status === "fulfilled" ? (justificationResult.value as any) : null;
+  const rateCardRoles    = rateCardRolesResult.status === "fulfilled" ? (rateCardRolesResult.value as string[] ?? []) : [];
 
   const spendRows   = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
   const spentAmount = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
@@ -879,7 +882,7 @@ export default async function ProjectPage({
             Resource planning
             <span style={{ flex: 1, height: 1, background: "var(--border)", display: "block" }}/>
           </div>
-          <ProjectResourcePanel data={resource} periods={periods}/>
+          <ProjectResourcePanel data={resource} periods={periods} rateCardRoles={rateCardRoles}/>
           {justificationData && (
             <div style={{ marginTop: 16 }}>
               <ResourceJustificationPanel

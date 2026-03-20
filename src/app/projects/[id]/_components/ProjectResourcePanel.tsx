@@ -754,10 +754,12 @@ export default function ProjectResourcePanel({
   data,
   periods,
   justificationProps,
+  rateCardRoles = [],
 }: {
   data: ProjectResourceData;
   periods: WeekPeriod[];
   justificationProps?: ResourceJustificationProps;
+  rateCardRoles?: string[];
 }) {
   const { project, teamMembers, allocations, roleRequirements, budgetSummary } = data;
   const isPipeline = String(project.resource_status || "").toLowerCase() === "pipeline";
@@ -792,7 +794,7 @@ export default function ProjectResourcePanel({
           projectId={project.id}
           startDate={project.start_date}
           endDate={project.finish_date}
-          orgRoles={[...new Set(Object.keys(justificationProps?.rateCard ?? {}))].sort()}
+          orgRoles={rateCardRoles.length > 0 ? rateCardRoles : [...new Set(Object.keys(justificationProps?.rateCard ?? {}))].sort()}
         />
 
         {/* ── Resource Justification Panel ── */}

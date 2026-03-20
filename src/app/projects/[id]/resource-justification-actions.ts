@@ -96,6 +96,27 @@ async function fetchOrgRateCard(supabase: any, projectId: string): Promise<Recor
   }
 }
 
+export async function loadOrgRateCardRoles(projectId: string): Promise<string[]> {
+  // Returns role labels from the org rate card for use in role picker dropdowns
+  try {
+    const supabase = await createClient();
+    const { data: project } = await supabase
+      .from("projects")
+      .select("organisation_id")
+      .eq("id", projectId)
+      .maybeSingle();
+    const orgId = (project as any)?.organisation_id;
+    if (!orgId) return [];
+    const { data } = await supabase
+      .from("v_resource_rates_latest")
+      .select("role_label")
+      .eq("organisation_id", orgId)
+      .eq("rate_type", "day_rate")
+      .order("role_label");
+    return [...new Set((data ?? []).map((r: any) => safeStr(r.role_label)).filter(Boolean))].sort();
+  } catch { return []; }
+}
+
 export async function loadResourceJustificationData(projectId: string): Promise<{
   justification: ResourceJustification | null;
   budgetSummary: ResourceBudgetSummary | null;
