@@ -588,8 +588,8 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
 
   return (
     <div className="space-y-6 text-slate-900">
-      {/* Suppress in approver mode — banner renders an empty beige bar */}
-      {!isApproverMode && (
+      {/* Hide banner when approval-locked (submitted/approved/rejected) — renders an empty beige bar with no useful info */}
+      {!isApproverMode && !approvalLocked && (
         <ArtifactCollaborationBanner
           readOnly={effectiveReadOnly}
           approvalLocked={approvalLocked}
