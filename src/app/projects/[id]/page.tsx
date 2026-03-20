@@ -16,6 +16,7 @@ import ProjectDateEditor from "@/components/projects/ProjectDateEditor";
 import Gate1Modal from "@/components/projects/Gate1Modal";
 import GateStatusPanel from "@/components/projects/GateStatusPanel";
 import WinProbabilityEditor from "@/components/projects/WinProbabilityEditor";
+import Gate5StatusBadge from "@/components/projects/Gate5StatusBadge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -658,6 +659,17 @@ export default async function ProjectPage({
           isAdmin={org.isAdmin}
           gateRecord={gateRecord}
           returnTo={`/projects/${projectRefForUrls}`}
+        />
+      )}
+
+      {/* Gate 5 — closure readiness badge
+          Shown on active confirmed projects only (not pipeline, not closed).
+          Silently returns null if Gate 5 tables don't exist yet.
+          Colour-codes automatically: green = ready, amber = action needed, red = high risk / overdue. */}
+      {!isPipeline && isActive && (
+        <Gate5StatusBadge
+          projectId={projectUuid}
+          projectRef={projectRefForUrls}
         />
       )}
 
