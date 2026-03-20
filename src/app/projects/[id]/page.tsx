@@ -1,6 +1,7 @@
 // FILE: src/app/projects/[id]/page.tsx
 import "server-only";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
@@ -661,6 +662,13 @@ export default async function ProjectPage({
         />
       )}
 
+      {/* Gate 5 — isolated in Suspense so any error only hides the badge, never crashes the page */}
+      {!isPipeline && isActive && (
+        <Suspense fallback={null}>
+          <Gate5BadgeServer projectId={projectUuid} projectRef={projectRefForUrls} />
+        </Suspense>
+      )}
+
 
 
       {/* Stat cards */}
@@ -825,6 +833,14 @@ export default async function ProjectPage({
             <span style={{ flex: 1, height: 1, background: "var(--border)", display: "block" }}/>
           </div>
           <ProjectResourcePanel data={resource} periods={periods}/>
+          {/* Resource justification — isolated in Suspense */}
+          <Suspense fallback={null}>
+            <ResourceJustificationServer
+              projectId={projectUuid}
+              projectTitle={projectTitleForSeed || projectTitle || "Project"}
+              canEdit={canEdit}
+            />
+          </Suspense>
         </div>
       )}
 
