@@ -6,7 +6,7 @@ import type {
   ProjectResourceData, TeamMember, AllocationRow,
   RoleRequirement, BudgetSummary, WeekPeriod,
 } from "../_lib/resource-data";
-import { insertRoleRequirements } from "../../actions";
+import { insertRoleRequirements, deleteRoleRequirement, updateRoleRequirement } from "../../actions";
 import { updateAllocation, deleteAllocationDirect } from "../../../allocations/actions";
 import ResourceJustificationPanel from "@/components/projects/ResourceJustificationPanel";
 import type { ResourceJustification, OpenCR } from "@/app/projects/[id]/resource-justification-actions";
@@ -68,6 +68,14 @@ const ROLES = [
 ];
 
 const SENIORITY = ["Junior","Mid","Senior","Lead","Principal","Director"];
+
+function toUKDate(iso: string): string {
+  if (!iso) return "";
+  try {
+    const [y, m, d] = iso.split("-");
+    return `${d}/${m}/${y}`;
+  } catch { return iso; }
+}
 
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   return (
@@ -472,14 +480,17 @@ function MiniHeatmap({ allocations, members, periods, colour }: { allocations: A
 
 type NewRole = { role_title: string; seniority_level: string; required_days_per_week: number; start_date: string; end_date: string };
 
-function RoleRequirementRow({ role }: { role: RoleRequirement }) {
+function RoleRequirementRow({ role, onEdit, onDelete }: { role: RoleRequirement; onEdit: () => void; onDelete: () => void }) {
   const weeks = Math.round((new Date(role.endDate).getTime() - new Date(role.startDate).getTime()) / (7 * 86400000));
+  const [confirmDel, setConfirmDel] = useState(false);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "11px 0", borderBottom: "1px solid #f1f5f9" }}>
       <div style={{ width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0, background: role.isFilled ? "#10b981" : "#f59e0b", boxShadow: `0 0 0 3px ${role.isFilled ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)"}` }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a" }}>{role.seniorityLevel} {role.roleTitle}</div>
-        <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>{role.startDate} to {role.endDate} - {weeks}w - {role.requiredDaysPerWeek}d/wk</div>
+        <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>
+          {toUKDate(role.startDate)} – {toUKDate(role.endDate)} · {weeks}w · {role.requiredDaysPerWeek}d/wk
+        </div>
         {role.notes && <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px", fontStyle: "italic" }}>{role.notes}</div>}
       </div>
       <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -490,7 +501,86 @@ function RoleRequirementRow({ role }: { role: RoleRequirement }) {
           <div style={{ fontSize: "10px", color: "#f59e0b", marginTop: "2px", fontWeight: 600, background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: "4px", padding: "1px 6px" }}>Unfilled</div>
         )}
       </div>
+      <div style={{ display: "flex", gap: "5px", flexShrink: 0 }}>
+        <button type="button" onClick={onEdit} style={{ fontSize: "11px", color: "#00b8db", fontWeight: 600, padding: "4px 9px", border: "1px solid #bae6f0", borderRadius: "6px", background: "white", cursor: "pointer" }}>Edit</button>
+        {!confirmDel ? (
+          <button type="button" onClick={() => setConfirmDel(true)} style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 600, padding: "4px 9px", border: "1px solid #e2e8f0", borderRadius: "6px", background: "white", cursor: "pointer" }}>✕</button>
+        ) : (
+          <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+            <span style={{ fontSize: "11px", color: "#ef4444", fontWeight: 600 }}>Sure?</span>
+            <button type="button" onClick={() => { onDelete(); setConfirmDel(false); }} style={{ fontSize: "11px", color: "white", fontWeight: 600, padding: "4px 8px", border: "none", borderRadius: "5px", background: "#ef4444", cursor: "pointer" }}>Yes</button>
+            <button type="button" onClick={() => setConfirmDel(false)} style={{ fontSize: "11px", color: "#64748b", fontWeight: 600, padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "5px", background: "white", cursor: "pointer" }}>No</button>
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+function EditRoleForm({ role, projectId, onSaved, onCancel }: { role: RoleRequirement; projectId: string; onSaved: () => void; onCancel: () => void }) {
+  const [roleTitle, setRoleTitle]     = useState(role.roleTitle);
+  const [seniority, setSeniority]     = useState(role.seniorityLevel);
+  const [startDate, setStartDate]     = useState(role.startDate);
+  const [endDate, setEndDate]         = useState(role.endDate);
+  const [daysPerWeek, setDaysPerWeek] = useState(role.requiredDaysPerWeek);
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!roleTitle.trim()) { setError("Role title is required."); return; }
+    setSaving(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("role_id", role.id);
+      fd.set("project_id", projectId);
+      fd.set("role_title", roleTitle.trim());
+      fd.set("seniority_level", seniority);
+      fd.set("start_date", startDate);
+      fd.set("end_date", endDate);
+      fd.set("required_days_per_week", String(daysPerWeek));
+      await updateRoleRequirement(fd);
+      onSaved();
+    } catch (err: any) { setError(err.message || "Save failed."); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <form onSubmit={handleSave} style={{ background: "#eff6ff", borderRadius: "10px", border: "1.5px solid #bfdbfe", padding: "16px", marginTop: "12px" }}>
+      <div style={{ fontSize: "13px", fontWeight: 700, color: "#1d4ed8", marginBottom: "12px" }}>Edit role requirement</div>
+      <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: "8px", marginBottom: "10px" }}>
+        <select value={seniority} onChange={e => setSeniority(e.target.value)} style={inputStyle}>
+          {SENIORITY.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <div style={{ position: "relative" }}>
+          <input list="edit-role-list" value={roleTitle} onChange={e => setRoleTitle(e.target.value)} placeholder="Role title..." style={{ ...inputStyle, width: "100%" }} />
+          <datalist id="edit-role-list">{ROLES.map(r => <option key={r} value={r} />)}</datalist>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px", gap: "8px", marginBottom: "10px" }}>
+        <div>
+          <label style={labelStyle}>Start</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ ...inputStyle, color: "#0f172a", colorScheme: "light" }} />
+        </div>
+        <div>
+          <label style={labelStyle}>End</label>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ ...inputStyle, color: "#0f172a", colorScheme: "light" }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Days/week</label>
+          <div style={{ display: "flex", gap: "4px" }}>
+            {[1,2,3,4,5].map(d => (
+              <button key={d} type="button" onClick={() => setDaysPerWeek(d)} style={{ width: "32px", height: "32px", borderRadius: "6px", border: "1.5px solid", borderColor: daysPerWeek === d ? "#2563eb" : "#e2e8f0", background: daysPerWeek === d ? "#2563eb" : "white", color: daysPerWeek === d ? "white" : "#475569", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>{d}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+      {error && <div style={{ fontSize: "12px", color: "#dc2626", background: "#fef2f2", borderRadius: "6px", padding: "8px 12px", border: "1px solid #fecaca", marginBottom: "8px" }}>{error}</div>}
+      <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+        <button type="button" onClick={onCancel} style={{ background: "none", border: "1px solid #bfdbfe", borderRadius: "7px", padding: "6px 14px", fontSize: "12px", fontWeight: 600, color: "#1d4ed8", cursor: "pointer" }}>Cancel</button>
+        <button type="submit" disabled={saving} style={{ background: saving ? "#94a3b8" : "#2563eb", border: "none", borderRadius: "7px", padding: "7px 18px", fontSize: "13px", fontWeight: 700, color: "white", cursor: saving ? "not-allowed" : "pointer" }}>{saving ? "Saving..." : "Save changes"}</button>
+      </div>
+    </form>
   );
 }
 
@@ -523,7 +613,18 @@ function AddRoleForm({ projectId, startDate, endDate, onSaved }: { projectId: st
         <div key={i} style={{ background: "white", borderRadius: "9px", border: "1.5px solid #e2e8f0", padding: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "140px 1fr auto", gap: "8px" }}>
             <select value={role.seniority_level} onChange={e => updateRole(i, "seniority_level", e.target.value)} style={inputStyle}>{SENIORITY.map(s => <option key={s} value={s}>{s}</option>)}</select>
-            <select value={role.role_title} onChange={e => updateRole(i, "role_title", e.target.value)} style={inputStyle}><option value="">Select role...</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select>
+            <div style={{ position: "relative", flex: 1 }}>
+              <input
+                list={`role-list-${i}`}
+                value={role.role_title}
+                onChange={e => updateRole(i, "role_title", e.target.value)}
+                placeholder="Type or select a role..."
+                style={{ ...inputStyle, width: "100%" }}
+              />
+              <datalist id={`role-list-${i}`}>
+                {ROLES.map(r => <option key={r} value={r} />)}
+              </datalist>
+            </div>
             {roles.length > 1 && <button type="button" onClick={() => removeRole(i)} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "16px", lineHeight: 1, padding: "0 4px" }}>x</button>}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px", gap: "8px" }}>
@@ -549,17 +650,39 @@ function AddRoleForm({ projectId, startDate, endDate, onSaved }: { projectId: st
 
 function RoleRequirementsSection({ roles, projectId, startDate, endDate }: { roles: RoleRequirement[]; projectId: string; startDate: string | null; endDate: string | null }) {
   const [showForm, setShowForm] = useState(false);
+  const [editingRole, setEditingRole] = useState<RoleRequirement | null>(null);
+  const [isPending, startTransition] = useTransition();
   const unfilled = roles.filter(r => !r.isFilled).length;
   const filled   = roles.filter(r =>  r.isFilled).length;
+
+  function handleDelete(roleId: string) {
+    startTransition(async () => {
+      try {
+        const fd = new FormData();
+        fd.set("role_id", roleId);
+        fd.set("project_id", projectId);
+        await deleteRoleRequirement(fd);
+        window.location.reload();
+      } catch (e: any) { alert(e.message || "Delete failed"); }
+    });
+  }
+
   return (
     <Card>
-      <SectionHeader icon={<IconClipboard />} title="Role requirements" subtitle={`${roles.length} roles - ${unfilled} unfilled - ${filled} filled`}
-        action={<button type="button" onClick={() => setShowForm(s => !s)} style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "7px", background: showForm ? "#f1f5f9" : "#00b8db", border: "none", color: showForm ? "#64748b" : "white", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>{showForm ? "x Cancel" : "+ Add roles"}</button>}
+      <SectionHeader icon={<IconClipboard />} title="Role requirements" subtitle={`${roles.length} roles · ${unfilled} unfilled · ${filled} filled`}
+        action={<button type="button" onClick={() => { setShowForm(s => !s); setEditingRole(null); }} style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "7px", background: showForm ? "#f1f5f9" : "#00b8db", border: "none", color: showForm ? "#64748b" : "white", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>{showForm ? "✕ Cancel" : "+ Add roles"}</button>}
       />
-      {roles.length === 0 && !showForm ? (
+      {roles.length === 0 && !showForm && !editingRole ? (
         <div style={{ padding: "20px 0", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>No role requirements defined yet.</div>
       ) : (
-        roles.map(r => <RoleRequirementRow key={r.id} role={r} />)
+        roles.map(r => (
+          <RoleRequirementRow
+            key={r.id}
+            role={r}
+            onEdit={() => { setEditingRole(r); setShowForm(false); }}
+            onDelete={() => handleDelete(r.id)}
+          />
+        ))
       )}
       {roles.length > 0 && (
         <div style={{ display: "flex", gap: "16px", padding: "10px 0 0", borderTop: "1px solid #f1f5f9", marginTop: "4px" }}>
@@ -567,7 +690,17 @@ function RoleRequirementsSection({ roles, projectId, startDate, endDate }: { rol
           <div style={{ fontSize: "11px", color: "#94a3b8" }}>Unfilled: <strong style={{ color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{roles.filter(r => !r.isFilled).reduce((s, r) => s + r.totalDemandDays, 0).toFixed(0)}d</strong></div>
         </div>
       )}
-      {showForm && <AddRoleForm projectId={projectId} startDate={startDate} endDate={endDate} onSaved={() => { setShowForm(false); window.location.reload(); }} />}
+      {editingRole && (
+        <EditRoleForm
+          role={editingRole}
+          projectId={projectId}
+          onSaved={() => { setEditingRole(null); window.location.reload(); }}
+          onCancel={() => setEditingRole(null)}
+        />
+      )}
+      {showForm && !editingRole && (
+        <AddRoleForm projectId={projectId} startDate={startDate} endDate={endDate} onSaved={() => { setShowForm(false); window.location.reload(); }} />
+      )}
     </Card>
   );
 }
