@@ -113,8 +113,24 @@ function getStepMinApprovals(step: any, approverCount?: number) {
 }
 
 function getStepOrderValue(step: any, fallback = 1) {
-  const raw = firstFinite(step?.step_order, step?.step_index, step?.sequence, step?.order_no, step?.sort_order, fallback);
+  const raw = firstFinite(
+    step?.step_order,
+    step?.step_index,
+    step?.sequence,
+    step?.order_no,
+    step?.sort_order,
+    fallback
+  );
   return Math.max(1, Number(raw || fallback));
+}
+
+function getProjectLabel(project: any, fallback?: string | null) {
+  return (
+    safeStr(project?.title).trim() ||
+    safeStr(project?.project_code).trim() ||
+    safeStr(fallback).trim() ||
+    "Project"
+  );
 }
 
 async function requireUser() {
@@ -219,12 +235,18 @@ async function writeAuditLog(
 async function getProjectNotificationContext(supabase: any, projectId: string) {
   const { data, error } = await supabase
     .from("projects")
-    .select("id, title, name, project_code")
+    .select("id, title, project_code")
     .eq("id", projectId)
     .maybeSingle();
 
   if (error) throwDb(error, "projects.select(notification_context)");
-  return (data as any) ?? null;
+
+  if (!data) return null;
+
+  return {
+    ...(data as any),
+    label: getProjectLabel(data, projectId),
+  };
 }
 
 async function getUserDisplayName(supabase: any, userId: string): Promise<string | null> {
@@ -314,13 +336,11 @@ async function getMyActiveEditSessionId(
   return safeStr((data as any)?.id).trim() || null;
 }
 
-async function createApprovalSubmissionSnapshotSafe(
-  args: {
-    artifactId: string;
-    approvalChainId?: string | null;
-    editSessionId?: string | null;
-  }
-) {
+async function createApprovalSubmissionSnapshotSafe(args: {
+  artifactId: string;
+  approvalChainId?: string | null;
+  editSessionId?: string | null;
+}) {
   try {
     await snapshotArtifactForApprovalSubmission({
       artifactId: args.artifactId,
@@ -333,12 +353,10 @@ async function createApprovalSubmissionSnapshotSafe(
   }
 }
 
-async function createApprovalApprovedSnapshotSafe(
-  args: {
-    artifactId: string;
-    approvalChainId?: string | null;
-  }
-) {
+async function createApprovalApprovedSnapshotSafe(args: {
+  artifactId: string;
+  approvalChainId?: string | null;
+}) {
   try {
     await snapshotArtifactForApprovalApproved({
       artifactId: args.artifactId,
