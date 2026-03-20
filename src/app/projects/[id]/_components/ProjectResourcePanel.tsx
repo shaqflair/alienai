@@ -1,4 +1,5 @@
 "use client";
+import React from "react";
 // FILE: src/app/projects/[id]/_components/ProjectResourcePanel.tsx
 
 import { useState, useTransition } from "react";
@@ -696,32 +697,34 @@ function RoleRequirementsSection({ roles, projectId, startDate, endDate }: { rol
       <SectionHeader icon={<IconClipboard />} title="Role requirements" subtitle={`${roles.length} roles · ${unfilled} unfilled · ${filled} filled`}
         action={<button type="button" onClick={() => { setShowForm(s => !s); setEditingRole(null); }} style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "7px", background: showForm ? "#f1f5f9" : "#00b8db", border: "none", color: showForm ? "#64748b" : "white", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>{showForm ? "✕ Cancel" : "+ Add roles"}</button>}
       />
-      {roles.length === 0 && !showForm && !editingRole ? (
+      {roles.length === 0 && !showForm ? (
         <div style={{ padding: "20px 0", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>No role requirements defined yet.</div>
       ) : (
         roles.map(r => (
-          <RoleRequirementRow
-            key={r.id}
-            role={r}
-            onEdit={() => { setEditingRole(r); setShowForm(false); }}
-            onDelete={() => handleDelete(r.id)}
-          />
+          <React.Fragment key={r.id}>
+            {editingRole?.id === r.id ? (
+              <EditRoleForm
+                key={r.id}
+                role={r}
+                projectId={projectId}
+                onSaved={() => { setEditingRole(null); window.location.reload(); }}
+                onCancel={() => setEditingRole(null)}
+              />
+            ) : (
+              <RoleRequirementRow
+                role={r}
+                onEdit={() => { setEditingRole(r); setShowForm(false); }}
+                onDelete={() => handleDelete(r.id)}
+              />
+            )}
+          </React.Fragment>
         ))
       )}
-      {roles.length > 0 && (
+      {roles.length > 0 && !editingRole && (
         <div style={{ display: "flex", gap: "16px", padding: "10px 0 0", borderTop: "1px solid #f1f5f9", marginTop: "4px" }}>
           <div style={{ fontSize: "11px", color: "#94a3b8" }}>Total demand: <strong style={{ color: "#0f172a", fontFamily: "'DM Mono', monospace" }}>{roles.reduce((s, r) => s + r.totalDemandDays, 0).toFixed(0)}d</strong></div>
           <div style={{ fontSize: "11px", color: "#94a3b8" }}>Unfilled: <strong style={{ color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{roles.filter(r => !r.isFilled).reduce((s, r) => s + r.totalDemandDays, 0).toFixed(0)}d</strong></div>
         </div>
-      )}
-      {editingRole && (
-        <EditRoleForm
-          key={editingRole.id}
-          role={editingRole}
-          projectId={projectId}
-          onSaved={() => { setEditingRole(null); window.location.reload(); }}
-          onCancel={() => setEditingRole(null)}
-        />
       )}
       {showForm && !editingRole && (
         <AddRoleForm projectId={projectId} startDate={startDate} endDate={endDate} onSaved={() => { setShowForm(false); window.location.reload(); }} />
