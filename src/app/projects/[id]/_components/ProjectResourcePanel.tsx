@@ -609,7 +609,7 @@ function EditRoleForm({ role, projectId, onSaved, onCancel }: { role: RoleRequir
   );
 }
 
-function AddRoleForm({ projectId, startDate, endDate, onSaved }: { projectId: string; startDate: string | null; endDate: string | null; onSaved: () => void }) {
+function AddRoleForm({ projectId, startDate, endDate, onSaved, orgRoles = [] }: { projectId: string; startDate: string | null; endDate: string | null; onSaved: () => void; orgRoles?: string[] }) {
   const [roles, setRoles] = useState<NewRole[]>([{ role_title: "", seniority_level: "Senior", required_days_per_week: 3, start_date: startDate || "", end_date: endDate || "" }]);
   const [saving, setSaving] = useState(false);
   const [error, setError]  = useState<string | null>(null);
@@ -647,7 +647,7 @@ function AddRoleForm({ projectId, startDate, endDate, onSaved }: { projectId: st
                 style={{ ...inputStyle, width: "100%" }}
               />
               <datalist id={`role-list-${i}`}>
-                {ROLES.map(r => <option key={r} value={r} />)}
+                {(orgRoles.length > 0 ? orgRoles : ROLES).map(r => <option key={r} value={r} />)}
               </datalist>
             </div>
             {roles.length > 1 && <button type="button" onClick={() => removeRole(i)} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "16px", lineHeight: 1, padding: "0 4px" }}>x</button>}
@@ -673,7 +673,7 @@ function AddRoleForm({ projectId, startDate, endDate, onSaved }: { projectId: st
   );
 }
 
-function RoleRequirementsSection({ roles, projectId, startDate, endDate }: { roles: RoleRequirement[]; projectId: string; startDate: string | null; endDate: string | null }) {
+function RoleRequirementsSection({ roles, projectId, startDate, endDate, orgRoles = [] }: { roles: RoleRequirement[]; projectId: string; startDate: string | null; endDate: string | null; orgRoles?: string[] }) {
   const [showForm, setShowForm] = useState(false);
   const [editingRole, setEditingRole] = useState<RoleRequirement | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -727,7 +727,7 @@ function RoleRequirementsSection({ roles, projectId, startDate, endDate }: { rol
         </div>
       )}
       {showForm && !editingRole && (
-        <AddRoleForm projectId={projectId} startDate={startDate} endDate={endDate} onSaved={() => { setShowForm(false); window.location.reload(); }} />
+        <AddRoleForm projectId={projectId} startDate={startDate} endDate={endDate} onSaved={() => { setShowForm(false); window.location.reload(); }} orgRoles={orgRoles} />
       )}
     </Card>
   );
@@ -792,6 +792,7 @@ export default function ProjectResourcePanel({
           projectId={project.id}
           startDate={project.start_date}
           endDate={project.finish_date}
+          orgRoles={Object.keys(justificationProps?.rateCard ?? {}).filter(k => !k.includes(' ')).sort()}
         />
 
         {/* ── Resource Justification Panel ── */}

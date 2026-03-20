@@ -351,7 +351,7 @@ export default function ResourceJustificationPanel({
             <div style={{ fontSize:14,fontWeight:700,color:"#0f172a" }}>Resource Justification Request</div>
             <div style={{ fontSize:12,color:"#64748b",marginTop:2 }}>
               {unfilledRoles.length > 0
-                ? `${unfilledRoles.length} unfilled role${unfilledRoles.length > 1 ? "s" : ""} · £${totalUnfilledCost.toLocaleString("en-GB")} at rate card`
+                ? `${unfilledRoles.length} unfilled role${unfilledRoles.length > 1 ? "s" : ""} · £${totalUnfilledCost.toLocaleString("en-GB")} total at rate card`
                 : "Document resource needs and request budget approval"}
             </div>
           </div>
@@ -366,35 +366,6 @@ export default function ResourceJustificationPanel({
 
       {expanded && (
         <div style={{ padding:"20px" }}>
-
-          {/* ── Role budget breakdown ── */}
-          {roleRequirements.length > 0 && (
-            <div style={{ marginBottom:20 }}>
-              {canEdit && !alreadySent && (
-                <div style={{ textAlign:"right",marginBottom:6 }}>
-                  <span style={{ fontSize:11,color:"#94a3b8" }}>Click any rate to override</span>
-                </div>
-              )}
-              {roleRequirements.map(r => (
-                <RoleBudgetRow
-                  key={r.id} role={r} rateOverrides={rateOverrides} dbRateCard={rateCard}
-                  onRateChange={(id, rate) => setRateOverrides(prev => ({ ...prev, [id]: rate }))}
-                  canEdit={canEdit && !alreadySent}
-                />
-              ))}
-              {unfilledRoles.length > 0 && (
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderRadius:8,background:"#0f172a",marginTop:4 }}>
-                  <span style={{ fontSize:13,fontWeight:600,color:"#94a3b8" }}>Total unfilled cost at rate card</span>
-                  <div>
-                    <span style={{ fontSize:16,fontWeight:800,color:"#fff",fontFamily:"monospace" }}>
-                      £{totalUnfilledCost.toLocaleString("en-GB")}
-                    </span>
-                    <span style={{ fontSize:11,color:"#64748b",marginLeft:8 }}>{totalUnfilledDays}d</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
           <div style={{ height:1,background:"#f1f5f9",margin:"0 0 20px" }} />
 
@@ -519,19 +490,26 @@ export default function ResourceJustificationPanel({
           {!alreadySent && justText.trim() && (
             <div style={{ marginBottom:20,padding:"14px 16px",borderRadius:10,background:"#f8fafc",border:"1px solid #e2e8f0" }}>
               <div style={{ fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:"#94a3b8",marginBottom:10 }}>Request summary</div>
+              {/* Role cost breakdown */}
+              {unfilledRoles.length > 0 && (
+                <div style={{ marginBottom:12 }}>
+                  {unfilledRoles.map(r => {
+                    const unfilled = Math.max(0, (r.required_days ?? 0) - (r.filled_days ?? 0));
+                    const rate = rateOverrides[r.id] ?? getRateForRole(r.role, rateCard);
+                    return (
+                      <div key={r.id} style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #f1f5f9",fontSize:12 }}>
+                        <span style={{ color:"#374151" }}>{r.role}</span>
+                        <span style={{ fontFamily:"monospace",fontWeight:600,color:"#0f172a" }}>{unfilled}d × £{rate.toLocaleString("en-GB")}/d = £{(unfilled * rate).toLocaleString("en-GB")}</span>
+                      </div>
+                    );
+                  })}
+                  <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0 0",fontSize:13,fontWeight:700 }}>
+                    <span style={{ color:"#0f172a" }}>Total</span>
+                    <span style={{ fontFamily:"monospace",color:"#0f172a" }}>£{totalUnfilledCost.toLocaleString("en-GB")} · {totalUnfilledDays}d</span>
+                  </div>
+                </div>
+              )}
               <div style={{ display:"flex",gap:12,flexWrap:"wrap" }}>
-                {totalUnfilledDays > 0 && (
-                  <div>
-                    <div style={{ fontSize:10,color:"#94a3b8",marginBottom:2 }}>Days requested</div>
-                    <div style={{ fontSize:18,fontWeight:800,color:"#0f172a",fontFamily:"monospace" }}>{totalUnfilledDays}d</div>
-                  </div>
-                )}
-                {totalUnfilledCost > 0 && (
-                  <div>
-                    <div style={{ fontSize:10,color:"#94a3b8",marginBottom:2 }}>Rate card cost</div>
-                    <div style={{ fontSize:18,fontWeight:800,color:"#0f172a",fontFamily:"monospace" }}>£{totalUnfilledCost.toLocaleString("en-GB")}</div>
-                  </div>
-                )}
                 <div>
                   <div style={{ fontSize:10,color:"#94a3b8",marginBottom:2 }}>Funding route</div>
                   <div style={{ fontSize:13,fontWeight:700,color:selectedFunding.color,background:selectedFunding.bg,border:`1px solid ${selectedFunding.border}`,borderRadius:6,padding:"2px 8px",display:"inline-block" }}>{selectedFunding.label}</div>
