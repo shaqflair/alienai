@@ -102,7 +102,7 @@ export async function loadResourceJustificationData(projectId: string): Promise<
   }
 }
 
-export async function saveResourceJustification(formData: FormData): Promise<{ ok: boolean; error?: string }> {
+export async function saveResourceJustification(formData: FormData): Promise<{ ok: boolean; id?: string | null; error?: string }> {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
@@ -142,18 +142,20 @@ export async function saveResourceJustification(formData: FormData): Promise<{ o
     updated_by: auth.user.id,
   };
 
-  // Upsert — one justification record per project
-  const { error } = await supabase
+  // Upsert — one justification record per project, return the id
+  const { data: upserted, error } = await supabase
     .from("project_resource_justifications")
     .upsert(
       { ...payload, created_at: now, created_by: auth.user.id },
       { onConflict: "project_id" }
-    );
+    )
+    .select("id")
+    .maybeSingle();
 
   if (error) return { ok: false, error: error.message };
 
   revalidatePath(`/projects/${projectId}`);
-  return { ok: true };
+  return { ok: true, id: (upserted as any)?.id ?? null };
 }
 
 export async function sendJustificationToResourceTeam(

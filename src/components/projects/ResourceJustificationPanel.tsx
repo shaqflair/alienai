@@ -240,20 +240,27 @@ export default function ResourceJustificationPanel({
   function handleSend() {
     if (!justText.trim()) return;
     startTransition(async () => {
+      // Save first — this returns the record id even on first save
       const saved = await saveResourceJustification(buildPayload());
       if (!saved.ok) { setSendMsg(`Save failed: ${saved.error}`); return; }
-      if (justification?.id) {
-        const result = await sendJustificationToResourceTeam(projectId, justification.id);
-        if (result.ok) {
-          setJustification(prev => prev ? { ...prev, status: "sent" } : prev);
-          setSendMsg("Sent to resource team ✓");
-          setTimeout(() => setSendMsg(null), 5000);
-        } else {
-          setSendMsg(`Failed: ${result.error}`);
-        }
+
+      // Use returned id, or fall back to existing justification id
+      const recordId = saved.id ?? justification?.id ?? null;
+      if (!recordId) {
+        setSendMsg("Could not determine record ID — please reload and try again.");
+        return;
+      }
+
+      const result = await sendJustificationToResourceTeam(projectId, recordId);
+      if (result.ok) {
+        setJustification(prev =>
+          prev ? { ...prev, status: "sent", sent_at: new Date().toISOString() } :
+          { id: recordId, project_id: projectId, justification_text: justText, contingency_notes: contingency, requested_budget_uplift: uplift ? Number(uplift) : null, currency: "GBP", linked_cr_ids: Array.from(selectedCRs), status: "sent", sent_at: new Date().toISOString(), sent_by: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+        );
+        setSendMsg("Sent to resource team ✓");
+        setTimeout(() => setSendMsg(null), 5000);
       } else {
-        setSendMsg("Please save once first, then send.");
-        setTimeout(() => setSendMsg(null), 3000);
+        setSendMsg(`Failed: ${result.error}`);
       }
     });
   }

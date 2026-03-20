@@ -221,7 +221,8 @@ export async function createProject(formData: FormData) {
   redirect(`/projects/${projectId}`);
 }
 
-// -- New action: insert role requirements after project is created -------------
+// -- Role requirements -------------------------------------------------------
+
 export async function insertRoleRequirements(formData: FormData) {
   const supabase = await createClient();
   const user = await requireUser(supabase);
@@ -255,22 +256,122 @@ export async function insertRoleRequirements(formData: FormData) {
 
   const rows = roles
     .filter(r => r.role_title && r.start_date && r.end_date)
-    .map(r => ({
-      project_id,
-      role_title:             r.role_title,
-      seniority_level:        r.seniority_level || "Senior",
-      required_days_per_week: Number(r.required_days_per_week) || 3,
-      start_date:             r.start_date,
-      end_date:               r.end_date,
-    }));
+    .map(r => {
+      const weeks =
+        r.start_date && r.end_date
+          ? Math.round(
+              (new Date(r.end_date).getTime() - new Date(r.start_date).getTime()) /
+                (7 * 86400000)
+            )
+          : 0;
+      const daysPerWeek = Number(r.required_days_per_week) || 3;
+      const roleLabel   = `${r.seniority_level || "Senior"} ${r.role_title}`.trim();
+      return {
+        project_id,
+        role:                   roleLabel,
+        role_title:             r.role_title,
+        seniority_level:        r.seniority_level || "Senior",
+        required_days_per_week: daysPerWeek,
+        required_days:          weeks * daysPerWeek,
+        filled_days:            0,
+        start_date:             r.start_date,
+        end_date:               r.end_date,
+      };
+    });
 
   if (!rows.length) return;
 
-  const { error } = await supabase.from("role_requirements").insert(rows);
-  if (error) throwDb(error, "role_requirements.insert");
+  // Try project_role_requirements first (our new table), fall back to role_requirements
+  const { error: e1 } = await supabase.from("project_role_requirements").insert(rows);
+  if (e1) {
+    // Fallback to legacy table name if it exists
+    const { error: e2 } = await supabase.from("role_requirements").insert(
+      rows.map(({ role, required_days, filled_days, ...rest }) => rest)
+    );
+    if (e2) throwDb(e2, "role_requirements.insert");
+  }
 
   revalidatePath(`/projects/${project_id}`);
 }
+
+export async function updateRoleRequirement(formData: FormData) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  const role_id    = norm(formData.get("role_id"));
+  const project_id = norm(formData.get("project_id"));
+
+  if (!role_id)    throw new Error("Missing role_id");
+  if (!project_id) throw new Error("Missing project_id");
+
+  const myRole = await getMyProjectRole(supabase, project_id, user.id);
+  if (!canEdit(myRole)) throw new Error("You do not have permission to edit role requirements.");
+
+  const role_title   = norm(formData.get("role_title"));
+  const seniority    = norm(formData.get("seniority_level")) || "Senior";
+  const start_date   = norm(formData.get("start_date")) || null;
+  const end_date     = norm(formData.get("end_date"))   || null;
+  const daysPerWeek  = Number(norm(formData.get("required_days_per_week"))) || 3;
+
+  if (!role_title) throw new Error("Role title is required.");
+
+  const weeks =
+    start_date && end_date
+      ? Math.round(
+          (new Date(end_date).getTime() - new Date(start_date).getTime()) /
+            (7 * 86400000)
+        )
+      : 0;
+
+  const roleLabel = `${seniority} ${role_title}`.trim();
+
+  const patch = {
+    role:                   roleLabel,
+    role_title,
+    seniority_level:        seniority,
+    start_date:             start_date || null,
+    end_date:               end_date   || null,
+    required_days_per_week: daysPerWeek,
+    required_days:          weeks * daysPerWeek,
+    updated_at:             new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from("project_role_requirements")
+    .update(patch)
+    .eq("id", role_id)
+    .eq("project_id", project_id);
+
+  if (error) throwDb(error, "project_role_requirements.update");
+
+  revalidatePath(`/projects/${project_id}`);
+}
+
+export async function deleteRoleRequirement(formData: FormData) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  const role_id    = norm(formData.get("role_id"));
+  const project_id = norm(formData.get("project_id"));
+
+  if (!role_id)    throw new Error("Missing role_id");
+  if (!project_id) throw new Error("Missing project_id");
+
+  const myRole = await getMyProjectRole(supabase, project_id, user.id);
+  if (!canEdit(myRole)) throw new Error("You do not have permission to delete role requirements.");
+
+  const { error } = await supabase
+    .from("project_role_requirements")
+    .delete()
+    .eq("id", role_id)
+    .eq("project_id", project_id);
+
+  if (error) throwDb(error, "project_role_requirements.delete");
+
+  revalidatePath(`/projects/${project_id}`);
+}
+
+// -- Project lifecycle -------------------------------------------------------
 
 export async function updateProjectTitle(formData: FormData) {
   const supabase = await createClient();
@@ -374,12 +475,12 @@ export async function abnormalCloseProject(formData: FormData) {
   if (!canEdit(role)) redirect(`/projects${qs({ err: "no_permission", pid: project_id })}`);
 
   const patch: any = {
-    status: "closed",
+    status:           "closed",
     lifecycle_status: "closed",
-    closure_type: "abnormal",
-    closed_at: new Date().toISOString(),
-    closed_by: user.id,
-    updated_at: new Date().toISOString(),
+    closure_type:     "abnormal",
+    closed_at:        new Date().toISOString(),
+    closed_by:        user.id,
+    updated_at:       new Date().toISOString(),
   };
 
   const { error } = await supabase.from("projects").update(patch).eq("id", project_id);
@@ -419,9 +520,9 @@ export async function convertPipelineToConfirmed(formData: FormData) {
   const { error } = await supabase
     .from("projects")
     .update({
-      resource_status:  "confirmed",
-      win_probability:  null,
-      updated_at:       new Date().toISOString(),
+      resource_status: "confirmed",
+      win_probability: null,
+      updated_at:      new Date().toISOString(),
     })
     .eq("id", project_id);
 
