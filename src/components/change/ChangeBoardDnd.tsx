@@ -1004,4 +1004,4 @@ export default function ChangeBoardDnd({
       ) : null}
     </div>
   );
-}}
+}
