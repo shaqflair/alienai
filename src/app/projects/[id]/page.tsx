@@ -675,8 +675,8 @@ export default async function ProjectPage({
 
 
 
-      {/* Gate 5 closure readiness badge */}
-      {!isPipeline && isActive && gate5Data && (() => {
+      {/* Gate 5 closure readiness badge — only shown when end date is within 60 days, overdue, or mandatory items blocked */}
+      {!isPipeline && isActive && gate5Data && ((gate5Data.daysToEndDate !== null && gate5Data.daysToEndDate <= 60) || (gate5Data.daysToEndDate === null && gate5Data.mandatoryBlocked > 0)) && (() => {
         const g5 = gate5Data;
         const c = g5.riskLevel === "green"
           ? { bg: "#f0fdf4", border: "#bbf7d0", text: "#15803d", accent: "#16a34a" }
