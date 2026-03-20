@@ -584,16 +584,19 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
 
   return (
     <div className="space-y-6 text-slate-900">
-      <ArtifactCollaborationBanner
-        readOnly={effectiveReadOnly}
-        approvalLocked={approvalLocked}
-        lockOwnerName={
-          collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
-        }
-        expiresAt={collaboration.state?.activeLock?.expiresAt || null}
-        currentVersionNo={collaboration.state?.currentVersionNo ?? 0}
-        currentDraftRev={collaboration.state?.currentDraftRev ?? collaboration.draftRev}
-      />
+      {/* Suppress in approver mode — banner renders an empty beige bar */}
+      {!isApproverMode && (
+        <ArtifactCollaborationBanner
+          readOnly={effectiveReadOnly}
+          approvalLocked={approvalLocked}
+          lockOwnerName={
+            collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
+          }
+          expiresAt={collaboration.state?.activeLock?.expiresAt || null}
+          currentVersionNo={collaboration.state?.currentVersionNo ?? 0}
+          currentDraftRev={collaboration.state?.currentDraftRev ?? collaboration.draftRev}
+        />
+      )}
 
       {mode === "change_requests" ? (
         <section className="w-full text-slate-900">
