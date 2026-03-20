@@ -325,24 +325,43 @@ export async function updateRoleRequirement(formData: FormData) {
 
   const roleLabel = `${seniority} ${role_title}`.trim();
 
-  const patch = {
-    role:                   roleLabel,
+  // Build patch with only guaranteed columns, then try extended columns
+  const basePatch: Record<string, any> = {
+    role:          roleLabel,
+    required_days: weeks * daysPerWeek,
+  };
+
+  // Attempt update with full schema first
+  const fullPatch = {
+    ...basePatch,
     role_title,
     seniority_level:        seniority,
     start_date:             start_date || null,
     end_date:               end_date   || null,
     required_days_per_week: daysPerWeek,
-    required_days:          weeks * daysPerWeek,
     updated_at:             new Date().toISOString(),
   };
 
-  const { error } = await supabase
+  const { error: fullError } = await supabase
     .from("project_role_requirements")
-    .update(patch)
+    .update(fullPatch)
     .eq("id", role_id)
     .eq("project_id", project_id);
 
-  if (error) throwDb(error, "project_role_requirements.update");
+  if (fullError) {
+    // If full schema fails (missing columns), fall back to base columns only
+    const msg = String(fullError.message || "").toLowerCase();
+    const isColumnError = msg.includes("column") && msg.includes("does not exist");
+    if (!isColumnError) throwDb(fullError, "project_role_requirements.update");
+
+    const { error: baseError } = await supabase
+      .from("project_role_requirements")
+      .update(basePatch)
+      .eq("id", role_id)
+      .eq("project_id", project_id);
+
+    if (baseError) throwDb(baseError, "project_role_requirements.update_base");
+  }
 
   revalidatePath(`/projects/${project_id}`);
 }
