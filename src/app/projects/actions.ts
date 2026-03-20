@@ -281,15 +281,17 @@ export async function insertRoleRequirements(formData: FormData) {
 
   if (!rows.length) return;
 
-  // Try project_role_requirements first (our new table), fall back to role_requirements
-  const { error: e1 } = await supabase.from("project_role_requirements").insert(rows);
-  if (e1) {
-    // Fallback to legacy table name if it exists
-    const { error: e2 } = await supabase.from("role_requirements").insert(
-      rows.map(({ role, required_days, filled_days, ...rest }) => rest)
-    );
-    if (e2) throwDb(e2, "role_requirements.insert");
-  }
+  // role_requirements schema: role_title, seniority_level, required_days_per_week, start_date, end_date, project_id
+  const insertRows = rows.map(r => ({
+    project_id:             r.project_id,
+    role_title:             r.role_title,
+    seniority_level:        r.seniority_level,
+    required_days_per_week: r.required_days_per_week,
+    start_date:             r.start_date || null,
+    end_date:               r.end_date   || null,
+  }));
+  const { error: e1 } = await supabase.from("role_requirements").insert(insertRows);
+  if (e1) throwDb(e1, "role_requirements.insert");
 
   revalidatePath(`/projects/${project_id}`);
 }
@@ -325,43 +327,22 @@ export async function updateRoleRequirement(formData: FormData) {
 
   const roleLabel = `${seniority} ${role_title}`.trim();
 
-  // Build patch with only guaranteed columns, then try extended columns
-  const basePatch: Record<string, any> = {
-    role:          roleLabel,
-    required_days: weeks * daysPerWeek,
-  };
-
-  // Attempt update with full schema first
-  const fullPatch = {
-    ...basePatch,
+  // Patch using exact role_requirements schema columns
+  const patch = {
     role_title,
     seniority_level:        seniority,
     start_date:             start_date || null,
     end_date:               end_date   || null,
     required_days_per_week: daysPerWeek,
-    updated_at:             new Date().toISOString(),
   };
 
-  const { error: fullError } = await supabase
-    .from("project_role_requirements")
-    .update(fullPatch)
+  const { error: updateError } = await supabase
+    .from("role_requirements")
+    .update(patch)
     .eq("id", role_id)
     .eq("project_id", project_id);
 
-  if (fullError) {
-    // If full schema fails (missing columns), fall back to base columns only
-    const msg = String(fullError.message || "").toLowerCase();
-    const isColumnError = msg.includes("column") && msg.includes("does not exist");
-    if (!isColumnError) throwDb(fullError, "project_role_requirements.update");
-
-    const { error: baseError } = await supabase
-      .from("project_role_requirements")
-      .update(basePatch)
-      .eq("id", role_id)
-      .eq("project_id", project_id);
-
-    if (baseError) throwDb(baseError, "project_role_requirements.update_base");
-  }
+  if (updateError) throwDb(updateError, "role_requirements.update");
 
   revalidatePath(`/projects/${project_id}`);
 }
@@ -380,12 +361,12 @@ export async function deleteRoleRequirement(formData: FormData) {
   if (!canEdit(myRole)) throw new Error("You do not have permission to delete role requirements.");
 
   const { error } = await supabase
-    .from("project_role_requirements")
+    .from("role_requirements")
     .delete()
     .eq("id", role_id)
     .eq("project_id", project_id);
 
-  if (error) throwDb(error, "project_role_requirements.delete");
+  if (error) throwDb(error, "role_requirements.delete");
 
   revalidatePath(`/projects/${project_id}`);
 }
