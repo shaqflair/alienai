@@ -3,7 +3,7 @@
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 import ChangeCard from "./ChangeCard";
 import type { ChangeItem, ChangeStatus } from "@/lib/change/types";
@@ -44,31 +44,39 @@ function isAllowed(from: ChangeStatus, to: ChangeStatus) {
   if (from === "analysis" && to === "review") return false;
 
   const allowedMoves: Record<ChangeStatus, ChangeStatus[]> = {
-    new: ["new", "analysis"],
-    analysis: ["analysis", "new"],
-    review: [],
+    new:         ["new", "analysis"],
+    analysis:    ["analysis", "new"],
+    review:      [],
     in_progress: ["in_progress", "implemented"],
     implemented: ["implemented", "closed"],
-    closed: ["closed"],
+    closed:      ["closed"],
   };
 
   return (allowedMoves[from] || []).includes(to);
 }
 
 function readinessForSubmission(it: ChangeItem) {
-  const titleOk = safeStr(it.title).trim().length >= 8;
+  const titleOk   = safeStr(it.title).trim().length >= 8;
   const summaryOk = safeStr(it.summary).trim().length >= 30;
 
-  const ai = (it as any)?.aiImpact ?? {};
-  const riskOk = safeStr(ai?.risk).trim().length >= 10 && !/none identified/i.test(safeStr(ai?.risk));
-  const days = safeNum(ai?.days, 0);
-  const cost = safeNum(ai?.cost, 0);
+  const ai      = (it as any)?.aiImpact ?? {};
+  const riskOk  = safeStr(ai?.risk).trim().length >= 10 && !/none identified/i.test(safeStr(ai?.risk));
+  const days    = safeNum(ai?.days, 0);
+  const cost    = safeNum(ai?.cost, 0);
   const impactOk = riskOk || days > 0 || cost > 0;
 
   return {
-    ready: titleOk && summaryOk && impactOk,
+    ready:  titleOk && summaryOk && impactOk,
     checks: { titleOk, summaryOk, impactOk },
   };
+}
+
+// ── Compute returnTo without subscribing to searchParams ──────────────────────
+// useSearchParams() causes this component (and all card children) to re-render
+// on every URL change. Instead we read window.location at click time.
+function getCurrentUrl(): string {
+  if (typeof window === "undefined") return "";
+  return window.location.pathname + (window.location.search ? window.location.search : "");
 }
 
 export default function ChangeColumn({
@@ -79,28 +87,23 @@ export default function ChangeColumn({
   projectCode,
   isApprover,
 }: {
-  column: { key: ChangeStatus; title: string };
-  items: ChangeItem[];
-  onMove: (id: string, status: ChangeStatus) => void;
-  projectId: string;
-  // FIX: Made projectCode optional since ChangeCard doesn't use it
+  column:      { key: ChangeStatus; title: string };
+  items:       ChangeItem[];
+  onMove:      (id: string, status: ChangeStatus) => void;
+  projectId:   string;
   projectCode?: string;
-  isApprover: boolean;
+  isApprover:  boolean;
 }) {
+  // ── FIX: removed usePathname + useSearchParams — they caused full column
+  // re-renders on every URL change (e.g. when panel param changed).
+  // returnTo is now read from window.location at navigation time instead.
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
 
-  const returnTo = useMemo(() => {
-    const sp = searchParams?.toString();
-    return `${pathname}${sp ? `?${sp}` : ""}`;
-  }, [pathname, searchParams]);
-
-  const [isOver, setIsOver] = useState(false);
+  const [isOver,    setIsOver]    = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
-  const [scanBusy, setScanBusy] = useState(false);
+  const [scanBusy,  setScanBusy]  = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [laneNote, setLaneNote] = useState<string>("");
+  const [laneNote,  setLaneNote]  = useState<string>("");
 
   const colRef = useRef<HTMLDivElement | null>(null);
 
@@ -112,73 +115,43 @@ export default function ChangeColumn({
 
   const scanLane = useCallback(async () => {
     if (!projectId || scanBusy) return;
-
     setScanBusy(true);
     setLaneNote("");
-
     try {
       const laneItems = Array.isArray(items) ? items : [];
-      if (!laneItems.length) {
-        setLaneNote("Nothing to scan in this lane.");
-        return;
-      }
+      if (!laneItems.length) { setLaneNote("Nothing to scan in this lane."); return; }
 
       if (column.key === "analysis") {
-        let ready = 0;
-        let needsWork = 0;
-
+        let ready = 0, needsWork = 0;
         for (const it of laneItems) {
-          const r = readinessForSubmission(it);
-          if (r.ready) ready++;
-          else needsWork++;
+          if (readinessForSubmission(it).ready) ready++; else needsWork++;
         }
-
         setLaneNote(`Checking readiness… Ready: ${ready} • Needs work: ${needsWork} • Scanning AI now…`);
       } else {
         setLaneNote(`Scanning ${laneItems.length} item(s)…`);
       }
 
-      let okCount = 0;
-      let failCount = 0;
-
+      let okCount = 0, failCount = 0;
       for (const it of laneItems) {
         const changeId = safeStr((it as any)?.dbId || (it as any)?.id).trim();
         if (!changeId) continue;
-
         try {
           await postJson("/api/ai/events", {
-            projectId,
-            artifactId: null,
+            projectId, artifactId: null,
             eventType: "change_ai_scan_requested",
-            severity: "info",
-            source: "change_lane_header",
-            payload: {
-              lane: column.key,
-              changeId,
-              title: safeStr(it.title),
-              summary: safeStr(it.summary),
-            },
+            severity: "info", source: "change_lane_header",
+            payload: { lane: column.key, changeId, title: safeStr(it.title), summary: safeStr(it.summary) },
           });
           okCount++;
-        } catch {
-          failCount++;
-        }
+        } catch { failCount++; }
       }
 
       if (column.key === "analysis") {
-        let ready = 0;
-        let needsWork = 0;
+        let ready = 0, needsWork = 0;
         for (const it of laneItems) {
-          const r = readinessForSubmission(it);
-          if (r.ready) ready++;
-          else needsWork++;
+          if (readinessForSubmission(it).ready) ready++; else needsWork++;
         }
-
-        setLaneNote(
-          `Analysis readiness: Ready: ${ready} • Needs work: ${needsWork} • AI scanned: ${okCount}${
-            failCount ? ` (failed: ${failCount})` : ""
-          }`
-        );
+        setLaneNote(`Analysis readiness: Ready: ${ready} • Needs work: ${needsWork} • AI scanned: ${okCount}${failCount ? ` (failed: ${failCount})` : ""}`);
       } else {
         setLaneNote(`AI scanned: ${okCount}${failCount ? ` (failed: ${failCount})` : ""}`);
       }
@@ -197,9 +170,9 @@ export default function ChangeColumn({
     <div
       ref={colRef}
       className={`flex flex-col h-full rounded-xl border-2 transition-all duration-200 ${
-        isOver 
-          ? isBlocked 
-            ? "border-rose-300 bg-rose-50/50" 
+        isOver
+          ? isBlocked
+            ? "border-rose-300 bg-rose-50/50"
             : "border-indigo-400 bg-indigo-50/30"
           : "border-transparent bg-gray-100"
       }`}
@@ -207,45 +180,25 @@ export default function ChangeColumn({
       onDragOver={(e) => {
         const types = Array.from(e.dataTransfer?.types ?? []);
         if (!types.includes("text/change-id")) return;
-
-        const fromRaw = e.dataTransfer.getData("text/change-from");
-        const from = normalizeStatus(fromRaw);
+        const from    = normalizeStatus(e.dataTransfer.getData("text/change-from"));
         const allowed = from ? isAllowed(from as ChangeStatus, column.key) : true;
-
         setIsOver(true);
         setIsBlocked(!allowed);
-
-        if (allowed) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-        } else {
-          e.dataTransfer.dropEffect = "none";
-        }
+        if (allowed) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }
+        else { e.dataTransfer.dropEffect = "none"; }
       }}
-      onDragLeave={() => {
-        setIsOver(false);
-        setIsBlocked(false);
-      }}
+      onDragLeave={() => { setIsOver(false); setIsBlocked(false); }}
       onDrop={(e) => {
         e.preventDefault();
-        const id = e.dataTransfer.getData("text/change-id");
+        const id   = e.dataTransfer.getData("text/change-id");
         if (!id) return;
-
-        const fromRaw = e.dataTransfer.getData("text/change-from");
-        const from = normalizeStatus(fromRaw);
-
+        const from = normalizeStatus(e.dataTransfer.getData("text/change-from"));
         if (from) {
-          const allowed = isAllowed(from as ChangeStatus, column.key);
-          if (!allowed) {
-            setIsOver(true);
-            setIsBlocked(true);
-            shake(colRef.current);
-            return;
+          if (!isAllowed(from as ChangeStatus, column.key)) {
+            setIsOver(true); setIsBlocked(true); shake(colRef.current); return;
           }
         }
-
-        setIsOver(false);
-        setIsBlocked(false);
+        setIsOver(false); setIsBlocked(false);
         onMove(id, column.key);
       }}
     >
@@ -257,45 +210,24 @@ export default function ChangeColumn({
             {items.length}
           </span>
         </div>
-
         <div className="flex items-center gap-2">
           {showHeaderScan && (
-            <button
-              type="button"
-              onClick={scanLane}
-              disabled={scanBusy || !projectId}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50"
-            >
+            <button type="button" onClick={scanLane} disabled={scanBusy || !projectId}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50">
               {scanBusy ? (
-                <>
-                  <div className="w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                  Scanning…
-                </>
+                <><div className="w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />Scanning…</>
               ) : (
-                <>
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  Run AI scan
-                </>
+                <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>Run AI scan</>
               )}
             </button>
           )}
-
-          <button
-            type="button"
-            onClick={() => setCollapsed((v) => !v)}
+          <button type="button" onClick={() => setCollapsed(v => !v)}
             className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            title={collapsed ? "Expand cards" : "Collapse to title only"}
-          >
+            title={collapsed ? "Expand cards" : "Collapse to title only"}>
             {collapsed ? (
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             ) : (
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-              </svg>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
             )}
           </button>
         </div>
@@ -319,14 +251,9 @@ export default function ChangeColumn({
             </div>
             <div className="text-sm font-medium text-gray-900 mb-1">All clear</div>
             <div className="text-xs text-gray-500 mb-3">No changes in this lane.</div>
-            
             {column.key === "analysis" && (
-              <button
-                type="button"
-                onClick={scanLane}
-                disabled={scanBusy}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors"
-              >
+              <button type="button" onClick={scanLane} disabled={scanBusy}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors">
                 {scanBusy ? "Scanning…" : "Run AI scan"}
               </button>
             )}
@@ -334,12 +261,11 @@ export default function ChangeColumn({
         ) : (
           <div className="space-y-3">
             {items.map((it) => {
-              const dbId = safeStr((it as any)?.dbId).trim();
+              const dbId       = safeStr((it as any)?.dbId).trim();
               const idFallback = safeStr((it as any)?.id).trim();
-              const navId = dbId || idFallback;
+              const navId      = dbId || idFallback;
 
               const baseHref = `/projects/${encodeURIComponent(projectId)}/change/${encodeURIComponent(navId)}`;
-              const href = `${baseHref}?returnTo=${encodeURIComponent(returnTo)}`;
 
               return (
                 <div
@@ -351,6 +277,10 @@ export default function ChangeColumn({
                     const target = e.target as HTMLElement | null;
                     if (isInteractiveTarget(target)) return;
                     if (!navId) return;
+                    // Read returnTo from window.location at click time — avoids
+                    // subscribing to useSearchParams which caused re-render cascades
+                    const returnTo = getCurrentUrl();
+                    const href = `${baseHref}?returnTo=${encodeURIComponent(returnTo)}`;
                     router.push(href);
                   }}
                   onKeyDown={(e) => {
@@ -359,21 +289,18 @@ export default function ChangeColumn({
                     if (isInteractiveTarget(target)) return;
                     e.preventDefault();
                     if (!navId) return;
+                    const returnTo = getCurrentUrl();
+                    const href = `${baseHref}?returnTo=${encodeURIComponent(returnTo)}`;
                     router.push(href);
                   }}
                 >
-                  <Link href={href} className="sr-only">
-                    Open change request {it.title || ""}
-                  </Link>
-
-                  {/* FIX: Removed projectCode prop - ChangeCard doesn't accept it */}
                   <ChangeCard
                     item={it}
                     onMove={onMove}
                     projectId={projectId}
                     isApprover={isApprover}
                     compact={collapsed}
-                    returnTo={returnTo}
+                    returnTo={getCurrentUrl()}
                   />
                 </div>
               );
@@ -385,12 +312,12 @@ export default function ChangeColumn({
       {/* Drop Indicator */}
       {isOver && (
         <div className={`mx-4 mb-4 p-3 rounded-lg text-center text-sm font-medium ${
-          isBlocked 
-            ? "bg-rose-100 text-rose-800 border border-rose-200" 
+          isBlocked
+            ? "bg-rose-100 text-rose-800 border border-rose-200"
             : "bg-indigo-100 text-indigo-800 border border-indigo-200"
         }`}>
-          {isBlocked 
-            ? (column.key === "review" ? "Review locked (approval only)" : "Lane locked") 
+          {isBlocked
+            ? (column.key === "review" ? "Review locked (approval only)" : "Lane locked")
             : "Drop to move here"}
         </div>
       )}
