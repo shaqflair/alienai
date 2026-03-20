@@ -49,77 +49,57 @@ export async function loadResourceJustificationData(projectId: string): Promise<
   budgetSummary: ResourceBudgetSummary | null;
   openCRs: OpenCR[];
   roleRequirements: Array<{ id: string; role: string; required_days: number | null; filled_days: number | null }>;
-}> {
-  const supabase = await createClient();
+} | null> {
+  try {
+    const supabase = await createClient();
 
-  const [justificationResult, projectResult, crsResult, rolesResult] = await Promise.allSettled([
-    supabase
-      .from("project_resource_justifications")
-      .select("*")
-      .eq("project_id", projectId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("projects")
-      .select("id, budget_amount, finish_date, start_date")
-      .eq("id", projectId)
-      .maybeSingle(),
-    supabase
-      .from("change_requests")
-      .select("id, title, status, change_type, estimated_cost, requested_days")
-      .eq("project_id", projectId)
-      .in("status", ["open", "pending", "submitted", "draft", "approved"])
-      .order("created_at", { ascending: false })
-      .limit(20),
-    supabase
-      .from("project_role_requirements")
-      .select("id, role, required_days, filled_days")
-      .eq("project_id", projectId)
-      .limit(50),
-  ]);
+    const [justificationResult, crsResult, rolesResult] = await Promise.allSettled([
+      supabase
+        .from("project_resource_justifications")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("change_requests")
+        .select("id, title, status, change_type, estimated_cost, requested_days")
+        .eq("project_id", projectId)
+        .in("status", ["open", "pending", "submitted", "draft", "approved"])
+        .order("created_at", { ascending: false })
+        .limit(20),
+      supabase
+        .from("project_role_requirements")
+        .select("id, role, required_days, filled_days")
+        .eq("project_id", projectId)
+        .limit(50),
+    ]);
 
-  const justification =
-    justificationResult.status === "fulfilled"
-      ? ((justificationResult.value.data as ResourceJustification) ?? null)
-      : null;
+    const justification =
+      justificationResult.status === "fulfilled" && !justificationResult.value.error
+        ? ((justificationResult.value.data as ResourceJustification) ?? null)
+        : null;
 
-  const project =
-    projectResult.status === "fulfilled" ? projectResult.value.data : null;
+    const openCRs =
+      crsResult.status === "fulfilled" && !crsResult.value.error
+        ? ((crsResult.value.data ?? []) as OpenCR[])
+        : [];
 
-  const openCRs =
-    crsResult.status === "fulfilled"
-      ? ((crsResult.value.data ?? []) as OpenCR[])
-      : [];
+    const roles =
+      rolesResult.status === "fulfilled" && !rolesResult.value.error
+        ? (rolesResult.value.data ?? []) as Array<{ id: string; role: string; required_days: number | null; filled_days: number | null }>
+        : [];
 
-  const roles =
-    rolesResult.status === "fulfilled"
-      ? (rolesResult.value.data ?? []) as Array<{ id: string; role: string; required_days: number | null; filled_days: number | null }>
-      : [];
-
-  // Compute budget summary from project
-  const budgetGbp = (project as any)?.budget_amount
-    ? Number((project as any).budget_amount)
-    : null;
-
-  return {
-    justification,
-    budgetSummary: budgetGbp
-      ? {
-          totalBudgetDays: 0,
-          allocatedDays: 0,
-          remainingDays: 0,
-          overBudget: false,
-          weeklyBurnRate: 0,
-          budgetGbp,
-          spentGbp: null,
-          remainingGbp: null,
-          utilisationPct: 0,
-        }
-      : null,
-    openCRs,
-    roleRequirements: roles,
-  };
+    return {
+      justification,
+      budgetSummary: null,
+      openCRs,
+      roleRequirements: roles,
+    };
+  } catch {
+    // Table may not exist yet — return null so the panel simply doesn't render
+    return null;
+  }
 }
 
 export async function saveResourceJustification(formData: FormData): Promise<{ ok: boolean; error?: string }> {
@@ -162,6 +142,7 @@ export async function saveResourceJustification(formData: FormData): Promise<{ o
     updated_by: auth.user.id,
   };
 
+  // Upsert — one justification record per project
   const { error } = await supabase
     .from("project_resource_justifications")
     .upsert(
@@ -197,6 +178,9 @@ export async function sendJustificationToResourceTeam(
     .eq("project_id", projectId);
 
   if (error) return { ok: false, error: error.message };
+
+  // TODO: trigger notification to resource team here
+  // e.g. await notifyResourceTeam({ projectId, justificationId, sentBy: auth.user.id });
 
   revalidatePath(`/projects/${projectId}`);
   return { ok: true };
