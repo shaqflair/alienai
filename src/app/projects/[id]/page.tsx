@@ -17,6 +17,7 @@ import Gate1Modal from "@/components/projects/Gate1Modal";
 import GateStatusPanel from "@/components/projects/GateStatusPanel";
 import WinProbabilityEditor from "@/components/projects/WinProbabilityEditor";
 import Gate5StatusBadge from "@/components/projects/Gate5StatusBadge";
+import { loadResourceJustificationData } from "./resource-justification-actions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -293,6 +294,7 @@ export default async function ProjectPage({
     spendResult,
     briefingResult,
     gateQueryResult,
+    justificationResult,
   ] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
     supabase
@@ -368,6 +370,8 @@ export default async function ProjectPage({
         return { data: null, error: null };
       }
     })(),
+    // Resource justification data
+    loadResourceJustificationData(projectUuid).catch(() => null),
   ]);
 
   const resource         = resourceData.status === "fulfilled" ? resourceData.value : null;
@@ -382,6 +386,7 @@ export default async function ProjectPage({
   const orgMembersBase   = orgMembersBaseResult.status === "fulfilled" ? orgMembersBaseResult.value.data ?? [] : [];
   const cachedBriefing   = briefingResult.status === "fulfilled" ? briefingResult.value.briefing : null;
   const gateRecord       = gateQueryResult.status === "fulfilled" ? (gateQueryResult.value as any)?.data ?? null : null;
+  const justificationData = justificationResult.status === "fulfilled" ? justificationResult.value : null;
 
   const spendRows   = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
   const spentAmount = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
@@ -834,7 +839,17 @@ export default async function ProjectPage({
             Resource planning
             <span style={{ flex: 1, height: 1, background: "var(--border)", display: "block" }}/>
           </div>
-          <ProjectResourcePanel data={resource} periods={periods}/>
+          <ProjectResourcePanel
+            data={resource}
+            periods={periods}
+            justificationProps={justificationData ? {
+              initialJustification: justificationData.justification,
+              openCRs: justificationData.openCRs,
+              roleRequirementsForJustification: justificationData.roleRequirements,
+              projectTitle: projectTitleForSeed || projectTitle || "Project",
+              canEdit,
+            } : undefined}
+          />
         </div>
       )}
 
