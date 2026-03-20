@@ -19,30 +19,60 @@ export type ApprovalProgressInput = {
 };
 
 type DraftAssistAi = {
-  summary?: string; justification?: string; financial?: string; schedule?: string;
-  risks?: string; dependencies?: string; assumptions?: string;
-  implementation?: string; rollback?: string;
+  summary?: string;
+  justification?: string;
+  financial?: string;
+  schedule?: string;
+  risks?: string;
+  dependencies?: string;
+  assumptions?: string;
+  implementation?: string;
+  rollback?: string;
   impact?: { days: number; cost: number; risk: string };
 };
-type DraftAssistResp = { ok: true; model?: string; draftId?: string; ai?: DraftAssistAi; };
+type DraftAssistResp = { ok: true; model?: string; draftId?: string; ai?: DraftAssistAi };
 type AiInterview = {
-  about: string; why: string; impacted: string; when: string;
-  constraints: string; costs: string; riskLevel: "Low" | "Medium" | "High"; rollback: string;
+  about: string;
+  why: string;
+  impacted: string;
+  when: string;
+  constraints: string;
+  costs: string;
+  riskLevel: "Low" | "Medium" | "High";
+  rollback: string;
 };
 type ChangeFormValue = {
-  title: string; requester: string; status: ChangeStatus; priority: ChangePriority;
-  summary: string; justification: string; financial: string; schedule: string;
-  risks: string; dependencies: string; assumptions: string;
-  implementationPlan: string; rollbackPlan: string;
+  title: string;
+  requester: string;
+  status: ChangeStatus;
+  priority: ChangePriority;
+  summary: string;
+  justification: string;
+  financial: string;
+  schedule: string;
+  risks: string;
+  dependencies: string;
+  assumptions: string;
+  implementationPlan: string;
+  rollbackPlan: string;
   aiImpact: { days: number; cost: number; risk: string };
   files: File[];
 };
 
 /* ─── Utils (all logic preserved from original) ─── */
-function safeStr(x: unknown): string { return typeof x === "string" ? x : x == null ? "" : String(x); }
-function clampText(s: string, max: number): string { const t = String(s ?? ""); return t.length > max ? t.slice(0, max) : t; }
-function isValidPriority(p: string): p is ChangePriority { return ["Low","Medium","High","Critical"].includes(p); }
-function isValidStatus(s: string): s is ChangeStatus { return ["new","analysis","review","in_progress","implemented","closed"].includes(s); }
+function safeStr(x: unknown): string {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+function clampText(s: string, max: number): string {
+  const t = String(s ?? "");
+  return t.length > max ? t.slice(0, max) : t;
+}
+function isValidPriority(p: string): p is ChangePriority {
+  return ["Low", "Medium", "High", "Critical"].includes(p);
+}
+function isValidStatus(s: string): s is ChangeStatus {
+  return ["new", "analysis", "review", "in_progress", "implemented", "closed"].includes(s);
+}
 function normalizeStatus(raw: unknown): ChangeStatus {
   const v = safeStr(raw).trim().toLowerCase();
   if (isValidStatus(v)) return v as ChangeStatus;
@@ -55,22 +85,43 @@ function normalizePriority(raw: unknown): ChangePriority {
   return "Medium";
 }
 function looksLikeUuid(s: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(s || "").trim());
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
+  );
 }
 function uiStatusToDeliveryLane(s: ChangeStatus): DeliveryLane {
-  const m: Record<ChangeStatus, DeliveryLane> = { new: "intake", analysis: "analysis", review: "review", in_progress: "in_progress", implemented: "implemented", closed: "closed" };
+  const m: Record<ChangeStatus, DeliveryLane> = {
+    new: "intake",
+    analysis: "analysis",
+    review: "review",
+    in_progress: "in_progress",
+    implemented: "implemented",
+    closed: "closed",
+  };
   return m[s] ?? "intake";
 }
 async function apiPost(url: string, body?: any): Promise<any> {
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : "{}" });
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : "{}",
+  });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || (json as any)?.ok === false) throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
+  if (!res.ok || (json as any)?.ok === false) {
+    throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
+  }
   return json;
 }
 async function apiPatch(url: string, body?: any): Promise<any> {
-  const res = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : "{}" });
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : "{}",
+  });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || (json as any)?.ok === false) throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
+  if (!res.ok || (json as any)?.ok === false) {
+    throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
+  }
   return json;
 }
 function newDraftId(): string {
@@ -206,20 +257,90 @@ function injectCss() {
 
 /* ─── SVG Icons — NO emoji, NO rendering issues ─── */
 const Ic = {
-  Bolt: ({ s = 11 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
-  X:    ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>,
-  Trash:({ s = 12 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>,
-  Clip: ({ s = 14 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>,
-  File: ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>,
-  Doc:  ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
-  Star: ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>,
-  Dollar:({s=13}:{s?:number})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 100 7h5a3.5 3.5 0 110 7H6"/></svg>,
-  Cal:  ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
-  Warn: ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
-  Arrows:({s=13}:{s?:number})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>,
+  Bolt: ({ s = 11 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+    </svg>
+  ),
+  X: ({ s = 13 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+      <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  ),
+  Trash: ({ s = 12 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+    </svg>
+  ),
+  Clip: ({ s = 14 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+    </svg>
+  ),
+  File: ({ s = 13 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
+      <polyline points="13 2 13 9 20 9" />
+    </svg>
+  ),
+  Doc: ({ s = 13 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+    </svg>
+  ),
+  Star: ({ s = 13 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round">
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+    </svg>
+  ),
+  Dollar: ({ s = 13 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round">
+      <line x1="12" y1="1" x2="12" y2="23" />
+      <path d="M17 5H9.5a3.5 3.5 0 100 7h5a3.5 3.5 0 110 7H6" />
+    </svg>
+  ),
+  Cal: ({ s = 13 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  ),
+  Warn: ({ s = 13 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  ),
+  Arrows: ({ s = 13 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round">
+      <polyline points="16 3 21 3 21 8" />
+      <line x1="4" y1="20" x2="21" y2="3" />
+      <polyline points="21 16 21 21 16 21" />
+      <line x1="15" y1="15" x2="21" y2="21" />
+    </svg>
+  ),
 };
 
-function AiBtn({ disabled, busy, onClick, title }: { disabled?: boolean; busy?: boolean; onClick: () => void; title?: string }) {
+function AiBtn({
+  disabled,
+  busy,
+  onClick,
+  title,
+}: {
+  disabled?: boolean;
+  busy?: boolean;
+  onClick: () => void;
+  title?: string;
+}) {
   return (
     <button type="button" className="ccm-aibtn" onClick={onClick} disabled={disabled || busy} title={title}>
       <Ic.Bolt s={9} /> {busy ? "…" : "AI"}
@@ -236,17 +357,44 @@ function CHead({ icon, children }: { icon: React.ReactNode; children: React.Reac
   );
 }
 
-function Drawer({ open, title, sub, onClose, children }: { open: boolean; title: string; sub?: string; onClose: () => void; children: React.ReactNode }) {
+function Drawer({
+  open,
+  title,
+  sub,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  sub?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
   if (!open) return null;
   return (
     <div className="ccm-doverlay" role="dialog" aria-modal="true">
       <div className="ccm-drawer">
         <div className="ccm-dhead">
           <div>
-            {sub && <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#6366f1", marginBottom: 3 }}>{sub}</div>}
+            {sub && (
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: ".08em",
+                  textTransform: "uppercase",
+                  color: "#6366f1",
+                  marginBottom: 3,
+                }}
+              >
+                {sub}
+              </div>
+            )}
             <div style={{ fontSize: 15, fontWeight: 700, color: "#0d1023" }}>{title}</div>
           </div>
-          <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={onClose}><Ic.X s={11} /> Close</button>
+          <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={onClose}>
+            <Ic.X s={11} /> Close
+          </button>
         </div>
         <div className="ccm-dbody">{children}</div>
       </div>
@@ -266,6 +414,7 @@ function ApprovalBar({ approval }: { approval?: ApprovalProgressInput | null }) 
   const acting = approval.actingOnBehalfOf || null;
   const actingName = safeStr(acting?.name).trim();
   const actingEmail = safeStr(acting?.email).trim();
+
   return (
     <div className="ccm-appr">
       <div className="ccm-apprhead">
@@ -275,18 +424,84 @@ function ApprovalBar({ approval }: { approval?: ApprovalProgressInput | null }) 
         </div>
         <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
           {remaining > 0 && <span className="ccm-apprchip">{remaining} remaining</span>}
-          <span className="ccm-apprchip" style={{ background: canApprove ? "rgba(52,211,153,.2)" : "rgba(251,191,36,.2)" }}>
-            <span style={{ width: 5, height: 5, borderRadius: "50%", background: canApprove ? "#34d399" : "#fbbf24", display: "inline-block" }} />
+          <span
+            className="ccm-apprchip"
+            style={{ background: canApprove ? "rgba(52,211,153,.2)" : "rgba(251,191,36,.2)" }}
+          >
+            <span
+              style={{
+                width: 5,
+                height: 5,
+                borderRadius: "50%",
+                background: canApprove ? "#34d399" : "#fbbf24",
+                display: "inline-block",
+              }}
+            />
             {canApprove ? "You can approve" : "View only"}
           </span>
         </div>
       </div>
       <div className="ccm-apprbody">
-        <div className="ccm-progtrack"><div className="ccm-progfill" style={{ width: `${pct}%` }} /></div>
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5 }}>
-          <span style={{ fontSize: 10.5, color: "#9ca3af" }}>{(actingName || actingEmail) ? <>Acting for <strong style={{ color: "#374151" }}>{actingName || actingEmail}</strong></> : null}</span>
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: "#6366f1", fontFamily: "'DM Mono',monospace" }}>{pct}%</span>
+        <div className="ccm-progtrack">
+          <div className="ccm-progfill" style={{ width: `${pct}%` }} />
         </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5 }}>
+          <span style={{ fontSize: 10.5, color: "#9ca3af" }}>
+            {actingName || actingEmail ? (
+              <>
+                Acting for <strong style={{ color: "#374151" }}>{actingName || actingEmail}</strong>
+              </>
+            ) : null}
+          </span>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: "#6366f1", fontFamily: "'DM Mono',monospace" }}>
+            {pct}%
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AiField({
+  value,
+  onChange,
+  rows = 4,
+  placeholder,
+  onAi,
+  label,
+  req,
+  disabled,
+  aiBusy,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  rows?: number;
+  placeholder?: string;
+  onAi: () => void;
+  label?: string;
+  req?: boolean;
+  disabled?: boolean;
+  aiBusy?: boolean;
+}) {
+  return (
+    <div className="ccm-field">
+      {label && (
+        <label className="ccm-label">
+          {label}
+          {req && <span className="ccm-req"> *</span>}
+        </label>
+      )}
+      <div className="ccm-fwrap">
+        <textarea
+          className="ccm-textarea"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={rows}
+          placeholder={placeholder}
+          disabled={disabled}
+          style={{ paddingRight: 52 }}
+        />
+        <AiBtn disabled={disabled} busy={aiBusy} onClick={onAi} />
       </div>
     </div>
   );
@@ -296,18 +511,35 @@ function ApprovalBar({ approval }: { approval?: ApprovalProgressInput | null }) 
    MAIN COMPONENT
 ═══════════════════════════════════════════ */
 export default function ChangeCreateModal({
-  open, onClose, projectId, artifactId,
-  initialStatus, initialPriority,
-  mode = "create", changeId = null, initialValue, titleOverride, approval,
+  open,
+  onClose,
+  projectId,
+  artifactId,
+  initialStatus,
+  initialPriority,
+  mode = "create",
+  changeId = null,
+  initialValue,
+  titleOverride,
+  approval,
 }: {
-  open: boolean; onClose: () => void; projectId: string; artifactId?: string | null;
-  initialStatus?: ChangeStatus; initialPriority?: ChangePriority;
-  mode?: "create" | "edit"; changeId?: string | null;
+  open: boolean;
+  onClose: () => void;
+  projectId: string;
+  artifactId?: string | null;
+  initialStatus?: ChangeStatus;
+  initialPriority?: ChangePriority;
+  mode?: "create" | "edit";
+  changeId?: string | null;
   initialValue?: Partial<ChangeFormValue> & Record<string, any>;
-  titleOverride?: string; approval?: ApprovalProgressInput | null;
+  titleOverride?: string;
+  approval?: ApprovalProgressInput | null;
 }) {
   const router = useRouter();
-  useEffect(() => { injectCss(); }, []);
+
+  useEffect(() => {
+    injectCss();
+  }, []);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -339,41 +571,86 @@ export default function ChangeCreateModal({
   const [draftModel, setDraftModel] = useState("rules-v1");
   const [aiInterviewOpen, setAiInterviewOpen] = useState(false);
   const [forceOverwrite, setForceOverwrite] = useState(false);
-  const [interview, setInterview] = useState<AiInterview>({ about: "", why: "", impacted: "", when: "", constraints: "", costs: "", riskLevel: "Medium", rollback: "" });
+  const [interview, setInterview] = useState<AiInterview>({
+    about: "",
+    why: "",
+    impacted: "",
+    when: "",
+    constraints: "",
+    costs: "",
+    riskLevel: "Medium",
+    rollback: "",
+  });
 
   const isEdit = mode === "edit";
   const disabled = saving;
-  const draftId = useMemo(() => newDraftId(), [open]);
+  const draftIdRef = useRef<string>("");
 
-/* ── Resolve project (all original logic) ── */
+  useEffect(() => {
+    if (open) draftIdRef.current = newDraftId();
+  }, [open]);
+
+  const draftId = draftIdRef.current;
+
+  /* ── Resolve project (all original logic) ── */
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+
     async function resolve() {
       const raw = safeStr(projectId).trim();
-      setProjResolveErr(""); setResolvedProjectId(""); setProjResolveBusy(false);
-      if (!raw) { setProjResolveErr("Missing projectId."); return; }
-      if (looksLikeUuid(raw)) { setResolvedProjectId(raw); setProjResolveBusy(false); return; }
+      setProjResolveErr("");
+      setResolvedProjectId("");
+      setProjResolveBusy(false);
+
+      if (!raw) {
+        setProjResolveErr("Missing projectId.");
+        return;
+      }
+
+      if (looksLikeUuid(raw)) {
+        setResolvedProjectId(raw);
+        setProjResolveBusy(false);
+        return;
+      }
+
       try {
         setProjResolveBusy(true);
         const res = await fetch(`/api/projects/${encodeURIComponent(raw)}`, { cache: "no-store" });
         const json = await res.json().catch(() => ({}));
-        if (!res.ok || json?.ok === false) throw new Error(safeStr(json?.error) || `HTTP ${res.status}`);
+
+        if (!res.ok || json?.ok === false) {
+          throw new Error(safeStr(json?.error) || `HTTP ${res.status}`);
+        }
+
         const uuid = safeStr(json?.project?.id || json?.data?.id || json?.item?.id).trim();
         if (!uuid || !looksLikeUuid(uuid)) throw new Error("Project UUID not found.");
         if (!cancelled) setResolvedProjectId(uuid);
       } catch (e: any) {
         if (!cancelled) setProjResolveErr(safeStr(e?.message) || "Failed to resolve projectId.");
-      } finally { if (!cancelled) setProjResolveBusy(false); }
+      } finally {
+        if (!cancelled) setProjResolveBusy(false);
+      }
     }
+
     resolve();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open, projectId]);
+
   /* ── Reset on open (all original logic) ── */
   useEffect(() => {
     if (!open) return;
-    setError(""); setAiErr(""); setDrafts(null); setDraftModel("rules-v1");
-    setUploadBusy(false); setUploadErr(""); setFiles([]);
+
+    setError("");
+    setAiErr("");
+    setDrafts(null);
+    setDraftModel("rules-v1");
+    setUploadBusy(false);
+    setUploadErr("");
+    setFiles([]);
+
     const iv: any = initialValue ?? {};
     const merged: ChangeFormValue = {
       title: safeStr(iv.title ?? ""),
@@ -381,9 +658,12 @@ export default function ChangeCreateModal({
       status: normalizeStatus(iv.status ?? iv.delivery_status ?? initialStatus ?? "new"),
       priority: normalizePriority(iv.priority ?? initialPriority ?? "Medium"),
       summary: safeStr(iv.summary ?? iv.description ?? ""),
-      justification: safeStr(iv.justification ?? ""), financial: safeStr(iv.financial ?? ""),
-      schedule: safeStr(iv.schedule ?? ""), risks: safeStr(iv.risks ?? ""),
-      dependencies: safeStr(iv.dependencies ?? ""), assumptions: safeStr(iv.assumptions ?? ""),
+      justification: safeStr(iv.justification ?? ""),
+      financial: safeStr(iv.financial ?? ""),
+      schedule: safeStr(iv.schedule ?? ""),
+      risks: safeStr(iv.risks ?? ""),
+      dependencies: safeStr(iv.dependencies ?? ""),
+      assumptions: safeStr(iv.assumptions ?? ""),
       implementationPlan: safeStr(iv.implementationPlan ?? iv.implementation_plan ?? iv.implementation ?? ""),
       rollbackPlan: safeStr(iv.rollbackPlan ?? iv.rollback_plan ?? iv.rollback ?? ""),
       aiImpact: {
@@ -393,109 +673,232 @@ export default function ChangeCreateModal({
       },
       files: [],
     };
-    setTitle(merged.title); setRequester(merged.requester); setStatus(merged.status); setPriority(merged.priority); setSummary(merged.summary);
-    setJustification(merged.justification); setFinancial(merged.financial); setSchedule(merged.schedule); setRisks(merged.risks);
-    setDependencies(merged.dependencies); setAssumptions(merged.assumptions);
-    setImplementationPlan(merged.implementationPlan); setRollbackPlan(merged.rollbackPlan);
-    setAiImpact({ days: Number(merged.aiImpact.days ?? 0) || 0, cost: Number(merged.aiImpact.cost ?? 0) || 0, risk: safeStr(merged.aiImpact.risk ?? "None identified") || "None identified" });
-    setInterview({ about: safeStr(merged.title), why: safeStr(merged.summary), impacted: merged.requester ? `Stakeholders/requester: ${merged.requester}. (Confirm impacted services/users)` : "", when: "", constraints: "", costs: "", riskLevel: "Medium", rollback: safeStr(merged.rollbackPlan) });
+
+    setTitle(merged.title);
+    setRequester(merged.requester);
+    setStatus(merged.status);
+    setPriority(merged.priority);
+    setSummary(merged.summary);
+    setJustification(merged.justification);
+    setFinancial(merged.financial);
+    setSchedule(merged.schedule);
+    setRisks(merged.risks);
+    setDependencies(merged.dependencies);
+    setAssumptions(merged.assumptions);
+    setImplementationPlan(merged.implementationPlan);
+    setRollbackPlan(merged.rollbackPlan);
+    setAiImpact({
+      days: Number(merged.aiImpact.days ?? 0) || 0,
+      cost: Number(merged.aiImpact.cost ?? 0) || 0,
+      risk: safeStr(merged.aiImpact.risk ?? "None identified") || "None identified",
+    });
+    setInterview({
+      about: safeStr(merged.title),
+      why: safeStr(merged.summary),
+      impacted: merged.requester
+        ? `Stakeholders/requester: ${merged.requester}. (Confirm impacted services/users)`
+        : "",
+      when: "",
+      constraints: "",
+      costs: "",
+      riskLevel: "Medium",
+      rollback: safeStr(merged.rollbackPlan),
+    });
     setForceOverwrite(false);
+
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [open, initialStatus, initialPriority, initialValue]);
 
   /* ── File handling (all original logic) ── */
-  const removeFile = (idx: number) => setFiles(p => p.filter((_, i) => i !== idx));
+  const removeFile = (idx: number) => setFiles((p) => p.filter((_, i) => i !== idx));
 
   async function uploadFilesToChange(changeUuid: string, picked?: File[]) {
     const pid = safeStr(resolvedProjectId).trim();
     const aId = safeStr(artifactId).trim();
     const list = (picked && picked.length ? picked : files) ?? [];
     if (!list.length) return;
-    setUploadErr(""); setUploadBusy(true);
+
+    setUploadErr("");
+    setUploadBusy(true);
+
     try {
       const url = `/api/change/${encodeURIComponent(changeUuid)}/attachments`;
       for (const file of list) {
         const fd = new FormData();
-        fd.append("file", file); fd.append("filename", file.name);
+        fd.append("file", file);
+        fd.append("filename", file.name);
         fd.append("content_type", file.type || "application/octet-stream");
         if (pid) fd.append("projectId", pid);
         if (aId) fd.append("artifactId", aId);
+
         const res = await fetch(url, { method: "POST", body: fd });
         const json = await res.json().catch(() => ({}));
-        if (!res.ok || (json as any)?.ok === false) throw new Error(safeStr((json as any)?.error) || `Attachment upload failed (HTTP ${res.status})`);
+        if (!res.ok || (json as any)?.ok === false) {
+          throw new Error(safeStr((json as any)?.error) || `Attachment upload failed (HTTP ${res.status})`);
+        }
       }
-    } catch (e: any) { setUploadErr(safeStr(e?.message) || "Failed to upload attachment(s)"); throw e; }
-    finally { setUploadBusy(false); }
+    } catch (e: any) {
+      setUploadErr(safeStr(e?.message) || "Failed to upload attachment(s)");
+      throw e;
+    } finally {
+      setUploadBusy(false);
+    }
   }
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.currentTarget.files ?? []);
     if (!picked.length) return;
-    setFiles(p => [...p, ...picked]);
+
+    setFiles((p) => [...p, ...picked]);
+
     const cid = safeStr(changeId).trim();
-    if (cid) { try { await uploadFilesToChange(cid, picked); } catch {} }
+    if (cid) {
+      try {
+        await uploadFilesToChange(cid, picked);
+      } catch {}
+    }
+
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   async function removeUploadedAttachmentByFilename(filename: string) {
-    const cid = safeStr(changeId).trim(); if (!cid) return;
+    const cid = safeStr(changeId).trim();
+    if (!cid) return;
+
     const listRes = await fetch(`/api/change/${encodeURIComponent(cid)}/attachments`);
     const listJson = await listRes.json().catch(() => ({}));
-    if (!listRes.ok || (listJson as any)?.ok === false) throw new Error(safeStr((listJson as any)?.error) || "Failed to load attachments");
+    if (!listRes.ok || (listJson as any)?.ok === false) {
+      throw new Error(safeStr((listJson as any)?.error) || "Failed to load attachments");
+    }
+
     const items: any[] = Array.isArray((listJson as any)?.items) ? (listJson as any).items : [];
-    const match = items.find(x => safeStr(x?.filename) === filename);
-    const path = safeStr(match?.path).trim(); if (!path) throw new Error("Attachment path not found");
-    const delRes = await fetch(`/api/change/${encodeURIComponent(cid)}/attachments?path=${encodeURIComponent(path)}`, { method: "DELETE" });
+    const match = items.find((x) => safeStr(x?.filename) === filename);
+    const path = safeStr(match?.path).trim();
+    if (!path) throw new Error("Attachment path not found");
+
+    const delRes = await fetch(
+      `/api/change/${encodeURIComponent(cid)}/attachments?path=${encodeURIComponent(path)}`,
+      { method: "DELETE" }
+    );
     const delJson = await delRes.json().catch(() => ({}));
-    if (!delRes.ok || (delJson as any)?.ok === false) throw new Error(safeStr((delJson as any)?.error) || "Failed to delete attachment");
+    if (!delRes.ok || (delJson as any)?.ok === false) {
+      throw new Error(safeStr((delJson as any)?.error) || "Failed to delete attachment");
+    }
   }
 
   /* ── AI (all original logic) ── */
   function improveOrSetLocal(current: string, setter: (v: string) => void, suggestion: string, max = 8000) {
-    const s = safeStr(suggestion).trim(); if (!s) return;
+    const s = safeStr(suggestion).trim();
+    if (!s) return;
     const cur = safeStr(current).trim();
-    if (cur.length >= 50) { setter(clampText(`${cur}\n\n—\nImproved draft:\n${s}`, max)); return; }
+
+    if (cur.length >= 50) {
+      setter(clampText(`${cur}\n\n—\nImproved draft:\n${s}`, max));
+      return;
+    }
+
     setter(clampText(s, max));
   }
+
   function hasInterviewSignal() {
     const ok = (x: string) => safeStr(x).trim().length >= 3;
     return ok(interview.about) || ok(interview.why) || ok(interview.impacted) || ok(interview.when);
   }
+
   function useCurrentDraftIntoInterview({ overwrite }: { overwrite: boolean }) {
-    const mapIf = (current: string, next: string) => { if (overwrite) return next; return safeStr(current).trim() ? current : next; };
-    setInterview(prev => {
+    const mapIf = (current: string, next: string) => {
+      if (overwrite) return next;
+      return safeStr(current).trim() ? current : next;
+    };
+
+    setInterview((prev) => {
       const next = { ...prev };
       next.about = mapIf(next.about, safeStr(title).trim());
       next.why = mapIf(next.why, safeStr(summary).trim());
-      next.impacted = mapIf(next.impacted, requester ? `Stakeholders/requester: ${requester}. (Confirm impacted services/users)` : "");
-      next.costs = mapIf(next.costs, [aiImpact.cost > 0 ? `£${aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "", aiImpact.days > 0 ? `${aiImpact.days} day(s)` : ""].filter(Boolean).join(" / "));
+      next.impacted = mapIf(
+        next.impacted,
+        requester ? `Stakeholders/requester: ${requester}. (Confirm impacted services/users)` : ""
+      );
+      next.costs = mapIf(
+        next.costs,
+        [
+          aiImpact.cost > 0
+            ? `£${aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`
+            : "",
+          aiImpact.days > 0 ? `${aiImpact.days} day(s)` : "",
+        ]
+          .filter(Boolean)
+          .join(" / ")
+      );
       next.rollback = mapIf(next.rollback, safeStr(rollbackPlan).trim());
       return next;
     });
   }
+
   async function runPmoDraftAssist(): Promise<DraftAssistAi | null> {
     const pid = safeStr(resolvedProjectId).trim();
-    if (!pid) { setAiErr(projResolveErr || "Missing projectId."); return null; }
-    setAiErr(""); setAiBusy(true);
+    if (!pid) {
+      setAiErr(projResolveErr || "Missing projectId.");
+      return null;
+    }
+
+    setAiErr("");
+    setAiBusy(true);
+
     try {
-      const j = await apiPost("/api/ai/events", {
-        projectId: pid, artifactId: safeStr(artifactId).trim() || null,
-        eventType: "change_draft_assist_requested", severity: "info",
+      const j = (await apiPost("/api/ai/events", {
+        projectId: pid,
+        artifactId: safeStr(artifactId).trim() || null,
+        eventType: "change_draft_assist_requested",
+        severity: "info",
         source: isEdit ? "change_edit_modal" : "change_create_modal",
-        payload: { draftId, mode, title: safeStr(title), summary: safeStr(summary), priority: safeStr(priority), status: safeStr(status), requester: safeStr(requester), justification: safeStr(justification), financial: safeStr(financial), schedule: safeStr(schedule), risks: safeStr(risks), dependencies: safeStr(dependencies), assumptions: safeStr(assumptions), implementation: safeStr(implementationPlan), rollback: safeStr(rollbackPlan), interview },
-      }) as DraftAssistResp;
+        payload: {
+          draftId,
+          mode,
+          title: safeStr(title),
+          summary: safeStr(summary),
+          priority: safeStr(priority),
+          status: safeStr(status),
+          requester: safeStr(requester),
+          justification: safeStr(justification),
+          financial: safeStr(financial),
+          schedule: safeStr(schedule),
+          risks: safeStr(risks),
+          dependencies: safeStr(dependencies),
+          assumptions: safeStr(assumptions),
+          implementation: safeStr(implementationPlan),
+          rollback: safeStr(rollbackPlan),
+          interview,
+        },
+      })) as DraftAssistResp;
+
       const ai = (j && typeof j === "object" ? (j as any).ai : null) || null;
-      setDrafts(ai); setDraftModel(safeStr((j as any)?.model) || "rules-v1"); return ai;
-    } catch (e: any) { setAiErr(safeStr(e?.message) || "AI draft failed"); setDrafts(null); return null; }
-    finally { setAiBusy(false); }
+      setDrafts(ai);
+      setDraftModel(safeStr((j as any)?.model) || "rules-v1");
+      return ai;
+    } catch (e: any) {
+      setAiErr(safeStr(e?.message) || "AI draft failed");
+      setDrafts(null);
+      return null;
+    } finally {
+      setAiBusy(false);
+    }
   }
+
   async function ensureDrafts() {
     if (drafts) return drafts;
-    if (!hasInterviewSignal()) { setAiInterviewOpen(true); setAiErr("Tell AI what the change is about (Start AI) to generate accurate drafts."); return null; }
+    if (!hasInterviewSignal()) {
+      setAiInterviewOpen(true);
+      setAiErr("Tell AI what the change is about (Start AI) to generate accurate drafts.");
+      return null;
+    }
     return runPmoDraftAssist();
   }
+
   async function applyAllAi() {
-    const d = await ensureDrafts(); if (!d) return;
+    const d = await ensureDrafts();
+    if (!d) return;
+
     improveOrSetLocal(summary, setSummary, safeStr(d.summary), 1200);
     improveOrSetLocal(justification, setJustification, safeStr(d.justification));
     improveOrSetLocal(financial, setFinancial, safeStr(d.financial));
@@ -505,111 +908,249 @@ export default function ChangeCreateModal({
     improveOrSetLocal(assumptions, setAssumptions, safeStr(d.assumptions));
     improveOrSetLocal(implementationPlan, setImplementationPlan, safeStr(d.implementation));
     improveOrSetLocal(rollbackPlan, setRollbackPlan, safeStr(d.rollback));
+
     const imp = (d as any)?.impact;
-    if (imp) setAiImpact({ days: Number(imp?.days ?? 0) || 0, cost: Number(imp?.cost ?? 0) || 0, risk: safeStr(imp?.risk ?? "").trim() || "None identified" });
+    if (imp) {
+      setAiImpact({
+        days: Number(imp?.days ?? 0) || 0,
+        cost: Number(imp?.cost ?? 0) || 0,
+        risk: safeStr(imp?.risk ?? "").trim() || "None identified",
+      });
+    }
   }
+
   async function runAiImpactScan() {
-    const d = await ensureDrafts(); if (!d) return;
+    const d = await ensureDrafts();
+    if (!d) return;
+
     const imp = (d as any)?.impact;
-    if (!imp) { setAiErr("AI returned no impact suggestion."); return; }
-    setAiImpact({ days: Number(imp?.days ?? 0) || 0, cost: Number(imp?.cost ?? 0) || 0, risk: safeStr(imp?.risk ?? "").trim() || "None identified" });
+    if (!imp) {
+      setAiErr("AI returned no impact suggestion.");
+      return;
+    }
+
+    setAiImpact({
+      days: Number(imp?.days ?? 0) || 0,
+      cost: Number(imp?.cost ?? 0) || 0,
+      risk: safeStr(imp?.risk ?? "").trim() || "None identified",
+    });
   }
-  async function fireAiAfterSuccess(args: { projectId: string; changeId: string; eventType: "change_created" | "change_saved"; action: "created" | "updated" }) {
-    try { await fetch("/api/ai/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: args.projectId, artifactId: args.changeId, eventType: args.eventType, severity: "info", source: isEdit ? "change_edit_modal" : "change_create_modal", payload: { target_artifact_type: "change_request", change_id: args.changeId, action: args.action } }) }).catch(() => null); } catch {}
+
+  async function fireAiAfterSuccess(args: {
+    projectId: string;
+    changeId: string;
+    eventType: "change_created" | "change_saved";
+    action: "created" | "updated";
+  }) {
+    try {
+      await fetch("/api/ai/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: args.projectId,
+          artifactId: args.changeId,
+          eventType: args.eventType,
+          severity: "info",
+          source: isEdit ? "change_edit_modal" : "change_create_modal",
+          payload: {
+            target_artifact_type: "change_request",
+            change_id: args.changeId,
+            action: args.action,
+          },
+        }),
+      }).catch(() => null);
+    } catch {}
   }
 
   /* ── Submit (all original logic) ── */
   async function submitChange() {
-    setError(""); setUploadErr("");
+    setError("");
+    setUploadErr("");
+
     const pid = safeStr(resolvedProjectId).trim();
     if (!pid) return setError(projResolveErr || "Missing projectId.");
+
     const t = clampText(safeStr(title).trim(), 160);
     if (!t) return setError("Title is required.");
+
     const s = clampText(safeStr(summary).trim(), 1200);
     if (!s) return setError("Summary is required.");
+
     if (mode === "edit" && !safeStr(changeId).trim()) return setError("Missing changeId for edit.");
+
     setSaving(true);
+
     try {
-      const impact_analysis = { days: Number(aiImpact.days ?? 0) || 0, cost: Number(aiImpact.cost ?? 0) || 0, risk: clampText(safeStr(aiImpact.risk ?? "None identified"), 280), highlights: [] };
-      const proposed_change = clampText([justification ? `Justification:\n${justification}` : "", financial ? `Financial:\n${financial}` : "", schedule ? `Schedule:\n${schedule}` : "", risks ? `Risks:\n${risks}` : "", dependencies ? `Dependencies:\n${dependencies}` : "", assumptions ? `Assumptions:\n${assumptions}` : "", implementationPlan ? `Implementation Plan:\n${implementationPlan}` : "", rollbackPlan ? `Rollback Plan:\n${rollbackPlan}` : ""].filter(Boolean).join("\n\n"), 8000);
+      const impact_analysis = {
+        days: Number(aiImpact.days ?? 0) || 0,
+        cost: Number(aiImpact.cost ?? 0) || 0,
+        risk: clampText(safeStr(aiImpact.risk ?? "None identified"), 280),
+        highlights: [],
+      };
+
+      const proposed_change = clampText(
+        [
+          justification ? `Justification:\n${justification}` : "",
+          financial ? `Financial:\n${financial}` : "",
+          schedule ? `Schedule:\n${schedule}` : "",
+          risks ? `Risks:\n${risks}` : "",
+          dependencies ? `Dependencies:\n${dependencies}` : "",
+          assumptions ? `Assumptions:\n${assumptions}` : "",
+          implementationPlan ? `Implementation Plan:\n${implementationPlan}` : "",
+          rollbackPlan ? `Rollback Plan:\n${rollbackPlan}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        8000
+      );
+
       const delivery_status = uiStatusToDeliveryLane(status);
-      const payload: any = { project_id: pid, artifact_id: safeStr(artifactId).trim() || null, title: t, description: s, requester_name: safeStr(requester).trim() || "Unknown requester", priority: normalizePriority(priority), tags: [], proposed_change, impact_analysis, justification, financial, schedule, risks, dependencies, assumptions, implementationPlan: safeStr(implementationPlan), rollbackPlan: safeStr(rollbackPlan), implementation_plan: safeStr(implementationPlan), rollback_plan: safeStr(rollbackPlan) };
+
+      const payload: any = {
+        project_id: pid,
+        artifact_id: safeStr(artifactId).trim() || null,
+        title: t,
+        description: s,
+        requester_name: safeStr(requester).trim() || "Unknown requester",
+        priority: normalizePriority(priority),
+        tags: [],
+        proposed_change,
+        impact_analysis,
+        justification,
+        financial,
+        schedule,
+        risks,
+        dependencies,
+        assumptions,
+        implementationPlan: safeStr(implementationPlan),
+        rollbackPlan: safeStr(rollbackPlan),
+        implementation_plan: safeStr(implementationPlan),
+        rollback_plan: safeStr(rollbackPlan),
+      };
+
       if (!isEdit) payload.delivery_status = delivery_status;
+
       if (isEdit) {
         const cid = String(changeId);
         await apiPatch(`/api/change/${encodeURIComponent(cid)}`, payload);
         if (files.length) await uploadFilesToChange(cid);
-        await fireAiAfterSuccess({ projectId: pid, changeId: cid, eventType: "change_saved", action: "updated" });
-        onClose(); router.refresh(); return;
+        await fireAiAfterSuccess({
+          projectId: pid,
+          changeId: cid,
+          eventType: "change_saved",
+          action: "updated",
+        });
+        onClose();
+        router.refresh();
+        return;
       }
+
       const j = await apiPost("/api/change", payload);
       const newId = safeStr((j as any)?.item?.id || (j as any)?.id || (j as any)?.data?.id).trim();
       if (!newId) throw new Error("Create succeeded but no id returned");
+
       if (files.length) await uploadFilesToChange(newId);
-      await fireAiAfterSuccess({ projectId: pid, changeId: newId, eventType: "change_created", action: "created" });
-      onClose(); router.replace(`/projects/${projectId}/change/${newId}`); router.refresh();
-    } catch (e: any) { setError(safeStr(e?.message) || (isEdit ? "Save failed" : "Create failed")); }
-    finally { setSaving(false); }
+      await fireAiAfterSuccess({
+        projectId: pid,
+        changeId: newId,
+        eventType: "change_created",
+        action: "created",
+      });
+
+      onClose();
+      router.replace(`/projects/${projectId}/change/${newId}`);
+      router.refresh();
+    } catch (e: any) {
+      setError(safeStr(e?.message) || (isEdit ? "Save failed" : "Create failed"));
+    } finally {
+      setSaving(false);
+    }
   }
 
   function statusLabel(s: ChangeStatus) {
-    const m: Record<ChangeStatus, string> = { new: "New", analysis: "Analysis", review: "Review", in_progress: "Implementation", implemented: "Implemented", closed: "Closed" };
+    const m: Record<ChangeStatus, string> = {
+      new: "New",
+      analysis: "Analysis",
+      review: "Review",
+      in_progress: "Implementation",
+      implemented: "Implemented",
+      closed: "Closed",
+    };
     return m[s] ?? s;
   }
-  const ppClass: Record<ChangePriority, string> = { Low: "ccm-pill ccm-pill-low", Medium: "ccm-pill ccm-pill-medium", High: "ccm-pill ccm-pill-high", Critical: "ccm-pill ccm-pill-critical" };
-  const laneLabel = uiStatusToDeliveryLane(status).replace(/_/g, " ");
+
+  const ppClass: Record<ChangePriority, string> = {
+    Low: "ccm-pill ccm-pill-low",
+    Medium: "ccm-pill ccm-pill-medium",
+    High: "ccm-pill ccm-pill-high",
+    Critical: "ccm-pill ccm-pill-critical",
+  };
+
+  const laneLabel = useMemo(() => uiStatusToDeliveryLane(status).replace(/_/g, " "), [status]);
 
   if (!open) return null;
 
-  /* Reusable AI textarea */
-  const AF = ({ value, onChange, rows = 4, placeholder, onAi, label, req }: {
-    value: string; onChange: (v: string) => void; rows?: number; placeholder?: string;
-    onAi: () => void; label?: string; req?: boolean;
-  }) => (
-    <div className="ccm-field">
-      {label && <label className="ccm-label">{label}{req && <span className="ccm-req"> *</span>}</label>}
-      <div className="ccm-fwrap">
-        <textarea className="ccm-textarea" value={value} onChange={e => onChange(e.target.value)}
-          rows={rows} placeholder={placeholder} disabled={disabled} style={{ paddingRight: 52 }} />
-        <AiBtn disabled={disabled} busy={aiBusy} onClick={onAi} />
-      </div>
-    </div>
-  );
-
   return (
     <>
-      <div className="ccm-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="ccm-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <div className="ccm-modal">
-
           {/* ── Header ── */}
           <div className="ccm-header">
             <div className="ccm-htop">
               <div>
                 <div className="ccm-htitle">{titleOverride || (isEdit ? "Edit Change Request" : "New Change Request")}</div>
-                <div className="ccm-hsub">{isEdit ? "Update with AI assistance." : "Draft a complete change request — AI fills the gaps."}</div>
+                <div className="ccm-hsub">
+                  {isEdit ? "Update with AI assistance." : "Draft a complete change request — AI fills the gaps."}
+                </div>
                 <div className="ccm-hpills">
                   <span className="ccm-pill ccm-pill-status">
-                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#6366f1", display: "inline-block" }} />
+                    <span
+                      style={{
+                        width: 5,
+                        height: 5,
+                        borderRadius: "50%",
+                        background: "#6366f1",
+                        display: "inline-block",
+                      }}
+                    />
                     {statusLabel(status)}
                   </span>
                   <span className={ppClass[priority]}>{priority}</span>
                   {projResolveBusy && <span className="ccm-pill ccm-pill-amber">Resolving project…</span>}
-                  {projResolveErr && !projResolveBusy && <span style={{ fontSize: 10.5, color: "#dc2626" }}>{projResolveErr}</span>}
+                  {projResolveErr && !projResolveBusy && (
+                    <span style={{ fontSize: 10.5, color: "#dc2626" }}>{projResolveErr}</span>
+                  )}
                   {drafts && <span className="ccm-pill ccm-pill-green">✦ AI draft ready · {draftModel}</span>}
                 </div>
               </div>
+
               <div className="ccm-hacts">
-                <button type="button" className="ccm-btn ccm-btn-ai ccm-btn-sm"
-                  onClick={() => { useCurrentDraftIntoInterview({ overwrite: false }); setAiInterviewOpen(true); }} disabled={disabled || aiBusy}>
+                <button
+                  type="button"
+                  className="ccm-btn ccm-btn-ai ccm-btn-sm"
+                  onClick={() => {
+                    useCurrentDraftIntoInterview({ overwrite: false });
+                    setAiInterviewOpen(true);
+                  }}
+                  disabled={disabled || aiBusy}
+                >
                   <Ic.Bolt s={11} /> {aiBusy ? "Scanning…" : "Start AI"}
                 </button>
-                <button type="button" className="ccm-btn ccm-btn-ai ccm-btn-sm" onClick={applyAllAi} disabled={disabled || aiBusy}>Apply All</button>
-                <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={onClose} disabled={disabled}><Ic.X s={11} /> Close</button>
+
+                <button type="button" className="ccm-btn ccm-btn-ai ccm-btn-sm" onClick={applyAllAi} disabled={disabled || aiBusy}>
+                  Apply All
+                </button>
+
+                <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={onClose} disabled={disabled}>
+                  <Ic.X s={11} /> Close
+                </button>
+
                 <button type="button" className="ccm-btn ccm-btn-primary ccm-btn-sm" onClick={submitChange} disabled={disabled}>
                   {saving ? (isEdit ? "Saving…" : "Creating…") : isEdit ? "Save Changes" : "Create CR"}
                 </button>
               </div>
             </div>
+
             <ApprovalBar approval={approval} />
           </div>
 
@@ -619,20 +1160,35 @@ export default function ChangeCreateModal({
           {/* ── Body ── */}
           <div className="ccm-body">
             <div className="ccm-main">
-
               {/* Change Summary */}
               <div className="ccm-card">
                 <CHead icon={<Ic.Doc />}>Change Summary</CHead>
+
                 <div className="ccm-field" style={{ marginBottom: 12 }}>
-                  <label className="ccm-label">Title <span className="ccm-req">*</span></label>
-                  <input className="ccm-input" value={title} onChange={e => setTitle(e.target.value)}
-                    placeholder="e.g., Extend firewall scope for vendor access" disabled={disabled} />
+                  <label className="ccm-label">
+                    Title <span className="ccm-req">*</span>
+                  </label>
+                  <input
+                    className="ccm-input"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="e.g., Extend firewall scope for vendor access"
+                    disabled={disabled}
+                  />
                 </div>
+
                 <div className="ccm-row3" style={{ marginBottom: 12 }}>
                   <div className="ccm-field">
                     <label className="ccm-label">Requester</label>
-                    <input className="ccm-input" value={requester} onChange={e => setRequester(e.target.value)} placeholder="Name" disabled={disabled} />
+                    <input
+                      className="ccm-input"
+                      value={requester}
+                      onChange={(e) => setRequester(e.target.value)}
+                      placeholder="Name"
+                      disabled={disabled}
+                    />
                   </div>
+
                   <div className="ccm-field">
                     <label className="ccm-label">Status</label>
                     {isEdit ? (
@@ -641,7 +1197,12 @@ export default function ChangeCreateModal({
                         <span style={{ fontSize: 10, color: "#9ca3af" }}>Governed</span>
                       </div>
                     ) : (
-                      <select className="ccm-select" value={status} onChange={e => setStatus(normalizeStatus(e.target.value))} disabled={disabled}>
+                      <select
+                        className="ccm-select"
+                        value={status}
+                        onChange={(e) => setStatus(normalizeStatus(e.target.value))}
+                        disabled={disabled}
+                      >
                         <option value="new">New (Intake)</option>
                         <option value="analysis">Analysis</option>
                         <option value="review">Review</option>
@@ -651,68 +1212,183 @@ export default function ChangeCreateModal({
                       </select>
                     )}
                   </div>
+
                   <div className="ccm-field">
-                    <label className="ccm-label">Priority <span className="ccm-req">*</span></label>
-                    <select className="ccm-select" value={priority} onChange={e => setPriority(normalizePriority(e.target.value))} disabled={disabled}>
-                      <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+                    <label className="ccm-label">
+                      Priority <span className="ccm-req">*</span>
+                    </label>
+                    <select
+                      className="ccm-select"
+                      value={priority}
+                      onChange={(e) => setPriority(normalizePriority(e.target.value))}
+                      disabled={disabled}
+                    >
+                      <option>Low</option>
+                      <option>Medium</option>
+                      <option>High</option>
+                      <option>Critical</option>
                     </select>
                   </div>
                 </div>
-                <AF value={summary} onChange={setSummary} rows={4} label="Summary" req
+
+                <AiField
+                  value={summary}
+                  onChange={setSummary}
+                  rows={4}
+                  label="Summary"
+                  req
                   placeholder="2–3 lines for quick scanning…"
-                  onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(summary, setSummary, safeStr(d.summary), 1200); }} />
+                  disabled={disabled}
+                  aiBusy={aiBusy}
+                  onAi={async () => {
+                    const d = await ensureDrafts();
+                    if (!d) return;
+                    improveOrSetLocal(summary, setSummary, safeStr(d.summary), 1200);
+                  }}
+                />
               </div>
 
               {/* Business Justification */}
               <div className="ccm-card">
                 <CHead icon={<Ic.Star />}>Business Justification</CHead>
-                <AF value={justification} onChange={setJustification} rows={4}
+                <AiField
+                  value={justification}
+                  onChange={setJustification}
+                  rows={4}
                   placeholder="Why is this needed? What value does it unlock?"
-                  onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(justification, setJustification, safeStr(d.justification)); }} />
+                  disabled={disabled}
+                  aiBusy={aiBusy}
+                  onAi={async () => {
+                    const d = await ensureDrafts();
+                    if (!d) return;
+                    improveOrSetLocal(justification, setJustification, safeStr(d.justification));
+                  }}
+                />
               </div>
 
               {/* Financial & Schedule */}
               <div className="ccm-row2">
                 <div className="ccm-card">
                   <CHead icon={<Ic.Dollar />}>Financial Impact</CHead>
-                  <AF value={financial} onChange={setFinancial} rows={4}
+                  <AiField
+                    value={financial}
+                    onChange={setFinancial}
+                    rows={4}
                     placeholder="Cost drivers, budget impact, commercial notes…"
-                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(financial, setFinancial, safeStr(d.financial)); }} />
+                    disabled={disabled}
+                    aiBusy={aiBusy}
+                    onAi={async () => {
+                      const d = await ensureDrafts();
+                      if (!d) return;
+                      improveOrSetLocal(financial, setFinancial, safeStr(d.financial));
+                    }}
+                  />
                 </div>
+
                 <div className="ccm-card">
                   <CHead icon={<Ic.Cal />}>Schedule Impact</CHead>
-                  <AF value={schedule} onChange={setSchedule} rows={4}
+                  <AiField
+                    value={schedule}
+                    onChange={setSchedule}
+                    rows={4}
                     placeholder="Milestone impacts, critical path changes, sequencing…"
-                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(schedule, setSchedule, safeStr(d.schedule)); }} />
+                    disabled={disabled}
+                    aiBusy={aiBusy}
+                    onAi={async () => {
+                      const d = await ensureDrafts();
+                      if (!d) return;
+                      improveOrSetLocal(schedule, setSchedule, safeStr(d.schedule));
+                    }}
+                  />
                 </div>
               </div>
 
               {/* Risks & Dependencies */}
               <div className="ccm-card">
                 <CHead icon={<Ic.Warn />}>Risks & Dependencies</CHead>
+
                 <div className="ccm-row2" style={{ marginBottom: 12 }}>
-                  <AF value={risks} onChange={setRisks} rows={4} label="Risks"
+                  <AiField
+                    value={risks}
+                    onChange={setRisks}
+                    rows={4}
+                    label="Risks"
                     placeholder="Top risks and mitigations…"
-                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(risks, setRisks, safeStr(d.risks)); }} />
-                  <AF value={dependencies} onChange={setDependencies} rows={4} label="Dependencies"
+                    disabled={disabled}
+                    aiBusy={aiBusy}
+                    onAi={async () => {
+                      const d = await ensureDrafts();
+                      if (!d) return;
+                      improveOrSetLocal(risks, setRisks, safeStr(d.risks));
+                    }}
+                  />
+
+                  <AiField
+                    value={dependencies}
+                    onChange={setDependencies}
+                    rows={4}
+                    label="Dependencies"
                     placeholder="Approvals, vendors, prerequisites…"
-                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(dependencies, setDependencies, safeStr(d.dependencies)); }} />
+                    disabled={disabled}
+                    aiBusy={aiBusy}
+                    onAi={async () => {
+                      const d = await ensureDrafts();
+                      if (!d) return;
+                      improveOrSetLocal(dependencies, setDependencies, safeStr(d.dependencies));
+                    }}
+                  />
                 </div>
-                <AF value={assumptions} onChange={setAssumptions} rows={3} label="Assumptions"
+
+                <AiField
+                  value={assumptions}
+                  onChange={setAssumptions}
+                  rows={3}
+                  label="Assumptions"
                   placeholder="Any assumptions the plan relies on…"
-                  onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(assumptions, setAssumptions, safeStr(d.assumptions)); }} />
+                  disabled={disabled}
+                  aiBusy={aiBusy}
+                  onAi={async () => {
+                    const d = await ensureDrafts();
+                    if (!d) return;
+                    improveOrSetLocal(assumptions, setAssumptions, safeStr(d.assumptions));
+                  }}
+                />
               </div>
 
               {/* Implementation & Rollback */}
               <div className="ccm-card">
                 <CHead icon={<Ic.Arrows />}>Implementation & Rollback</CHead>
+
                 <div className="ccm-row2">
-                  <AF value={implementationPlan} onChange={setImplementationPlan} rows={7} label="Implementation Plan"
+                  <AiField
+                    value={implementationPlan}
+                    onChange={setImplementationPlan}
+                    rows={7}
+                    label="Implementation Plan"
                     placeholder="Outline steps, approach, owners, sequence, and validation checkpoints…"
-                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(implementationPlan, setImplementationPlan, safeStr(d.implementation)); }} />
-                  <AF value={rollbackPlan} onChange={setRollbackPlan} rows={7} label="Rollback Plan"
+                    disabled={disabled}
+                    aiBusy={aiBusy}
+                    onAi={async () => {
+                      const d = await ensureDrafts();
+                      if (!d) return;
+                      improveOrSetLocal(implementationPlan, setImplementationPlan, safeStr(d.implementation));
+                    }}
+                  />
+
+                  <AiField
+                    value={rollbackPlan}
+                    onChange={setRollbackPlan}
+                    rows={7}
+                    label="Rollback Plan"
                     placeholder="Backout steps, restore points, success criteria, and how you'll confirm rollback is complete…"
-                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(rollbackPlan, setRollbackPlan, safeStr(d.rollback)); }} />
+                    disabled={disabled}
+                    aiBusy={aiBusy}
+                    onAi={async () => {
+                      const d = await ensureDrafts();
+                      if (!d) return;
+                      improveOrSetLocal(rollbackPlan, setRollbackPlan, safeStr(d.rollback));
+                    }}
+                  />
                 </div>
               </div>
 
@@ -720,105 +1396,240 @@ export default function ChangeCreateModal({
               <div className="ccm-card">
                 <CHead icon={<Ic.Clip s={13} />}>
                   Attachments
-                  <span style={{ marginLeft: "auto", fontSize: 10.5, color: "#9ca3af", fontWeight: 400, fontFamily: "'DM Mono',monospace" }}>
+                  <span
+                    style={{
+                      marginLeft: "auto",
+                      fontSize: 10.5,
+                      color: "#9ca3af",
+                      fontWeight: 400,
+                      fontFamily: "'DM Mono',monospace",
+                    }}
+                  >
                     {files.length} file{files.length !== 1 ? "s" : ""}
                   </span>
                 </CHead>
 
                 {!safeStr(changeId).trim() && (
-                  <div style={{ padding: "9px 12px", background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 9, fontSize: 11.5, color: "#92400e", marginBottom: 12 }}>
+                  <div
+                    style={{
+                      padding: "9px 12px",
+                      background: "#fffbeb",
+                      border: "1.5px solid #fde68a",
+                      borderRadius: 9,
+                      fontSize: 11.5,
+                      color: "#92400e",
+                      marginBottom: 12,
+                    }}
+                  >
                     Save this CR first to enable server-side attachment uploads.
                   </div>
                 )}
 
-                <label htmlFor="ccm-file-input" style={{ cursor: disabled ? "not-allowed" : "pointer", display: "block" }}>
+                <label
+                  htmlFor="ccm-file-input"
+                  style={{
+                    cursor: disabled ? "not-allowed" : "pointer",
+                    display: "block",
+                  }}
+                >
                   <div className="ccm-drop" style={{ opacity: disabled ? 0.5 : 1 }}>
-                    <div className="ccm-dropico"><Ic.Clip s={16} /></div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 3 }}>Drop files or click to browse</div>
-                    <div style={{ fontSize: 11, color: "#9ca3af" }}>Designs, screenshots, vendor comms, impact calcs</div>
-                    {uploadBusy && <div style={{ marginTop: 7, fontSize: 11, color: "#6366f1", fontWeight: 600 }}>Uploading…</div>}
+                    <div className="ccm-dropico">
+                      <Ic.Clip s={16} />
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 3 }}>
+                      Drop files or click to browse
+                    </div>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>
+                      Designs, screenshots, vendor comms, impact calcs
+                    </div>
+                    {uploadBusy && (
+                      <div style={{ marginTop: 7, fontSize: 11, color: "#6366f1", fontWeight: 600 }}>
+                        Uploading…
+                      </div>
+                    )}
                   </div>
                 </label>
-                <input ref={fileInputRef} id="ccm-file-input" type="file" multiple
-                  onChange={handleFileSelect} disabled={disabled} style={{ display: "none" }} />
+
+                <input
+                  ref={fileInputRef}
+                  id="ccm-file-input"
+                  type="file"
+                  multiple
+                  onChange={handleFileSelect}
+                  disabled={disabled}
+                  style={{ display: "none" }}
+                />
 
                 {files.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 10 }}>
                     {files.map((f, idx) => (
                       <div key={`${f.name}-${f.size}-${idx}`} className="ccm-att">
-                        <div className="ccm-attico"><Ic.File s={13} /></div>
+                        <div className="ccm-attico">
+                          <Ic.File s={13} />
+                        </div>
+
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="ccm-attname" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
+                          <div
+                            className="ccm-attname"
+                            style={{
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {f.name}
+                          </div>
                           <div className="ccm-attsize">{(f.size / 1024).toFixed(1)} KB</div>
                         </div>
+
                         <div style={{ display: "flex", gap: 6 }}>
-                          <button type="button" className="ccm-btn ccm-btn-danger ccm-btn-xs"
-                            onClick={() => removeFile(idx)} disabled={disabled} title="Remove from list">
+                          <button
+                            type="button"
+                            className="ccm-btn ccm-btn-danger ccm-btn-xs"
+                            onClick={() => removeFile(idx)}
+                            disabled={disabled}
+                            title="Remove from list"
+                          >
                             <Ic.Trash s={11} />
                           </button>
+
                           {safeStr(changeId).trim() && (
-                            <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-xs"
+                            <button
+                              type="button"
+                              className="ccm-btn ccm-btn-ghost ccm-btn-xs"
                               onClick={async () => {
-                                try { setUploadErr(""); setUploadBusy(true); await removeUploadedAttachmentByFilename(f.name); removeFile(idx); }
-                                catch (e: any) { setUploadErr(safeStr(e?.message) || "Failed to remove attachment"); }
-                                finally { setUploadBusy(false); }
+                                try {
+                                  setUploadErr("");
+                                  setUploadBusy(true);
+                                  await removeUploadedAttachmentByFilename(f.name);
+                                  removeFile(idx);
+                                } catch (e: any) {
+                                  setUploadErr(safeStr(e?.message) || "Failed to remove attachment");
+                                } finally {
+                                  setUploadBusy(false);
+                                }
                               }}
-                              disabled={disabled || uploadBusy} title="Remove from server">
+                              disabled={disabled || uploadBusy}
+                              title="Remove from server"
+                            >
                               <Ic.X s={11} />
                             </button>
                           )}
                         </div>
                       </div>
                     ))}
-                    <button type="button" onClick={() => setFiles([])} disabled={disabled}
-                      style={{ fontSize: 11, color: "#dc2626", background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: "0 2px", fontFamily: "'Instrument Sans',sans-serif", fontWeight: 600 }}>
+
+                    <button
+                      type="button"
+                      onClick={() => setFiles([])}
+                      disabled={disabled}
+                      style={{
+                        fontSize: 11,
+                        color: "#dc2626",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        padding: "0 2px",
+                        fontFamily: "'Instrument Sans',sans-serif",
+                        fontWeight: 600,
+                      }}
+                    >
                       Remove all
                     </button>
                   </div>
                 )}
               </div>
-
             </div>
 
             {/* ── Sidebar ── */}
             <div className="ccm-sidebar">
-
               {/* AI Impact */}
               <div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 11 }}>
-                  <div className="ccm-stitle" style={{ marginBottom: 0 }}><Ic.Bolt s={10} /> Estimated Impact</div>
-                  <button type="button" className="ccm-btn ccm-btn-ai ccm-btn-xs" onClick={runAiImpactScan} disabled={disabled || aiBusy}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 11,
+                  }}
+                >
+                  <div className="ccm-stitle" style={{ marginBottom: 0 }}>
+                    <Ic.Bolt s={10} /> Estimated Impact
+                  </div>
+                  <button
+                    type="button"
+                    className="ccm-btn ccm-btn-ai ccm-btn-xs"
+                    onClick={runAiImpactScan}
+                    disabled={disabled || aiBusy}
+                  >
                     <Ic.Bolt s={9} /> {aiBusy ? "…" : "AI Scan"}
                   </button>
                 </div>
+
                 <div className="ccm-row2" style={{ gap: 9, marginBottom: 10 }}>
                   <div className="ccm-impact">
                     <div className="ccm-ilabel">Delay</div>
                     <div className="ccm-ival">{aiImpact.days > 0 ? `+${aiImpact.days}` : "—"}</div>
                     <div className="ccm-isub">days</div>
-                    <input type="number" className="ccm-input" style={{ marginTop: 7, fontSize: 11, padding: "6px 9px" }}
-                      value={String(aiImpact.days ?? 0)} onChange={e => setAiImpact(p => ({ ...p, days: parseInt(e.target.value, 10) || 0 }))} disabled={disabled} placeholder="0" />
+                    <input
+                      type="number"
+                      className="ccm-input"
+                      style={{ marginTop: 7, fontSize: 11, padding: "6px 9px" }}
+                      value={String(aiImpact.days ?? 0)}
+                      onChange={(e) =>
+                        setAiImpact((p) => ({ ...p, days: parseInt(e.target.value, 10) || 0 }))
+                      }
+                      disabled={disabled}
+                      placeholder="0"
+                    />
                   </div>
+
                   <div className="ccm-impact">
                     <div className="ccm-ilabel">Cost (£)</div>
-                    <div className="ccm-ival" style={{ fontSize: 16 }}>{aiImpact.cost > 0 ? `£${aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "—"}</div>
+                    <div className="ccm-ival" style={{ fontSize: 16 }}>
+                      {aiImpact.cost > 0
+                        ? `£${aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`
+                        : "—"}
+                    </div>
                     <div className="ccm-isub">budget</div>
-                    <input type="number" className="ccm-input" style={{ marginTop: 7, fontSize: 11, padding: "6px 9px" }}
-                      value={String(aiImpact.cost ?? 0)} onChange={e => setAiImpact(p => ({ ...p, cost: parseInt(e.target.value, 10) || 0 }))} disabled={disabled} placeholder="0" />
+                    <input
+                      type="number"
+                      className="ccm-input"
+                      style={{ marginTop: 7, fontSize: 11, padding: "6px 9px" }}
+                      value={String(aiImpact.cost ?? 0)}
+                      onChange={(e) =>
+                        setAiImpact((p) => ({ ...p, cost: parseInt(e.target.value, 10) || 0 }))
+                      }
+                      disabled={disabled}
+                      placeholder="0"
+                    />
                   </div>
                 </div>
+
                 <div className="ccm-field">
                   <label className="ccm-label">Risk descriptor</label>
-                  <input type="text" className="ccm-input"
-                    value={safeStr(aiImpact.risk)} onChange={e => setAiImpact(p => ({ ...p, risk: e.target.value }))}
-                    disabled={disabled} placeholder="e.g., Medium — mitigated by rollback" />
-                  <div style={{ fontSize: 10, color: "#c5c9dc", marginTop: 2 }}>Include risk level + mitigation condition.</div>
+                  <input
+                    type="text"
+                    className="ccm-input"
+                    value={safeStr(aiImpact.risk)}
+                    onChange={(e) => setAiImpact((p) => ({ ...p, risk: e.target.value }))}
+                    disabled={disabled}
+                    placeholder="e.g., Medium — mitigated by rollback"
+                  />
+                  <div style={{ fontSize: 10, color: "#c5c9dc", marginTop: 2 }}>
+                    Include risk level + mitigation condition.
+                  </div>
                 </div>
               </div>
 
               <div className="ccm-div" />
 
-              {drafts && <div className="ccm-modelbadge">AI · <strong style={{ color: "#374151" }}>{draftModel}</strong></div>}
+              {drafts && (
+                <div className="ccm-modelbadge">
+                  AI · <strong style={{ color: "#374151" }}>{draftModel}</strong>
+                </div>
+              )}
 
               {/* PM Tips */}
               <div>
@@ -841,92 +1652,200 @@ export default function ChangeCreateModal({
               {approval && (
                 <>
                   <div className="ccm-div" />
-                  <div style={{ padding: "12px 14px", background: "#f8f9ff", border: "1.5px solid #e0e7ff", borderRadius: 12, fontSize: 11.5, color: "#6b7280" }}>
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      background: "#f8f9ff",
+                      border: "1.5px solid #e0e7ff",
+                      borderRadius: 12,
+                      fontSize: 11.5,
+                      color: "#6b7280",
+                    }}
+                  >
                     <div style={{ fontWeight: 700, color: "#0d1023", marginBottom: 4 }}>Approval chain</div>
-                    <div>Approve/Reject: <strong style={{ color: "#0d1023" }}>{approval.canApprove !== false ? "Enabled" : "Disabled"}</strong></div>
-                    {approval.canApprove === false && <div style={{ marginTop: 4, color: "#9ca3af" }}>View and edit draft fields still available.</div>}
+                    <div>
+                      Approve/Reject:{" "}
+                      <strong style={{ color: "#0d1023" }}>
+                        {approval.canApprove !== false ? "Enabled" : "Disabled"}
+                      </strong>
+                    </div>
+                    {approval.canApprove === false && (
+                      <div style={{ marginTop: 4, color: "#9ca3af" }}>
+                        View and edit draft fields still available.
+                      </div>
+                    )}
                   </div>
                 </>
               )}
-
             </div>
           </div>
 
           {/* ── Footer ── */}
           <div className="ccm-footer">
             <div className="ccm-fmeta">
-              {isEdit ? "Editing" : "Creating"} · Lane: <strong style={{ color: "#6366f1" }}>{laneLabel}</strong>
+              {isEdit ? "Editing" : "Creating"} · Lane:{" "}
+              <strong style={{ color: "#6366f1" }}>{laneLabel}</strong>
               {changeId && looksLikeUuid(changeId) && <> · {changeId.slice(0, 8)}…</>}
             </div>
+
             <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={onClose} disabled={disabled}>Cancel</button>
+              <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={onClose} disabled={disabled}>
+                Cancel
+              </button>
               <button type="button" className="ccm-btn ccm-btn-primary ccm-btn-sm" onClick={submitChange} disabled={disabled}>
                 {saving ? (isEdit ? "Saving…" : "Creating…") : isEdit ? "Save Changes" : "Create Request"}
               </button>
             </div>
           </div>
-
         </div>
       </div>
 
       {/* ── AI Interview Drawer ── */}
-      <Drawer open={aiInterviewOpen} onClose={() => setAiInterviewOpen(false)} title="PM AI Assistant" sub="Answer prompts → Generate draft">
-        <div style={{ padding: "10px 13px", background: "#f8f9ff", border: "1.5px solid #e0e7ff", borderRadius: 9, fontSize: 11.5, color: "#6b7280", lineHeight: 1.6 }}>
-          Fill what you know — bullet points are fine. Click <strong style={{ color: "#0d1023" }}>Generate Draft</strong>.
+      <Drawer
+        open={aiInterviewOpen}
+        onClose={() => setAiInterviewOpen(false)}
+        title="PM AI Assistant"
+        sub="Answer prompts → Generate draft"
+      >
+        <div
+          style={{
+            padding: "10px 13px",
+            background: "#f8f9ff",
+            border: "1.5px solid #e0e7ff",
+            borderRadius: 9,
+            fontSize: 11.5,
+            color: "#6b7280",
+            lineHeight: 1.6,
+          }}
+        >
+          Fill what you know — bullet points are fine. Click{" "}
+          <strong style={{ color: "#0d1023" }}>Generate Draft</strong>.
         </div>
 
         {aiErr && <div className="ccm-err" style={{ margin: 0 }}>{aiErr}</div>}
 
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: "10px 12px", background: "#f8f9ff", borderRadius: 9, border: "1.5px solid #eef0f8" }}>
-          <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm"
-            onClick={() => useCurrentDraftIntoInterview({ overwrite: forceOverwrite })} disabled={aiBusy}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 12px",
+            background: "#f8f9ff",
+            borderRadius: 9,
+            border: "1.5px solid #eef0f8",
+          }}
+        >
+          <button
+            type="button"
+            className="ccm-btn ccm-btn-ghost ccm-btn-sm"
+            onClick={() => useCurrentDraftIntoInterview({ overwrite: forceOverwrite })}
+            disabled={aiBusy}
+          >
             Use my current draft
           </button>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#6b7280", cursor: "pointer", userSelect: "none", marginLeft: "auto" }}>
-            <input type="checkbox" checked={forceOverwrite} onChange={e => setForceOverwrite(e.target.checked)} disabled={aiBusy} />
+
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 11,
+              color: "#6b7280",
+              cursor: "pointer",
+              userSelect: "none",
+              marginLeft: "auto",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={forceOverwrite}
+              onChange={(e) => setForceOverwrite(e.target.checked)}
+              disabled={aiBusy}
+            />
             Overwrite existing answers
           </label>
         </div>
 
         {[
-          { label: "What is the change about?", key: "about", rows: 3, placeholder: "e.g., Extend firewall scope for vendor access on SZC workstream…" },
-          { label: "Why is it needed / what value does it unlock?", key: "why", rows: 3, placeholder: "Drivers, benefits, risk reduction, compliance, customer impact…" },
-          { label: "Who / what is impacted?", key: "impacted", rows: 3, placeholder: "Systems, services, users, suppliers, environments…" },
+          {
+            label: "What is the change about?",
+            key: "about",
+            rows: 3,
+            placeholder: "e.g., Extend firewall scope for vendor access on SZC workstream…",
+          },
+          {
+            label: "Why is it needed / what value does it unlock?",
+            key: "why",
+            rows: 3,
+            placeholder: "Drivers, benefits, risk reduction, compliance, customer impact…",
+          },
+          {
+            label: "Who / what is impacted?",
+            key: "impacted",
+            rows: 3,
+            placeholder: "Systems, services, users, suppliers, environments…",
+          },
         ].map(({ label, key, rows, placeholder }) => (
           <div key={key} className="ccm-field">
             <label className="ccm-label">{label}</label>
-            <textarea className="ccm-textarea" value={(interview as any)[key]}
-              onChange={e => setInterview(p => ({ ...p, [key]: e.target.value }))}
-              rows={rows} placeholder={placeholder} disabled={aiBusy} />
+            <textarea
+              className="ccm-textarea"
+              value={(interview as any)[key]}
+              onChange={(e) => setInterview((p) => ({ ...p, [key]: e.target.value }))}
+              rows={rows}
+              placeholder={placeholder}
+              disabled={aiBusy}
+            />
           </div>
         ))}
 
         <div className="ccm-row2">
           <div className="ccm-field">
             <label className="ccm-label">When does it need to happen?</label>
-            <textarea className="ccm-textarea" value={interview.when}
-              onChange={e => setInterview(p => ({ ...p, when: e.target.value }))}
-              rows={3} placeholder="Target window, milestones, blackout dates…" disabled={aiBusy} />
+            <textarea
+              className="ccm-textarea"
+              value={interview.when}
+              onChange={(e) => setInterview((p) => ({ ...p, when: e.target.value }))}
+              rows={3}
+              placeholder="Target window, milestones, blackout dates…"
+              disabled={aiBusy}
+            />
           </div>
+
           <div className="ccm-field">
             <label className="ccm-label">Constraints / assumptions</label>
-            <textarea className="ccm-textarea" value={interview.constraints}
-              onChange={e => setInterview(p => ({ ...p, constraints: e.target.value }))}
-              rows={3} placeholder="Access, approvals, resourcing, dependencies…" disabled={aiBusy} />
+            <textarea
+              className="ccm-textarea"
+              value={interview.constraints}
+              onChange={(e) => setInterview((p) => ({ ...p, constraints: e.target.value }))}
+              rows={3}
+              placeholder="Access, approvals, resourcing, dependencies…"
+              disabled={aiBusy}
+            />
           </div>
         </div>
 
         <div className="ccm-row2">
           <div className="ccm-field">
             <label className="ccm-label">Costs (if known)</label>
-            <input className="ccm-input" value={interview.costs}
-              onChange={e => setInterview(p => ({ ...p, costs: e.target.value }))}
-              placeholder="e.g., £12,000 / 3 days / vendor day-rate…" disabled={aiBusy} />
+            <input
+              className="ccm-input"
+              value={interview.costs}
+              onChange={(e) => setInterview((p) => ({ ...p, costs: e.target.value }))}
+              placeholder="e.g., £12,000 / 3 days / vendor day-rate…"
+              disabled={aiBusy}
+            />
           </div>
+
           <div className="ccm-field">
             <label className="ccm-label">Risk level (your view)</label>
-            <select className="ccm-select" value={interview.riskLevel}
-              onChange={e => setInterview(p => ({ ...p, riskLevel: e.target.value as any }))} disabled={aiBusy}>
+            <select
+              className="ccm-select"
+              value={interview.riskLevel}
+              onChange={(e) => setInterview((p) => ({ ...p, riskLevel: e.target.value as any }))}
+              disabled={aiBusy}
+            >
               <option value="Low">Low</option>
               <option value="Medium">Medium</option>
               <option value="High">High</option>
@@ -936,16 +1855,43 @@ export default function ChangeCreateModal({
 
         <div className="ccm-field">
           <label className="ccm-label">Rollback / backout approach</label>
-          <textarea className="ccm-textarea" value={interview.rollback}
-            onChange={e => setInterview(p => ({ ...p, rollback: e.target.value }))}
-            rows={3} placeholder="How would you revert safely / validate success?" disabled={aiBusy} />
+          <textarea
+            className="ccm-textarea"
+            value={interview.rollback}
+            onChange={(e) => setInterview((p) => ({ ...p, rollback: e.target.value }))}
+            rows={3}
+            placeholder="How would you revert safely / validate success?"
+            disabled={aiBusy}
+          />
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, paddingTop: 4 }}>
-          <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={() => setAiInterviewOpen(false)} disabled={aiBusy}>Close</button>
-          <button type="button" className="ccm-btn ccm-btn-primary ccm-btn-sm"
-            onClick={async () => { const d = await runPmoDraftAssist(); if (d) setAiInterviewOpen(false); }}
-            disabled={aiBusy || disabled}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 8,
+            paddingTop: 4,
+          }}
+        >
+          <button
+            type="button"
+            className="ccm-btn ccm-btn-ghost ccm-btn-sm"
+            onClick={() => setAiInterviewOpen(false)}
+            disabled={aiBusy}
+          >
+            Close
+          </button>
+
+          <button
+            type="button"
+            className="ccm-btn ccm-btn-primary ccm-btn-sm"
+            onClick={async () => {
+              const d = await runPmoDraftAssist();
+              if (d) setAiInterviewOpen(false);
+            }}
+            disabled={aiBusy || disabled}
+          >
             {aiBusy ? "Generating…" : "Generate drafts"}
           </button>
         </div>

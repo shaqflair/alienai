@@ -955,19 +955,35 @@ export default function ChangeBoardDnd({
       />
 
       <ChangeCreateModal
-        open={editOpen}
-        onClose={() => { setEditOpen(false); setEditId(null); setEditInitialValue(null); fetchData(); }}
-        projectId={projectUuid}
-        artifactId={artifactId ?? null}
-        mode="edit"
-        changeId={editId}
-        initialValue={editInitialValue ?? undefined}
-        titleOverride="Edit Change Request"
-      />
+             {editOpen ? (
+        <ChangeCreateModal
+          open={editOpen}
+          onClose={() => {
+            setEditOpen(false);
+            setEditId(null);
+            setEditInitialValue(null);
+            fetchData();
+          }}
+          projectId={projectUuid}
+          artifactId={artifactId ?? null}
+          mode="edit"
+          changeId={editId}
+          initialValue={editInitialValue ?? undefined}
+          titleOverride="Edit Change Request"
+        />
+      ) : null}
 
-      <ChangeAiDrawer open={aiOpen} onClose={() => setAiOpen(false)} projectId={projectUuid} artifactId={artifactId ?? null} changeId={aiChangeId} />
+      {aiOpen ? (
+        <ChangeAiDrawer
+          open={aiOpen}
+          onClose={() => setAiOpen(false)}
+          projectId={projectUuid}
+          artifactId={artifactId ?? null}
+          changeId={aiChangeId}
+        />
+      ) : null}
 
-      {timelineChangeId ? (
+      {timelineOpen && timelineChangeId ? (
         <ChangeTimeline
           open={timelineOpen}
           onClose={() => setTimelineOpen(false)}
@@ -977,7 +993,7 @@ export default function ChangeBoardDnd({
         />
       ) : null}
 
-      {attChangeId ? (
+      {attOpen && attChangeId ? (
         <AttachmentsDrawer
           open={attOpen}
           onClose={() => setAttOpen(false)}
@@ -988,4 +1004,4 @@ export default function ChangeBoardDnd({
       ) : null}
     </div>
   );
-}
+}}
