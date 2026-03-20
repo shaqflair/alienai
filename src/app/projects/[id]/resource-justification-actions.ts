@@ -45,6 +45,8 @@ function safeStr(x: any) {
 }
 
 async function fetchOrgRateCard(supabase: any, projectId: string): Promise<Record<string, number>> {
+  // Uses the existing v_resource_rates_latest view — single source of truth
+  // with the settings page rate card (resource_rates table)
   try {
     const { data: project } = await supabase
       .from("projects")
@@ -55,19 +57,39 @@ async function fetchOrgRateCard(supabase: any, projectId: string): Promise<Recor
     const orgId = (project as any)?.organisation_id;
     if (!orgId) return {};
 
+    // Query the view that already surfaces the latest effective rate per role
     const { data } = await supabase
-      .from("organisation_rate_cards")
-      .select("role_title, seniority_level, day_rate")
-      .eq("organisation_id", orgId)
-      .eq("is_active", true);
+      .from("v_resource_rates_latest")
+      .select("role_label, rate, rate_type, resource_type, user_id")
+      .eq("organisation_id", orgId);
 
     const map: Record<string, number> = {};
+
+    // Build lookup — role-based rates (no user_id) take priority as defaults
+    // Person-specific rates (user_id set) are available for individual overrides
     for (const row of data ?? []) {
-      // Full key: "Senior Project Manager"
-      map[`${row.seniority_level} ${row.role_title}`.trim()] = Number(row.day_rate);
-      // Role only key for partial match
-      if (!map[row.role_title]) map[row.role_title] = Number(row.day_rate);
+      const label = safeStr(row.role_label).trim();
+      if (!label) continue;
+      const rate = Number(row.rate);
+      if (!rate || rate <= 0) continue;
+
+      // Convert monthly to daily if needed (÷ 20 working days)
+      const dailyRate = safeStr(row.rate_type).toLowerCase() === "monthly"
+        ? Math.round(rate / 20)
+        : rate;
+
+      // Role-based entry (no specific person) — use as default for that role
+      if (!row.user_id) {
+        map[label] = dailyRate;
+        // Also try partial match keys e.g. "Project Manager" from "Senior Project Manager"
+        const parts = label.split(" ");
+        if (parts.length > 1) {
+          const shortKey = parts.slice(1).join(" ");
+          if (!map[shortKey]) map[shortKey] = dailyRate;
+        }
+      }
     }
+
     return map;
   } catch {
     return {};
