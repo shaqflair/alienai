@@ -539,7 +539,11 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   );
 
   const overlayMessage = approvalLocked
-    ? "This artifact is read-only while under approval."
+    ? approvalStatusLower === "approved"
+      ? "This artifact is approved and baselined — read only."
+      : approvalStatusLower === "rejected"
+        ? "This artifact has been rejected — read only."
+        : "This artifact is read-only while under approval."
     : lockLayout
     ? "Layout is locked for this artifact."
     : collaboration.state?.readOnlyReason || collaboration.lockError || "Locked by another editor.";
