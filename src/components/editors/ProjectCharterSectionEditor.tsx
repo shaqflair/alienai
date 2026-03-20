@@ -15,6 +15,9 @@ import {
   Calendar as CalendarIcon,
   ChevronDown,
   Zap,
+  MessageSquare,
+  Send,
+  X,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -51,6 +54,10 @@ type Props = {
   onRegenerateSection?: (sectionKey: string) => void;
   aiDisabled?: boolean;
   aiLoadingKey?: string | null;
+  // NEW: approver comment props
+  approverMode?: boolean;
+  approverCommentsBySection?: Record<string, number>;
+  onAddApproverComment?: (sectionKey: string, sectionTitle: string, text: string) => void;
 };
 
 /* =========================================================
@@ -138,6 +145,180 @@ function CompletenessRing({ score, size = 32 }: { score: number; size?: number }
 }
 
 /* =========================================================
+   Inline Approver Comment Box
+========================================================= */
+
+function ApproverCommentBox({
+  sectionKey,
+  sectionTitle,
+  commentCount,
+  onAddComment,
+}: {
+  sectionKey: string;
+  sectionTitle: string;
+  commentCount: number;
+  onAddComment: (sectionKey: string, sectionTitle: string, text: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  function handleOpen() {
+    setOpen(true);
+    // Focus the textarea after render
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  function handleSubmit() {
+    const t = draft.trim();
+    if (!t) return;
+    onAddComment(sectionKey, sectionTitle, t);
+    setDraft("");
+    setOpen(false);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSubmit();
+    }
+    if (e.key === "Escape") {
+      setOpen(false);
+      setDraft("");
+    }
+  }
+
+  return (
+    <div className="mt-4">
+      {!open ? (
+        <button
+          type="button"
+          onClick={handleOpen}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all"
+          style={{
+            border: "1px dashed #93c5fd",
+            color: "#1d4ed8",
+            background: "rgba(239,246,255,0.6)",
+            fontFamily: "'DM Sans', sans-serif",
+            cursor: "pointer",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background = "#dbeafe";
+            (e.currentTarget as HTMLElement).style.borderColor = "#3b82f6";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = "rgba(239,246,255,0.6)";
+            (e.currentTarget as HTMLElement).style.borderColor = "#93c5fd";
+          }}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          Add Comment
+          {commentCount > 0 && (
+            <span
+              className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold ml-0.5"
+              style={{ background: "#1d4ed8", color: "white" }}
+            >
+              {commentCount}
+            </span>
+          )}
+        </button>
+      ) : (
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{
+            border: "1px solid #93c5fd",
+            background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 30%, #eff6ff 100%)",
+            boxShadow: "0 2px 12px rgba(59,130,246,0.12)",
+          }}
+        >
+          {/* Comment header */}
+          <div
+            className="flex items-center justify-between px-4 py-2.5"
+            style={{ borderBottom: "1px solid #bfdbfe" }}
+          >
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-3.5 w-3.5" style={{ color: "#2563eb" }} />
+              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "#1e40af", fontFamily: "'DM Sans', sans-serif" }}>
+                Comment on: {sectionTitle}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setDraft(""); }}
+              className="rounded-lg p-1 transition-colors"
+              style={{ color: "#93c5fd" }}
+              onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.color = "#1d4ed8"}
+              onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.color = "#93c5fd"}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* Textarea */}
+          <div className="px-4 py-3">
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={3}
+              placeholder="Describe the change needed for this section... (⌘↵ to submit)"
+              className="w-full rounded-lg text-sm resize-none outline-none"
+              style={{
+                border: "1px solid #bfdbfe",
+                background: "rgba(255,255,255,0.8)",
+                color: "#1e3a8a",
+                padding: "10px 12px",
+                lineHeight: 1.6,
+                fontFamily: "'DM Sans', system-ui, sans-serif",
+                transition: "border-color 0.2s ease",
+              }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "#3b82f6")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "#bfdbfe")}
+            />
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center justify-between px-4 pb-3">
+            <span className="text-[10px]" style={{ color: "#93c5fd", fontFamily: "'DM Mono', sans-serif" }}>
+              ⌘↵ submit · Esc cancel
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => { setOpen(false); setDraft(""); }}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                style={{ border: "1px solid #bfdbfe", color: "#6b7280", background: "transparent", fontFamily: "'DM Sans', sans-serif" }}
+                onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.background = "#f3f4f6"}
+                onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.background = "transparent"}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!draft.trim()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={{
+                  background: draft.trim() ? "linear-gradient(135deg, #2563eb, #1d4ed8)" : "#bfdbfe",
+                  color: draft.trim() ? "white" : "#93c5fd",
+                  border: "none",
+                  cursor: draft.trim() ? "pointer" : "not-allowed",
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                <Send className="h-3 w-3" />
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =========================================================
    Main Component
 ========================================================= */
 
@@ -145,6 +326,10 @@ export default function ProjectCharterSectionEditor({
   meta, onMetaChange, sections, onChange, readOnly = false,
   completenessByKey, onImproveSection, onRegenerateSection,
   aiDisabled = false, aiLoadingKey = null,
+  // NEW approver props
+  approverMode = false,
+  approverCommentsBySection = {},
+  onAddApproverComment,
 }: Props) {
   const safeSections = useMemo(() => (Array.isArray(sections) ? sections : []), [sections]);
   const didInitMetaRef = useRef(false);
@@ -288,6 +473,14 @@ export default function ProjectCharterSectionEditor({
 
         .charter-sec-fade-in { animation: secFadeIn 0.3s cubic-bezier(0.4,0,0.2,1); }
         @keyframes secFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Approver mode: subtle blue left-border highlight */
+        .charter-sec-approver-highlight {
+          border-left: 3px solid #93c5fd !important;
+        }
+        .charter-sec-approver-commented {
+          border-left: 3px solid #2563eb !important;
+        }
       `}</style>
 
       <div style={{ padding: "24px 32px", maxWidth: 1400, margin: "0 auto" }} className="space-y-5">
@@ -367,15 +560,31 @@ export default function ProjectCharterSectionEditor({
             const freeText = !isTable && isFreeTextSectionKey(key);
             const isLoading = aiLoadingKey === key;
             const expanded = isSectionExpanded(idx);
+            const sectionCommentCount = approverCommentsBySection?.[key] ?? 0;
+            const hasComment = sectionCommentCount > 0;
 
             return (
-              <div key={`${key || "sec"}_${idx}`} className="charter-sec-card rounded-xl overflow-hidden"
+              <div
+                key={`${key || "sec"}_${idx}`}
+                className={`charter-sec-card rounded-xl overflow-hidden ${
+                  approverMode && hasComment
+                    ? "charter-sec-approver-commented"
+                    : approverMode
+                      ? "charter-sec-approver-highlight"
+                      : ""
+                }`}
                 style={{
                   background: "linear-gradient(180deg, #fffcf7 0%, #faf6ee 100%)",
-                  border: isLoading ? "1px solid #b8975a" : "1px solid #e8e2d6",
+                  border: isLoading
+                    ? "1px solid #b8975a"
+                    : hasComment
+                      ? "1px solid #93c5fd"
+                      : "1px solid #e8e2d6",
                   boxShadow: isLoading
                     ? "0 0 0 3px rgba(184,151,90,0.12), 0 4px 20px rgba(184,151,90,0.1)"
-                    : "0 1px 3px rgba(0,0,0,0.03), 0 6px 24px rgba(0,0,0,0.03)",
+                    : hasComment
+                      ? "0 0 0 3px rgba(59,130,246,0.08), 0 4px 16px rgba(59,130,246,0.06)"
+                      : "0 1px 3px rgba(0,0,0,0.03), 0 6px 24px rgba(0,0,0,0.03)",
                   transition: "box-shadow 0.3s ease, border-color 0.3s ease",
                 }}>
 
@@ -408,28 +617,42 @@ export default function ProjectCharterSectionEditor({
                         <Zap className="h-3 w-3 animate-pulse" /> AI working...
                       </span>
                     )}
-                  </div>
-
-                  {completenessByKey && key && <div className="shrink-0"><CompletenessRing score={score} size={36} /></div>}
-
-                  {/* AI buttons */}
-                  <div className="shrink-0 flex items-center gap-2">
-                    {onImproveSection && (
-                      <button type="button" className="charter-sec-btn-ai" disabled={readOnly || aiDisabled}
-                        onClick={() => onImproveSection({ sectionKey: key, sectionTitle: title, section: sec, selectedText: "" })}
-                        title="Improve with AI">
-                        <Sparkles className="h-3.5 w-3.5" />
-                        <span className="hidden sm:inline">Improve</span>
-                      </button>
-                    )}
-                    {onRegenerateSection && (
-                      <button type="button" className="charter-sec-btn-regen" disabled={readOnly || aiDisabled || !key || isLoading}
-                        onClick={() => key && onRegenerateSection(key)} title="Regenerate with AI">
-                        <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} style={{ color: isLoading ? "#b8975a" : "#8a7d68" }} />
-                        <span className="hidden sm:inline">{isLoading ? "Working..." : "Regen"}</span>
-                      </button>
+                    {/* Comment count badge on section header */}
+                    {approverMode && hasComment && (
+                      <span
+                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2.5 py-1"
+                        style={{ background: "#dbeafe", border: "1px solid #93c5fd", color: "#1e40af", fontFamily: "'DM Sans', sans-serif" }}
+                      >
+                        <MessageSquare className="h-3 w-3" />
+                        {sectionCommentCount} comment{sectionCommentCount > 1 ? "s" : ""}
+                      </span>
                     )}
                   </div>
+
+                  {completenessByKey && key && !approverMode && (
+                    <div className="shrink-0"><CompletenessRing score={score} size={36} /></div>
+                  )}
+
+                  {/* AI buttons — only shown to editors, not approvers */}
+                  {!approverMode && (
+                    <div className="shrink-0 flex items-center gap-2">
+                      {onImproveSection && (
+                        <button type="button" className="charter-sec-btn-ai" disabled={readOnly || aiDisabled}
+                          onClick={() => onImproveSection({ sectionKey: key, sectionTitle: title, section: sec, selectedText: "" })}
+                          title="Improve with AI">
+                          <Sparkles className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">Improve</span>
+                        </button>
+                      )}
+                      {onRegenerateSection && (
+                        <button type="button" className="charter-sec-btn-regen" disabled={readOnly || aiDisabled || !key || isLoading}
+                          onClick={() => key && onRegenerateSection(key)} title="Regenerate with AI">
+                          <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} style={{ color: isLoading ? "#b8975a" : "#8a7d68" }} />
+                          <span className="hidden sm:inline">{isLoading ? "Working..." : "Regen"}</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Issues */}
@@ -474,12 +697,22 @@ export default function ProjectCharterSectionEditor({
                       <BulletsEditor value={safeStr(sec?.bullets)} readOnly={readOnly} onChange={(v) => patchBullets(idx, v)} />
                     )}
 
-                    {key && completenessByKey && score >= 80 && (
+                    {key && completenessByKey && score >= 80 && !approverMode && (
                       <div className="mt-4 flex items-center gap-2.5 text-xs rounded-xl px-4 py-2.5"
                         style={{ background: "#eef4e8", border: "1px solid #b8d4a8", color: "#4a7a3a", fontFamily: "'DM Sans', sans-serif" }}>
                         <CheckCircle2 className="h-4 w-4" />
                         <span className="font-semibold">Ready for export</span>
                       </div>
+                    )}
+
+                    {/* ── Approver inline comment box ────────── */}
+                    {approverMode && onAddApproverComment && key && (
+                      <ApproverCommentBox
+                        sectionKey={key}
+                        sectionTitle={title}
+                        commentCount={sectionCommentCount}
+                        onAddComment={onAddApproverComment}
+                      />
                     )}
                   </div>
                 )}

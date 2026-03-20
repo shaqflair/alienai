@@ -34,6 +34,10 @@ import {
   Wand2,
   Shield,
   Sparkles,
+  MessageSquare,
+  X,
+  CornerDownLeft,
+  CheckCheck,
 } from "lucide-react";
 
 const DEV = process.env.NODE_ENV === "development";
@@ -51,6 +55,18 @@ const ProjectCharterSectionEditor = dynamic(() => import("./ProjectCharterSectio
 const CharterV2DebugPanel = DEV
   ? dynamic(() => import("@/components/editors/CharterV2DebugPanel"), { ssr: false, loading: () => null })
   : ((() => null) as any);
+
+/* ---------------------------------------------
+   Approver comment types
+---------------------------------------------- */
+
+export type SectionComment = {
+  id: string;
+  sectionKey: string;
+  sectionTitle: string;
+  text: string;
+  createdAt: string;
+};
 
 /* ---------------------------------------------
    UK formatting + bullet normalization
@@ -412,6 +428,214 @@ function coerceWireCaps(payload: any): WireCaps | null {
   };
 }
 
+/* ---------------------------------------------
+   Approver Comments Panel
+---------------------------------------------- */
+
+function ApproverCommentsPanel({
+  comments,
+  onDelete,
+  onRequestChanges,
+  requestChangesLoading,
+}: {
+  comments: SectionComment[];
+  onDelete: (id: string) => void;
+  onRequestChanges: (comments: SectionComment[]) => void;
+  requestChangesLoading: boolean;
+}) {
+  const [panelOpen, setPanelOpen] = useState(false);
+
+  if (comments.length === 0 && !panelOpen) {
+    return (
+      <div
+        className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm"
+        style={{
+          background: "linear-gradient(135deg, #f5f0e8 0%, #fffcf7 100%)",
+          border: "1px dashed #d4c9b0",
+          fontFamily: "'DM Sans', sans-serif",
+          color: "#8a7d68",
+        }}
+      >
+        <MessageSquare className="h-4 w-4 shrink-0" style={{ color: "#b8975a" }} />
+        <span>Click <strong style={{ color: "#5a4a32" }}>"Add Comment"</strong> on any section below to leave feedback for the submitter.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{
+        border: "1px solid #d4c9b0",
+        background: "linear-gradient(180deg, #fffcf7 0%, #faf6ee 100%)",
+        boxShadow: "0 2px 12px rgba(184,151,90,0.1)",
+      }}
+    >
+      {/* Panel header */}
+      <button
+        type="button"
+        className="w-full flex items-center justify-between px-5 py-4"
+        onClick={() => setPanelOpen((v) => !v)}
+        style={{ fontFamily: "'DM Sans', sans-serif" }}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: "linear-gradient(135deg, #fef3c7, #fde68a)", border: "1px solid #d97706" }}
+          >
+            <MessageSquare className="h-4 w-4" style={{ color: "#92400e" }} />
+          </div>
+          <span className="text-sm font-semibold" style={{ color: "#2c2418" }}>
+            Review Comments
+          </span>
+          {comments.length > 0 && (
+            <span
+              className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold"
+              style={{ background: "#d97706", color: "white" }}
+            >
+              {comments.length}
+            </span>
+          )}
+        </div>
+        <ChevronDown
+          className="h-4 w-4 transition-transform"
+          style={{ color: "#8a7d68", transform: panelOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+        />
+      </button>
+
+      {panelOpen && (
+        <div className="px-5 pb-5 space-y-4">
+          <div className="h-px" style={{ background: "linear-gradient(90deg, transparent, #d4c9b0, transparent)" }} />
+
+          {comments.length === 0 ? (
+            <p className="text-sm text-center py-4" style={{ color: "#a08e6c", fontFamily: "'DM Sans', sans-serif" }}>
+              No comments yet. Add comments to sections below.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {comments.map((c) => (
+                <div
+                  key={c.id}
+                  className="flex items-start gap-3 p-3 rounded-xl"
+                  style={{ background: "#fef9ee", border: "1px solid #e8d4a0" }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div
+                      className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                      style={{ color: "#8a6a3a", fontFamily: "'DM Sans', sans-serif" }}
+                    >
+                      {c.sectionTitle}
+                    </div>
+                    <p className="text-sm leading-relaxed" style={{ color: "#3d3529", fontFamily: "'DM Sans', sans-serif" }}>
+                      {c.text}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(c.id)}
+                    className="shrink-0 rounded-lg p-1.5 transition-all"
+                    style={{ color: "#c9b99a" }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.color = "#c0524a";
+                      (e.currentTarget as HTMLElement).style.background = "#fde8e0";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.color = "#c9b99a";
+                      (e.currentTarget as HTMLElement).style.background = "transparent";
+                    }}
+                    title="Remove comment"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Request changes CTA */}
+          <div
+            className="rounded-xl p-4 space-y-3"
+            style={{ background: "linear-gradient(135deg, #fef3c7, #fef9ee)", border: "1px solid #d97706" }}
+          >
+            <p className="text-xs leading-relaxed" style={{ color: "#78350f", fontFamily: "'DM Sans', sans-serif" }}>
+              {comments.length > 0
+                ? `${comments.length} comment${comments.length > 1 ? "s" : ""} will be sent to the submitter alongside your request for changes.`
+                : "Add comments to sections above, then request changes. The submitter will see your feedback."}
+            </p>
+            <button
+              type="button"
+              disabled={comments.length === 0 || requestChangesLoading}
+              onClick={() => onRequestChanges(comments)}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
+              style={{
+                background: comments.length > 0 ? "linear-gradient(135deg, #d97706, #b45309)" : "#e5d7b8",
+                color: comments.length > 0 ? "white" : "#a08e6c",
+                border: "none",
+                cursor: comments.length > 0 ? "pointer" : "not-allowed",
+                opacity: requestChangesLoading ? 0.7 : 1,
+                fontFamily: "'DM Sans', sans-serif",
+              }}
+            >
+              {requestChangesLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CornerDownLeft className="h-4 w-4" />
+              )}
+              {requestChangesLoading ? "Sending..." : "Request Changes with Comments"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------
+   Approver Banner
+---------------------------------------------- */
+
+function ApproverBanner({ commentCount }: { commentCount: number }) {
+  return (
+    <div
+      className="flex items-start gap-3 px-5 py-4 rounded-xl"
+      style={{
+        background: "linear-gradient(135deg, rgba(30, 58, 138, 0.05) 0%, rgba(59, 130, 246, 0.04) 100%)",
+        border: "1px solid rgba(59, 130, 246, 0.2)",
+        fontFamily: "'DM Sans', sans-serif",
+      }}
+    >
+      <Shield className="h-5 w-5 shrink-0 mt-0.5" style={{ color: "#1d4ed8" }} />
+      <div className="flex-1">
+        <p className="text-sm font-semibold" style={{ color: "#1e3a8a" }}>
+          Approver Review Mode
+        </p>
+        <p className="text-xs mt-0.5 leading-relaxed" style={{ color: "#3b5998" }}>
+          The document is fully visible below. Use <strong>"Add Comment"</strong> on any section to leave inline feedback,
+          then use the <strong>"Request Changes"</strong> panel to send your comments back to the submitter.
+          {commentCount > 0 && (
+            <span className="ml-1 font-semibold" style={{ color: "#1d4ed8" }}>
+              {commentCount} comment{commentCount > 1 ? "s" : ""} added so far.
+            </span>
+          )}
+        </p>
+      </div>
+      {commentCount > 0 && (
+        <span
+          className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
+          style={{ background: "#dbeafe", color: "#1e40af", border: "1px solid #bfdbfe" }}
+        >
+          <CheckCheck className="h-3 w-3" />
+          {commentCount} note{commentCount > 1 ? "s" : ""}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------
+   Main component
+---------------------------------------------- */
+
 export default function ProjectCharterEditorFormLazy({
   projectId,
   artifactId,
@@ -426,6 +650,9 @@ export default function ProjectCharterEditorFormLazy({
   canSubmitOrResubmit = false,
   approvalStatus = null,
   submitForApprovalAction = null,
+  // NEW: approver-specific props
+  isApprover = false,
+  onRequestChangesWithComments = null,
 }: {
   projectId: string;
   artifactId: string;
@@ -440,6 +667,9 @@ export default function ProjectCharterEditorFormLazy({
   canSubmitOrResubmit?: boolean;
   approvalStatus?: string | null;
   submitForApprovalAction?: ((formData: FormData) => Promise<void>) | (() => Promise<void>) | null;
+  // NEW props
+  isApprover?: boolean;
+  onRequestChangesWithComments?: ((comments: SectionComment[]) => Promise<void>) | null;
 }) {
   const router = useRouter();
   const lastLocalEditAtRef = useRef<number>(0);
@@ -468,6 +698,53 @@ export default function ProjectCharterEditorFormLazy({
 
   const [exportBusy, setExportBusy] = useState<null | "pdf" | "docx">(null);
   const [exportErr, setExportErr] = useState<string>("");
+
+  // ── Approver comment state ───────────────────────────────
+  const [approverComments, setApproverComments] = useState<SectionComment[]>([]);
+  const [requestChangesLoading, setRequestChangesLoading] = useState(false);
+
+  // Derive approver mode: user is an approver viewing a submitted document
+  const approvalStatusLower = String(approvalStatus || "").toLowerCase().trim();
+  const isApproverMode =
+    isApprover &&
+    readOnly &&
+    (approvalStatusLower === "submitted" || approvalStatusLower === "pending" || approvalStatusLower === "under_review");
+
+  function addApproverComment(sectionKey: string, sectionTitle: string, text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const comment: SectionComment = {
+      id: `cmt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      sectionKey,
+      sectionTitle,
+      text: trimmed,
+      createdAt: new Date().toISOString(),
+    };
+    setApproverComments((prev) => [...prev, comment]);
+  }
+
+  function deleteApproverComment(id: string) {
+    setApproverComments((prev) => prev.filter((c) => c.id !== id));
+  }
+
+  async function handleRequestChangesWithComments(comments: SectionComment[]) {
+    if (!onRequestChangesWithComments) return;
+    setRequestChangesLoading(true);
+    try {
+      await onRequestChangesWithComments(comments);
+    } finally {
+      setRequestChangesLoading(false);
+    }
+  }
+
+  // ── Comment counts by section key ───────────────────────
+  const commentCountBySection = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const c of approverComments) {
+      map[c.sectionKey] = (map[c.sectionKey] || 0) + 1;
+    }
+    return map;
+  }, [approverComments]);
 
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autosaveInFlightRef = useRef(false);
@@ -677,7 +954,6 @@ export default function ProjectCharterEditorFormLazy({
     );
   };
 
-  const approvalStatusLower = String(approvalStatus || "").toLowerCase().trim();
   const showSubmitAction =
     approvalEnabled &&
     canSubmitOrResubmit &&
@@ -867,6 +1143,11 @@ export default function ProjectCharterEditorFormLazy({
 
       <div className="charter-gold-border h-1.5 w-full rounded-t-xl" />
 
+      {/* ── Approver banner ────────────────────────────── */}
+      {isApproverMode && (
+        <ApproverBanner commentCount={approverComments.length} />
+      )}
+
       <div
         className="rounded-xl overflow-hidden shadow-sm"
         style={{
@@ -912,25 +1193,34 @@ export default function ProjectCharterEditorFormLazy({
               </div>
 
               <p className="text-sm" style={{ color: "#8a7d68", fontFamily: "'DM Sans', sans-serif" }}>
-                {readOnly ? "View-only mode" : lockLayout ? "Layout locked after submission" : "Edit and manage your project charter"}
+                {isApproverMode
+                  ? "Approver review — full document visible. Add comments to sections below."
+                  : readOnly
+                    ? "View-only mode"
+                    : lockLayout
+                      ? "Layout locked after submission"
+                      : "Edit and manage your project charter"}
               </p>
 
               <LegacyLinks legacy={legacyExports ?? null} />
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <StatusDot state={autosaveState} />
+              {/* Only show save/autosave status for editors, not approvers */}
+              {!isApproverMode && <StatusDot state={autosaveState} />}
 
-              <button
-                type="button"
-                className="charter-btn"
-                disabled={!canEdit || isPending || autosaveState === "saving"}
-                onClick={() => saveNow("manual")}
-                title={!canEdit ? "Read-only / locked" : dirty ? "Save changes" : "No unsaved changes"}
-              >
-                <Save className="h-4 w-4" style={{ color: "#8a7d68" }} />
-                Save
-              </button>
+              {!isApproverMode && (
+                <button
+                  type="button"
+                  className="charter-btn"
+                  disabled={!canEdit || isPending || autosaveState === "saving"}
+                  onClick={() => saveNow("manual")}
+                  title={!canEdit ? "Read-only / locked" : dirty ? "Save changes" : "No unsaved changes"}
+                >
+                  <Save className="h-4 w-4" style={{ color: "#8a7d68" }} />
+                  Save
+                </button>
+              )}
 
               {approvalEnabled && showSubmitAction && (
                 submitWired ? (
@@ -1091,11 +1381,21 @@ export default function ProjectCharterEditorFormLazy({
         )}
       </div>
 
+      {/* ── Approver comments panel ────────────────────── */}
+      {isApproverMode && (
+        <ApproverCommentsPanel
+          comments={approverComments}
+          onDelete={deleteApproverComment}
+          onRequestChanges={handleRequestChangesWithComments}
+          requestChangesLoading={requestChangesLoading}
+        />
+      )}
+
       <div
         className="rounded-xl overflow-hidden shadow-sm"
         style={{
           background: "linear-gradient(180deg, #fffcf7 0%, #f5f0e8 100%)",
-          border: "1px solid #e8e2d6",
+          border: isApproverMode ? "1px solid #bfdbfe" : "1px solid #e8e2d6",
           minHeight: 600,
         }}
       >
@@ -1124,6 +1424,10 @@ export default function ProjectCharterEditorFormLazy({
             onRegenerateSection={(sectionKey: string) => regenerateSection(sectionKey)}
             aiDisabled={!canEdit || isPending || aiState === "generating"}
             aiLoadingKey={aiLoadingKey}
+            // NEW: approver comment props
+            approverMode={isApproverMode}
+            approverCommentsBySection={commentCountBySection}
+            onAddApproverComment={addApproverComment}
           />
         ) : (
           <ProjectCharterEditor
