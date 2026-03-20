@@ -9,6 +9,7 @@ import type {
 import {
   saveResourceJustification,
   sendJustificationToResourceTeam,
+  reviseJustificationRequest,
   generateAiJustification,
 } from "@/app/projects/[id]/resource-justification-actions";
 
@@ -273,6 +274,17 @@ export default function ResourceJustificationPanel({
     });
   }
 
+  function handleRevise() {
+    startTransition(async () => {
+      if (!justification?.id) return;
+      const result = await reviseJustificationRequest(projectId, justification.id);
+      if (result.ok) {
+        setJustification(prev => prev ? { ...prev, status: "draft" } : prev);
+        setSendMsg(null);
+      }
+    });
+  }
+
   return (
     <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, overflow: "hidden", fontFamily: "'DM Sans', -apple-system, sans-serif" }}>
       <style>{`
@@ -325,11 +337,16 @@ export default function ResourceJustificationPanel({
           {roleRequirements.length > 0 && (
             <div style={{ marginBottom:20 }}>
               <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10 }}>
-                <div style={{ fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:"#94a3b8" }}>
-                  Role requirements · rate card
+                <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                  <div style={{ fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:"#94a3b8" }}>
+                    Role requirements · rate card
+                  </div>
+                  <span style={{ fontSize:10,color:"#64748b",background:"#f1f5f9",border:"1px solid #e2e8f0",borderRadius:4,padding:"1px 6px" }}>
+                    Rates from internal rate card
+                  </span>
                 </div>
                 {canEdit && !alreadySent && (
-                  <span style={{ fontSize:11,color:"#94a3b8" }}>Click a rate to edit</span>
+                  <span style={{ fontSize:11,color:"#94a3b8" }}>Click any rate to override</span>
                 )}
               </div>
               {roleRequirements.map(r => (
@@ -574,9 +591,22 @@ export default function ResourceJustificationPanel({
           )}
 
           {alreadySent && justification?.sent_at && (
-            <div style={{ marginTop:16,padding:"10px 14px",borderRadius:8,background:"#eff6ff",border:"1px solid #bfdbfe",fontSize:12,color:"#1d4ed8" }}>
-              <strong>Submitted</strong> to resource team on {new Date(justification.sent_at).toLocaleDateString("en-GB", { day:"numeric",month:"long",year:"numeric" })}.
-              Funding route: <strong>{selectedFunding.label}</strong>.
+            <div style={{ marginTop:16,padding:"14px 16px",borderRadius:8,background:"#eff6ff",border:"1px solid #bfdbfe" }}>
+              <div style={{ fontSize:12,color:"#1d4ed8",marginBottom:10 }}>
+                <strong>Submitted</strong> to resource team on {new Date(justification.sent_at).toLocaleDateString("en-GB", { day:"numeric",month:"long",year:"numeric" })}.
+                Funding route: <strong>{selectedFunding.label}</strong>.
+              </div>
+              {canEdit && (
+                <button
+                  type="button"
+                  className="rj-btn"
+                  disabled={isPending}
+                  onClick={handleRevise}
+                  style={{ fontSize:12, borderColor:"#bfdbfe", color:"#1d4ed8" }}
+                >
+                  ↩ Revise & resubmit
+                </button>
+              )}
             </div>
           )}
 

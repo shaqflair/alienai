@@ -305,6 +305,34 @@ Review and respond here: ${projectUrl}`;
   return { ok: true, notifiedCount, emailsSent };
 }
 
+export async function reviseJustificationRequest(
+  projectId: string,
+  justificationId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { ok: false, error: "Not authenticated" };
+
+  const now = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("project_resource_justifications")
+    .update({
+      status: "draft",
+      sent_at: null,
+      sent_by: null,
+      updated_at: now,
+      updated_by: auth.user.id,
+    })
+    .eq("id", justificationId)
+    .eq("project_id", projectId);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/projects/${projectId}`);
+  return { ok: true };
+}
+
 export async function generateAiJustification(
   projectId: string,
   context: {
