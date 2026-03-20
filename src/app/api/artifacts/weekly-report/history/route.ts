@@ -45,8 +45,10 @@ function extractHeadline(cj: any): string | null {
 }
 
 function isWeeklyReportType(type: string) {
-  const t = safeStr(type).toLowerCase().replace(/[_\s]/g, "");
-  return t.includes("weeklyreport") || t === "weeklyreport";
+  const t = safeStr(type).trim();
+  if (!t) return false;
+  const lower = t.toLowerCase().replace(/[_\s-]/g, "");
+  return lower.includes("weeklyreport");
 }
 
 export async function GET(req: Request) {
@@ -115,8 +117,20 @@ export async function GET(req: Request) {
       }
     }
 
-    // ── Strategy 2: artifact_versions by project + type (broader search) ──
+    // ── Strategy 2: artifact_versions by project (check both artifact_type and snapshot) ──
+    // artifact_type is NULL for WEEKLY_REPORT in this project, so we match all versions
+    // and filter by known artifact IDs from the artifacts table.
     if (reports.length === 0) {
+      // First get all weekly report artifact IDs for this project
+      const { data: weeklyArtifacts } = await supabase
+        .from("artifacts")
+        .select("id")
+        .eq("project_id", projectId)
+        .or("type.ilike.%weekly%,artifact_type.ilike.%weekly%")
+        .is("deleted_at", null);
+
+      const weeklyIds = new Set((weeklyArtifacts ?? []).map((a: any) => safeStr(a.id)));
+
       const { data: projVersions } = await supabase
         .from("artifact_versions")
         .select("id, artifact_id, snapshot, title, version_no, created_at, artifact_type")
@@ -124,9 +138,11 @@ export async function GET(req: Request) {
         .order("created_at", { ascending: false })
         .limit(limit + 5);
 
-      const filtered = (projVersions ?? []).filter((row: any) =>
-        isWeeklyReportType(safeStr(row.artifact_type))
-      );
+      const filtered = (projVersions ?? []).filter((row: any) => {
+        // Match by artifact_type field OR by artifact being a known weekly report
+        return isWeeklyReportType(safeStr(row.artifact_type)) ||
+               weeklyIds.has(safeStr(row.artifact_id));
+      });
 
       if (filtered.length > 0) {
         reports = filtered

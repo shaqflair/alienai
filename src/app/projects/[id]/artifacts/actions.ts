@@ -153,7 +153,9 @@ async function snapshotToVersionsBestEffort(
       .maybeSingle();
 
     const orgId    = (proj as any)?.organisation_id ?? null;
-    const artType  = String((art as any)?.artifact_type ?? (art as any)?.type ?? "").toLowerCase();
+    // artifact_type is NULL in DB for WEEKLY_REPORT — fall back to type column
+    const rawArtType = (art as any)?.artifact_type ?? (art as any)?.type ?? "";
+    const artType  = String(rawArtType).toLowerCase();
     const version  = Number((art as any)?.version ?? 1);
     const title    = String((art as any)?.title ?? "");
 
@@ -873,8 +875,11 @@ export async function updateArtifactJsonArgs(args: {
       const isGateError =
         msg.includes("locked") ||
         msg.includes("current version") ||
+        msg.includes("current") ||
         msg.includes("Changes Requested") ||
-        msg.includes("Draft");
+        msg.includes("Draft") ||
+        msg.includes("Only Draft") ||
+        msg.includes("Only current");
 
       if (isGateError) {
         // Direct write — bypasses canEditArtifactRow for in-editor saves
