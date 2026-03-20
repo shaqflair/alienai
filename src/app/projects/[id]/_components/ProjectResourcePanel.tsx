@@ -8,6 +8,8 @@ import type {
 } from "../_lib/resource-data";
 import { insertRoleRequirements } from "../../actions";
 import { updateAllocation, deleteAllocationDirect } from "../../../allocations/actions";
+import ResourceJustificationPanel from "@/components/projects/ResourceJustificationPanel";
+import type { ResourceJustification, OpenCR } from "@/app/projects/[id]/resource-justification-actions";
 
 const UTIL_COLOURS = {
   empty:    { bg: "#f8fafc", text: "#cbd5e1", border: "#f1f5f9" },
@@ -159,8 +161,6 @@ const inputStyle: React.CSSProperties = {
   fontFamily: "inherit", outline: "none",
 };
 
-// -- PATCH 1 + 2: isPipeline prop, locked type for pipeline ---------------------
-
 function EditAllocationModal({ member, projectId, isPipeline, onClose }: {
   member: TeamMember; projectId: string; isPipeline?: boolean; onClose: () => void;
 }) {
@@ -168,7 +168,6 @@ function EditAllocationModal({ member, projectId, isPipeline, onClose }: {
   const [startDate,   setStartDate]   = useState((member as any).firstWeek ?? "");
   const [endDate,     setEndDate]     = useState((member as any).lastWeek  ?? "");
   const [daysPerWeek, setDaysPerWeek] = useState((member as any).avgDaysPerWeek || 5);
-  // Pipeline allocations are always soft
   const [allocType,   setAllocType]   = useState(isPipeline ? "soft" : (member.allocationType || "confirmed"));
   const [error,       setError]       = useState<string | null>(null);
   const [isPending,   startTransition] = useTransition();
@@ -240,7 +239,6 @@ function EditAllocationModal({ member, projectId, isPipeline, onClose }: {
           <div>
             <label style={labelStyle}>Type</label>
             {isPipeline ? (
-              // Pipeline: locked to soft, no toggle
               <div style={{ padding: "8px 12px", borderRadius: "7px", border: "1.5px solid #e8ecf0", background: "#f8fafc", fontSize: "12px", fontWeight: 700, color: "#475569", textAlign: "center" }}>
                 Soft only (pipeline project)
               </div>
@@ -275,8 +273,6 @@ function EditAllocationModal({ member, projectId, isPipeline, onClose }: {
     </div>
   );
 }
-
-// -- PATCH 3 + 4: TeamMemberCard accepts and passes isPipeline -----------------
 
 function TeamMemberCard({ member, projectColour, projectId, isPipeline }: {
   member: TeamMember; projectColour: string; projectId: string; isPipeline?: boolean;
@@ -322,8 +318,6 @@ function TeamMemberCard({ member, projectColour, projectId, isPipeline }: {
     </>
   );
 }
-
-// -- PATCH 5 + 6: TeamSection accepts and passes isPipeline --------------------
 
 function TeamSection({ members, projectColour, projectId, isPipeline }: {
   members: TeamMember[]; projectColour: string; projectId: string; isPipeline?: boolean;
@@ -578,9 +572,32 @@ function RoleRequirementsSection({ roles, projectId, startDate, endDate }: { rol
   );
 }
 
-// -- PATCH 7: Main export passes isPipeline to TeamSection --------------------
+// ── NEW: prop types for justification data passed from the server page ────────
 
-export default function ProjectResourcePanel({ data, periods }: { data: ProjectResourceData; periods: WeekPeriod[] }) {
+export type ResourceJustificationProps = {
+  initialJustification: ResourceJustification | null;
+  openCRs: OpenCR[];
+  roleRequirementsForJustification: Array<{
+    id: string;
+    role: string;
+    required_days: number | null;
+    filled_days: number | null;
+  }>;
+  projectTitle: string;
+  canEdit: boolean;
+};
+
+// ── Main export ───────────────────────────────────────────────────────────────
+
+export default function ProjectResourcePanel({
+  data,
+  periods,
+  justificationProps,
+}: {
+  data: ProjectResourceData;
+  periods: WeekPeriod[];
+  justificationProps?: ResourceJustificationProps;
+}) {
   const { project, teamMembers, allocations, roleRequirements, budgetSummary } = data;
   const isPipeline = String(project.resource_status || "").toLowerCase() === "pipeline";
 
@@ -596,6 +613,7 @@ export default function ProjectResourcePanel({ data, periods }: { data: ProjectR
           </div>
           <div style={{ height: "1.5px", flex: 1, background: "linear-gradient(90deg, transparent, #e2e8f0)" }} />
         </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "14px" }}>
           <TeamSection
             members={teamMembers}
@@ -605,8 +623,41 @@ export default function ProjectResourcePanel({ data, periods }: { data: ProjectR
           />
           <BudgetSection budget={budgetSummary} colour={project.colour} />
         </div>
+
         <MiniHeatmap allocations={allocations} members={teamMembers} periods={periods} colour={project.colour} />
-        <RoleRequirementsSection roles={roleRequirements} projectId={project.id} startDate={project.start_date} endDate={project.finish_date} />
+
+        <RoleRequirementsSection
+          roles={roleRequirements}
+          projectId={project.id}
+          startDate={project.start_date}
+          endDate={project.finish_date}
+        />
+
+        {/* ── Resource Justification Panel ── */}
+        {justificationProps && (
+          <ResourceJustificationPanel
+            projectId={project.id}
+            projectTitle={justificationProps.projectTitle}
+            initialJustification={justificationProps.initialJustification}
+            budgetSummary={{
+              totalBudgetDays: budgetSummary.budgetDays ?? 0,
+              allocatedDays: budgetSummary.allocatedDays,
+              remainingDays: budgetSummary.remainingDays ?? 0,
+              overBudget: (budgetSummary.remainingDays ?? 0) < 0,
+              weeklyBurnRate: budgetSummary.weeklyBurnRate,
+              budgetGbp: budgetSummary.budgetAmount ?? null,
+              spentGbp: null,
+              remainingGbp: null,
+              utilisationPct: budgetSummary.utilisationPct ?? 0,
+            }}
+            openCRs={justificationProps.openCRs}
+            roleRequirements={justificationProps.roleRequirementsForJustification}
+            allocatedDays={budgetSummary.allocatedDays}
+            budgetDays={budgetSummary.budgetDays ?? 0}
+            weeklyBurnRate={budgetSummary.weeklyBurnRate}
+            canEdit={justificationProps.canEdit}
+          />
+        )}
       </div>
     </>
   );
