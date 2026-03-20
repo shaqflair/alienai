@@ -342,18 +342,18 @@ export default function ChangeCreateModal({
   const [interview, setInterview] = useState<AiInterview>({ about: "", why: "", impacted: "", when: "", constraints: "", costs: "", riskLevel: "Medium", rollback: "" });
 
   const isEdit = mode === "edit";
-  const disabled = saving || projResolveBusy;
+  const disabled = saving;
   const draftId = useMemo(() => newDraftId(), [open]);
 
-  /* ── Resolve project (all original logic) ── */
+/* ── Resolve project (all original logic) ── */
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     async function resolve() {
       const raw = safeStr(projectId).trim();
-      setProjResolveErr(""); setResolvedProjectId("");
+      setProjResolveErr(""); setResolvedProjectId(""); setProjResolveBusy(false);
       if (!raw) { setProjResolveErr("Missing projectId."); return; }
-      if (looksLikeUuid(raw)) { setResolvedProjectId(raw); return; }
+      if (looksLikeUuid(raw)) { setResolvedProjectId(raw); setProjResolveBusy(false); return; }
       try {
         setProjResolveBusy(true);
         const res = await fetch(`/api/projects/${encodeURIComponent(raw)}`, { cache: "no-store" });
@@ -369,7 +369,6 @@ export default function ChangeCreateModal({
     resolve();
     return () => { cancelled = true; };
   }, [open, projectId]);
-
   /* ── Reset on open (all original logic) ── */
   useEffect(() => {
     if (!open) return;

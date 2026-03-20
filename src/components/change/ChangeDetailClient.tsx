@@ -276,12 +276,18 @@ function normDecision(x: any): DecisionStatus {
   return v as any;
 }
 
+// ── FIX: relaxed governance lock ──
+// Only hard-lock when the record is truly frozen.
+// Previously locked 'review', 'in_progress', 'implemented', 'closed' entirely,
+// which disabled all form fields for most change requests.
 function canEditFromGovernance(lane: ChangeStatus, decision: DecisionStatus) {
-  if (lane === "review") {
-    if (decision === "rejected" || decision === "rework") return true;
-    return false;
-  }
-  if (lane === "in_progress" || lane === "implemented" || lane === "closed") return false;
+  if (lane === "closed") return false;
+  if (lane === "implemented") return false;
+  // in_progress: only locked after formal approval
+  if (lane === "in_progress" && decision === "approved") return false;
+  // review: only locked while actively awaiting an approval decision
+  if (lane === "review" && decision === "submitted") return false;
+  // new, analysis, review with rework/rejected/empty → all editable
   return true;
 }
 
@@ -301,7 +307,7 @@ type DraftCopilotAi = {
 
 export default function ChangeDetailClient({
   projectId,
-  projectCode, // ✅ NEW (optional)
+  projectCode,
   artifactId,
   changeId,
   change,
@@ -309,7 +315,7 @@ export default function ChangeDetailClient({
   initialPanel,
 }: {
   projectId: string;
-  projectCode?: string | number; // ✅ NEW (lets Timeline show PRJ-100011 immediately)
+  projectCode?: string | number;
   artifactId?: string;
   changeId: string;
   change?: ChangeItem;
@@ -407,7 +413,7 @@ export default function ChangeDetailClient({
     setModel((m) => ({ ...m, [key]: value }));
   }
 
-  /* ---------------- Load (ONLY if we have a real DB id) ---------------- */
+  /* ---------------- Load -------------------------------------------------- */
   useEffect(() => {
     if (change) setModel(change);
   }, [change]);
@@ -532,26 +538,18 @@ export default function ChangeDetailClient({
 
     return {
       ok: true,
-     payload: {
-  // keep projectId for create route /ai/events
-  projectId: pid,
-  artifactId: safeStr(artifactId).trim() || null,
-
-  title,
-  summary, // client name
-  description: summary, // server accepts this too
-
-  proposedChange: buildProposedChangeFrom(model),
-
-  priority,
-  tags,
-
-  requester_name: requester || null,
-
-  // server accepts impactAnalysis OR impact_analysis OR aiImpact
-  impactAnalysis,
-}
-,
+      payload: {
+        projectId: pid,
+        artifactId: safeStr(artifactId).trim() || null,
+        title,
+        summary,
+        description: summary,
+        proposedChange: buildProposedChangeFrom(model),
+        priority,
+        tags,
+        requester_name: requester || null,
+        impactAnalysis,
+      },
     };
   }
 
@@ -560,7 +558,11 @@ export default function ChangeDetailClient({
   const decision = normDecision((model as any)?.decision_status);
 
   const lockedByGovernance = routeIsDbId ? !canEditFromGovernance(lane, decision) : false;
-  const disabled = saving || loading || lockedByGovernance;
+
+  // ── FIX: removed 'loading' from disabled ──
+  // Previously: disabled = saving || loading || lockedByGovernance
+  // 'loading' was true during the entire API fetch on mount, locking all inputs.
+  const disabled = saving || lockedByGovernance;
 
   const uiId = useMemo(() => {
     const pid = safeStr((model as any)?.publicId || (model as any)?.public_id).trim();
@@ -590,13 +592,11 @@ export default function ChangeDetailClient({
       summary: safeStr(model.summary),
       priority: safeStr(model.priority),
       status: normalizeStatus(model.status),
-
       justification: safeStr((model as any).justification),
       financial: safeStr((model as any).financial),
       schedule: safeStr((model as any).schedule),
       risks: safeStr((model as any).risks),
       dependencies: safeStr((model as any).dependencies),
-
       tags: Array.isArray(model.tags) ? model.tags : [],
       uiId: uiId || "",
     };
@@ -659,19 +659,10 @@ export default function ChangeDetailClient({
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    draftAiOpen,
-    draftAutoScan,
-    routeIsDbId,
-    projectId,
-    model.title,
-    model.summary,
-    model.priority,
-    model.status,
-    (model as any).justification,
-    (model as any).financial,
-    (model as any).schedule,
-    (model as any).risks,
-    (model as any).dependencies,
+    draftAiOpen, draftAutoScan, routeIsDbId, projectId,
+    model.title, model.summary, model.priority, model.status,
+    (model as any).justification, (model as any).financial,
+    (model as any).schedule, (model as any).risks, (model as any).dependencies,
     Array.isArray(model.tags) ? model.tags.join(",") : "",
   ]);
 
@@ -700,19 +691,40 @@ export default function ChangeDetailClient({
       setAiBusy(false);
     }
   }
-async function save() {
-  setError("");
-  const v = validate();
-  if (!v.ok) return setError(v.msg);
 
-  setSaving(true);
-  try {
-    // ✅ If we DON'T have a DB UUID yet, we must CREATE first
-    if (!routeIsDbId) {
-      const created = await apiPost("/api/change", {
-        projectId: v.payload.projectId,
-        artifactId: v.payload.artifactId,
+  async function save() {
+    setError("");
+    const v = validate();
+    if (!v.ok) return setError(v.msg);
+
+    setSaving(true);
+    try {
+      if (!routeIsDbId) {
+        const created = await apiPost("/api/change", {
+          projectId: v.payload.projectId,
+          artifactId: v.payload.artifactId,
+          title: v.payload.title,
+          description: v.payload.description,
+          proposedChange: v.payload.proposedChange,
+          priority: v.payload.priority,
+          tags: v.payload.tags,
+          requester_name: v.payload.requester_name,
+          impactAnalysis: v.payload.impactAnalysis,
+        });
+
+        const newId = safeStr((created as any)?.item?.id || (created as any)?.id).trim();
+        if (!newId) throw new Error("Created change request but no id returned.");
+
+        router.push(boardReturnHref());
+        return;
+      }
+
+      const id = safeStr(routeId).trim();
+      if (!id) throw new Error("Missing change id.");
+
+      const json = await apiPatch(`/api/change/${encodeURIComponent(id)}`, {
         title: v.payload.title,
+        summary: v.payload.description,
         description: v.payload.description,
         proposedChange: v.payload.proposedChange,
         priority: v.payload.priority,
@@ -721,94 +733,64 @@ async function save() {
         impactAnalysis: v.payload.impactAnalysis,
       });
 
-      const newId = safeStr((created as any)?.item?.id || (created as any)?.id).trim();
-      if (!newId) throw new Error("Created change request but no id returned.");
-
-      // After create, go back to board (or navigate to the new detail page if you have one)
+      if (!json || (json as any).ok !== true) throw new Error((json as any)?.error || "Save failed");
       router.push(boardReturnHref());
-      return;
+    } catch (e: any) {
+      setError(safeStr(e?.message) || "Save failed");
+    } finally {
+      setSaving(false);
     }
-
-    // ✅ Normal edit/save path (UUID)
-    const id = safeStr(routeId).trim();
-    if (!id) throw new Error("Missing change id.");
-
-    const json = await apiPatch(`/api/change/${encodeURIComponent(id)}`, {
-      title: v.payload.title,
-      summary: v.payload.description,
-      description: v.payload.description,
-      proposedChange: v.payload.proposedChange,
-      priority: v.payload.priority,
-      tags: v.payload.tags,
-      requester_name: v.payload.requester_name,
-      impactAnalysis: v.payload.impactAnalysis,
-    });
-
-    if (!json || (json as any).ok !== true) throw new Error((json as any)?.error || "Save failed");
-    router.push(boardReturnHref());
-  } catch (e: any) {
-    setError(safeStr(e?.message) || "Save failed");
-  } finally {
-    setSaving(false);
   }
-}
 
   /* ---------------- Analysis readiness ---------------- */
-
   const analysisReadiness = useMemo(() => {
     const isAnalysis = lane === "analysis";
     if (!isAnalysis) {
       return { isAnalysis: false, ready: true, items: [] as { ok: boolean; label: string }[], blockingMsg: "" };
     }
 
-    const titleOk = safeStr(model.title).trim().length >= 5;
+    const titleOk   = safeStr(model.title).trim().length >= 5;
     const summaryOk = safeStr(model.summary).trim().length >= 20;
+    const justOk    = safeStr((model as any).justification).trim().length >= 15;
+    const finOk     = safeStr((model as any).financial).trim().length >= 10;
+    const schOk     = safeStr((model as any).schedule).trim().length >= 10;
+    const risksOk   = safeStr((model as any).risks).trim().length >= 10 || safeStr(model.aiImpact?.risk).trim().length >= 10;
+    const depsOk    = safeStr((model as any).dependencies).trim().length >= 10;
 
-    const justOk = safeStr((model as any).justification).trim().length >= 15;
-    const finOk = safeStr((model as any).financial).trim().length >= 10;
-    const schOk = safeStr((model as any).schedule).trim().length >= 10;
-    const risksOk = safeStr((model as any).risks).trim().length >= 10 || safeStr(model.aiImpact?.risk).trim().length >= 10;
-    const depsOk = safeStr((model as any).dependencies).trim().length >= 10;
-
-    const days = Number(model.aiImpact?.days ?? 0) || 0;
-    const cost = Number(model.aiImpact?.cost ?? 0) || 0;
+    const days    = Number(model.aiImpact?.days ?? 0) || 0;
+    const cost    = Number(model.aiImpact?.cost ?? 0) || 0;
     const riskTxt = safeStr(model.aiImpact?.risk).trim();
     const impactOk = (days !== 0 || cost !== 0 || riskTxt.length >= 10) && riskTxt.length > 0;
 
     const items = [
-      { ok: titleOk, label: "Title set" },
+      { ok: titleOk,   label: "Title set" },
       { ok: summaryOk, label: "Summary (what/why) set" },
-      { ok: justOk, label: "Justification captured" },
-      { ok: schOk, label: "Schedule impact captured" },
-      { ok: finOk, label: "Financial impact captured" },
-      { ok: risksOk, label: "Risks captured" },
-      { ok: depsOk, label: "Dependencies captured" },
-      { ok: impactOk, label: "AI Impact (days/cost/risk) captured" },
+      { ok: justOk,    label: "Justification captured" },
+      { ok: schOk,     label: "Schedule impact captured" },
+      { ok: finOk,     label: "Financial impact captured" },
+      { ok: risksOk,   label: "Risks captured" },
+      { ok: depsOk,    label: "Dependencies captured" },
+      { ok: impactOk,  label: "AI Impact (days/cost/risk) captured" },
     ];
 
     const ready = items.every((x) => x.ok);
-
     const blockingMsg = ready ? "" : "Not ready for submission — complete the missing items (or run AI scan to populate the impact quickly).";
 
     return { isAnalysis: true, ready, items, blockingMsg };
   }, [lane, model]);
 
   /* ---------------- Governance actions ---------------- */
-
   async function doSubmit() {
     if (!routeIsDbId) return;
-
     if (analysisReadiness.isAnalysis && !analysisReadiness.ready) {
       setError(analysisReadiness.blockingMsg || "Not ready for submission.");
       return;
     }
-
     setError("");
     setSaving(true);
     try {
       await apiPost(`/api/change/${encodeURIComponent(routeId)}/submit`, {});
       setModel((m: any) => ({ ...m, status: "review", decision_status: "submitted" }));
-
       fireAiEvent("change_submitted_for_approval", { changeId: routeId, uiId }).catch(() => {});
       router.push(boardReturnHref());
     } catch (e: any) {
@@ -866,19 +848,17 @@ async function save() {
     }
   }
 
-  const canSubmit = routeIsDbId && lane === "analysis" && !lockedByGovernance && analysisReadiness.ready;
+  const canSubmit  = routeIsDbId && lane === "analysis" && !lockedByGovernance && analysisReadiness.ready;
   const canApprove = routeIsDbId && lane === "review";
-  const canRework = routeIsDbId && lane === "review";
-  const canReject = routeIsDbId && lane === "review";
+  const canRework  = routeIsDbId && lane === "review";
+  const canReject  = routeIsDbId && lane === "review";
 
   /* ---------------- Attachments ---------------- */
-  const [attLoading, setAttLoading] = useState(false);
-  const [attErr, setAttErr] = useState("");
-  const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
-  const [uploading, setUploading] = useState(false);
-
-  // ✅ shown on Attach button even when modal closed
-  const [attCount, setAttCount] = useState<number>(0);
+  const [attLoading, setAttLoading]         = useState(false);
+  const [attErr, setAttErr]                 = useState("");
+  const [attachments, setAttachments]       = useState<AttachmentRow[]>([]);
+  const [uploading, setUploading]           = useState(false);
+  const [attCount, setAttCount]             = useState<number>(0);
   const [attCountLoading, setAttCountLoading] = useState(false);
 
   const attachmentsEndpoint = useMemo(() => {
@@ -892,9 +872,7 @@ async function save() {
   }
 
   async function loadAttachments() {
-    if (!routeIsDbId) return;
-    if (!attachmentsEndpoint) return;
-
+    if (!routeIsDbId || !attachmentsEndpoint) return;
     setAttErr("");
     setAttLoading(true);
     try {
@@ -912,46 +890,37 @@ async function save() {
   }
 
   async function loadAttachmentCount() {
-    if (!routeIsDbId) return;
-    if (!attachmentsEndpoint) return;
-
+    if (!routeIsDbId || !attachmentsEndpoint) return;
     setAttCountLoading(true);
     try {
       const j = await apiGet(attachmentsEndpoint);
       const items = extractItems(j);
       setAttCount(items.length);
-      // keep a light cache so if user opens modal it’s already there
       setAttachments((prev) => (prev.length ? prev : items));
     } catch {
-      // don’t spam errors for count
+      // silent
     } finally {
       setAttCountLoading(false);
     }
   }
 
-  // ✅ keep button count fresh when we have a DB id
   useEffect(() => {
-    if (!routeIsDbId) return;
-    if (!attachmentsEndpoint) return;
+    if (!routeIsDbId || !attachmentsEndpoint) return;
     loadAttachmentCount().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeIsDbId, attachmentsEndpoint]);
 
   async function uploadAttachment(file: File) {
-    if (!routeIsDbId) return;
-    if (!attachmentsEndpoint) return;
-
+    if (!routeIsDbId || !attachmentsEndpoint) return;
     setAttErr("");
     setUploading(true);
     try {
       const fd = new FormData();
       fd.set("file", file);
       if (safeStr(artifactId).trim()) fd.set("artifactId", safeStr(artifactId).trim());
-
       const res = await fetch(attachmentsEndpoint, { method: "POST", body: fd });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !(json as any)?.ok) throw new Error(safeStr((json as any)?.error) || "Upload failed");
-
       await loadAttachments();
     } catch (e: any) {
       setAttErr(safeStr(e?.message) || "Upload failed");
@@ -960,31 +929,22 @@ async function save() {
     }
   }
 
-  // ✅ Delete attachment (UUID id if present; else path; sends both query + body)
   async function deleteAttachment(a: AttachmentRow) {
-    if (!routeIsDbId) return;
-    if (!attachmentsEndpoint) return;
+    if (!routeIsDbId || !attachmentsEndpoint) return;
 
     const rawId = safeStr(a.id).trim();
-    const path = safeStr((a as any)?.path).trim();
-
+    const path  = safeStr((a as any)?.path).trim();
     const attachmentId = rawId && isUuid(rawId) ? rawId : "";
 
     const qp = new URLSearchParams();
     if (path) qp.set("path", path);
     if (attachmentId) qp.set("attachmentId", attachmentId);
-
-    if (!path && rawId && rawId.includes("/") && rawId.startsWith("change/")) {
-      qp.set("path", rawId);
-    }
+    if (!path && rawId && rawId.includes("/") && rawId.startsWith("change/")) qp.set("path", rawId);
 
     const finalPath = qp.get("path") || "";
     const finalAttachmentId = qp.get("attachmentId") || "";
 
-    if (!finalPath && !finalAttachmentId) {
-      setAttErr("Cannot delete: missing attachment path/id");
-      return;
-    }
+    if (!finalPath && !finalAttachmentId) { setAttErr("Cannot delete: missing attachment path/id"); return; }
 
     const ok = window.confirm(`Delete "${attachmentName(a)}"? This cannot be undone.`);
     if (!ok) return;
@@ -993,19 +953,9 @@ async function save() {
     setUploading(true);
     try {
       const url = qp.toString() ? `${attachmentsEndpoint}?${qp.toString()}` : attachmentsEndpoint;
-
-      const res = await fetch(url, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          path: finalPath || null,
-          attachmentId: finalAttachmentId || null,
-        }),
-      });
-
+      const res = await fetch(url, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: finalPath || null, attachmentId: finalAttachmentId || null }) });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !(json as any)?.ok) throw new Error(safeStr((json as any)?.error) || "Delete failed");
-
       await loadAttachments();
     } catch (e: any) {
       setAttErr(safeStr(e?.message) || "Delete failed");
@@ -1021,7 +971,7 @@ async function save() {
   }, [attachOpen, attachmentsEndpoint]);
 
   function renderDraftAi(ai: DraftCopilotAi | null) {
-    if (!ai) return <div style={{ opacity: 0.85 }}>No AI output yet. Click “Run AI scan”.</div>;
+    if (!ai) return <div style={{ opacity: 0.85 }}>No AI output yet. Click "Run AI scan".</div>;
 
     const nextActions = Array.isArray(ai.next_actions)
       ? ai.next_actions
@@ -1032,59 +982,45 @@ async function save() {
     return (
       <div style={{ display: "grid", gap: 12 }}>
         <div style={{ fontWeight: 800, fontSize: 16 }}>{safeStr(ai.headline) || "Draft change scanned"}</div>
-
         <div style={{ display: "grid", gap: 10 }}>
-          {ai.priority_note ? (
+          {ai.priority_note && (
             <div style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
               <div style={{ fontWeight: 800, marginBottom: 6 }}>Priority</div>
               <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{ai.priority_note}</div>
             </div>
-          ) : null}
-
-          <div style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Schedule / milestones</div>
-            <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{safeStr(ai.schedule) || "—"}</div>
-          </div>
-
-          <div style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Cost</div>
-            <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{safeStr(ai.cost) || "—"}</div>
-          </div>
-
-          <div style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Scope / justification</div>
-            <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{safeStr(ai.scope) || "—"}</div>
-          </div>
-
+          )}
+          {[
+            { label: "Schedule / milestones", val: ai.schedule },
+            { label: "Cost", val: ai.cost },
+            { label: "Scope / justification", val: ai.scope },
+          ].map(({ label, val }) => (
+            <div key={label} style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
+              <div style={{ fontWeight: 800, marginBottom: 6 }}>{label}</div>
+              <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{safeStr(val) || "—"}</div>
+            </div>
+          ))}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>Risks</div>
-              <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{safeStr(ai.risk) || "—"}</div>
-            </div>
-
-            <div style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>Dependencies</div>
-              <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{safeStr(ai.dependencies) || "—"}</div>
-            </div>
+            {[{ label: "Risks", val: ai.risk }, { label: "Dependencies", val: ai.dependencies }].map(({ label, val }) => (
+              <div key={label} style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
+                <div style={{ fontWeight: 800, marginBottom: 6 }}>{label}</div>
+                <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{safeStr(val) || "—"}</div>
+              </div>
+            ))}
           </div>
-
-          {ai.assumptions ? (
+          {ai.assumptions && (
             <div style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
               <div style={{ fontWeight: 800, marginBottom: 6 }}>Assumptions</div>
               <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{ai.assumptions}</div>
             </div>
-          ) : null}
-
-          {nextActions.length ? (
+          )}
+          {nextActions.length > 0 && (
             <div style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
               <div style={{ fontWeight: 800, marginBottom: 8 }}>Next best actions</div>
               <ul style={{ margin: 0, paddingLeft: 18, opacity: 0.95, display: "grid", gap: 6 }}>
-                {nextActions.slice(0, 10).map((x, i) => (
-                  <li key={`${i}`}>{x}</li>
-                ))}
+                {nextActions.slice(0, 10).map((x, i) => <li key={i}>{x}</li>)}
               </ul>
             </div>
-          ) : null}
+          )}
         </div>
       </div>
     );
@@ -1100,7 +1036,7 @@ async function save() {
               {loading
                 ? "Loading change request…"
                 : lockedByGovernance
-                ? "Locked (submitted for approval)."
+                ? "Locked — submitted for approval."
                 : routeIsDbId
                 ? "Edit the change request and save."
                 : "Draft mode — AI co-pilot can guide you before saving."}
@@ -1109,40 +1045,17 @@ async function save() {
               {decision ? <span className="crTopScope"> • {decision}</span> : null}
             </div>
 
-            {analysisReadiness.isAnalysis ? (
-              <div
-                style={{
-                  marginTop: 8,
-                  border: "1px solid var(--cr-border)",
-                  borderRadius: 14,
-                  padding: "10px 12px",
-                  background: "var(--cr-card)",
-                  display: "grid",
-                  gap: 8,
-                }}
-              >
+            {analysisReadiness.isAnalysis && (
+              <div style={{ marginTop: 8, border: "1px solid var(--cr-border)", borderRadius: 14, padding: "10px 12px", background: "var(--cr-card)", display: "grid", gap: 8 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                   <div style={{ fontWeight: 900 }}>{analysisReadiness.ready ? "Ready for submission" : "Not ready for submission"}</div>
-                  <button
-                    type="button"
-                    className="crBtn crBtnGhost"
-                    data-no-nav="true"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      runAiScanNow().catch(() => {});
-                    }}
-                    disabled={aiBusy || disabled}
-                    title="Run AI scan to help populate impact quickly"
-                  >
+                  <button type="button" className="crBtn crBtnGhost" data-no-nav="true"
+                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); runAiScanNow().catch(() => {}); }}
+                    disabled={aiBusy || disabled} title="Run AI scan">
                     {aiBusy ? "Scanning…" : "Run AI scan"}
                   </button>
                 </div>
-
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10, fontSize: 12, opacity: 0.95 }}>
                   {analysisReadiness.items.map((it) => (
                     <span key={it.label} style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
@@ -1151,189 +1064,91 @@ async function save() {
                     </span>
                   ))}
                 </div>
-
-                {!analysisReadiness.ready ? <div style={{ fontSize: 12, opacity: 0.85 }}>{analysisReadiness.blockingMsg}</div> : null}
+                {!analysisReadiness.ready && <div style={{ fontSize: 12, opacity: 0.85 }}>{analysisReadiness.blockingMsg}</div>}
               </div>
-            ) : null}
+            )}
 
-            {error ? <div className="crTopErr">{error}</div> : null}
+            {error && <div className="crTopErr">{error}</div>}
           </div>
 
           <div className="crTopbarRight" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <button type="button" className="crBtn crBtnGhost" onClick={() => setPanelParam("comment")} disabled={!routeIsDbId} title="Open comments (placeholder panel)">
-              Comment
-            </button>
-
-            <button
-              type="button"
-              className="crBtn crBtnGhost"
-              onClick={() => {
-                setAttachOpen(true);
-                setPanelParam("attach");
-              }}
-              disabled={!routeIsDbId}
-              title="Open attachments"
-            >
-              {/* ✅ count on button */}
+            <button type="button" className="crBtn crBtnGhost" onClick={() => setPanelParam("comment")} disabled={!routeIsDbId}>Comment</button>
+            <button type="button" className="crBtn crBtnGhost" onClick={() => { setAttachOpen(true); setPanelParam("attach"); }} disabled={!routeIsDbId}>
               Attach{attCountLoading ? "" : attCount > 0 ? ` (${attCount})` : ""}
             </button>
-
-            <button
-              type="button"
-              className="crBtn crBtnGhost"
-              onClick={() => {
-                setTimelineOpen(true);
-                setPanelParam("timeline");
-              }}
-              disabled={!routeIsDbId}
-              title="Open timeline"
-            >
-              Timeline
-            </button>
-
-            <button
-              type="button"
-              className="crBtn crBtnGhost"
+            <button type="button" className="crBtn crBtnGhost" onClick={() => { setTimelineOpen(true); setPanelParam("timeline"); }} disabled={!routeIsDbId}>Timeline</button>
+            <button type="button" className="crBtn crBtnGhost"
               onClick={async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (routeIsDbId) {
-                  setPanelParam("ai");
-                  runAiScanNow().catch(() => {});
-                  return;
-                }
+                e.preventDefault(); e.stopPropagation();
+                if (routeIsDbId) { setPanelParam("ai"); runAiScanNow().catch(() => {}); return; }
                 setDraftAiOpen(true);
                 if (!draftAi) await runDraftCopilotScanNow();
               }}
-              disabled={!safeStr(projectId).trim()}
-              title="Open AI co-pilot"
-            >
+              disabled={!safeStr(projectId).trim()}>
               {aiBusy || draftAiBusy ? "AI…" : "AI"}
             </button>
-
-            <button type="button" className="crBtn" onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))} disabled={saving || loading} title="Toggle theme">
+            <button type="button" className="crBtn" onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))} disabled={saving}>
               {mounted ? (theme === "dark" ? "Light theme" : "Dark theme") : "Theme"}
             </button>
 
-            {canSubmit ? (
-              <button type="button" className="crPrimaryBtn" onClick={doSubmit} disabled={saving || loading}>
-                {saving ? "Submitting…" : "Submit for approval"}
-              </button>
-            ) : routeIsDbId && lane === "analysis" && !lockedByGovernance ? (
-              <button
-                type="button"
-                className="crPrimaryBtn"
-                onClick={doSubmit}
-                disabled={true}
-                title="Complete the readiness checklist before submitting"
-                style={{ opacity: 0.6, cursor: "not-allowed" }}
-              >
-                Submit for approval
-              </button>
-            ) : null}
+            {canSubmit && (
+              <button type="button" className="crPrimaryBtn" onClick={doSubmit} disabled={saving}>{saving ? "Submitting…" : "Submit for approval"}</button>
+            )}
+            {routeIsDbId && lane === "analysis" && !lockedByGovernance && !canSubmit && (
+              <button type="button" className="crPrimaryBtn" disabled style={{ opacity: 0.6, cursor: "not-allowed" }} title="Complete checklist first">Submit for approval</button>
+            )}
+            {canApprove && <button type="button" className="crPrimaryBtn" onClick={doApprove} disabled={saving}>{saving ? "Approving…" : "Approve"}</button>}
+            {canRework  && <button type="button" className="crBtn" onClick={doRequestChanges} disabled={saving}>Request rework</button>}
+            {canReject  && <button type="button" className="crBtn" onClick={doReject} disabled={saving}>Reject</button>}
 
-            {canApprove ? (
-              <button type="button" className="crPrimaryBtn" onClick={doApprove} disabled={saving || loading}>
-                {saving ? "Approving…" : "Approve"}
-              </button>
-            ) : null}
-
-            {canRework ? (
-              <button type="button" className="crBtn" onClick={doRequestChanges} disabled={saving || loading}>
-                Request rework
-              </button>
-            ) : null}
-
-            {canReject ? (
-              <button type="button" className="crBtn" onClick={doReject} disabled={saving || loading}>
-                Reject
-              </button>
-            ) : null}
-
-            <button type="button" className="crPrimaryBtn" onClick={save} disabled={disabled} title={lockedByGovernance ? "Locked while in review" : "Save"}>
+            <button type="button" className="crPrimaryBtn" onClick={save} disabled={disabled} title={lockedByGovernance ? "Locked while submitted for approval" : "Save"}>
               {saving ? "Saving…" : "Save changes"}
             </button>
-
-            <button type="button" className="crBtn crBtnGhost" onClick={() => router.push(boardReturnHref())}>
-              Back to board
-            </button>
+            <button type="button" className="crBtn crBtnGhost" onClick={() => router.push(boardReturnHref())}>Back to board</button>
           </div>
         </div>
 
         <div className="crFormGrid">
-          {/* LEFT / MAIN */}
+          {/* LEFT */}
           <div className="crSection">
             <h2 className="crH2">Change Summary</h2>
-
             <div className="crField">
               <label className="crLabel">Title *</label>
               <input className="crInput" value={model.title} onChange={(e) => set("title", e.target.value)} placeholder="e.g., Extend firewall scope for vendor access" disabled={disabled} />
             </div>
-
             <div className="crFieldRow">
               <div className="crField">
                 <label className="crLabel">Requester</label>
                 <input className="crInput" value={model.requester} onChange={(e) => set("requester", e.target.value)} placeholder="Name" disabled={disabled} />
               </div>
-
               <div className="crField">
                 <label className="crLabel">Status</label>
                 <select className="crSelect" value={model.status} onChange={(e) => set("status", normalizeStatus(e.target.value))} disabled={disabled}>
-                  {CHANGE_COLUMNS.map((c) => (
-                    <option key={c.key} value={c.key}>
-                      {c.title}
-                    </option>
-                  ))}
+                  {CHANGE_COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.title}</option>)}
                 </select>
               </div>
-
               <div className="crField">
                 <label className="crLabel">Priority</label>
                 <select className="crSelect" value={model.priority} onChange={(e) => set("priority", normalizePriority(e.target.value))} disabled={disabled}>
-                  <option>Low</option>
-                  <option>Medium</option>
-                  <option>High</option>
-                  <option>Critical</option>
+                  <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
                 </select>
               </div>
             </div>
-
             <div className="crField">
               <label className="crLabel">Summary *</label>
-              <textarea
-                className="crTextarea"
-                value={model.summary}
-                onChange={(e) => set("summary", e.target.value)}
-                rows={4}
-                placeholder="2–3 line summary for quick scanning..."
-                disabled={disabled}
-                style={{ resize: "vertical" }}
-              />
+              <textarea className="crTextarea" value={model.summary} onChange={(e) => set("summary", e.target.value)} rows={4} placeholder="2–3 line summary for quick scanning..." disabled={disabled} style={{ resize: "vertical" }} />
             </div>
-
-            {!routeIsDbId ? (
+            {!routeIsDbId && (
               <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                <button
-                  className="crBtn"
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setDraftAiOpen(true);
-                    runDraftCopilotScanNow().catch(() => {});
-                  }}
-                  disabled={!safeStr(projectId).trim()}
-                >
+                <button className="crBtn" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDraftAiOpen(true); runDraftCopilotScanNow().catch(() => {}); }} disabled={!safeStr(projectId).trim()}>
                   {draftAiBusy ? "Scanning…" : "Run AI scan"}
                 </button>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>
-                  Draft ID: <span style={{ opacity: 0.95 }}>{draftId}</span>
-                </div>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>Draft ID: <span style={{ opacity: 0.95 }}>{draftId}</span></div>
               </div>
-            ) : null}
+            )}
           </div>
 
-          {/* RIGHT / ASIDE */}
+          {/* RIGHT */}
           <div className="crAside">
             <AiImpactPanel
               days={model.aiImpact.days}
@@ -1346,120 +1161,51 @@ async function save() {
             />
           </div>
 
+          {/* Justification */}
           <div className="crSection crSpanAll">
             <h2 className="crH2">Business Justification</h2>
-            <textarea
-              className="crTextarea"
-              value={model.justification ?? ""}
-              onChange={(e) => set("justification", e.target.value)}
-              rows={4}
-              placeholder="Why is this change needed? What value does it unlock?"
-              disabled={disabled}
-              style={{ resize: "vertical" }}
-            />
+            <textarea className="crTextarea" value={model.justification ?? ""} onChange={(e) => set("justification", e.target.value)} rows={4} placeholder="Why is this change needed? What value does it unlock?" disabled={disabled} style={{ resize: "vertical" }} />
           </div>
 
+          {/* Financial */}
           <div className="crSection crSpanAll">
             <h2 className="crH2">Financial Impact</h2>
-            <textarea
-              className="crTextarea"
-              value={model.financial ?? ""}
-              onChange={(e) => set("financial", e.target.value)}
-              rows={4}
-              placeholder="Cost drivers, budget impact, commercial notes..."
-              disabled={disabled}
-              style={{ resize: "vertical" }}
-            />
+            <textarea className="crTextarea" value={model.financial ?? ""} onChange={(e) => set("financial", e.target.value)} rows={4} placeholder="Cost drivers, budget impact, commercial notes..." disabled={disabled} style={{ resize: "vertical" }} />
           </div>
 
+          {/* Schedule */}
           <div className="crSection crSpanAll">
             <h2 className="crH2">Schedule Impact</h2>
-            <textarea
-              className="crTextarea"
-              value={model.schedule ?? ""}
-              onChange={(e) => set("schedule", e.target.value)}
-              rows={4}
-              placeholder="Milestone impacts, critical path changes, sequencing..."
-              disabled={disabled}
-              style={{ resize: "vertical" }}
-            />
+            <textarea className="crTextarea" value={model.schedule ?? ""} onChange={(e) => set("schedule", e.target.value)} rows={4} placeholder="Milestone impacts, critical path changes, sequencing..." disabled={disabled} style={{ resize: "vertical" }} />
           </div>
 
+          {/* Risks & Dependencies */}
           <div className="crSection crSpanAll">
             <h2 className="crH2">Risks &amp; Dependencies</h2>
             <div className="crFieldRow" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div className="crField">
                 <label className="crLabel">Risks</label>
-                <textarea
-                  className="crTextarea"
-                  value={model.risks ?? ""}
-                  onChange={(e) => set("risks", e.target.value)}
-                  rows={4}
-                  placeholder="Top risks and mitigations..."
-                  disabled={disabled}
-                  style={{ resize: "vertical" }}
-                />
+                <textarea className="crTextarea" value={model.risks ?? ""} onChange={(e) => set("risks", e.target.value)} rows={4} placeholder="Top risks and mitigations..." disabled={disabled} style={{ resize: "vertical" }} />
               </div>
-
               <div className="crField">
                 <label className="crLabel">Dependencies</label>
-                <textarea
-                  className="crTextarea"
-                  value={model.dependencies ?? ""}
-                  onChange={(e) => set("dependencies", e.target.value)}
-                  rows={4}
-                  placeholder="Approvals, vendors, technical prerequisites..."
-                  disabled={disabled}
-                  style={{ resize: "vertical" }}
-                />
+                <textarea className="crTextarea" value={model.dependencies ?? ""} onChange={(e) => set("dependencies", e.target.value)} rows={4} placeholder="Approvals, vendors, technical prerequisites..." disabled={disabled} style={{ resize: "vertical" }} />
               </div>
             </div>
           </div>
 
+          {/* Tags */}
           <div className="crSection crSpanAll">
             <h2 className="crH2">Tags</h2>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center" }}>
-              <input
-                className="crInput"
-                value={tagDraft}
-                onChange={(e) => setTagDraft(e.target.value)}
-                placeholder="Add a tag (e.g., Security)"
-                disabled={disabled}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addTag();
-                  }
-                }}
-              />
-              <button className="crPrimaryBtn" type="button" onClick={addTag} disabled={disabled}>
-                Add
-              </button>
+              <input className="crInput" value={tagDraft} onChange={(e) => setTagDraft(e.target.value)} placeholder="Add a tag (e.g., Security)" disabled={disabled}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }} />
+              <button className="crPrimaryBtn" type="button" onClick={addTag} disabled={disabled}>Add</button>
             </div>
-
             <div className="crChips" style={{ marginTop: 10, gap: 8 }}>
               {(model.tags ?? []).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className="crChipBtn"
-                  onClick={() => removeTag(t)}
-                  title="Remove tag"
-                  disabled={disabled}
-                  style={{
-                    borderRadius: 999,
-                    border: "1px solid var(--cr-border)",
-                    background: "var(--cr-input-bg2)",
-                    color: "var(--cr-text)",
-                    padding: "6px 10px",
-                    fontSize: 12,
-                    cursor: disabled ? "not-allowed" : "pointer",
-                    display: "inline-flex",
-                    gap: 8,
-                    alignItems: "center",
-                  }}
-                >
+                <button key={t} type="button" className="crChipBtn" onClick={() => removeTag(t)} title="Remove tag" disabled={disabled}
+                  style={{ borderRadius: 999, border: "1px solid var(--cr-border)", background: "var(--cr-input-bg2)", color: "var(--cr-text)", padding: "6px 10px", fontSize: 12, cursor: disabled ? "not-allowed" : "pointer", display: "inline-flex", gap: 8, alignItems: "center" }}>
                   {t} <span style={{ opacity: 0.7 }}>×</span>
                 </button>
               ))}
@@ -1468,12 +1214,9 @@ async function save() {
 
           <ChangeTimeline
             open={timelineOpen}
-            onClose={() => {
-              setTimelineOpen(false);
-              if (panel === "timeline") setPanelParam("");
-            }}
+            onClose={() => { setTimelineOpen(false); if (panel === "timeline") setPanelParam(""); }}
             projectId={safeStr(projectId)}
-            projectCode={projectCode as any} // ✅ NEW: lets Timeline display human PRJ id even if API fallback
+            projectCode={projectCode as any}
             changeId={routeId}
             changeCode={uiId || undefined}
           />
@@ -1487,67 +1230,42 @@ async function save() {
           title={safeStr(model.title) || uiId || "Change request"}
         />
 
+        {/* Draft AI modal */}
         <ModalShell open={draftAiOpen} title={`AI Co-pilot (Draft)${uiId ? ` • ${uiId}` : ""}`} onClose={() => setDraftAiOpen(false)}>
           <div style={{ display: "grid", gap: 12 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <button className="crPrimaryBtn" type="button" onClick={() => runDraftCopilotScanNow()} disabled={draftAiBusy || !safeStr(projectId).trim()}>
                 {draftAiBusy ? "Scanning…" : "Run AI scan"}
               </button>
-
-              <button className="crBtn crBtnGhost" type="button" onClick={() => setDraftAutoScan((v) => !v)} title="Auto-scan while typing">
+              <button className="crBtn crBtnGhost" type="button" onClick={() => setDraftAutoScan((v) => !v)}>
                 Auto-scan: {draftAutoScan ? "On" : "Off"}
               </button>
-
               <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Project: <span style={{ opacity: 0.95 }}>{safeStr(projectCode ?? projectId) || "—"}</span>
+                Project: <span style={{ opacity: 0.95 }}>{safeStr(projectId) || "—"}</span>
                 <span style={{ opacity: 0.5 }}> • </span>
                 Draft: <span style={{ opacity: 0.95 }}>{draftId}</span>
               </div>
-
-              {draftAiErr ? <div className="crErr">{draftAiErr}</div> : null}
+              {draftAiErr && <div className="crErr">{draftAiErr}</div>}
             </div>
-
             <div style={{ borderTop: "1px solid var(--cr-border)", paddingTop: 12 }}>{renderDraftAi(draftAi)}</div>
           </div>
         </ModalShell>
 
         {/* Attachments modal */}
-        <ModalShell
-          open={attachOpen}
-          title={`Attachments${uiId ? ` • ${uiId}` : ""}`}
-          onClose={() => {
-            setAttachOpen(false);
-            if (panel === "attach") setPanelParam("");
-          }}
-        >
+        <ModalShell open={attachOpen} title={`Attachments${uiId ? ` • ${uiId}` : ""}`} onClose={() => { setAttachOpen(false); if (panel === "attach") setPanelParam(""); }}>
           <div style={{ display: "grid", gap: 12 }}>
             <div style={{ display: "grid", gap: 8 }}>
               <div style={{ fontSize: 13, opacity: 0.85 }}>Upload files to support the change request (emails, screenshots, approvals).</div>
-
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <label className="crBtn" style={{ cursor: uploading ? "not-allowed" : "pointer" }}>
                   {uploading ? "Uploading…" : "Upload file"}
-                  <input
-                    type="file"
-                    style={{ display: "none" }}
-                    disabled={uploading || !routeIsDbId}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (!f) return;
-                      uploadAttachment(f);
-                      e.currentTarget.value = "";
-                    }}
-                  />
+                  <input type="file" style={{ display: "none" }} disabled={uploading || !routeIsDbId}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (!f) return; uploadAttachment(f); e.currentTarget.value = ""; }} />
                 </label>
-
-                <button className="crBtn crBtnGhost" type="button" disabled={attLoading} onClick={loadAttachments}>
-                  {attLoading ? "Refreshing…" : "Refresh"}
-                </button>
-
-                {attErr ? <div className="crErr">{attErr}</div> : null}
+                <button className="crBtn crBtnGhost" type="button" disabled={attLoading} onClick={loadAttachments}>{attLoading ? "Refreshing…" : "Refresh"}</button>
+                {attErr && <div className="crErr">{attErr}</div>}
               </div>
             </div>
-
             <div style={{ borderTop: "1px solid var(--cr-border)", paddingTop: 12 }}>
               {attLoading ? (
                 <div style={{ opacity: 0.85 }}>Loading attachments…</div>
@@ -1556,58 +1274,17 @@ async function save() {
                   {attachments.map((a, idx) => {
                     const name = attachmentName(a);
                     const size = formatBytes((a as any).size ?? (a as any).size_bytes);
-                    const url = safeStr((a as any)?.url || (a as any)?.signedUrl).trim();
-
+                    const url  = safeStr((a as any)?.url || (a as any)?.signedUrl).trim();
                     return (
-                      <div
-                        key={safeStr(a.id) || safeStr((a as any)?.path) || `${idx}`}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "1fr auto",
-                          gap: 10,
-                          alignItems: "center",
-                          border: "1px solid var(--cr-border)",
-                          borderRadius: 14,
-                          padding: "10px 12px",
-                          background: "var(--cr-card)",
-                        }}
-                      >
+                      <div key={safeStr(a.id) || safeStr((a as any)?.path) || `${idx}`}
+                        style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", border: "1px solid var(--cr-border)", borderRadius: 14, padding: "10px 12px", background: "var(--cr-card)" }}>
                         <div style={{ display: "grid", gap: 4 }}>
                           <div style={{ fontWeight: 700 }}>{name}</div>
-                          <div style={{ fontSize: 12, opacity: 0.8 }}>
-                            {size ? <span>{size}</span> : null}
-                            {safeStr(a.created_at) ? (
-                              <span>
-                                {size ? " • " : ""}
-                                {safeStr(a.created_at)}
-                              </span>
-                            ) : null}
-                          </div>
+                          <div style={{ fontSize: 12, opacity: 0.8 }}>{size ? <span>{size}</span> : null}{safeStr(a.created_at) ? <span>{size ? " • " : ""}{safeStr(a.created_at)}</span> : null}</div>
                         </div>
-
                         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          {url ? (
-                            <a className="crBtn crBtnGhost" href={url} target="_blank" rel="noreferrer">
-                              Open
-                            </a>
-                          ) : (
-                            <div style={{ fontSize: 12, opacity: 0.7 }}>No URL</div>
-                          )}
-
-                          <button
-                            type="button"
-                            className="crBtn"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              deleteAttachment(a);
-                            }}
-                            disabled={uploading || attLoading}
-                            title="Delete attachment"
-                            style={{ opacity: 0.92 }}
-                          >
-                            {uploading ? "…" : "Delete"}
-                          </button>
+                          {url ? <a className="crBtn crBtnGhost" href={url} target="_blank" rel="noreferrer">Open</a> : <div style={{ fontSize: 12, opacity: 0.7 }}>No URL</div>}
+                          <button type="button" className="crBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteAttachment(a); }} disabled={uploading || attLoading} style={{ opacity: 0.92 }}>{uploading ? "…" : "Delete"}</button>
                         </div>
                       </div>
                     );
