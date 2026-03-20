@@ -2,8 +2,8 @@
 
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
-import type { Gate5Result, Gate5Check } from "@/app/projects/[id]/gate5/gate5-actions";
-import { toggleManualCheck, getAiGate5Guidance } from "@/app/projects/[id]/gate5/gate5-actions";
+import type { Gate5Result, Gate5Check } from "./gate5-actions";
+import { toggleManualCheck, getAiGate5Guidance } from "./gate5-actions";
 import {
   CheckCircle2,
   XCircle,
@@ -245,10 +245,8 @@ function CheckCard({
 
 function AiGuidancePanel({
   blockedChecks,
-  projectId
 }: {
   blockedChecks: Array<{ key: string; title: string; detail: string }>;
-  projectId: string;
 }) {
   const [guidance, setGuidance] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -258,7 +256,7 @@ function AiGuidancePanel({
     setLoading(true);
     setError(null);
     try {
-      const text = await getAiGate5Guidance(projectId, blockedChecks);
+      const text = await getAiGate5Guidance("", blockedChecks);
       setGuidance(text);
     } catch (e: any) {
       setError("AI guidance unavailable. Please try again.");
@@ -454,7 +452,7 @@ export default function Gate5Panel({
 
       {/* AI Panel */}
       <div style={{ margin: "16px 0" }}>
-        <AiGuidancePanel blockedChecks={blockedForAI} projectId={projectId} />
+        <AiGuidancePanel blockedChecks={blockedForAI} />
       </div>
 
       {/* Tabs */}
