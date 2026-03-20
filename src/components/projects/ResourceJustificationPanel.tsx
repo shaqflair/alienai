@@ -35,18 +35,43 @@ const DEFAULT_RATE_CARD: Record<string, number> = {
 };
 
 function getRateForRole(role: string, dbRateCard: Record<string, number> = {}): number {
-  // DB rate card takes priority over hardcoded defaults
+  const roleLower = role.toLowerCase().trim();
+
+  // 1. Exact match in DB rate card (e.g. "Senior Delivery Manager")
   if (dbRateCard[role]) return dbRateCard[role];
-  const dbKey = Object.keys(dbRateCard).find(k =>
-    role.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(role.toLowerCase())
-  );
-  if (dbKey) return dbRateCard[dbKey];
-  // Fall back to hardcoded defaults
+
+  // 2. Case-insensitive match
+  const exactKey = Object.keys(dbRateCard).find(k => k.toLowerCase() === roleLower);
+  if (exactKey) return dbRateCard[exactKey];
+
+  // 3. Partial match — role label contains or is contained by a rate card key
+  const partialKey = Object.keys(dbRateCard).find(k => {
+    const kl = k.toLowerCase();
+    return roleLower.includes(kl) || kl.includes(roleLower);
+  });
+  if (partialKey) return dbRateCard[partialKey];
+
+  // 4. Match just the role title part (strip seniority prefix)
+  const seniorityPrefixes = ["junior ", "mid ", "senior ", "lead ", "principal ", "director "];
+  let titleOnly = roleLower;
+  for (const pfx of seniorityPrefixes) {
+    if (roleLower.startsWith(pfx)) { titleOnly = roleLower.slice(pfx.length); break; }
+  }
+  const titleKey = Object.keys(dbRateCard).find(k => {
+    let kTitle = k.toLowerCase();
+    for (const pfx of seniorityPrefixes) {
+      if (kTitle.startsWith(pfx)) { kTitle = kTitle.slice(pfx.length); break; }
+    }
+    return kTitle === titleOnly || kTitle.includes(titleOnly) || titleOnly.includes(kTitle);
+  });
+  if (titleKey) return dbRateCard[titleKey];
+
+  // 5. Fall back to hardcoded defaults
   if (DEFAULT_RATE_CARD[role]) return DEFAULT_RATE_CARD[role];
-  const key = Object.keys(DEFAULT_RATE_CARD).find(k =>
+  const defaultKey = Object.keys(DEFAULT_RATE_CARD).find(k =>
     role.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(role.toLowerCase())
   );
-  return key ? DEFAULT_RATE_CARD[key] : 600;
+  return defaultKey ? DEFAULT_RATE_CARD[defaultKey] : 600;
 }
 
 /* ── Icons ── */
@@ -345,19 +370,11 @@ export default function ResourceJustificationPanel({
           {/* ── Role budget breakdown ── */}
           {roleRequirements.length > 0 && (
             <div style={{ marginBottom:20 }}>
-              <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10 }}>
-                <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                  <div style={{ fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:"#94a3b8" }}>
-                    Role requirements · rate card
-                  </div>
-                  <span style={{ fontSize:10,color:"#64748b",background:"#f1f5f9",border:"1px solid #e2e8f0",borderRadius:4,padding:"1px 6px" }}>
-                    Rates from internal rate card
-                  </span>
-                </div>
-                {canEdit && !alreadySent && (
+              {canEdit && !alreadySent && (
+                <div style={{ textAlign:"right",marginBottom:6 }}>
                   <span style={{ fontSize:11,color:"#94a3b8" }}>Click any rate to override</span>
-                )}
-              </div>
+                </div>
+              )}
               {roleRequirements.map(r => (
                 <RoleBudgetRow
                   key={r.id} role={r} rateOverrides={rateOverrides} dbRateCard={rateCard}

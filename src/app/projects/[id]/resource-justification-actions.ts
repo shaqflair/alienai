@@ -121,8 +121,8 @@ export async function loadResourceJustificationData(projectId: string): Promise<
         .order("created_at", { ascending: false })
         .limit(20),
       supabase
-        .from("project_role_requirements")
-        .select("id, role, required_days, filled_days")
+        .from("role_requirements")
+        .select("id, role_title, seniority_level, required_days_per_week, start_date, end_date, filled_by_person_id")
         .eq("project_id", projectId)
         .limit(50),
     ]);
@@ -137,10 +137,24 @@ export async function loadResourceJustificationData(projectId: string): Promise<
         ? ((crsResult.value.data ?? []) as OpenCR[])
         : [];
 
-    const roles =
-      rolesResult.status === "fulfilled" && !rolesResult.value.error
-        ? (rolesResult.value.data ?? []) as Array<{ id: string; role: string; required_days: number | null; filled_days: number | null }>
-        : [];
+    const rolesRaw = rolesResult.status === "fulfilled" && !rolesResult.value.error
+      ? (rolesResult.value.data ?? [])
+      : [];
+
+    // Map role_requirements schema to the shape the panel expects
+    const roles = rolesRaw.map((r: any) => ({
+      id:           safeStr(r.id),
+      role:         `${safeStr(r.seniority_level)} ${safeStr(r.role_title)}`.trim(),
+      required_days: r.required_days_per_week && r.start_date && r.end_date
+        ? Math.round(Number(r.required_days_per_week) *
+            Math.max(0, Math.ceil(
+              (new Date(r.end_date).getTime() - new Date(r.start_date).getTime()) / (7 * 86400000)
+            )))
+        : null,
+      filled_days:  r.filled_by_person_id ? null : 0, // 0 = unfilled
+      role_title:   safeStr(r.role_title),
+      seniority_level: safeStr(r.seniority_level),
+    }));
 
     const rateCard = await fetchOrgRateCard(supabase, projectId);
 
