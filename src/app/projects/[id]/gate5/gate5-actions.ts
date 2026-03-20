@@ -38,6 +38,7 @@ function safeStr(x: any) {
 }
 
 export async function loadGate5Status(projectId: string): Promise<Gate5Result | null> {
+  try {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) return null;
@@ -410,6 +411,9 @@ export async function loadGate5Status(projectId: string): Promise<Gate5Result | 
     riskLevel,
     canClose,
   };
+  } catch {
+    return null;
+  }
 }
 
 export async function toggleManualCheck(
@@ -420,7 +424,7 @@ export async function toggleManualCheck(
 ) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth?.user) redirect("/login");
+  if (!auth?.user) throw new Error("Unauthenticated");
 
   const now = new Date().toISOString();
 
