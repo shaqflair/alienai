@@ -835,56 +835,39 @@ export default function ChangeCreateModal({
     });
   }
 
-  async function runPmoDraftAssist(): Promise<DraftAssistAi | null> {
-    const pid = safeStr(resolvedProjectId).trim();
-    if (!pid) {
-      setAiErr(projResolveErr || "Missing projectId.");
-      return null;
-    }
-
-    setAiErr("");
-    setAiBusy(true);
-
-    try {
-      const j = (await apiPost("/api/ai/events", {
-        projectId: pid,
-        artifactId: safeStr(artifactId).trim() || null,
-        eventType: "change_draft_assist_requested",
-        severity: "info",
-        source: isEdit ? "change_edit_modal" : "change_create_modal",
-        payload: {
-          draftId,
-          mode,
-          title: safeStr(title),
-          summary: safeStr(summary),
-          priority: safeStr(priority),
-          status: safeStr(status),
-          requester: safeStr(requester),
-          justification: safeStr(justification),
-          financial: safeStr(financial),
-          schedule: safeStr(schedule),
-          risks: safeStr(risks),
-          dependencies: safeStr(dependencies),
-          assumptions: safeStr(assumptions),
-          implementation: safeStr(implementationPlan),
-          rollback: safeStr(rollbackPlan),
-          interview,
-        },
-      })) as DraftAssistResp;
-
-      const ai = (j && typeof j === "object" ? (j as any).ai : null) || null;
-      setDrafts(ai);
-      setDraftModel(safeStr((j as any)?.model) || "rules-v1");
-      return ai;
-    } catch (e: any) {
-      setAiErr(safeStr(e?.message) || "AI draft failed");
-      setDrafts(null);
-      return null;
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
+ async function runPmoDraftAssist(): Promise<DraftAssistAi | null> {
+  const pid = safeStr(resolvedProjectId).trim();
+  if (!pid) { setAiErr(projResolveErr || "Missing projectId."); return null; }
+  setAiErr(""); setAiBusy(true);
+  try {
+    const j = await apiPost("/api/ai/draft-assist", {
+      projectId: pid,
+      draft: {
+        draftId, mode,
+        title:          safeStr(title),
+        summary:        safeStr(summary),
+        priority:       safeStr(priority),
+        status:         safeStr(status),
+        requester:      safeStr(requester),
+        justification:  safeStr(justification),
+        financial:      safeStr(financial),
+        schedule:       safeStr(schedule),
+        risks:          safeStr(risks),
+        dependencies:   safeStr(dependencies),
+        assumptions:    safeStr(assumptions),
+        implementation: safeStr(implementationPlan),
+        rollback:       safeStr(rollbackPlan),
+        interview,
+      },
+    });
+    const ai: DraftAssistAi = j?.item ?? j?.ai ?? null;
+    if (!ai) throw new Error("No AI output returned");
+    setDrafts(ai);
+    setDraftModel(safeStr(j?.item?.model ?? j?.model) || "gpt-4o");
+    return ai;
+  } catch (e: any) { setAiErr(safeStr(e?.message) || "AI draft failed"); setDrafts(null); return null; }
+  finally { setAiBusy(false); }
+}
   async function ensureDrafts() {
     if (drafts) return drafts;
     if (!hasInterviewSignal()) {

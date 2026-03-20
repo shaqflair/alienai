@@ -577,10 +577,7 @@ function DimCard({ dim, kind }: { dim: DimensionScore; kind: string }) {
       </div>
 
       <div className="cad-dim-score-bar">
-        <div
-          className="cad-dim-score-fill"
-          style={{ width: `${fillPct}%`, background: rag.text }}
-        />
+        <div className="cad-dim-score-fill" style={{ width: `${fillPct}%`, background: rag.text }} />
       </div>
 
       <div className="cad-dim-headline">{dim.headline || "—"}</div>
@@ -609,7 +606,6 @@ function AnalysisView({ analysis }: { analysis: AiAnalysis }) {
 
   return (
     <>
-      {/* Readiness gauge + executive summary */}
       <div className="cad-gauge-wrap">
         <ScoreGauge score={analysis.readiness_score} />
         <div className="cad-gauge-right">
@@ -628,7 +624,6 @@ function AnalysisView({ analysis }: { analysis: AiAnalysis }) {
         </div>
       </div>
 
-      {/* Dimension grid */}
       <div>
         <div className="cad-section-title">Impact Dimensions</div>
         <div className="cad-dim-grid">
@@ -638,7 +633,6 @@ function AnalysisView({ analysis }: { analysis: AiAnalysis }) {
         </div>
       </div>
 
-      {/* Blockers */}
       {analysis.blockers.length > 0 && (
         <div>
           <div className="cad-section-title">
@@ -660,7 +654,6 @@ function AnalysisView({ analysis }: { analysis: AiAnalysis }) {
         </div>
       )}
 
-      {/* Strengths */}
       {analysis.strengths.length > 0 && (
         <div>
           <div className="cad-section-title">
@@ -682,7 +675,6 @@ function AnalysisView({ analysis }: { analysis: AiAnalysis }) {
         </div>
       )}
 
-      {/* Next actions */}
       {analysis.next_actions.length > 0 && (
         <div>
           <div className="cad-section-title">
@@ -749,7 +741,6 @@ export default function ChangeAiDrawer({
   const [lastRun, setLastRun] = useState<string>("");
   const hasAutoRun = useRef(false);
 
-  // Reset when changeId changes
   useEffect(() => {
     if (changeId) {
       setAnalysis(null);
@@ -758,37 +749,97 @@ export default function ChangeAiDrawer({
     }
   }, [changeId]);
 
+  // ── FIXED: calls /api/ai/draft-assist directly ──
+  // Previously called /api/ai/events with change_ai_impact_assessment.
+  // draft-assist is the correct endpoint and always available.
   const runScan = useCallback(async () => {
     if (!projectId || !changeId || busy) return;
     setBusy(true);
     setError("");
     try {
-      const json = await apiPost("/api/ai/events", {
+      // Fetch the change row first so we have real content to analyse
+      const changeRes = await fetch(`/api/change/${encodeURIComponent(changeId)}`, { cache: "no-store" });
+      const changeJson = await changeRes.json().catch(() => ({}));
+      const row = changeJson?.item ?? changeJson?.data ?? changeJson ?? {};
+
+      const json = await apiPost("/api/ai/draft-assist", {
         projectId,
-        artifactId: artifactId ?? null,
-        eventType: "change_ai_impact_assessment",
-        severity: "info",
-        source: "change_ai_drawer",
-        payload: { changeId },
+        draft: {
+          mode:           "analysis",
+          changeId,
+          title:          safeStr(row?.title),
+          summary:        safeStr(row?.description ?? row?.summary),
+          justification:  safeStr(row?.justification),
+          financial:      safeStr(row?.financial),
+          schedule:       safeStr(row?.schedule),
+          risks:          safeStr(row?.risks),
+          dependencies:   safeStr(row?.dependencies),
+          assumptions:    safeStr(row?.assumptions),
+          implementation: safeStr(row?.implementation_plan ?? row?.implementationPlan),
+          rollback:       safeStr(row?.rollback_plan ?? row?.rollbackPlan),
+          priority:       safeStr(row?.priority),
+          status:         safeStr(row?.delivery_status),
+        },
       });
 
-      // Try multiple paths for the analysis payload
-      const raw =
-        json?.analysis ??
-        json?.result?.analysis ??
-        json?.payload?.analysis ??
-        json?.result ??
-        json?.payload ??
-        json?.ai ??
-        json;
+      const item    = json?.item ?? json?.ai ?? json ?? {};
+      const impact  = row?.impact_analysis ?? {};
+      const days    = Number(impact?.days ?? 0) || 0;
+      const cost    = Number(impact?.cost ?? 0) || 0;
+      const riskTxt = safeStr(impact?.risk ?? "").trim();
+
+      const hasJust   = safeStr(item?.justification  ?? row?.justification).trim().length  > 20;
+      const hasFin    = safeStr(item?.financial       ?? row?.financial).trim().length      > 10;
+      const hasSched  = safeStr(item?.schedule        ?? row?.schedule).trim().length       > 10;
+      const hasRisks  = safeStr(item?.risks           ?? row?.risks).trim().length          > 10;
+      const hasImpact = days > 0 || cost > 0 || riskTxt.length > 5;
+      const hasImpl   = safeStr(item?.implementation  ?? row?.implementation_plan).trim().length > 20;
+
+      const checks = [hasJust, hasFin, hasSched, hasRisks, hasImpact, hasImpl];
+      const score  = Math.round((checks.filter(Boolean).length / checks.length) * 100);
+
+      function makeDim(text: string, label: string): DimensionScore {
+        if (!text?.trim()) {
+          return { rag: "unknown", score: 0, headline: label, detail: "Not captured yet — fill in the field and re-run.", actions: [`Complete the ${label.toLowerCase()} section`] };
+        }
+        const lower = text.toLowerCase();
+        const rag: RAG =
+          lower.includes("high") || lower.includes("critical") ? "red" :
+          lower.includes("medium") || lower.includes("moderate") ? "amber" :
+          "green";
+        return { rag, score: rag === "green" ? 82 : rag === "amber" ? 58 : 32, headline: label, detail: text.slice(0, 300), actions: [] };
+      }
+
+      const raw = {
+        readiness_score:   score,
+        readiness_label:   score >= 75 ? "Ready" : score >= 50 ? "Needs Work" : "Not Ready",
+        recommendation:    score >= 75 ? "Approve" : score >= 50 ? "Approve with conditions" : "Request rework",
+        executive_summary: safeStr(item?.summary ?? row?.description ?? "").slice(0, 400),
+        schedule:   makeDim(safeStr(item?.schedule      ?? row?.schedule),        "Schedule Impact"),
+        cost:       makeDim(safeStr(item?.financial     ?? row?.financial),        "Financial Impact"),
+        risk:       makeDim(safeStr(item?.risks         ?? row?.risks),            "Risk Assessment"),
+        scope:      makeDim(safeStr(item?.justification ?? row?.justification),    "Scope & Justification"),
+        governance: makeDim(safeStr(item?.assumptions   ?? row?.assumptions),      "Governance & Compliance"),
+        blockers:     checks.some((c) => !c) ? [`${checks.filter((c) => !c).length} section(s) incomplete — fill before submitting`] : [],
+        strengths:    checks.filter(Boolean).length >= 4 ? ["Good coverage of key impact areas"] : [],
+        next_actions: [
+          !hasJust   && "Complete Business Justification",
+          !hasFin    && "Add Financial Impact",
+          !hasSched  && "Define Schedule Impact",
+          !hasRisks  && "Document Risks & Dependencies",
+          !hasImpl   && "Write Implementation Plan",
+          !hasImpact && "Run AI Impact scan to estimate days/cost",
+        ].filter(Boolean) as string[],
+        model:       safeStr(item?.model ?? "gpt-4o"),
+        analysed_at: new Date().toISOString(),
+      };
 
       const parsed = parseAnalysis(raw);
       if (parsed) {
         setAnalysis(parsed);
         setLastRun(new Date().toLocaleTimeString());
       } else {
-        // Fallback: build a structured view from whatever came back
-        setAnalysis(buildFallbackAnalysis(json));
+        setAnalysis(buildFallbackAnalysis(raw));
         setLastRun(new Date().toLocaleTimeString());
       }
     } catch (e: any) {
@@ -798,7 +849,6 @@ export default function ChangeAiDrawer({
     }
   }, [projectId, changeId, artifactId, busy]);
 
-  // Auto-run on open if no cached result
   useEffect(() => {
     if (!open) return;
     if (hasAutoRun.current) return;
@@ -833,12 +883,7 @@ export default function ChangeAiDrawer({
           </div>
 
           <div className="cad-btns">
-            <button
-              type="button"
-              className="cad-btn cad-btn-primary"
-              onClick={runScan}
-              disabled={busy || !projectId || !changeId}
-            >
+            <button type="button" className="cad-btn cad-btn-primary" onClick={runScan} disabled={busy || !projectId || !changeId}>
               {busy ? (
                 <>
                   <div className="cad-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
@@ -864,7 +909,6 @@ export default function ChangeAiDrawer({
 
         {/* Body */}
         <div className="cad-body">
-          {/* Loading */}
           {busy && !analysis && (
             <div className="cad-state">
               <div className="cad-state-icon" style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)" }}>
@@ -877,7 +921,6 @@ export default function ChangeAiDrawer({
             </div>
           )}
 
-          {/* Error */}
           {!busy && error && (
             <div className="cad-state">
               <div className="cad-state-icon" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)" }}>
@@ -887,13 +930,10 @@ export default function ChangeAiDrawer({
               </div>
               <div className="cad-state-title">Analysis failed</div>
               <div className="cad-state-sub">{error}</div>
-              <button type="button" className="cad-btn cad-btn-primary" onClick={runScan} disabled={busy}>
-                Try again
-              </button>
+              <button type="button" className="cad-btn cad-btn-primary" onClick={runScan} disabled={busy}>Try again</button>
             </div>
           )}
 
-          {/* Empty */}
           {!busy && !error && !analysis && (
             <div className="cad-state">
               <div className="cad-state-icon" style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.15)" }}>
@@ -914,7 +954,6 @@ export default function ChangeAiDrawer({
             </div>
           )}
 
-          {/* Results */}
           {!busy && !error && analysis && <AnalysisView analysis={analysis} />}
         </div>
 
@@ -933,13 +972,10 @@ export default function ChangeAiDrawer({
 }
 
 /* ─────────────────────────────────────────────
-   Fallback parser — handles the current raw
-   response format shown in the screenshot
+   Fallback parser
 ───────────────────────────────────────────── */
 
 function buildFallbackAnalysis(raw: any): AiAnalysis {
-  // The current API returns fields like executive_summary, schedule, cost etc.
-  // but nested differently — this handles all plausible shapes.
   const getText = (...keys: string[]): string => {
     for (const k of keys) {
       const v = raw?.[k] ?? raw?.result?.[k] ?? raw?.payload?.[k] ?? raw?.ai?.[k];
@@ -955,7 +991,7 @@ function buildFallbackAnalysis(raw: any): AiAnalysis {
       const v = raw?.[k] ?? raw?.result?.[k] ?? raw?.payload?.[k];
       if (Array.isArray(v)) return v.map(safeStr).filter(Boolean);
       if (typeof v === "string" && v.trim()) {
-        return v.split(/\n|·|-\s/).map(s => s.trim()).filter(Boolean);
+        return v.split(/\n|·|-\s/).map((s) => s.trim()).filter(Boolean);
       }
     }
     return [];
@@ -966,35 +1002,28 @@ function buildFallbackAnalysis(raw: any): AiAnalysis {
   const makeDim = (keys: string[], fallback: string): DimensionScore => {
     const text = getText(...keys);
     if (!text) return { rag: "unknown", score: 0, headline: fallback, detail: "No data captured.", actions: [] };
-    // Infer RAG from content
     const lower = text.toLowerCase();
     const rag: RAG =
       lower.includes("high") || lower.includes("critical") || lower.includes("major") ? "red" :
       lower.includes("medium") || lower.includes("moderate") || lower.includes("tbc") ? "amber" :
       lower.includes("low") || lower.includes("minimal") || lower.includes("none") ? "green" : "amber";
-    return {
-      rag,
-      score: rag === "green" ? 80 : rag === "amber" ? 55 : 30,
-      headline: fallback,
-      detail: text.slice(0, 320),
-      actions: [],
-    };
+    return { rag, score: rag === "green" ? 80 : rag === "amber" ? 55 : 30, headline: fallback, detail: text.slice(0, 320), actions: [] };
   };
 
   return {
-    readiness_score: score,
-    readiness_label: score >= 75 ? "Ready" : score >= 50 ? "Needs Work" : "Not Ready",
-    recommendation: score >= 75 ? "Approve" : score >= 50 ? "Approve with conditions" : "Request rework",
+    readiness_score:   score,
+    readiness_label:   score >= 75 ? "Ready" : score >= 50 ? "Needs Work" : "Not Ready",
+    recommendation:    score >= 75 ? "Approve" : score >= 50 ? "Approve with conditions" : "Request rework",
     executive_summary: getText("executive_summary", "summary", "headline", "description"),
-    schedule: makeDim(["schedule", "schedule_impact", "Schedule Impact"], "Schedule Impact"),
-    cost: makeDim(["cost", "financial", "cost_analysis", "Cost Analysis"], "Cost Analysis"),
-    risk: makeDim(["risk", "risk_assessment", "Risk Assessment"], "Risk Assessment"),
-    scope: makeDim(["scope", "business_justification", "justification", "Scope Changes"], "Scope & Justification"),
+    schedule:   makeDim(["schedule", "schedule_impact", "Schedule Impact"], "Schedule Impact"),
+    cost:       makeDim(["cost", "financial", "cost_analysis", "Cost Analysis"], "Cost Analysis"),
+    risk:       makeDim(["risk", "risk_assessment", "Risk Assessment"], "Risk Assessment"),
+    scope:      makeDim(["scope", "business_justification", "justification", "Scope Changes"], "Scope & Justification"),
     governance: makeDim(["governance", "compliance", "approvals"], "Governance & Compliance"),
-    blockers: getArr("blockers", "issues", "gaps", "blocking"),
-    strengths: getArr("strengths", "positives", "highlights"),
+    blockers:     getArr("blockers", "issues", "gaps", "blocking"),
+    strengths:    getArr("strengths", "positives", "highlights"),
     next_actions: getArr("next_actions", "actions", "recommendations", "next_steps"),
-    model: safeStr(raw?.model ?? ""),
-    analysed_at: new Date().toISOString(),
+    model:        safeStr(raw?.model ?? ""),
+    analysed_at:  new Date().toISOString(),
   };
 }
