@@ -162,6 +162,15 @@ export default async function ArtifactDetailPage({
     !!approvalEnabled && !(charterMode || closureMode || financialPlanMode) &&
     !!loaderIsEditable && !!isCurrent && !effectiveLockLayout;
 
+  // Approver mode: approver viewing a submitted charter/closure/financial-plan
+  const isApproverViewingSubmitted =
+    !!approvalEnabled &&
+    !!isApprover &&
+    !isAuthor &&
+    !!canDecide &&
+    isSubmitted &&
+    !!(charterMode || closureMode || financialPlanMode);
+
   let projectManagerName: string | null = null;
   let projectTitleForSeed = safeStr(projectTitle).trim();
 
@@ -226,6 +235,55 @@ export default async function ArtifactDetailPage({
     "use server";
     if (!approvalEnabled || !projectUuid) return;
     const reason = String(formData.get("reason") ?? "").trim() || undefined;
+    let errMsg: string | null = null;
+    try {
+      await requestChangesArtifact(projectUuid, artifactId, reason);
+    } catch (e: any) {
+      errMsg = String(e?.message ?? "Request changes failed");
+    }
+    if (errMsg) {
+      redirect(`${artifactPath}?action_error=${encodeURIComponent(errMsg)}`);
+    }
+    revalidatePath(artifactPath);
+    revalidatePath(artifactsPath);
+    redirect(artifactPath);
+  }
+
+  /**
+   * NEW: Called from the approver inline comment system.
+   * Receives structured per-section comments, formats them into a
+   * human-readable reason string, then delegates to requestChangesArtifact.
+   */
+  async function requestChangesWithCommentsAction(formData: FormData) {
+    "use server";
+    if (!approvalEnabled || !projectUuid || !isApproverViewingSubmitted) return;
+
+    const raw = String(formData.get("comments_json") ?? "").trim();
+    let comments: Array<{ sectionTitle: string; text: string }> = [];
+    try {
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) {
+        comments = parsed
+          .filter((c: any) => c && typeof c === "object")
+          .map((c: any) => ({
+            sectionTitle: String(c.sectionTitle ?? "").trim(),
+            text: String(c.text ?? "").trim(),
+          }))
+          .filter((c) => c.text);
+      }
+    } catch {
+      // malformed JSON — fall through with empty comments
+    }
+
+    // Build a formatted reason string from the per-section comments
+    let reason: string | undefined;
+    if (comments.length > 0) {
+      const lines = comments.map((c) =>
+        c.sectionTitle ? `• ${c.sectionTitle}: ${c.text}` : `• ${c.text}`
+      );
+      reason = `Changes requested:\n\n${lines.join("\n")}`;
+    }
+
     let errMsg: string | null = null;
     try {
       await requestChangesArtifact(projectUuid, artifactId, reason);
@@ -440,6 +498,8 @@ export default async function ArtifactDetailPage({
           resize: none; font-family: inherit; background: #fafbfc;
         }
         textarea.af-reason:focus { outline: 2px solid #3b82f6; outline-offset: 1px; }
+        /* Approver mode: hide the old decide grid — comments go inline in the charter editor */
+        .af-decide-grid-hidden { display: none !important; }
         @media (max-width: 700px) {
           .af-decide-grid { grid-template-columns: 1fr; }
           .af-header-top { flex-direction: column; }
@@ -560,7 +620,11 @@ export default async function ArtifactDetailPage({
               {statusLower === "draft"             && "Draft - ready to submit."}
               {statusLower === "changes_requested" && "Changes requested - update and resubmit."}
               {statusLower === "submitted" && isAuthor    && "Submitted - awaiting another approver."}
-              {statusLower === "submitted" && !isAuthor && isApprover  && "Submitted - you can decide below."}
+              {statusLower === "submitted" && !isAuthor && isApprover  && (
+                isApproverViewingSubmitted
+                  ? "Approver review mode — use inline comments below."
+                  : "Submitted - you can decide below."
+              )}
               {statusLower === "submitted" && !isAuthor && !isApprover && "Submitted - awaiting approval."}
               {statusLower === "approved"  && <span style={{ color: "#15803d", fontWeight: 600 }}>Approved and baselined.</span>}
               {statusLower === "rejected"  && <span style={{ color: "#b91c1c", fontWeight: 600 }}>Rejected.</span>}
@@ -568,8 +632,9 @@ export default async function ArtifactDetailPage({
           )}
         </div>
 
+        {/* Legacy decide grid — shown for non-charter approvers, or hidden for approver-mode charter */}
         {approvalEnabled && canDecide && statusLower === "submitted" && (
-          <div className="af-decide-grid">
+          <div className={`af-decide-grid${isApproverViewingSubmitted ? " af-decide-grid-hidden" : ""}`}>
             <div className="af-decide-card">
               <div className="af-decide-label">Approve</div>
               <div className="af-decide-hint">Promotes to approved baseline.</div>
@@ -600,6 +665,38 @@ export default async function ArtifactDetailPage({
                 <button type="submit" className="af-btn af-btn-danger">Reject final</button>
               </form>
             </div>
+          </div>
+        )}
+
+        {/* Approver mode: Approve / Reject Final still shown as a compact bar */}
+        {isApproverViewingSubmitted && (
+          <div style={{
+            display: "flex", gap: 10, alignItems: "center",
+            padding: "12px 24px", borderTop: "1px solid #e8ecf0",
+            background: "#fafbfc", flexWrap: "wrap",
+          }}>
+            <span style={{ fontSize: 12, color: "#57606a", flex: 1 }}>
+              Quick decisions — or use <strong>inline comments</strong> in the document below:
+            </span>
+            <form action={approveAction}>
+              <button type="submit" className="af-btn af-btn-success">✓ Approve</button>
+            </form>
+            <form action={rejectFinalAction} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                name="reason"
+                className="af-reason"
+                style={{ padding: "6px 10px", fontSize: 12, width: 180, resize: "none", borderRadius: 8, border: "1px solid #e8ecf0", fontFamily: "inherit" }}
+                placeholder="Rejection reason (optional)"
+              />
+              <input
+                name="confirm"
+                className="af-reason"
+                style={{ padding: "6px 10px", fontSize: 12, width: 130, resize: "none", borderRadius: 8, border: "1px solid #fecaca", fontFamily: "inherit" }}
+                placeholder='Type "REJECT"'
+                required
+              />
+              <button type="submit" className="af-btn af-btn-danger">✗ Reject final</button>
+            </form>
           </div>
         )}
       </div>
@@ -646,6 +743,8 @@ export default async function ArtifactDetailPage({
           approvalStatus={status ?? null}
           submitForApprovalAction={submitAction}
           updateArtifactJsonAction={jsonSaveAction}
+          isApprover={isApproverViewingSubmitted}
+          requestChangesWithCommentsAction={requestChangesWithCommentsAction}
         />
         <div style={{ marginTop: 24, padding: 24, background: "white", borderRadius: 12, border: "1px solid #e2e8f0" }}>
           <FinancialPlanAuditTrail
@@ -700,6 +799,9 @@ export default async function ArtifactDetailPage({
         approvalStatus={status ?? null}
         submitForApprovalAction={submitAction}
         updateArtifactJsonAction={jsonSaveAction}
+        // NEW: approver props — only set for submitted charter/closure/financial-plan
+        isApprover={isApproverViewingSubmitted}
+        requestChangesWithCommentsAction={requestChangesWithCommentsAction}
       />
 
       {!isWeeklyReport && !isFinancialPlan && !changeRequestsMode &&
