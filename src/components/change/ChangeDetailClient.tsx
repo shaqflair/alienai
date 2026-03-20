@@ -1,1300 +1,835 @@
-// src/components/change/ChangeDetailClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
-import type { ChangeItem, ChangePriority, ChangeStatus } from "@/lib/change/types";
-import { CHANGE_COLUMNS } from "@/lib/change/columns";
-import AiImpactPanel from "./AiImpactPanel";
-import ChangeTimeline from "./ChangeTimeline";
-import ChangeAiDrawer from "./ChangeAiDrawer";
+/* ─── Types ─── */
+type ChangeStatus = "new" | "analysis" | "review" | "in_progress" | "implemented" | "closed";
+type ChangePriority = "Low" | "Medium" | "High" | "Critical";
+type DeliveryLane = "intake" | "analysis" | "review" | "in_progress" | "implemented" | "closed";
 
-type Panel = "" | "attach" | "comment" | "timeline" | "ai";
+export type ApprovalProgressInput = {
+  canApprove?: boolean;
+  currentStepIndex?: number;
+  totalSteps?: number;
+  currentStepLabel?: string;
+  remainingApprovers?: number;
+  actingOnBehalfOf?: { name?: string; email?: string } | null;
+  chainName?: string;
+};
 
-function safeStr(x: unknown) {
-  return typeof x === "string" ? x : "";
-}
+type DraftAssistAi = {
+  summary?: string; justification?: string; financial?: string; schedule?: string;
+  risks?: string; dependencies?: string; assumptions?: string;
+  implementation?: string; rollback?: string;
+  impact?: { days: number; cost: number; risk: string };
+};
+type DraftAssistResp = { ok: true; model?: string; draftId?: string; ai?: DraftAssistAi; };
+type AiInterview = {
+  about: string; why: string; impacted: string; when: string;
+  constraints: string; costs: string; riskLevel: "Low" | "Medium" | "High"; rollback: string;
+};
+type ChangeFormValue = {
+  title: string; requester: string; status: ChangeStatus; priority: ChangePriority;
+  summary: string; justification: string; financial: string; schedule: string;
+  risks: string; dependencies: string; assumptions: string;
+  implementationPlan: string; rollbackPlan: string;
+  aiImpact: { days: number; cost: number; risk: string };
+  files: File[];
+};
 
-function clampText(s: string, max: number) {
-  const t = String(s ?? "");
-  return t.length > max ? t.slice(0, max) : t;
-}
-
-function isUuid(x: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test((x || "").trim());
-}
-
-function uuidish() {
-  try {
-    // @ts-ignore
-    return crypto?.randomUUID?.() ?? `d_${Math.random().toString(16).slice(2)}_${Date.now()}`;
-  } catch {
-    return `d_${Math.random().toString(16).slice(2)}_${Date.now()}`;
-  }
-}
-
-function isValidPriority(p: string): p is ChangePriority {
-  return p === "Low" || p === "Medium" || p === "High" || p === "Critical";
-}
-
-function isValidStatus(s: string): s is ChangeStatus {
-  return s === "new" || s === "analysis" || s === "review" || s === "in_progress" || s === "implemented" || s === "closed";
-}
-
+/* ─── Utils ─── */
+function safeStr(x: unknown): string { return typeof x === "string" ? x : x == null ? "" : String(x); }
+function clampText(s: string, max: number): string { const t = String(s ?? ""); return t.length > max ? t.slice(0, max) : t; }
+function isValidPriority(p: string): p is ChangePriority { return ["Low","Medium","High","Critical"].includes(p); }
+function isValidStatus(s: string): s is ChangeStatus { return ["new","analysis","review","in_progress","implemented","closed"].includes(s); }
 function normalizeStatus(raw: unknown): ChangeStatus {
   const v = safeStr(raw).trim().toLowerCase();
-  if (isValidStatus(v)) return v;
+  if (isValidStatus(v)) return v as ChangeStatus;
   if (v === "in progress") return "in_progress";
   return "new";
 }
-
 function normalizePriority(raw: unknown): ChangePriority {
   const v = safeStr(raw).trim();
-  if (isValidPriority(v)) return v;
+  if (isValidPriority(v)) return v as ChangePriority;
   return "Medium";
 }
-
-function looksLikePublicId(x: string) {
-  return /^cr-\d+$/i.test(x.trim()) || /^cr\d+$/i.test(x.trim());
+function looksLikeUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(s || "").trim());
 }
-
-function applyTheme(theme: "dark" | "light") {
-  if (typeof document === "undefined") return;
-  document.documentElement.setAttribute("data-cr-theme", theme);
-  try {
-    localStorage.setItem("crTheme", theme);
-    localStorage.setItem("cr_theme", theme);
-  } catch {}
+function uiStatusToDeliveryLane(s: ChangeStatus): DeliveryLane {
+  const m: Record<ChangeStatus, DeliveryLane> = { new: "intake", analysis: "analysis", review: "review", in_progress: "in_progress", implemented: "implemented", closed: "closed" };
+  return m[s] ?? "intake";
 }
-
-async function apiGet(url: string) {
-  const res = await fetch(url, { method: "GET", cache: "no-store" });
+async function apiPost(url: string, body?: any): Promise<any> {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : "{}" });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || (json as any)?.ok === false) throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
   return json;
 }
-
-async function apiPatch(url: string, body?: any) {
-  const res = await fetch(url, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : "{}",
-  });
+async function apiPatch(url: string, body?: any): Promise<any> {
+  const res = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : "{}" });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || (json as any)?.ok === false) throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
   return json;
 }
-
-async function apiPost(url: string, body?: any) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : "{}",
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || (json as any)?.ok === false) throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
-  return json;
+function newDraftId(): string {
+  const c = (globalThis as any)?.crypto;
+  const fn = c?.randomUUID;
+  if (typeof fn === "function") return fn.call(c);
+  return `d_${Math.random().toString(16).slice(2)}_${Date.now()}`;
 }
 
-function parseProposedChange(txt: string) {
-  const raw = safeStr(txt || "");
-  const out: Record<"justification" | "financial" | "schedule" | "risks" | "dependencies", string> = {
-    justification: "",
-    financial: "",
-    schedule: "",
-    risks: "",
-    dependencies: "",
-  };
+/* ═══════════════════════════════════════════
+   DESIGN SYSTEM CSS
+═══════════════════════════════════════════ */
+const CCM_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
 
-  const lines = raw.split(/\r?\n/);
-  let cur: keyof typeof out | null = null;
+  .ccm-overlay{position:fixed;inset:0;z-index:9000;background:rgba(8,10,18,.72);backdrop-filter:blur(14px) saturate(1.4);display:flex;align-items:center;justify-content:center;padding:20px;animation:ccm-fade .2s ease;}
+  @keyframes ccm-fade{from{opacity:0}to{opacity:1}}
+  .ccm-modal{width:min(1100px,98vw);max-height:93vh;background:#F5F7FD;border:1px solid rgba(255,255,255,.92);border-radius:22px;box-shadow:0 0 0 1px rgba(99,102,241,.07),0 4px 16px rgba(30,40,80,.07),0 20px 60px rgba(30,40,80,.12),0 60px 120px rgba(30,40,80,.07);display:flex;flex-direction:column;overflow:hidden;animation:ccm-slide .28s cubic-bezier(.34,1.4,.64,1);font-family:'Instrument Sans',system-ui,sans-serif;color:#111827;}
+  @keyframes ccm-slide{from{opacity:0;transform:translateY(28px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
 
-  function takeKey(line: string): keyof typeof out | null {
-    const s = line.trim();
-    const map: Record<string, keyof typeof out> = {
-      justification: "justification",
-      financial: "financial",
-      schedule: "schedule",
-      risks: "risks",
-      dependencies: "dependencies",
-    };
+  .ccm-header{padding:18px 26px 16px;background:linear-gradient(160deg,#fff 0%,#f4f6ff 100%);border-bottom:1px solid rgba(99,102,241,.1);flex-shrink:0;position:relative;overflow:hidden;}
+  .ccm-header::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#6366f1 0%,#818cf8 40%,#a78bfa 70%,#6366f1 100%);background-size:200% 100%;animation:ccm-shimmer 3.5s linear infinite;}
+  @keyframes ccm-shimmer{0%{background-position:0% 0%}100%{background-position:200% 0%}}
+  .ccm-htop{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
+  .ccm-htitle{font-size:16px;font-weight:700;color:#0d1023;letter-spacing:-.025em;}
+  .ccm-hsub{font-size:12px;color:#6b7280;margin-top:2px;}
+  .ccm-hpills{display:flex;gap:7px;align-items:center;margin-top:10px;flex-wrap:wrap;}
+  .ccm-hacts{display:flex;gap:7px;align-items:center;flex-shrink:0;}
 
-    for (const k of Object.keys(map)) {
-      const prefix = `${k[0].toUpperCase()}${k.slice(1)}:`;
-      if (s.toLowerCase().startsWith(prefix.toLowerCase())) return map[k];
-    }
-    return null;
-  }
+  .ccm-body{flex:1;display:grid;grid-template-columns:1fr 284px;overflow:hidden;}
+  .ccm-main{overflow-y:auto;padding:22px 22px 32px;display:flex;flex-direction:column;gap:14px;}
+  .ccm-sidebar{overflow-y:auto;background:linear-gradient(180deg,#fff 0%,#f8f9ff 100%);border-left:1px solid rgba(99,102,241,.1);padding:18px 16px;display:flex;flex-direction:column;gap:16px;}
+  .ccm-main::-webkit-scrollbar,.ccm-sidebar::-webkit-scrollbar{width:3px;}
+  .ccm-main::-webkit-scrollbar-thumb,.ccm-sidebar::-webkit-scrollbar-thumb{background:rgba(99,102,241,.16);border-radius:2px;}
 
-  for (const rawLine of lines) {
-    const line = rawLine ?? "";
-    const key = takeKey(line);
-    if (key) {
-      cur = key;
-      out[cur] = line.replace(/^([A-Za-z_ ]+):\s*/i, "");
-      continue;
-    }
-    if (!cur) continue;
-    out[cur] = out[cur] ? out[cur] + "\n" + line : line;
-  }
+  .ccm-card{background:#fff;border:1px solid rgba(99,102,241,.09);border-radius:16px;padding:18px 20px;box-shadow:0 1px 3px rgba(30,40,100,.04),0 3px 10px rgba(30,40,100,.04);transition:box-shadow .2s;}
+  .ccm-card:hover{box-shadow:0 2px 8px rgba(99,102,241,.07),0 6px 20px rgba(30,40,100,.06);}
+  .ccm-chead{font-size:12.5px;font-weight:700;color:#0d1023;letter-spacing:-.01em;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+  .ccm-cicon{width:26px;height:26px;background:linear-gradient(135deg,#eef2ff,#e0e7ff);border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 
-  (Object.keys(out) as (keyof typeof out)[]).forEach((k) => (out[k] = out[k].trim()));
-  return out;
+  .ccm-field{display:flex;flex-direction:column;gap:5px;}
+  .ccm-label{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b7280;}
+  .ccm-req{color:#6366f1;}
+
+  .ccm-input,.ccm-select,.ccm-textarea{width:100%;box-sizing:border-box;background:#fafbff;border:1.5px solid #e5e7f0;border-radius:10px;padding:9px 13px;font-size:13px;font-family:'Instrument Sans',system-ui,sans-serif;color:#111827;outline:none;resize:none;transition:border-color .14s,box-shadow .14s,background .14s;}
+  .ccm-input::placeholder,.ccm-textarea::placeholder{color:#c5c9dc;}
+  .ccm-input:focus,.ccm-select:focus,.ccm-textarea:focus{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.11);background:#fff;}
+  .ccm-input:disabled,.ccm-select:disabled,.ccm-textarea:disabled{opacity:.5;cursor:not-allowed;}
+  .ccm-select{appearance:none;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center;padding-right:30px;}
+  .ccm-select option{background:#fff;}
+  .ccm-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .ccm-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+
+  .ccm-fwrap{position:relative;}
+  .ccm-aibtn{position:absolute;top:9px;right:9px;z-index:2;display:inline-flex;align-items:center;gap:4px;padding:4px 9px;background:linear-gradient(135deg,#6366f1,#818cf8);border:none;border-radius:7px;font-size:10px;font-weight:700;font-family:'Instrument Sans',sans-serif;color:#fff;letter-spacing:.04em;cursor:pointer;box-shadow:0 2px 8px rgba(99,102,241,.3);transition:all .13s;}
+  .ccm-aibtn:hover:not(:disabled){background:linear-gradient(135deg,#4f46e5,#6366f1);box-shadow:0 4px 14px rgba(99,102,241,.4);transform:translateY(-1px);}
+  .ccm-aibtn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+
+  .ccm-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border-radius:10px;border:none;font-size:12px;font-weight:600;font-family:'Instrument Sans',sans-serif;cursor:pointer;transition:all .14s;white-space:nowrap;}
+  .ccm-btn:disabled{opacity:.45;cursor:not-allowed;}
+  .ccm-btn-primary{background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;box-shadow:0 2px 12px rgba(99,102,241,.28);}
+  .ccm-btn-primary:hover:not(:disabled){background:linear-gradient(135deg,#4f46e5,#6366f1);box-shadow:0 4px 20px rgba(99,102,241,.4);transform:translateY(-1px);}
+  .ccm-btn-ghost{background:transparent;border:1.5px solid #e5e7f0;color:#6b7280;}
+  .ccm-btn-ghost:hover:not(:disabled){background:#f4f6ff;border-color:#c7d2fe;color:#4338ca;}
+  .ccm-btn-ai{background:#eef2ff;border:1.5px solid #c7d2fe;color:#4338ca;}
+  .ccm-btn-ai:hover:not(:disabled){background:#e0e7ff;border-color:#818cf8;box-shadow:0 0 12px rgba(99,102,241,.15);}
+  .ccm-btn-danger{background:#fff1f2;border:1.5px solid #fecaca;color:#dc2626;}
+  .ccm-btn-danger:hover:not(:disabled){background:#ffe4e6;border-color:#f87171;}
+  .ccm-btn-sm{padding:7px 12px;font-size:11.5px;border-radius:8px;}
+  .ccm-btn-xs{padding:5px 9px;font-size:10.5px;border-radius:7px;}
+
+  .ccm-err{margin:10px 22px 0;padding:10px 14px;background:#fff1f2;border:1.5px solid rgba(239,68,68,.2);border-radius:10px;font-size:12px;color:#dc2626;flex-shrink:0;}
+
+  .ccm-footer{display:flex;align-items:center;justify-content:space-between;padding:13px 22px;border-top:1px solid rgba(99,102,241,.09);background:linear-gradient(180deg,#f8f9ff 0%,#fff 100%);flex-shrink:0;gap:12px;}
+  .ccm-fmeta{font-size:10.5px;color:#9ca3af;font-family:'DM Mono',monospace;}
+
+  .ccm-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;border:1.5px solid;font-size:10.5px;font-weight:600;}
+  .ccm-pill-status{color:#6b7280;border-color:#e5e7f0;background:#fafbff;}
+  .ccm-pill-low{color:#6b7280;border-color:#d1d5db;background:#f9fafb;}
+  .ccm-pill-medium{color:#d97706;border-color:#fde68a;background:#fffbeb;}
+  .ccm-pill-high{color:#ea580c;border-color:#fed7aa;background:#fff7ed;}
+  .ccm-pill-critical{color:#dc2626;border-color:#fecaca;background:#fff1f2;}
+  .ccm-pill-green{color:#15803d;border-color:#bbf7d0;background:#f0fdf4;}
+  .ccm-pill-amber{color:#b45309;border-color:#fde68a;background:#fffbeb;}
+
+  .ccm-statuslock{display:flex;align-items:center;justify-content:space-between;padding:9px 13px;background:#f8f9ff;border:1.5px solid #e5e7f0;border-radius:10px;font-size:13px;font-weight:500;color:#111827;}
+
+  .ccm-drop{border:2px dashed #c7d2fe;border-radius:12px;padding:22px 16px;text-align:center;background:#fafbff;cursor:pointer;transition:all .14s;}
+  .ccm-drop:hover{border-color:#818cf8;background:#eef2ff;}
+  .ccm-dropico{width:38px;height:38px;background:linear-gradient(135deg,#eef2ff,#e0e7ff);border-radius:11px;display:flex;align-items:center;justify-content:center;margin:0 auto 9px;}
+  .ccm-att{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fafbff;border:1.5px solid #e5e7f0;border-radius:10px;transition:border-color .14s;}
+  .ccm-att:hover{border-color:#c7d2fe;}
+  .ccm-attico{width:32px;height:32px;background:linear-gradient(135deg,#eef2ff,#e0e7ff);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .ccm-attname{font-size:12px;font-weight:600;color:#111827;}
+  .ccm-attsize{font-size:10px;color:#9ca3af;margin-top:1px;}
+
+  .ccm-impact{background:#fafbff;border:1.5px solid #e5e7f0;border-radius:12px;padding:13px;display:flex;flex-direction:column;gap:3px;}
+  .ccm-ilabel{font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#9ca3af;}
+  .ccm-ival{font-size:22px;font-weight:800;font-family:'DM Mono',monospace;color:#0d1023;letter-spacing:-.03em;line-height:1;}
+  .ccm-isub{font-size:10px;color:#9ca3af;margin-top:2px;}
+
+  .ccm-appr{margin-top:12px;border:1.5px solid rgba(99,102,241,.15);border-radius:14px;overflow:hidden;background:#fff;}
+  .ccm-apprhead{padding:10px 14px;background:linear-gradient(135deg,#4f46e5,#1e1b4b);display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .ccm-apprchip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;background:rgba(255,255,255,.12);border-radius:6px;font-size:10.5px;font-weight:600;color:#fff;}
+  .ccm-apprbody{padding:11px 14px;}
+  .ccm-progtrack{height:4px;border-radius:4px;background:#e5e7f0;overflow:hidden;}
+  .ccm-progfill{height:100%;border-radius:4px;background:linear-gradient(90deg,#6366f1,#818cf8);transition:width .4s ease;}
+
+  .ccm-stitle{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#9ca3af;margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+  .ccm-tip{display:flex;gap:9px;align-items:flex-start;padding:8px 10px;background:#fafbff;border:1.5px solid #eef0f8;border-radius:9px;font-size:11px;line-height:1.5;color:#6b7280;}
+  .ccm-div{height:1px;background:#eef0f8;}
+  .ccm-ready{padding:8px 12px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;font-size:11px;color:#15803d;font-weight:600;}
+  .ccm-modelbadge{padding:8px 12px;background:#f8f9ff;border:1.5px solid #e5e7f0;border-radius:10px;font-size:10.5px;color:#6b7280;font-family:'DM Mono',monospace;}
+
+  .ccm-doverlay{position:fixed;inset:0;z-index:9100;background:rgba(8,10,18,.5);backdrop-filter:blur(8px);animation:ccm-fade .15s ease;}
+  .ccm-drawer{position:absolute;right:0;top:0;height:100%;width:min(500px,96vw);background:#fff;border-left:1px solid rgba(99,102,241,.1);display:flex;flex-direction:column;box-shadow:-16px 0 50px rgba(30,40,100,.11);animation:ccm-din .22s cubic-bezier(.34,1.3,.64,1);}
+  @keyframes ccm-din{from{transform:translateX(32px);opacity:0}to{transform:translateX(0);opacity:1}}
+  .ccm-dhead{padding:17px 20px;border-bottom:1px solid #eef0f8;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(160deg,#fff 0%,#f4f6ff 100%);flex-shrink:0;position:relative;overflow:hidden;}
+  .ccm-dhead::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#6366f1,#818cf8,#a78bfa);}
+  .ccm-dbody{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:14px;}
+  .ccm-dbody::-webkit-scrollbar{width:3px;}
+  .ccm-dbody::-webkit-scrollbar-thumb{background:rgba(99,102,241,.2);border-radius:2px;}
+`;
+
+let ccmCssInjected = false;
+function injectCss() {
+  if (typeof document === "undefined" || ccmCssInjected) return;
+  ccmCssInjected = true;
+  const el = document.createElement("style");
+  el.textContent = CCM_CSS;
+  document.head.appendChild(el);
 }
 
-function buildProposedChangeFrom(m: ChangeItem) {
-  return clampText(
-    [
-      m.justification ? `Justification: ${m.justification}` : "",
-      m.financial ? `Financial: ${m.financial}` : "",
-      m.schedule ? `Schedule: ${m.schedule}` : "",
-      m.risks ? `Risks: ${m.risks}` : "",
-      m.dependencies ? `Dependencies: ${m.dependencies}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n"),
-    8000
+/* ─── SVG Icons ─── */
+const Ic = {
+  Bolt: ({ s = 11 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
+  X:    ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>,
+  Trash:({ s = 12 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>,
+  Clip: ({ s = 14 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>,
+  File: ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>,
+  Doc:  ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
+  Star: ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>,
+  Dollar:({s=13}:{s?:number})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 100 7h5a3.5 3.5 0 110 7H6"/></svg>,
+  Cal:  ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+  Warn: ({ s = 13 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+  Arrows:({s=13}:{s?:number})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>,
+};
+
+function AiBtn({ disabled, busy, onClick, title }: { disabled?: boolean; busy?: boolean; onClick: () => void; title?: string }) {
+  return (
+    <button type="button" className="ccm-aibtn" onClick={onClick} disabled={disabled || busy} title={title}>
+      <Ic.Bolt s={9} /> {busy ? "…" : "AI"}
+    </button>
   );
 }
 
-/* ---------------- Attachments ---------------- */
-
-type AttachmentRow = {
-  id?: string;
-  file_name?: string;
-  filename?: string;
-  name?: string;
-  size?: number;
-  size_bytes?: number;
-  created_at?: string;
-  url?: string;
-  signedUrl?: string;
-  path?: string;
-};
-
-function attachmentName(a: AttachmentRow) {
-  return safeStr(a.file_name || a.filename || a.name || "").trim() || "Attachment";
+function CHead({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="ccm-chead">
+      <div className="ccm-cicon">{icon}</div>
+      {children}
+    </div>
+  );
 }
 
-function formatBytes(n?: number) {
-  const v = Number(n ?? 0);
-  if (!Number.isFinite(v) || v <= 0) return "";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  let x = v;
-  while (x >= 1024 && i < units.length - 1) {
-    x /= 1024;
-    i++;
-  }
-  return `${x.toFixed(x >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-function ModalShell({
-  open,
-  title,
-  onClose,
-  children,
-}: {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
+function Drawer({ open, title, sub, onClose, children }: { open: boolean; title: string; sub?: string; onClose: () => void; children: React.ReactNode }) {
   if (!open) return null;
   return (
-    <div
-      className="crModalOverlay"
-      role="dialog"
-      aria-modal="true"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.55)",
-        zIndex: 9999,
-        display: "grid",
-        placeItems: "center",
-        padding: 16,
-      }}
-    >
-      <div
-        className="crModal"
-        style={{
-          width: "min(980px, 96vw)",
-          maxHeight: "85vh",
-          overflow: "auto",
-          borderRadius: 18,
-          border: "1px solid var(--cr-border)",
-          background: "var(--cr-panel)",
-          boxShadow: "0 20px 80px rgba(0,0,0,0.6)",
-        }}
-      >
-        <div
-          className="crModalHead"
-          style={{
-            position: "sticky",
-            top: 0,
-            background: "linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0))",
-            backdropFilter: "blur(8px)",
-            padding: "14px 16px",
-            borderBottom: "1px solid var(--cr-border)",
-            display: "grid",
-            gridTemplateColumns: "1fr auto",
-            alignItems: "center",
-            gap: 12,
-          }}
-        >
-          <div style={{ fontWeight: 700 }}>{title}</div>
-          <button className="crBtn crBtnGhost" type="button" onClick={onClose}>
-            Close
-          </button>
+    <div className="ccm-doverlay" role="dialog" aria-modal="true">
+      <div className="ccm-drawer">
+        <div className="ccm-dhead">
+          <div>
+            {sub && <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#6366f1", marginBottom: 3 }}>{sub}</div>}
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#0d1023" }}>{title}</div>
+          </div>
+          <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={onClose}><Ic.X s={11} /> Close</button>
         </div>
-
-        <div style={{ padding: 16 }}>{children}</div>
+        <div className="ccm-dbody">{children}</div>
       </div>
     </div>
   );
 }
 
-/* ---------------- Governance helpers ---------------- */
-
-type DecisionStatus = "" | "draft" | "analysis" | "review" | "submitted" | "approved" | "rejected" | "rework";
-
-function normDecision(x: any): DecisionStatus {
-  const v = safeStr(x).trim().toLowerCase();
-  if (!v) return "";
-  if (v === "draft") return "draft";
-  if (v === "analysis") return "analysis";
-  if (v === "review") return "review";
-  if (v === "submitted") return "submitted";
-  if (v === "approved") return "approved";
-  if (v === "rejected") return "rejected";
-  if (v === "rework" || v === "changes_requested" || v === "request_changes") return "rework";
-  return v as any;
-}
-
-// ── FIX: relaxed governance lock ──
-// Only hard-lock when the record is truly frozen.
-// Previously locked 'review', 'in_progress', 'implemented', 'closed' entirely,
-// which disabled all form fields for most change requests.
-function canEditFromGovernance(lane: ChangeStatus, decision: DecisionStatus) {
-  if (lane === "closed") return false;
-  if (lane === "implemented") return false;
-  // in_progress: only locked after formal approval
-  if (lane === "in_progress" && decision === "approved") return false;
-  // review: only locked while actively awaiting an approval decision
-  if (lane === "review" && decision === "submitted") return false;
-  // new, analysis, review with rework/rejected/empty → all editable
-  return true;
-}
-
-/* ---------------- Draft Co-pilot types ---------------- */
-
-type DraftCopilotAi = {
-  headline?: string;
-  schedule?: string;
-  cost?: string;
-  scope?: string;
-  risk?: string;
-  dependencies?: string;
-  assumptions?: string;
-  priority_note?: string;
-  next_actions?: string[] | string;
-};
-
-export default function ChangeDetailClient({
-  projectId,
-  projectCode,
-  artifactId,
-  changeId,
-  change,
-  returnTo,
-  initialPanel,
-}: {
-  projectId: string;
-  projectCode?: string | number;
-  artifactId?: string;
-  changeId: string;
-  change?: ChangeItem;
-  returnTo?: string;
-  initialPanel?: Panel;
-}) {
-  const router = useRouter();
-  const sp = useSearchParams();
-
-  /* ---------------- Theme ---------------- */
-  const [theme, setTheme] = useState<"dark" | "light">("light");
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    try {
-      const saved =
-        safeStr(localStorage.getItem("crTheme")).trim().toLowerCase() ||
-        safeStr(localStorage.getItem("cr_theme")).trim().toLowerCase();
-
-      if (saved === "dark" || saved === "light") {
-        setTheme(saved as any);
-        applyTheme(saved as any);
-        return;
-      }
-    } catch {}
-    applyTheme("light");
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    applyTheme(theme);
-  }, [theme, mounted]);
-
-  /* ---------------- State ---------------- */
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string>("");
-
-  const routeId = useMemo(() => safeStr(changeId).trim(), [changeId]);
-  const routeIsDbId = useMemo(() => isUuid(routeId), [routeId]);
-
-  const draftId = useMemo(() => uuidish(), []);
-
-  const initialModel = useMemo<ChangeItem>(() => {
-    if (change) return change;
-    return {
-      id: routeId || "CR",
-      dbId: routeId || undefined,
-      title: "",
-      requester: "",
-      summary: "",
-      status: "new",
-      priority: "Medium",
-      tags: [],
-      aiImpact: { days: 0, cost: 0, risk: "None identified" },
-      justification: "",
-      financial: "",
-      schedule: "",
-      risks: "",
-      dependencies: "",
-      // @ts-ignore
-      decision_status: "",
-      // @ts-ignore
-      decision_role: "",
-    };
-  }, [change, routeId]);
-
-  const [model, setModel] = useState<ChangeItem>(initialModel);
-  const [tagDraft, setTagDraft] = useState("");
-
-  const [panel, setPanel] = useState<Panel>(initialPanel ?? "");
-  const [timelineOpen, setTimelineOpen] = useState<boolean>((initialPanel ?? "") === "timeline");
-  const [attachOpen, setAttachOpen] = useState<boolean>((initialPanel ?? "") === "attach");
-
-  // Draft AI co-pilot modal
-  const [draftAiOpen, setDraftAiOpen] = useState(false);
-  const [draftAiBusy, setDraftAiBusy] = useState(false);
-  const [draftAiErr, setDraftAiErr] = useState("");
-  const [draftAi, setDraftAi] = useState<DraftCopilotAi | null>(null);
-  const [draftAutoScan, setDraftAutoScan] = useState(true);
-  const lastDraftSigRef = useRef<string>("");
-
-  // Read panel from URL only on first mount — do NOT sync on every searchParams change
-  // (router.replace in setPanelParam caused cascading re-renders that froze inputs)
-  useEffect(() => {
-    const qp = safeStr(sp?.get("panel")).trim().toLowerCase();
-    const p2: Panel = qp === "timeline" ? "timeline" : qp === "attach" ? "attach" : qp === "comment" ? "comment" : qp === "ai" ? "ai" : "";
-    setPanel(p2);
-    if (p2 === "timeline") setTimelineOpen(true);
-    if (p2 === "attach") setAttachOpen(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally empty — only run on mount
-
-  function set<K extends keyof ChangeItem>(key: K, value: ChangeItem[K]) {
-    setModel((m) => ({ ...m, [key]: value }));
-  }
-
-  /* ---------------- Load -------------------------------------------------- */
-  useEffect(() => {
-    if (change) setModel(change);
-  }, [change]);
-
-  useEffect(() => {
-    let dead = false;
-
-    async function load() {
-      if (change) return;
-      if (!routeId) return;
-      if (!routeIsDbId) return;
-
-      setLoading(true);
-      setError("");
-      try {
-        const json = await apiGet(`/api/change/${encodeURIComponent(routeId)}`);
-        const row = (json as any)?.item ?? (json as any)?.data ?? json;
-
-        const impact = row?.impact_analysis ?? {};
-        const proposed = safeStr(row?.proposed_change);
-        const parts = parseProposedChange(proposed);
-
-        const next: ChangeItem = {
-          id: safeStr(row?.id) || "",
-          dbId: safeStr(row?.id) || "",
-          ...(safeStr(row?.public_id) ? ({ publicId: safeStr(row?.public_id) } as any) : {}),
-          title: safeStr(row?.title) || "",
-          requester:
-            safeStr(row?.requester_name).trim() ||
-            safeStr(row?.requester).trim() ||
-            safeStr(row?.profiles?.full_name).trim() ||
-            safeStr(row?.profiles?.name).trim() ||
-            "",
-          summary: safeStr(row?.description) || "",
-          status: normalizeStatus(row?.delivery_status ?? row?.deliveryStatus ?? row?.status),
-          priority: normalizePriority(row?.priority),
-          tags: Array.isArray(row?.tags) ? row.tags : [],
-          aiImpact: {
-            days: Number(impact?.days ?? 0) || 0,
-            cost: Number(impact?.cost ?? 0) || 0,
-            risk: safeStr(impact?.risk) || "None identified",
-          },
-          justification: parts.justification || "",
-          financial: parts.financial || "",
-          schedule: parts.schedule || "",
-          risks: parts.risks || "",
-          dependencies: parts.dependencies || "",
-          // @ts-ignore
-          decision_status: safeStr(row?.decision_status ?? row?.decisionStatus ?? ""),
-          // @ts-ignore
-          decision_role: safeStr(row?.decision_role ?? row?.decisionRole ?? ""),
-        };
-
-        if (!dead) setModel(next);
-      } catch (e: any) {
-        if (!dead) setError(safeStr(e?.message) || "Load failed");
-      } finally {
-        if (!dead) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      dead = true;
-    };
-  }, [change, routeId, routeIsDbId]);
-
-  /* ---------------- Tags ---------------- */
-  function addTag() {
-    const t = tagDraft.trim();
-    if (!t) return;
-    setModel((m) => ({
-      ...m,
-      tags: Array.from(new Set([...(m.tags ?? []), t])).slice(0, 20),
-    }));
-    setTagDraft("");
-  }
-
-  function removeTag(t: string) {
-    setModel((m) => ({
-      ...m,
-      tags: (m.tags ?? []).filter((x) => x !== t),
-    }));
-  }
-
-  function boardReturnHref() {
-    if (returnTo) return returnTo;
-    return projectId ? `/projects/${projectId}/change` : "/projects";
-  }
-
-  function setPanelParam(next: Panel) {
-    // Update local state only — router.replace was causing re-renders that froze inputs
-    setPanel(next);
-  }
-
-  function validate(): { ok: true; payload: any } | { ok: false; msg: string } {
-    const pid = safeStr(projectId).trim();
-    if (!pid) return { ok: false, msg: "Missing projectId." };
-
-    const title = clampText(safeStr(model.title).trim(), 160);
-    if (!title) return { ok: false, msg: "Title is required." };
-
-    const summary = clampText(safeStr(model.summary).trim(), 1200);
-    if (!summary) return { ok: false, msg: "Summary is required." };
-
-    const requester = clampText(safeStr(model.requester).trim(), 160);
-    const status = normalizeStatus(model.status);
-    const priority = normalizePriority(model.priority);
-
-    const tags = Array.isArray(model.tags) ? model.tags.map((t) => safeStr(t).trim()).filter(Boolean).slice(0, 20) : [];
-
-    const impact = model.aiImpact ?? { days: 0, cost: 0, risk: "None identified" };
-    const impactAnalysis = {
-      days: Number((impact as any)?.days ?? 0) || 0,
-      cost: Number((impact as any)?.cost ?? 0) || 0,
-      risk: clampText(safeStr((impact as any)?.risk ?? "None identified"), 280),
-      highlights: [],
-    };
-
-    return {
-      ok: true,
-      payload: {
-        projectId: pid,
-        artifactId: safeStr(artifactId).trim() || null,
-        title,
-        summary,
-        description: summary,
-        proposedChange: buildProposedChangeFrom(model),
-        priority,
-        tags,
-        requester_name: requester || null,
-        impactAnalysis,
-      },
-    };
-  }
-
-  // governance state
-  const lane = normalizeStatus(model.status);
-  const decision = normDecision((model as any)?.decision_status);
-
-  const lockedByGovernance = routeIsDbId ? !canEditFromGovernance(lane, decision) : false;
-
-  // ── FIX: removed 'loading' from disabled ──
-  // Previously: disabled = saving || loading || lockedByGovernance
-  // 'loading' was true during the entire API fetch on mount, locking all inputs.
-  const disabled = saving || lockedByGovernance;
-
-  const uiId = useMemo(() => {
-    const pid = safeStr((model as any)?.publicId || (model as any)?.public_id).trim();
-    if (pid) return pid;
-    const id = safeStr(model.id).trim();
-    if (looksLikePublicId(id)) return id;
-    return "";
-  }, [model]);
-
-  /* ---------------- AI ---------------- */
-  const [aiBusy, setAiBusy] = useState(false);
-
-  async function fireAiEvent(eventType: string, payload: any) {
-    return apiPost("/api/ai/events", {
-      projectId,
-      artifactId: null,
-      eventType,
-      severity: "info",
-      source: "change_detail",
-      payload,
-    });
-  }
-
-  function draftPayloadSnapshot() {
-    return {
-      title: safeStr(model.title),
-      summary: safeStr(model.summary),
-      priority: safeStr(model.priority),
-      status: normalizeStatus(model.status),
-      justification: safeStr((model as any).justification),
-      financial: safeStr((model as any).financial),
-      schedule: safeStr((model as any).schedule),
-      risks: safeStr((model as any).risks),
-      dependencies: safeStr((model as any).dependencies),
-      tags: Array.isArray(model.tags) ? model.tags : [],
-      uiId: uiId || "",
-    };
-  }
-
-  function sigOfDraft() {
-    const p = draftPayloadSnapshot();
-    return [
-      safeStr(projectId).trim(),
-      safeStr(p.title).trim(),
-      safeStr(p.summary).trim(),
-      safeStr(p.priority).trim(),
-      safeStr(p.status).trim(),
-      safeStr(p.justification).trim(),
-      safeStr(p.financial).trim(),
-      safeStr(p.schedule).trim(),
-      safeStr(p.risks).trim(),
-      safeStr(p.dependencies).trim(),
-      (Array.isArray(p.tags) ? p.tags.join(",") : "").trim(),
-    ]
-      .join("||")
-      .slice(0, 1500);
-  }
-
-  async function runDraftCopilotScanNow() {
-    setDraftAiErr("");
-    setDraftAiBusy(true);
-    try {
-      const json = await fireAiEvent("change_draft_scan_requested", {
-        draftId,
-        draft: draftPayloadSnapshot(),
-      });
-
-      const result = (json as any)?.result ?? (json as any)?.payload ?? json;
-      const ai = (result as any)?.ai ?? (result as any)?.payload?.ai ?? null;
-      setDraftAi(ai || null);
-    } catch (e: any) {
-      setDraftAiErr(safeStr(e?.message) || "Draft AI scan failed");
-    } finally {
-      setDraftAiBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!draftAiOpen) return;
-    if (!draftAutoScan) return;
-    if (routeIsDbId) return;
-    const pid = safeStr(projectId).trim();
-    if (!pid) return;
-
-    const sig = sigOfDraft();
-    if (sig === lastDraftSigRef.current) return;
-
-    const t = setTimeout(() => {
-      if (sig === lastDraftSigRef.current) return;
-      lastDraftSigRef.current = sig;
-      runDraftCopilotScanNow().catch(() => {});
-    }, 900);
-
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    draftAiOpen, draftAutoScan, routeIsDbId, projectId,
-    model.title, model.summary, model.priority, model.status,
-    (model as any).justification, (model as any).financial,
-    (model as any).schedule, (model as any).risks, (model as any).dependencies,
-    Array.isArray(model.tags) ? model.tags.join(",") : "",
-  ]);
-
-  async function runAiScanNow() {
-    if (aiBusy || draftAiBusy) return;
-
-    if (!routeIsDbId) {
-      setDraftAiOpen(true);
-      if (!draftAi) await runDraftCopilotScanNow();
-      return;
-    }
-
-    setAiBusy(true);
-    setError("");
-    try {
-      await fireAiEvent("change_ai_scan_requested", {
-        changeId: routeId,
-        title: safeStr(model.title),
-        summary: safeStr(model.summary),
-        status: lane,
-        uiId,
-      });
-    } catch (e: any) {
-      setError(`AI failed: ${safeStr(e?.message) || "Unknown error"}`);
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  async function save() {
-    setError("");
-    const v = validate();
-    if (!v.ok) return setError(v.msg);
-
-    setSaving(true);
-    try {
-      if (!routeIsDbId) {
-        const created = await apiPost("/api/change", {
-          projectId: v.payload.projectId,
-          artifactId: v.payload.artifactId,
-          title: v.payload.title,
-          description: v.payload.description,
-          proposedChange: v.payload.proposedChange,
-          priority: v.payload.priority,
-          tags: v.payload.tags,
-          requester_name: v.payload.requester_name,
-          impactAnalysis: v.payload.impactAnalysis,
-        });
-
-        const newId = safeStr((created as any)?.item?.id || (created as any)?.id).trim();
-        if (!newId) throw new Error("Created change request but no id returned.");
-
-        router.push(boardReturnHref());
-        return;
-      }
-
-      const id = safeStr(routeId).trim();
-      if (!id) throw new Error("Missing change id.");
-
-      const json = await apiPatch(`/api/change/${encodeURIComponent(id)}`, {
-        title: v.payload.title,
-        summary: v.payload.description,
-        description: v.payload.description,
-        proposedChange: v.payload.proposedChange,
-        priority: v.payload.priority,
-        tags: v.payload.tags,
-        requester_name: v.payload.requester_name,
-        impactAnalysis: v.payload.impactAnalysis,
-      });
-
-      if (!json || (json as any).ok !== true) throw new Error((json as any)?.error || "Save failed");
-      router.push(boardReturnHref());
-    } catch (e: any) {
-      setError(safeStr(e?.message) || "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  /* ---------------- Analysis readiness ---------------- */
-  const analysisReadiness = useMemo(() => {
-    const isAnalysis = lane === "analysis";
-    if (!isAnalysis) {
-      return { isAnalysis: false, ready: true, items: [] as { ok: boolean; label: string }[], blockingMsg: "" };
-    }
-
-    const titleOk   = safeStr(model.title).trim().length >= 5;
-    const summaryOk = safeStr(model.summary).trim().length >= 20;
-    const justOk    = safeStr((model as any).justification).trim().length >= 15;
-    const finOk     = safeStr((model as any).financial).trim().length >= 10;
-    const schOk     = safeStr((model as any).schedule).trim().length >= 10;
-    const risksOk   = safeStr((model as any).risks).trim().length >= 10 || safeStr(model.aiImpact?.risk).trim().length >= 10;
-    const depsOk    = safeStr((model as any).dependencies).trim().length >= 10;
-
-    const days    = Number(model.aiImpact?.days ?? 0) || 0;
-    const cost    = Number(model.aiImpact?.cost ?? 0) || 0;
-    const riskTxt = safeStr(model.aiImpact?.risk).trim();
-    const impactOk = (days !== 0 || cost !== 0 || riskTxt.length >= 10) && riskTxt.length > 0;
-
-    const items = [
-      { ok: titleOk,   label: "Title set" },
-      { ok: summaryOk, label: "Summary (what/why) set" },
-      { ok: justOk,    label: "Justification captured" },
-      { ok: schOk,     label: "Schedule impact captured" },
-      { ok: finOk,     label: "Financial impact captured" },
-      { ok: risksOk,   label: "Risks captured" },
-      { ok: depsOk,    label: "Dependencies captured" },
-      { ok: impactOk,  label: "AI Impact (days/cost/risk) captured" },
-    ];
-
-    const ready = items.every((x) => x.ok);
-    const blockingMsg = ready ? "" : "Not ready for submission — complete the missing items (or run AI scan to populate the impact quickly).";
-
-    return { isAnalysis: true, ready, items, blockingMsg };
-  }, [lane, model]);
-
-  /* ---------------- Governance actions ---------------- */
-  async function doSubmit() {
-    if (!routeIsDbId) return;
-    if (analysisReadiness.isAnalysis && !analysisReadiness.ready) {
-      setError(analysisReadiness.blockingMsg || "Not ready for submission.");
-      return;
-    }
-    setError("");
-    setSaving(true);
-    try {
-      await apiPost(`/api/change/${encodeURIComponent(routeId)}/submit`, {});
-      setModel((m: any) => ({ ...m, status: "review", decision_status: "submitted" }));
-      fireAiEvent("change_submitted_for_approval", { changeId: routeId, uiId }).catch(() => {});
-      router.push(boardReturnHref());
-    } catch (e: any) {
-      setError(safeStr(e?.message) || "Submit failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function doApprove() {
-    if (!routeIsDbId) return;
-    setError("");
-    setSaving(true);
-    try {
-      await apiPost(`/api/change/${encodeURIComponent(routeId)}/approve`, {});
-      setModel((m: any) => ({ ...m, status: "in_progress", decision_status: "approved" }));
-      fireAiEvent("change_approved", { changeId: routeId, uiId }).catch(() => {});
-      router.push(boardReturnHref());
-    } catch (e: any) {
-      setError(safeStr(e?.message) || "Approve failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function doReject() {
-    if (!routeIsDbId) return;
-    setError("");
-    setSaving(true);
-    try {
-      await apiPost(`/api/change/${encodeURIComponent(routeId)}/reject`, { note: "" });
-      setModel((m: any) => ({ ...m, status: "new", decision_status: "rejected" }));
-      fireAiEvent("change_rejected", { changeId: routeId, uiId }).catch(() => {});
-      router.push(boardReturnHref());
-    } catch (e: any) {
-      setError(safeStr(e?.message) || "Reject failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function doRequestChanges() {
-    if (!routeIsDbId) return;
-    setError("");
-    setSaving(true);
-    try {
-      await apiPost(`/api/change/${encodeURIComponent(routeId)}/request-changes`, { note: "" });
-      setModel((m: any) => ({ ...m, status: "analysis", decision_status: "rework" }));
-      fireAiEvent("change_rework_requested", { changeId: routeId, uiId }).catch(() => {});
-      router.push(boardReturnHref());
-    } catch (e: any) {
-      setError(safeStr(e?.message) || "Request changes failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const canSubmit  = routeIsDbId && lane === "analysis" && !lockedByGovernance && analysisReadiness.ready;
-  const canApprove = routeIsDbId && lane === "review";
-  const canRework  = routeIsDbId && lane === "review";
-  const canReject  = routeIsDbId && lane === "review";
-
-  /* ---------------- Attachments ---------------- */
-  const [attLoading, setAttLoading]         = useState(false);
-  const [attErr, setAttErr]                 = useState("");
-  const [attachments, setAttachments]       = useState<AttachmentRow[]>([]);
-  const [uploading, setUploading]           = useState(false);
-  const [attCount, setAttCount]             = useState<number>(0);
-  const [attCountLoading, setAttCountLoading] = useState(false);
-
-  const attachmentsEndpoint = useMemo(() => {
-    if (!routeIsDbId) return "";
-    return `/api/change/${encodeURIComponent(routeId)}/attachments`;
-  }, [routeIsDbId, routeId]);
-
-  function extractItems(j: any): AttachmentRow[] {
-    const items = j?.items ?? j?.attachments ?? j?.data ?? [];
-    return Array.isArray(items) ? items : [];
-  }
-
-  async function loadAttachments() {
-    if (!routeIsDbId || !attachmentsEndpoint) return;
-    setAttErr("");
-    setAttLoading(true);
-    try {
-      const j = await apiGet(attachmentsEndpoint);
-      const items = extractItems(j);
-      setAttachments(items);
-      setAttCount(items.length);
-    } catch (e: any) {
-      setAttErr(safeStr(e?.message) || "Failed to load attachments");
-      setAttachments([]);
-      setAttCount(0);
-    } finally {
-      setAttLoading(false);
-    }
-  }
-
-  async function loadAttachmentCount() {
-    if (!routeIsDbId || !attachmentsEndpoint) return;
-    setAttCountLoading(true);
-    try {
-      const j = await apiGet(attachmentsEndpoint);
-      const items = extractItems(j);
-      setAttCount(items.length);
-      setAttachments((prev) => (prev.length ? prev : items));
-    } catch {
-      // silent
-    } finally {
-      setAttCountLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!routeIsDbId || !attachmentsEndpoint) return;
-    loadAttachmentCount().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeIsDbId, attachmentsEndpoint]);
-
-  async function uploadAttachment(file: File) {
-    if (!routeIsDbId || !attachmentsEndpoint) return;
-    setAttErr("");
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.set("file", file);
-      if (safeStr(artifactId).trim()) fd.set("artifactId", safeStr(artifactId).trim());
-      const res = await fetch(attachmentsEndpoint, { method: "POST", body: fd });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !(json as any)?.ok) throw new Error(safeStr((json as any)?.error) || "Upload failed");
-      await loadAttachments();
-    } catch (e: any) {
-      setAttErr(safeStr(e?.message) || "Upload failed");
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function deleteAttachment(a: AttachmentRow) {
-    if (!routeIsDbId || !attachmentsEndpoint) return;
-
-    const rawId = safeStr(a.id).trim();
-    const path  = safeStr((a as any)?.path).trim();
-    const attachmentId = rawId && isUuid(rawId) ? rawId : "";
-
-    const qp = new URLSearchParams();
-    if (path) qp.set("path", path);
-    if (attachmentId) qp.set("attachmentId", attachmentId);
-    if (!path && rawId && rawId.includes("/") && rawId.startsWith("change/")) qp.set("path", rawId);
-
-    const finalPath = qp.get("path") || "";
-    const finalAttachmentId = qp.get("attachmentId") || "";
-
-    if (!finalPath && !finalAttachmentId) { setAttErr("Cannot delete: missing attachment path/id"); return; }
-
-    const ok = window.confirm(`Delete "${attachmentName(a)}"? This cannot be undone.`);
-    if (!ok) return;
-
-    setAttErr("");
-    setUploading(true);
-    try {
-      const url = qp.toString() ? `${attachmentsEndpoint}?${qp.toString()}` : attachmentsEndpoint;
-      const res = await fetch(url, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: finalPath || null, attachmentId: finalAttachmentId || null }) });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !(json as any)?.ok) throw new Error(safeStr((json as any)?.error) || "Delete failed");
-      await loadAttachments();
-    } catch (e: any) {
-      setAttErr(safeStr(e?.message) || "Delete failed");
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!attachOpen) return;
-    loadAttachments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attachOpen, attachmentsEndpoint]);
-
-  function renderDraftAi(ai: DraftCopilotAi | null) {
-    if (!ai) return <div style={{ opacity: 0.85 }}>No AI output yet. Click "Run AI scan".</div>;
-
-    const nextActions = Array.isArray(ai.next_actions)
-      ? ai.next_actions
-      : typeof ai.next_actions === "string"
-      ? ai.next_actions.split("\n").map((x) => x.trim()).filter(Boolean)
-      : [];
-
-    return (
-      <div style={{ display: "grid", gap: 12 }}>
-        <div style={{ fontWeight: 800, fontSize: 16 }}>{safeStr(ai.headline) || "Draft change scanned"}</div>
-        <div style={{ display: "grid", gap: 10 }}>
-          {ai.priority_note && (
-            <div style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>Priority</div>
-              <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{ai.priority_note}</div>
-            </div>
-          )}
-          {[
-            { label: "Schedule / milestones", val: ai.schedule },
-            { label: "Cost", val: ai.cost },
-            { label: "Scope / justification", val: ai.scope },
-          ].map(({ label, val }) => (
-            <div key={label} style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>{label}</div>
-              <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{safeStr(val) || "—"}</div>
-            </div>
-          ))}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {[{ label: "Risks", val: ai.risk }, { label: "Dependencies", val: ai.dependencies }].map(({ label, val }) => (
-              <div key={label} style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
-                <div style={{ fontWeight: 800, marginBottom: 6 }}>{label}</div>
-                <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{safeStr(val) || "—"}</div>
-              </div>
-            ))}
-          </div>
-          {ai.assumptions && (
-            <div style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>Assumptions</div>
-              <div style={{ opacity: 0.9, whiteSpace: "pre-wrap" }}>{ai.assumptions}</div>
-            </div>
-          )}
-          {nextActions.length > 0 && (
-            <div style={{ border: "1px solid var(--cr-border)", borderRadius: 14, padding: 12, background: "var(--cr-card)" }}>
-              <div style={{ fontWeight: 800, marginBottom: 8 }}>Next best actions</div>
-              <ul style={{ margin: 0, paddingLeft: 18, opacity: 0.95, display: "grid", gap: 6 }}>
-                {nextActions.slice(0, 10).map((x, i) => <li key={i}>{x}</li>)}
-              </ul>
-            </div>
-          )}
+function ApprovalBar({ approval }: { approval?: ApprovalProgressInput | null }) {
+  if (!approval) return null;
+  const totalSteps   = Math.max(0, Number(approval.totalSteps ?? 0) || 0);
+  const currentIndex = Math.max(0, Number(approval.currentStepIndex ?? 0) || 0);
+  const stepNo  = totalSteps > 0 ? Math.min(currentIndex + 1, totalSteps) : 0;
+  const pct     = totalSteps > 0 ? Math.round((Math.min(stepNo, totalSteps) / totalSteps) * 100) : 0;
+  const label   = safeStr(approval.currentStepLabel).trim();
+  const remaining  = Math.max(0, Number(approval.remainingApprovers ?? 0) || 0);
+  const canApprove = approval.canApprove !== false;
+  const acting     = approval.actingOnBehalfOf || null;
+  const actingName  = safeStr(acting?.name).trim();
+  const actingEmail = safeStr(acting?.email).trim();
+  return (
+    <div className="ccm-appr">
+      <div className="ccm-apprhead">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="ccm-apprchip">{totalSteps > 0 ? `Step ${stepNo} / ${totalSteps}` : "Approval"}</span>
+          {label && <span style={{ fontSize: 11.5, color: "rgba(255,255,255,.72)", fontWeight: 500 }}>{label}</span>}
+        </div>
+        <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+          {remaining > 0 && <span className="ccm-apprchip">{remaining} remaining</span>}
+          <span className="ccm-apprchip" style={{ background: canApprove ? "rgba(52,211,153,.2)" : "rgba(251,191,36,.2)" }}>
+            <span style={{ width: 5, height: 5, borderRadius: "50%", background: canApprove ? "#34d399" : "#fbbf24", display: "inline-block" }} />
+            {canApprove ? "You can approve" : "View only"}
+          </span>
         </div>
       </div>
-    );
+      <div className="ccm-apprbody">
+        <div className="ccm-progtrack"><div className="ccm-progfill" style={{ width: `${pct}%` }} /></div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5 }}>
+          <span style={{ fontSize: 10.5, color: "#9ca3af" }}>{(actingName || actingEmail) ? <>Acting for <strong style={{ color: "#374151" }}>{actingName || actingEmail}</strong></> : null}</span>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: "#6366f1", fontFamily: "'DM Mono',monospace" }}>{pct}%</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   AF — AI textarea component
+   CRITICAL: defined OUTSIDE the modal component so React never
+   unmounts/remounts it on parent state changes. Previously defined
+   inside the render function which caused every keystroke to
+   destroy and recreate the textarea, losing focus and causing lag.
+═══════════════════════════════════════════ */
+const AF = React.memo(function AF({
+  value, onChange, rows = 4, placeholder, onAi, label, req, disabled, aiBusy,
+}: {
+  value: string; onChange: (v: string) => void; rows?: number; placeholder?: string;
+  onAi: () => void; label?: string; req?: boolean; disabled: boolean; aiBusy: boolean;
+}) {
+  return (
+    <div className="ccm-field">
+      {label && <label className="ccm-label">{label}{req && <span className="ccm-req"> *</span>}</label>}
+      <div className="ccm-fwrap">
+        <textarea
+          className="ccm-textarea"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={rows}
+          placeholder={placeholder}
+          disabled={disabled}
+          style={{ paddingRight: 52 }}
+        />
+        <AiBtn disabled={disabled} busy={aiBusy} onClick={onAi} />
+      </div>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════ */
+export default function ChangeCreateModal({
+  open, onClose, projectId, artifactId,
+  initialStatus, initialPriority,
+  mode = "create", changeId = null, initialValue, titleOverride, approval,
+}: {
+  open: boolean; onClose: () => void; projectId: string; artifactId?: string | null;
+  initialStatus?: ChangeStatus; initialPriority?: ChangePriority;
+  mode?: "create" | "edit"; changeId?: string | null;
+  initialValue?: Partial<ChangeFormValue> & Record<string, any>;
+  titleOverride?: string; approval?: ApprovalProgressInput | null;
+}) {
+  const router = useRouter();
+  useEffect(() => { injectCss(); }, []);
+
+  const [saving, setSaving]                 = useState(false);
+  const [error, setError]                   = useState("");
+  const [resolvedProjectId, setResolvedProjectId] = useState<string>("");
+  const [projResolveBusy, setProjResolveBusy]     = useState(false);
+  const [projResolveErr, setProjResolveErr]       = useState("");
+
+  const [title, setTitle]                   = useState("");
+  const [requester, setRequester]           = useState("");
+  const [status, setStatus]                 = useState<ChangeStatus>(initialStatus ?? "new");
+  const [priority, setPriority]             = useState<ChangePriority>(initialPriority ?? "Medium");
+  const [summary, setSummary]               = useState("");
+  const [justification, setJustification]   = useState("");
+  const [financial, setFinancial]           = useState("");
+  const [schedule, setSchedule]             = useState("");
+  const [risks, setRisks]                   = useState("");
+  const [dependencies, setDependencies]     = useState("");
+  const [assumptions, setAssumptions]       = useState("");
+  const [implementationPlan, setImplementationPlan] = useState("");
+  const [rollbackPlan, setRollbackPlan]     = useState("");
+  const [aiImpact, setAiImpact]             = useState({ days: 0, cost: 0, risk: "None identified" });
+  const [files, setFiles]                   = useState<File[]>([]);
+  const [uploadBusy, setUploadBusy]         = useState(false);
+  const [uploadErr, setUploadErr]           = useState("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [aiBusy, setAiBusy]                 = useState(false);
+  const [aiErr, setAiErr]                   = useState("");
+  const [drafts, setDrafts]                 = useState<DraftAssistAi | null>(null);
+  const [draftModel, setDraftModel]         = useState("rules-v1");
+  const [aiInterviewOpen, setAiInterviewOpen] = useState(false);
+  const [forceOverwrite, setForceOverwrite] = useState(false);
+  const [interview, setInterview]           = useState<AiInterview>({
+    about: "", why: "", impacted: "", when: "", constraints: "", costs: "", riskLevel: "Medium", rollback: "",
+  });
+
+  const isEdit  = mode === "edit";
+  const disabled = saving; // projResolveBusy removed — was blocking all inputs
+  const draftId = useMemo(() => newDraftId(), [open]);
+
+  /* ── Resolve project ── */
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    async function resolve() {
+      const raw = safeStr(projectId).trim();
+      setProjResolveErr(""); setResolvedProjectId(""); setProjResolveBusy(false);
+      if (!raw) { setProjResolveErr("Missing projectId."); return; }
+      if (looksLikeUuid(raw)) { setResolvedProjectId(raw); setProjResolveBusy(false); return; }
+      try {
+        setProjResolveBusy(true);
+        const res = await fetch(`/api/projects/${encodeURIComponent(raw)}`, { cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || json?.ok === false) throw new Error(safeStr(json?.error) || `HTTP ${res.status}`);
+        const uuid = safeStr(json?.project?.id || json?.data?.id || json?.item?.id).trim();
+        if (!uuid || !looksLikeUuid(uuid)) throw new Error("Project UUID not found.");
+        if (!cancelled) setResolvedProjectId(uuid);
+      } catch (e: any) {
+        if (!cancelled) setProjResolveErr(safeStr(e?.message) || "Failed to resolve projectId.");
+      } finally { if (!cancelled) setProjResolveBusy(false); }
+    }
+    resolve();
+    return () => { cancelled = true; };
+  }, [open, projectId]);
+
+  /* ── Reset on open ── */
+  useEffect(() => {
+    if (!open) return;
+    setError(""); setAiErr(""); setDrafts(null); setDraftModel("rules-v1");
+    setUploadBusy(false); setUploadErr(""); setFiles([]);
+    const iv: any = initialValue ?? {};
+    setTitle(safeStr(iv.title ?? ""));
+    setRequester(safeStr(iv.requester ?? iv.requester_name ?? ""));
+    setStatus(normalizeStatus(iv.status ?? iv.delivery_status ?? initialStatus ?? "new"));
+    setPriority(normalizePriority(iv.priority ?? initialPriority ?? "Medium"));
+    setSummary(safeStr(iv.summary ?? iv.description ?? ""));
+    setJustification(safeStr(iv.justification ?? ""));
+    setFinancial(safeStr(iv.financial ?? ""));
+    setSchedule(safeStr(iv.schedule ?? ""));
+    setRisks(safeStr(iv.risks ?? ""));
+    setDependencies(safeStr(iv.dependencies ?? ""));
+    setAssumptions(safeStr(iv.assumptions ?? ""));
+    setImplementationPlan(safeStr(iv.implementationPlan ?? iv.implementation_plan ?? iv.implementation ?? ""));
+    setRollbackPlan(safeStr(iv.rollbackPlan ?? iv.rollback_plan ?? iv.rollback ?? ""));
+    setAiImpact({
+      days: Number(iv?.aiImpact?.days ?? iv?.impact_analysis?.days ?? 0) || 0,
+      cost: Number(iv?.aiImpact?.cost ?? iv?.impact_analysis?.cost ?? 0) || 0,
+      risk: safeStr(iv?.aiImpact?.risk ?? iv?.impact_analysis?.risk ?? "None identified") || "None identified",
+    });
+    setInterview({ about: safeStr(iv.title), why: safeStr(iv.summary ?? ""), impacted: iv.requester ? `Stakeholders/requester: ${iv.requester}. (Confirm impacted services/users)` : "", when: "", constraints: "", costs: "", riskLevel: "Medium", rollback: safeStr(iv.rollbackPlan ?? "") });
+    setForceOverwrite(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, [open, initialStatus, initialPriority, initialValue]);
+
+  /* ── File handling ── */
+  const removeFile = (idx: number) => setFiles(p => p.filter((_, i) => i !== idx));
+
+  async function uploadFilesToChange(changeUuid: string, picked?: File[]) {
+    const pid = safeStr(resolvedProjectId).trim();
+    const aId = safeStr(artifactId).trim();
+    const list = (picked && picked.length ? picked : files) ?? [];
+    if (!list.length) return;
+    setUploadErr(""); setUploadBusy(true);
+    try {
+      const url = `/api/change/${encodeURIComponent(changeUuid)}/attachments`;
+      for (const file of list) {
+        const fd = new FormData();
+        fd.append("file", file); fd.append("filename", file.name);
+        fd.append("content_type", file.type || "application/octet-stream");
+        if (pid) fd.append("projectId", pid);
+        if (aId) fd.append("artifactId", aId);
+        const res = await fetch(url, { method: "POST", body: fd });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || (json as any)?.ok === false) throw new Error(safeStr((json as any)?.error) || `Attachment upload failed (HTTP ${res.status})`);
+      }
+    } catch (e: any) { setUploadErr(safeStr(e?.message) || "Failed to upload attachment(s)"); throw e; }
+    finally { setUploadBusy(false); }
   }
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.currentTarget.files ?? []);
+    if (!picked.length) return;
+    setFiles(p => [...p, ...picked]);
+    const cid = safeStr(changeId).trim();
+    if (cid) { try { await uploadFilesToChange(cid, picked); } catch {} }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  async function removeUploadedAttachmentByFilename(filename: string) {
+    const cid = safeStr(changeId).trim(); if (!cid) return;
+    const listRes = await fetch(`/api/change/${encodeURIComponent(cid)}/attachments`);
+    const listJson = await listRes.json().catch(() => ({}));
+    if (!listRes.ok || (listJson as any)?.ok === false) throw new Error(safeStr((listJson as any)?.error) || "Failed to load attachments");
+    const items: any[] = Array.isArray((listJson as any)?.items) ? (listJson as any).items : [];
+    const match = items.find((x: any) => safeStr(x?.filename) === filename);
+    const path = safeStr(match?.path).trim(); if (!path) throw new Error("Attachment path not found");
+    const delRes = await fetch(`/api/change/${encodeURIComponent(cid)}/attachments?path=${encodeURIComponent(path)}`, { method: "DELETE" });
+    const delJson = await delRes.json().catch(() => ({}));
+    if (!delRes.ok || (delJson as any)?.ok === false) throw new Error(safeStr((delJson as any)?.error) || "Failed to delete attachment");
+  }
+
+  /* ── AI ── */
+  function improveOrSetLocal(current: string, setter: (v: string) => void, suggestion: string, max = 8000) {
+    const s = safeStr(suggestion).trim(); if (!s) return;
+    const cur = safeStr(current).trim();
+    if (cur.length >= 50) { setter(clampText(`${cur}\n\n—\nImproved draft:\n${s}`, max)); return; }
+    setter(clampText(s, max));
+  }
+  function hasInterviewSignal() {
+    const ok = (x: string) => safeStr(x).trim().length >= 3;
+    return ok(interview.about) || ok(interview.why) || ok(interview.impacted) || ok(interview.when);
+  }
+  function useCurrentDraftIntoInterview({ overwrite }: { overwrite: boolean }) {
+    const mapIf = (current: string, next: string) => { if (overwrite) return next; return safeStr(current).trim() ? current : next; };
+    setInterview(prev => ({
+      ...prev,
+      about:    mapIf(prev.about,    safeStr(title).trim()),
+      why:      mapIf(prev.why,      safeStr(summary).trim()),
+      impacted: mapIf(prev.impacted, requester ? `Stakeholders/requester: ${requester}. (Confirm impacted services/users)` : ""),
+      costs:    mapIf(prev.costs,    [aiImpact.cost > 0 ? `£${aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "", aiImpact.days > 0 ? `${aiImpact.days} day(s)` : ""].filter(Boolean).join(" / ")),
+      rollback: mapIf(prev.rollback, safeStr(rollbackPlan).trim()),
+    }));
+  }
+  async function runPmoDraftAssist(): Promise<DraftAssistAi | null> {
+    const pid = safeStr(resolvedProjectId).trim();
+    if (!pid) { setAiErr(projResolveErr || "Missing projectId."); return null; }
+    setAiErr(""); setAiBusy(true);
+    try {
+      const j = await apiPost("/api/ai/events", {
+        projectId: pid, artifactId: safeStr(artifactId).trim() || null,
+        eventType: "change_draft_assist_requested", severity: "info",
+        source: isEdit ? "change_edit_modal" : "change_create_modal",
+        payload: { draftId, mode, title: safeStr(title), summary: safeStr(summary), priority: safeStr(priority), status: safeStr(status), requester: safeStr(requester), justification: safeStr(justification), financial: safeStr(financial), schedule: safeStr(schedule), risks: safeStr(risks), dependencies: safeStr(dependencies), assumptions: safeStr(assumptions), implementation: safeStr(implementationPlan), rollback: safeStr(rollbackPlan), interview },
+      }) as DraftAssistResp;
+      const ai = (j && typeof j === "object" ? (j as any).ai : null) || null;
+      setDrafts(ai); setDraftModel(safeStr((j as any)?.model) || "rules-v1"); return ai;
+    } catch (e: any) { setAiErr(safeStr(e?.message) || "AI draft failed"); setDrafts(null); return null; }
+    finally { setAiBusy(false); }
+  }
+  async function ensureDrafts() {
+    if (drafts) return drafts;
+    if (!hasInterviewSignal()) { setAiInterviewOpen(true); setAiErr("Tell AI what the change is about (Start AI) to generate accurate drafts."); return null; }
+    return runPmoDraftAssist();
+  }
+  async function applyAllAi() {
+    const d = await ensureDrafts(); if (!d) return;
+    improveOrSetLocal(summary, setSummary, safeStr(d.summary), 1200);
+    improveOrSetLocal(justification, setJustification, safeStr(d.justification));
+    improveOrSetLocal(financial, setFinancial, safeStr(d.financial));
+    improveOrSetLocal(schedule, setSchedule, safeStr(d.schedule));
+    improveOrSetLocal(risks, setRisks, safeStr(d.risks));
+    improveOrSetLocal(dependencies, setDependencies, safeStr(d.dependencies));
+    improveOrSetLocal(assumptions, setAssumptions, safeStr(d.assumptions));
+    improveOrSetLocal(implementationPlan, setImplementationPlan, safeStr(d.implementation));
+    improveOrSetLocal(rollbackPlan, setRollbackPlan, safeStr(d.rollback));
+    const imp = (d as any)?.impact;
+    if (imp) setAiImpact({ days: Number(imp?.days ?? 0) || 0, cost: Number(imp?.cost ?? 0) || 0, risk: safeStr(imp?.risk ?? "").trim() || "None identified" });
+  }
+  async function runAiImpactScan() {
+    const d = await ensureDrafts(); if (!d) return;
+    const imp = (d as any)?.impact;
+    if (!imp) { setAiErr("AI returned no impact suggestion."); return; }
+    setAiImpact({ days: Number(imp?.days ?? 0) || 0, cost: Number(imp?.cost ?? 0) || 0, risk: safeStr(imp?.risk ?? "").trim() || "None identified" });
+  }
+  async function fireAiAfterSuccess(args: { projectId: string; changeId: string; eventType: "change_created" | "change_saved"; action: "created" | "updated" }) {
+    try { await fetch("/api/ai/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: args.projectId, artifactId: args.changeId, eventType: args.eventType, severity: "info", source: isEdit ? "change_edit_modal" : "change_create_modal", payload: { target_artifact_type: "change_request", change_id: args.changeId, action: args.action } }) }).catch(() => null); } catch {}
+  }
+
+  /* ── Submit ── */
+  async function submitChange() {
+    setError(""); setUploadErr("");
+    const pid = safeStr(resolvedProjectId).trim();
+    if (!pid) return setError(projResolveErr || "Missing projectId.");
+    const t = clampText(safeStr(title).trim(), 160);
+    if (!t) return setError("Title is required.");
+    const s = clampText(safeStr(summary).trim(), 1200);
+    if (!s) return setError("Summary is required.");
+    if (mode === "edit" && !safeStr(changeId).trim()) return setError("Missing changeId for edit.");
+    setSaving(true);
+    try {
+      const impact_analysis = { days: Number(aiImpact.days ?? 0) || 0, cost: Number(aiImpact.cost ?? 0) || 0, risk: clampText(safeStr(aiImpact.risk ?? "None identified"), 280), highlights: [] };
+      const proposed_change = clampText([justification ? `Justification:\n${justification}` : "", financial ? `Financial:\n${financial}` : "", schedule ? `Schedule:\n${schedule}` : "", risks ? `Risks:\n${risks}` : "", dependencies ? `Dependencies:\n${dependencies}` : "", assumptions ? `Assumptions:\n${assumptions}` : "", implementationPlan ? `Implementation Plan:\n${implementationPlan}` : "", rollbackPlan ? `Rollback Plan:\n${rollbackPlan}` : ""].filter(Boolean).join("\n\n"), 8000);
+      const delivery_status = uiStatusToDeliveryLane(status);
+      const payload: any = { project_id: pid, artifact_id: safeStr(artifactId).trim() || null, title: t, description: s, requester_name: safeStr(requester).trim() || "Unknown requester", priority: normalizePriority(priority), tags: [], proposed_change, impact_analysis, justification, financial, schedule, risks, dependencies, assumptions, implementationPlan: safeStr(implementationPlan), rollbackPlan: safeStr(rollbackPlan), implementation_plan: safeStr(implementationPlan), rollback_plan: safeStr(rollbackPlan) };
+      if (!isEdit) payload.delivery_status = delivery_status;
+      if (isEdit) {
+        const cid = String(changeId);
+        await apiPatch(`/api/change/${encodeURIComponent(cid)}`, payload);
+        if (files.length) await uploadFilesToChange(cid);
+        await fireAiAfterSuccess({ projectId: pid, changeId: cid, eventType: "change_saved", action: "updated" });
+        onClose(); router.refresh(); return;
+      }
+      const j = await apiPost("/api/change", payload);
+      const newId = safeStr((j as any)?.item?.id || (j as any)?.id || (j as any)?.data?.id).trim();
+      if (!newId) throw new Error("Create succeeded but no id returned");
+      if (files.length) await uploadFilesToChange(newId);
+      await fireAiAfterSuccess({ projectId: pid, changeId: newId, eventType: "change_created", action: "created" });
+      onClose(); router.replace(`/projects/${projectId}/change/${newId}`); router.refresh();
+    } catch (e: any) { setError(safeStr(e?.message) || (isEdit ? "Save failed" : "Create failed")); }
+    finally { setSaving(false); }
+  }
+
+  function statusLabel(s: ChangeStatus) {
+    const m: Record<ChangeStatus, string> = { new: "New", analysis: "Analysis", review: "Review", in_progress: "Implementation", implemented: "Implemented", closed: "Closed" };
+    return m[s] ?? s;
+  }
+  const ppClass: Record<ChangePriority, string> = { Low: "ccm-pill ccm-pill-low", Medium: "ccm-pill ccm-pill-medium", High: "ccm-pill ccm-pill-high", Critical: "ccm-pill ccm-pill-critical" };
+  const laneLabel = uiStatusToDeliveryLane(status).replace(/_/g, " ");
+
+  if (!open) return null;
+
   return (
-    <section className="crDetailShell">
-      <section className="crFormShell">
-        {/* TOP ACTION BAR */}
-        <div className="crTopbar2" style={{ gridTemplateColumns: "1fr auto" }}>
-          <div className="crTopbarLeft">
-            <div className="crTopMsg">
-              {loading
-                ? "Loading change request…"
-                : lockedByGovernance
-                ? "Locked — submitted for approval."
-                : routeIsDbId
-                ? "Edit the change request and save."
-                : "Draft mode — AI co-pilot can guide you before saving."}
-              {uiId ? <span className="crTopScope"> • {uiId}</span> : null}
-              <span className="crTopScope"> • {lane.replace(/_/g, " ")}</span>
-              {decision ? <span className="crTopScope"> • {decision}</span> : null}
-            </div>
-
-            {analysisReadiness.isAnalysis && (
-              <div style={{ marginTop: 8, border: "1px solid var(--cr-border)", borderRadius: 14, padding: "10px 12px", background: "var(--cr-card)", display: "grid", gap: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                  <div style={{ fontWeight: 900 }}>{analysisReadiness.ready ? "Ready for submission" : "Not ready for submission"}</div>
-                  <button type="button" className="crBtn crBtnGhost" data-no-nav="true"
-                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); runAiScanNow().catch(() => {}); }}
-                    disabled={aiBusy || disabled} title="Run AI scan">
-                    {aiBusy ? "Scanning…" : "Run AI scan"}
-                  </button>
+    <>
+      <div className="ccm-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+        <div className="ccm-modal">
+          {/* ── Header ── */}
+          <div className="ccm-header">
+            <div className="ccm-htop">
+              <div>
+                <div className="ccm-htitle">{titleOverride || (isEdit ? "Edit Change Request" : "New Change Request")}</div>
+                <div className="ccm-hsub">{isEdit ? "Update with AI assistance." : "Draft a complete change request — AI fills the gaps."}</div>
+                <div className="ccm-hpills">
+                  <span className="ccm-pill ccm-pill-status"><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#6366f1", display: "inline-block" }} />{statusLabel(status)}</span>
+                  <span className={ppClass[priority]}>{priority}</span>
+                  {projResolveBusy && <span className="ccm-pill ccm-pill-amber">Resolving project…</span>}
+                  {projResolveErr && !projResolveBusy && <span style={{ fontSize: 10.5, color: "#dc2626" }}>{projResolveErr}</span>}
+                  {drafts && <span className="ccm-pill ccm-pill-green">✦ AI draft ready · {draftModel}</span>}
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, fontSize: 12, opacity: 0.95 }}>
-                  {analysisReadiness.items.map((it) => (
-                    <span key={it.label} style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                      <span style={{ opacity: 0.9 }}>{it.ok ? "✅" : "⬜"}</span>
-                      <span style={{ opacity: it.ok ? 0.95 : 0.8 }}>{it.label}</span>
-                    </span>
-                  ))}
+              </div>
+              <div className="ccm-hacts">
+                <button type="button" className="ccm-btn ccm-btn-ai ccm-btn-sm" onClick={() => { useCurrentDraftIntoInterview({ overwrite: false }); setAiInterviewOpen(true); }} disabled={disabled || aiBusy}>
+                  <Ic.Bolt s={11} /> {aiBusy ? "Scanning…" : "Start AI"}
+                </button>
+                <button type="button" className="ccm-btn ccm-btn-ai ccm-btn-sm" onClick={applyAllAi} disabled={disabled || aiBusy}>Apply All</button>
+                <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={onClose} disabled={disabled}><Ic.X s={11} /> Close</button>
+                <button type="button" className="ccm-btn ccm-btn-primary ccm-btn-sm" onClick={submitChange} disabled={disabled}>
+                  {saving ? (isEdit ? "Saving…" : "Creating…") : isEdit ? "Save Changes" : "Create CR"}
+                </button>
+              </div>
+            </div>
+            <ApprovalBar approval={approval} />
+          </div>
+
+          {(error || aiErr || uploadErr) && <div className="ccm-err">{error || aiErr || uploadErr}</div>}
+
+          {/* ── Body ── */}
+          <div className="ccm-body">
+            <div className="ccm-main">
+              {/* Change Summary */}
+              <div className="ccm-card">
+                <CHead icon={<Ic.Doc />}>Change Summary</CHead>
+                <div className="ccm-field" style={{ marginBottom: 12 }}>
+                  <label className="ccm-label">Title <span className="ccm-req">*</span></label>
+                  <input className="ccm-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g., Extend firewall scope for vendor access" disabled={disabled} />
                 </div>
-                {!analysisReadiness.ready && <div style={{ fontSize: 12, opacity: 0.85 }}>{analysisReadiness.blockingMsg}</div>}
+                <div className="ccm-row3" style={{ marginBottom: 12 }}>
+                  <div className="ccm-field">
+                    <label className="ccm-label">Requester</label>
+                    <input className="ccm-input" value={requester} onChange={e => setRequester(e.target.value)} placeholder="Name" disabled={disabled} />
+                  </div>
+                  <div className="ccm-field">
+                    <label className="ccm-label">Status</label>
+                    {isEdit ? (
+                      <div className="ccm-statuslock"><span style={{ fontWeight: 600 }}>{statusLabel(status)}</span><span style={{ fontSize: 10, color: "#9ca3af" }}>Governed</span></div>
+                    ) : (
+                      <select className="ccm-select" value={status} onChange={e => setStatus(normalizeStatus(e.target.value))} disabled={disabled}>
+                        <option value="new">New (Intake)</option><option value="analysis">Analysis</option><option value="review">Review</option><option value="in_progress">Implementation</option><option value="implemented">Implemented</option><option value="closed">Closed</option>
+                      </select>
+                    )}
+                  </div>
+                  <div className="ccm-field">
+                    <label className="ccm-label">Priority <span className="ccm-req">*</span></label>
+                    <select className="ccm-select" value={priority} onChange={e => setPriority(normalizePriority(e.target.value))} disabled={disabled}>
+                      <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+                    </select>
+                  </div>
+                </div>
+                <AF value={summary} onChange={setSummary} rows={4} label="Summary" req placeholder="2–3 lines for quick scanning…" disabled={disabled} aiBusy={aiBusy}
+                  onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(summary, setSummary, safeStr(d.summary), 1200); }} />
               </div>
-            )}
 
-            {error && <div className="crTopErr">{error}</div>}
-          </div>
-
-          <div className="crTopbarRight" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <button type="button" className="crBtn crBtnGhost" onClick={() => setPanelParam("comment")} disabled={!routeIsDbId}>Comment</button>
-            <button type="button" className="crBtn crBtnGhost" onClick={() => { setAttachOpen(true); setPanelParam("attach"); }} disabled={!routeIsDbId}>
-              Attach{attCountLoading ? "" : attCount > 0 ? ` (${attCount})` : ""}
-            </button>
-            <button type="button" className="crBtn crBtnGhost" onClick={() => { setTimelineOpen(true); setPanelParam("timeline"); }} disabled={!routeIsDbId}>Timeline</button>
-            <button type="button" className="crBtn crBtnGhost"
-              onClick={async (e) => {
-                e.preventDefault(); e.stopPropagation();
-                if (routeIsDbId) { setPanelParam("ai"); runAiScanNow().catch(() => {}); return; }
-                setDraftAiOpen(true);
-                if (!draftAi) await runDraftCopilotScanNow();
-              }}
-              disabled={!safeStr(projectId).trim()}>
-              {aiBusy || draftAiBusy ? "AI…" : "AI"}
-            </button>
-            <button type="button" className="crBtn" onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))} disabled={saving}>
-              {mounted ? (theme === "dark" ? "Light theme" : "Dark theme") : "Theme"}
-            </button>
-
-            {canSubmit && (
-              <button type="button" className="crPrimaryBtn" onClick={doSubmit} disabled={saving}>{saving ? "Submitting…" : "Submit for approval"}</button>
-            )}
-            {routeIsDbId && lane === "analysis" && !lockedByGovernance && !canSubmit && (
-              <button type="button" className="crPrimaryBtn" disabled style={{ opacity: 0.6, cursor: "not-allowed" }} title="Complete checklist first">Submit for approval</button>
-            )}
-            {canApprove && <button type="button" className="crPrimaryBtn" onClick={doApprove} disabled={saving}>{saving ? "Approving…" : "Approve"}</button>}
-            {canRework  && <button type="button" className="crBtn" onClick={doRequestChanges} disabled={saving}>Request rework</button>}
-            {canReject  && <button type="button" className="crBtn" onClick={doReject} disabled={saving}>Reject</button>}
-
-            <button type="button" className="crPrimaryBtn" onClick={save} disabled={disabled} title={lockedByGovernance ? "Locked while submitted for approval" : "Save"}>
-              {saving ? "Saving…" : "Save changes"}
-            </button>
-            <button type="button" className="crBtn crBtnGhost" onClick={() => router.push(boardReturnHref())}>Back to board</button>
-          </div>
-        </div>
-
-        <div className="crFormGrid">
-          {/* LEFT */}
-          <div className="crSection">
-            <h2 className="crH2">Change Summary</h2>
-            <div className="crField">
-              <label className="crLabel">Title *</label>
-              <input className="crInput" value={model.title} onChange={(e) => set("title", e.target.value)} placeholder="e.g., Extend firewall scope for vendor access" disabled={disabled} />
-            </div>
-            <div className="crFieldRow">
-              <div className="crField">
-                <label className="crLabel">Requester</label>
-                <input className="crInput" value={model.requester} onChange={(e) => set("requester", e.target.value)} placeholder="Name" disabled={disabled} />
+              {/* Business Justification */}
+              <div className="ccm-card">
+                <CHead icon={<Ic.Star />}>Business Justification</CHead>
+                <AF value={justification} onChange={setJustification} rows={4} placeholder="Why is this needed? What value does it unlock?" disabled={disabled} aiBusy={aiBusy}
+                  onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(justification, setJustification, safeStr(d.justification)); }} />
               </div>
-              <div className="crField">
-                <label className="crLabel">Status</label>
-                <select className="crSelect" value={model.status} onChange={(e) => set("status", normalizeStatus(e.target.value))} disabled={disabled}>
-                  {CHANGE_COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.title}</option>)}
-                </select>
+
+              {/* Financial & Schedule */}
+              <div className="ccm-row2">
+                <div className="ccm-card">
+                  <CHead icon={<Ic.Dollar />}>Financial Impact</CHead>
+                  <AF value={financial} onChange={setFinancial} rows={4} placeholder="Cost drivers, budget impact, commercial notes…" disabled={disabled} aiBusy={aiBusy}
+                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(financial, setFinancial, safeStr(d.financial)); }} />
+                </div>
+                <div className="ccm-card">
+                  <CHead icon={<Ic.Cal />}>Schedule Impact</CHead>
+                  <AF value={schedule} onChange={setSchedule} rows={4} placeholder="Milestone impacts, critical path changes, sequencing…" disabled={disabled} aiBusy={aiBusy}
+                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(schedule, setSchedule, safeStr(d.schedule)); }} />
+                </div>
               </div>
-              <div className="crField">
-                <label className="crLabel">Priority</label>
-                <select className="crSelect" value={model.priority} onChange={(e) => set("priority", normalizePriority(e.target.value))} disabled={disabled}>
-                  <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
-                </select>
+
+              {/* Risks & Dependencies */}
+              <div className="ccm-card">
+                <CHead icon={<Ic.Warn />}>Risks & Dependencies</CHead>
+                <div className="ccm-row2" style={{ marginBottom: 12 }}>
+                  <AF value={risks} onChange={setRisks} rows={4} label="Risks" placeholder="Top risks and mitigations…" disabled={disabled} aiBusy={aiBusy}
+                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(risks, setRisks, safeStr(d.risks)); }} />
+                  <AF value={dependencies} onChange={setDependencies} rows={4} label="Dependencies" placeholder="Approvals, vendors, prerequisites…" disabled={disabled} aiBusy={aiBusy}
+                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(dependencies, setDependencies, safeStr(d.dependencies)); }} />
+                </div>
+                <AF value={assumptions} onChange={setAssumptions} rows={3} label="Assumptions" placeholder="Any assumptions the plan relies on…" disabled={disabled} aiBusy={aiBusy}
+                  onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(assumptions, setAssumptions, safeStr(d.assumptions)); }} />
               </div>
-            </div>
-            <div className="crField">
-              <label className="crLabel">Summary *</label>
-              <textarea className="crTextarea" value={model.summary} onChange={(e) => set("summary", e.target.value)} rows={4} placeholder="2–3 line summary for quick scanning..." disabled={disabled} style={{ resize: "vertical" }} />
-            </div>
-            {!routeIsDbId && (
-              <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                <button className="crBtn" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDraftAiOpen(true); runDraftCopilotScanNow().catch(() => {}); }} disabled={!safeStr(projectId).trim()}>
-                  {draftAiBusy ? "Scanning…" : "Run AI scan"}
-                </button>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>Draft ID: <span style={{ opacity: 0.95 }}>{draftId}</span></div>
+
+              {/* Implementation & Rollback */}
+              <div className="ccm-card">
+                <CHead icon={<Ic.Arrows />}>Implementation & Rollback</CHead>
+                <div className="ccm-row2">
+                  <AF value={implementationPlan} onChange={setImplementationPlan} rows={7} label="Implementation Plan" placeholder="Outline steps, approach, owners, sequence, and validation checkpoints…" disabled={disabled} aiBusy={aiBusy}
+                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(implementationPlan, setImplementationPlan, safeStr(d.implementation)); }} />
+                  <AF value={rollbackPlan} onChange={setRollbackPlan} rows={7} label="Rollback Plan" placeholder="Backout steps, restore points, success criteria…" disabled={disabled} aiBusy={aiBusy}
+                    onAi={async () => { const d = await ensureDrafts(); if (!d) return; improveOrSetLocal(rollbackPlan, setRollbackPlan, safeStr(d.rollback)); }} />
+                </div>
               </div>
-            )}
-          </div>
 
-          {/* RIGHT */}
-          <div className="crAside">
-            <AiImpactPanel
-              days={model.aiImpact.days}
-              cost={model.aiImpact.cost}
-              risk={model.aiImpact.risk}
-              onChange={(next) => set("aiImpact", next)}
-              onAiScan={runAiScanNow}
-              aiBusy={aiBusy || draftAiBusy}
-              disabled={disabled || !safeStr(projectId).trim()}
-            />
-          </div>
-
-          {/* Justification */}
-          <div className="crSection crSpanAll">
-            <h2 className="crH2">Business Justification</h2>
-            <textarea className="crTextarea" value={model.justification ?? ""} onChange={(e) => set("justification", e.target.value)} rows={4} placeholder="Why is this change needed? What value does it unlock?" disabled={disabled} style={{ resize: "vertical" }} />
-          </div>
-
-          {/* Financial */}
-          <div className="crSection crSpanAll">
-            <h2 className="crH2">Financial Impact</h2>
-            <textarea className="crTextarea" value={model.financial ?? ""} onChange={(e) => set("financial", e.target.value)} rows={4} placeholder="Cost drivers, budget impact, commercial notes..." disabled={disabled} style={{ resize: "vertical" }} />
-          </div>
-
-          {/* Schedule */}
-          <div className="crSection crSpanAll">
-            <h2 className="crH2">Schedule Impact</h2>
-            <textarea className="crTextarea" value={model.schedule ?? ""} onChange={(e) => set("schedule", e.target.value)} rows={4} placeholder="Milestone impacts, critical path changes, sequencing..." disabled={disabled} style={{ resize: "vertical" }} />
-          </div>
-
-          {/* Risks & Dependencies */}
-          <div className="crSection crSpanAll">
-            <h2 className="crH2">Risks &amp; Dependencies</h2>
-            <div className="crFieldRow" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div className="crField">
-                <label className="crLabel">Risks</label>
-                <textarea className="crTextarea" value={model.risks ?? ""} onChange={(e) => set("risks", e.target.value)} rows={4} placeholder="Top risks and mitigations..." disabled={disabled} style={{ resize: "vertical" }} />
-              </div>
-              <div className="crField">
-                <label className="crLabel">Dependencies</label>
-                <textarea className="crTextarea" value={model.dependencies ?? ""} onChange={(e) => set("dependencies", e.target.value)} rows={4} placeholder="Approvals, vendors, technical prerequisites..." disabled={disabled} style={{ resize: "vertical" }} />
-              </div>
-            </div>
-          </div>
-
-          {/* Tags */}
-          <div className="crSection crSpanAll">
-            <h2 className="crH2">Tags</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center" }}>
-              <input className="crInput" value={tagDraft} onChange={(e) => setTagDraft(e.target.value)} placeholder="Add a tag (e.g., Security)" disabled={disabled}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }} />
-              <button className="crPrimaryBtn" type="button" onClick={addTag} disabled={disabled}>Add</button>
-            </div>
-            <div className="crChips" style={{ marginTop: 10, gap: 8 }}>
-              {(model.tags ?? []).map((t) => (
-                <button key={t} type="button" className="crChipBtn" onClick={() => removeTag(t)} title="Remove tag" disabled={disabled}
-                  style={{ borderRadius: 999, border: "1px solid var(--cr-border)", background: "var(--cr-input-bg2)", color: "var(--cr-text)", padding: "6px 10px", fontSize: 12, cursor: disabled ? "not-allowed" : "pointer", display: "inline-flex", gap: 8, alignItems: "center" }}>
-                  {t} <span style={{ opacity: 0.7 }}>×</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <ChangeTimeline
-            open={timelineOpen}
-            onClose={() => { setTimelineOpen(false); if (panel === "timeline") setPanelParam(""); }}
-            projectId={safeStr(projectId)}
-            projectCode={projectCode as any}
-            changeId={routeId}
-            changeCode={uiId || undefined}
-          />
-        </div>
-
-        <ChangeAiDrawer
-          open={routeIsDbId && panel === "ai"}
-          onClose={() => setPanelParam("")}
-          changeId={routeId}
-          projectId={projectId}
-          title={safeStr(model.title) || uiId || "Change request"}
-        />
-
-        {/* Draft AI modal */}
-        <ModalShell open={draftAiOpen} title={`AI Co-pilot (Draft)${uiId ? ` • ${uiId}` : ""}`} onClose={() => setDraftAiOpen(false)}>
-          <div style={{ display: "grid", gap: 12 }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <button className="crPrimaryBtn" type="button" onClick={() => runDraftCopilotScanNow()} disabled={draftAiBusy || !safeStr(projectId).trim()}>
-                {draftAiBusy ? "Scanning…" : "Run AI scan"}
-              </button>
-              <button className="crBtn crBtnGhost" type="button" onClick={() => setDraftAutoScan((v) => !v)}>
-                Auto-scan: {draftAutoScan ? "On" : "Off"}
-              </button>
-              <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Project: <span style={{ opacity: 0.95 }}>{safeStr(projectId) || "—"}</span>
-                <span style={{ opacity: 0.5 }}> • </span>
-                Draft: <span style={{ opacity: 0.95 }}>{draftId}</span>
-              </div>
-              {draftAiErr && <div className="crErr">{draftAiErr}</div>}
-            </div>
-            <div style={{ borderTop: "1px solid var(--cr-border)", paddingTop: 12 }}>{renderDraftAi(draftAi)}</div>
-          </div>
-        </ModalShell>
-
-        {/* Attachments modal */}
-        <ModalShell open={attachOpen} title={`Attachments${uiId ? ` • ${uiId}` : ""}`} onClose={() => { setAttachOpen(false); if (panel === "attach") setPanelParam(""); }}>
-          <div style={{ display: "grid", gap: 12 }}>
-            <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ fontSize: 13, opacity: 0.85 }}>Upload files to support the change request (emails, screenshots, approvals).</div>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <label className="crBtn" style={{ cursor: uploading ? "not-allowed" : "pointer" }}>
-                  {uploading ? "Uploading…" : "Upload file"}
-                  <input type="file" style={{ display: "none" }} disabled={uploading || !routeIsDbId}
-                    onChange={(e) => { const f = e.target.files?.[0]; if (!f) return; uploadAttachment(f); e.currentTarget.value = ""; }} />
+              {/* Attachments */}
+              <div className="ccm-card">
+                <CHead icon={<Ic.Clip s={13} />}>
+                  Attachments
+                  <span style={{ marginLeft: "auto", fontSize: 10.5, color: "#9ca3af", fontWeight: 400, fontFamily: "'DM Mono',monospace" }}>{files.length} file{files.length !== 1 ? "s" : ""}</span>
+                </CHead>
+                {!safeStr(changeId).trim() && (
+                  <div style={{ padding: "9px 12px", background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 9, fontSize: 11.5, color: "#92400e", marginBottom: 12 }}>Save this CR first to enable server-side attachment uploads.</div>
+                )}
+                <label htmlFor="ccm-file-input" style={{ cursor: disabled ? "not-allowed" : "pointer", display: "block" }}>
+                  <div className="ccm-drop" style={{ opacity: disabled ? 0.5 : 1 }}>
+                    <div className="ccm-dropico"><Ic.Clip s={16} /></div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 3 }}>Drop files or click to browse</div>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>Designs, screenshots, vendor comms, impact calcs</div>
+                    {uploadBusy && <div style={{ marginTop: 7, fontSize: 11, color: "#6366f1", fontWeight: 600 }}>Uploading…</div>}
+                  </div>
                 </label>
-                <button className="crBtn crBtnGhost" type="button" disabled={attLoading} onClick={loadAttachments}>{attLoading ? "Refreshing…" : "Refresh"}</button>
-                {attErr && <div className="crErr">{attErr}</div>}
-              </div>
-            </div>
-            <div style={{ borderTop: "1px solid var(--cr-border)", paddingTop: 12 }}>
-              {attLoading ? (
-                <div style={{ opacity: 0.85 }}>Loading attachments…</div>
-              ) : attachments.length ? (
-                <div style={{ display: "grid", gap: 10 }}>
-                  {attachments.map((a, idx) => {
-                    const name = attachmentName(a);
-                    const size = formatBytes((a as any).size ?? (a as any).size_bytes);
-                    const url  = safeStr((a as any)?.url || (a as any)?.signedUrl).trim();
-                    return (
-                      <div key={safeStr(a.id) || safeStr((a as any)?.path) || `${idx}`}
-                        style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", border: "1px solid var(--cr-border)", borderRadius: 14, padding: "10px 12px", background: "var(--cr-card)" }}>
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <div style={{ fontWeight: 700 }}>{name}</div>
-                          <div style={{ fontSize: 12, opacity: 0.8 }}>{size ? <span>{size}</span> : null}{safeStr(a.created_at) ? <span>{size ? " • " : ""}{safeStr(a.created_at)}</span> : null}</div>
+                <input ref={fileInputRef} id="ccm-file-input" type="file" multiple onChange={handleFileSelect} disabled={disabled} style={{ display: "none" }} />
+                {files.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 10 }}>
+                    {files.map((f, idx) => (
+                      <div key={`${f.name}-${f.size}-${idx}`} className="ccm-att">
+                        <div className="ccm-attico"><Ic.File s={13} /></div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="ccm-attname" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
+                          <div className="ccm-attsize">{(f.size / 1024).toFixed(1)} KB</div>
                         </div>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          {url ? <a className="crBtn crBtnGhost" href={url} target="_blank" rel="noreferrer">Open</a> : <div style={{ fontSize: 12, opacity: 0.7 }}>No URL</div>}
-                          <button type="button" className="crBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteAttachment(a); }} disabled={uploading || attLoading} style={{ opacity: 0.92 }}>{uploading ? "…" : "Delete"}</button>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button type="button" className="ccm-btn ccm-btn-danger ccm-btn-xs" onClick={() => removeFile(idx)} disabled={disabled}><Ic.Trash s={11} /></button>
+                          {safeStr(changeId).trim() && (
+                            <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-xs"
+                              onClick={async () => { try { setUploadErr(""); setUploadBusy(true); await removeUploadedAttachmentByFilename(f.name); removeFile(idx); } catch (e: any) { setUploadErr(safeStr(e?.message) || "Failed to remove attachment"); } finally { setUploadBusy(false); } }}
+                              disabled={disabled || uploadBusy}><Ic.X s={11} /></button>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
+                    ))}
+                    <button type="button" onClick={() => setFiles([])} disabled={disabled} style={{ fontSize: 11, color: "#dc2626", background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: "0 2px", fontFamily: "'Instrument Sans',sans-serif", fontWeight: 600 }}>Remove all</button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Sidebar ── */}
+            <div className="ccm-sidebar">
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 11 }}>
+                  <div className="ccm-stitle" style={{ marginBottom: 0 }}><Ic.Bolt s={10} /> Estimated Impact</div>
+                  <button type="button" className="ccm-btn ccm-btn-ai ccm-btn-xs" onClick={runAiImpactScan} disabled={disabled || aiBusy}><Ic.Bolt s={9} /> {aiBusy ? "…" : "AI Scan"}</button>
                 </div>
-              ) : (
-                <div style={{ opacity: 0.85 }}>No attachments found.</div>
-              )}
+                <div className="ccm-row2" style={{ gap: 9, marginBottom: 10 }}>
+                  <div className="ccm-impact">
+                    <div className="ccm-ilabel">Delay</div>
+                    <div className="ccm-ival">{aiImpact.days > 0 ? `+${aiImpact.days}` : "—"}</div>
+                    <div className="ccm-isub">days</div>
+                    <input type="number" className="ccm-input" style={{ marginTop: 7, fontSize: 11, padding: "6px 9px" }} value={String(aiImpact.days ?? 0)} onChange={e => setAiImpact(p => ({ ...p, days: parseInt(e.target.value, 10) || 0 }))} disabled={disabled} placeholder="0" />
+                  </div>
+                  <div className="ccm-impact">
+                    <div className="ccm-ilabel">Cost (£)</div>
+                    <div className="ccm-ival" style={{ fontSize: 16 }}>{aiImpact.cost > 0 ? `£${aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "—"}</div>
+                    <div className="ccm-isub">budget</div>
+                    <input type="number" className="ccm-input" style={{ marginTop: 7, fontSize: 11, padding: "6px 9px" }} value={String(aiImpact.cost ?? 0)} onChange={e => setAiImpact(p => ({ ...p, cost: parseInt(e.target.value, 10) || 0 }))} disabled={disabled} placeholder="0" />
+                  </div>
+                </div>
+                <div className="ccm-field">
+                  <label className="ccm-label">Risk descriptor</label>
+                  <input type="text" className="ccm-input" value={safeStr(aiImpact.risk)} onChange={e => setAiImpact(p => ({ ...p, risk: e.target.value }))} disabled={disabled} placeholder="e.g., Medium — mitigated by rollback" />
+                </div>
+              </div>
+              <div className="ccm-div" />
+              {drafts && <div className="ccm-modelbadge">AI · <strong style={{ color: "#374151" }}>{draftModel}</strong></div>}
+              <div>
+                <div className="ccm-stitle">PM Tips</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {[["⚡","Start AI with a title + summary for best results."],["📐","Make impacts measurable: £, days, named services."],["🔁","Approvers want: test evidence, rollback plan, comms message."],["🔒",isEdit ? "Status changes happen on the board." : "Delete is available in Intake or Analysis only."]].map(([ico, txt], i) => (
+                    <div key={i} className="ccm-tip"><span style={{ flexShrink: 0 }}>{ico}</span><span>{txt}</span></div>
+                  ))}
+                </div>
+              </div>
+              {approval && (<><div className="ccm-div" /><div style={{ padding: "12px 14px", background: "#f8f9ff", border: "1.5px solid #e0e7ff", borderRadius: 12, fontSize: 11.5, color: "#6b7280" }}><div style={{ fontWeight: 700, color: "#0d1023", marginBottom: 4 }}>Approval chain</div><div>Approve/Reject: <strong style={{ color: "#0d1023" }}>{approval.canApprove !== false ? "Enabled" : "Disabled"}</strong></div>{approval.canApprove === false && <div style={{ marginTop: 4, color: "#9ca3af" }}>View and edit draft fields still available.</div>}</div></>)}
             </div>
           </div>
-        </ModalShell>
-      </section>
-    </section>
+
+          {/* ── Footer ── */}
+          <div className="ccm-footer">
+            <div className="ccm-fmeta">{isEdit ? "Editing" : "Creating"} · Lane: <strong style={{ color: "#6366f1" }}>{laneLabel}</strong></div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={onClose} disabled={disabled}>Cancel</button>
+              <button type="button" className="ccm-btn ccm-btn-primary ccm-btn-sm" onClick={submitChange} disabled={disabled}>{saving ? (isEdit ? "Saving…" : "Creating…") : isEdit ? "Save Changes" : "Create Request"}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── AI Interview Drawer ── */}
+      <Drawer open={aiInterviewOpen} onClose={() => setAiInterviewOpen(false)} title="PM AI Assistant" sub="Answer prompts → Generate draft">
+        <div style={{ padding: "10px 13px", background: "#f8f9ff", border: "1.5px solid #e0e7ff", borderRadius: 9, fontSize: 11.5, color: "#6b7280", lineHeight: 1.6 }}>Fill what you know — bullet points are fine. Click <strong style={{ color: "#0d1023" }}>Generate Draft</strong>.</div>
+        {aiErr && <div className="ccm-err" style={{ margin: 0 }}>{aiErr}</div>}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: "10px 12px", background: "#f8f9ff", borderRadius: 9, border: "1.5px solid #eef0f8" }}>
+          <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={() => useCurrentDraftIntoInterview({ overwrite: forceOverwrite })} disabled={aiBusy}>Use my current draft</button>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#6b7280", cursor: "pointer", userSelect: "none", marginLeft: "auto" }}>
+            <input type="checkbox" checked={forceOverwrite} onChange={e => setForceOverwrite(e.target.checked)} disabled={aiBusy} />Overwrite existing answers
+          </label>
+        </div>
+        {[{ label: "What is the change about?", key: "about", rows: 3, placeholder: "e.g., Extend firewall scope for vendor access on SZC workstream…" },{ label: "Why is it needed / what value does it unlock?", key: "why", rows: 3, placeholder: "Drivers, benefits, risk reduction, compliance, customer impact…" },{ label: "Who / what is impacted?", key: "impacted", rows: 3, placeholder: "Systems, services, users, suppliers, environments…" }].map(({ label, key, rows, placeholder }) => (
+          <div key={key} className="ccm-field">
+            <label className="ccm-label">{label}</label>
+            <textarea className="ccm-textarea" value={(interview as any)[key]} onChange={e => setInterview(p => ({ ...p, [key]: e.target.value }))} rows={rows} placeholder={placeholder} disabled={aiBusy} />
+          </div>
+        ))}
+        <div className="ccm-row2">
+          <div className="ccm-field"><label className="ccm-label">When does it need to happen?</label><textarea className="ccm-textarea" value={interview.when} onChange={e => setInterview(p => ({ ...p, when: e.target.value }))} rows={3} placeholder="Target window, milestones, blackout dates…" disabled={aiBusy} /></div>
+          <div className="ccm-field"><label className="ccm-label">Constraints / assumptions</label><textarea className="ccm-textarea" value={interview.constraints} onChange={e => setInterview(p => ({ ...p, constraints: e.target.value }))} rows={3} placeholder="Access, approvals, resourcing, dependencies…" disabled={aiBusy} /></div>
+        </div>
+        <div className="ccm-row2">
+          <div className="ccm-field"><label className="ccm-label">Costs (if known)</label><input className="ccm-input" value={interview.costs} onChange={e => setInterview(p => ({ ...p, costs: e.target.value }))} placeholder="e.g., £12,000 / 3 days / vendor day-rate…" disabled={aiBusy} /></div>
+          <div className="ccm-field"><label className="ccm-label">Risk level (your view)</label><select className="ccm-select" value={interview.riskLevel} onChange={e => setInterview(p => ({ ...p, riskLevel: e.target.value as any }))} disabled={aiBusy}><option value="Low">Low</option><option value="Medium">Medium</option><option value="High">High</option></select></div>
+        </div>
+        <div className="ccm-field"><label className="ccm-label">Rollback / backout approach</label><textarea className="ccm-textarea" value={interview.rollback} onChange={e => setInterview(p => ({ ...p, rollback: e.target.value }))} rows={3} placeholder="How would you revert safely / validate success?" disabled={aiBusy} /></div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, paddingTop: 4 }}>
+          <button type="button" className="ccm-btn ccm-btn-ghost ccm-btn-sm" onClick={() => setAiInterviewOpen(false)} disabled={aiBusy}>Close</button>
+          <button type="button" className="ccm-btn ccm-btn-primary ccm-btn-sm" onClick={async () => { const d = await runPmoDraftAssist(); if (d) setAiInterviewOpen(false); }} disabled={aiBusy || disabled}>{aiBusy ? "Generating…" : "Generate drafts"}</button>
+        </div>
+        {drafts && <div className="ccm-ready">✦ Draft ready — click <strong>Apply All</strong> in the header to fill all fields.</div>}
+      </Drawer>
+    </>
   );
 }
