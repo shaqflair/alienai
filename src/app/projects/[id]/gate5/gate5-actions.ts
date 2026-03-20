@@ -140,42 +140,39 @@ export async function loadGate5Status(projectId: string): Promise<Gate5Result | 
     };
   }
 
-  // ── Check: RAID all closed ──
-  const charterArt = findArtifact(["charter", "pid"]);
-  let raidStatus: Gate5CheckStatus = "warn";
-  let raidDetail = "Charter not found — RAID status unknown.";
+  // ── Check: RAID all closed (queries raid_items table directly) ──
+  const { data: raidItemsRaw } = await supabase
+    .from("raid_items")
+    .select("id, type, title, status")
+    .eq("project_id", projectId);
 
-  if (charterArt) {
-    const json = (charterArt as any).content_json;
-    if (json && typeof json === "object" && Array.isArray(json.sections)) {
-      const raidSections = json.sections.filter((s: any) =>
-        ["risks", "issues", "assumptions", "dependencies"].includes(safeStr(s?.key).toLowerCase())
-      );
-      const hasContent = raidSections.some((s: any) => {
-        const bullets = safeStr(s?.bullets).trim();
-        return bullets.length > 10;
-      });
-      const hasTbcOrOpen = raidSections.some((s: any) => {
-        const text = safeStr(s?.bullets).toLowerCase();
-        return text.includes("[open]") || text.includes("tbc") || text.includes("[active]");
-      });
-      if (!hasContent) {
-        raidStatus = "fail";
-        raidDetail = "RAID sections appear empty. Please document risks, issues, assumptions and dependencies.";
-      } else if (hasTbcOrOpen) {
-        raidStatus = "warn";
-        raidDetail = "Some RAID items are marked [TBC] or [OPEN]. Review and close before submission.";
-      } else {
-        raidStatus = "pass";
-        raidDetail = "RAID sections have content and no open flags detected.";
-      }
-    } else {
-      raidStatus = "warn";
-      raidDetail = "Charter exists but RAID sections could not be parsed.";
-    }
+  const raidItems = Array.isArray(raidItemsRaw) ? raidItemsRaw : [];
+  const RAID_CLOSED_STATUSES = ["closed", "resolved", "done", "completed", "archived", "cancelled", "mitigated", "accepted"];
+  const openRaidItems = raidItems.filter((r: any) => {
+    const s = safeStr(r.status).toLowerCase().trim();
+    return !RAID_CLOSED_STATUSES.includes(s);
+  });
+
+  let raidStatus: Gate5CheckStatus;
+  let raidDetail: string;
+  if (raidItems.length === 0) {
+    raidStatus = "warn";
+    raidDetail = "No RAID items found. Log and close all risks, issues, assumptions and dependencies before closure.";
+  } else if (openRaidItems.length === 0) {
+    raidStatus = "pass";
+    raidDetail = `All ${raidItems.length} RAID item${raidItems.length > 1 ? "s" : ""} are closed or resolved.`;
+  } else {
+    const byType = openRaidItems.reduce((acc: any, r: any) => {
+      const t = safeStr(r.type).toLowerCase() || "item";
+      acc[t] = (acc[t] || 0) + 1;
+      return acc;
+    }, {});
+    const typeBreakdown = Object.entries(byType).map(([t, n]) => `${n} ${t}${(n as number) > 1 ? "s" : ""}`).join(", ");
+    raidStatus = "fail";
+    raidDetail = `${openRaidItems.length} RAID item${openRaidItems.length > 1 ? "s" : ""} still open (${typeBreakdown}). All must be closed before project closure.`;
   }
 
-  // ── Check: All CRs approved ──
+    // ── Check: All CRs approved ──
   const crStatus: Gate5CheckStatus =
     crs.length === 0 ? "pass" : openCRs.length === 0 ? "pass" : "fail";
   const crDetail =
@@ -185,39 +182,70 @@ export async function loadGate5Status(projectId: string): Promise<Gate5Result | 
       ? `All ${crs.length} change request${crs.length > 1 ? "s" : ""} resolved.`
       : `${openCRs.length} change request${openCRs.length > 1 ? "s" : ""} still open: ${openCRs.slice(0, 3).map((c) => safeStr((c as any).title)).join(", ")}${openCRs.length > 3 ? "…" : ""}`;
 
-  // ── Check: WBS complete ──
+  // ── Check: WBS complete (queries wbs_items table directly) ──
+  const { data: wbsItemsRaw } = await supabase
+    .from("wbs_items")
+    .select("id, title, status, progress_pct")
+    .eq("project_id", projectId);
+
+  const wbsItems = Array.isArray(wbsItemsRaw) ? wbsItemsRaw : [];
+  const WBS_DONE_STATUSES = ["complete", "completed", "done", "closed", "delivered", "approved"];
+  const openWbsItems = wbsItems.filter((w: any) => {
+    const s = safeStr(w.status).toLowerCase().trim();
+    const pct = Number(w.progress_pct ?? 0);
+    return !WBS_DONE_STATUSES.includes(s) && pct < 100;
+  });
+
+  let wbsStatus: Gate5CheckStatus;
+  let wbsDetail: string;
   const wbsArt = findArtifact(["wbs", "work_breakdown"]);
-  let wbsStatus: Gate5CheckStatus = "fail";
-  let wbsDetail = "No WBS artifact found. Create and complete the Work Breakdown Structure.";
-  if (wbsArt) {
-    const json = (wbsArt as any).content_json;
-    const hasItems = json && (Array.isArray(json.items) ? json.items.length > 0 : !!json);
-    if (hasItems) {
-      wbsStatus = "pass";
-      wbsDetail = `WBS artifact found and populated.`;
-    } else {
-      wbsStatus = "warn";
-      wbsDetail = "WBS artifact exists but appears empty. Add work breakdown items.";
-    }
+  if (wbsItems.length === 0 && !wbsArt) {
+    wbsStatus = "fail";
+    wbsDetail = "No WBS items found. Create and complete the Work Breakdown Structure before closure.";
+  } else if (wbsItems.length === 0 && wbsArt) {
+    wbsStatus = "warn";
+    wbsDetail = "WBS artifact exists but no items are recorded. Populate the WBS and mark all items complete.";
+  } else if (openWbsItems.length === 0) {
+    wbsStatus = "pass";
+    wbsDetail = `All ${wbsItems.length} WBS item${wbsItems.length > 1 ? "s" : ""} are complete.`;
+  } else {
+    wbsStatus = "fail";
+    wbsDetail = `${openWbsItems.length} of ${wbsItems.length} WBS item${wbsItems.length > 1 ? "s" : ""} not yet complete. All deliverables must be done before closure.`;
   }
 
-  // ── Check: Schedule marked complete ──
+  // ── Check: Schedule milestones all complete ──
+  const { data: milestonesRaw } = await supabase
+    .from("schedule_milestones")
+    .select("id, title, status, progress_pct, end_date, critical_path_flag")
+    .eq("project_id", projectId);
+
+  const milestones = Array.isArray(milestonesRaw) ? milestonesRaw : [];
+  const MILESTONE_DONE_STATUSES = ["complete", "completed", "done", "closed", "delivered", "approved"];
+  const openMilestones = milestones.filter((m: any) => {
+    const s = safeStr(m.status).toLowerCase().trim();
+    const pct = Number(m.progress_pct ?? 0);
+    return !MILESTONE_DONE_STATUSES.includes(s) && pct < 100;
+  });
+  const criticalOpen = openMilestones.filter((m: any) => m.critical_path_flag === true);
   const scheduleArt = findArtifact(["schedule", "gantt", "timeline"]);
-  let scheduleStatus: Gate5CheckStatus = "fail";
-  let scheduleDetail = "No schedule artifact found. Create and complete the project schedule.";
-  if (scheduleArt) {
-    const json = (scheduleArt as any).content_json;
-    const isMarkedComplete =
-      safeStr((json as any)?.status).toLowerCase() === "complete" ||
-      safeStr((json as any)?.projectStatus).toLowerCase() === "complete" ||
-      (scheduleArt as any).approval_status === "approved";
-    if (isMarkedComplete) {
-      scheduleStatus = "pass";
-      scheduleDetail = "Schedule is marked as complete.";
-    } else {
-      scheduleStatus = "warn";
-      scheduleDetail = "Schedule artifact exists. Mark it as complete when all tasks are done.";
-    }
+
+  let scheduleStatus: Gate5CheckStatus;
+  let scheduleDetail: string;
+  if (milestones.length === 0 && !scheduleArt) {
+    scheduleStatus = "fail";
+    scheduleDetail = "No schedule milestones found. Create the project schedule and mark all milestones complete before closure.";
+  } else if (milestones.length === 0 && scheduleArt) {
+    scheduleStatus = "warn";
+    scheduleDetail = "Schedule artifact exists but no milestones are recorded. Add milestones and mark them complete.";
+  } else if (openMilestones.length === 0) {
+    scheduleStatus = "pass";
+    scheduleDetail = `All ${milestones.length} milestone${milestones.length > 1 ? "s" : ""} are complete.`;
+  } else if (criticalOpen.length > 0) {
+    scheduleStatus = "fail";
+    scheduleDetail = `${criticalOpen.length} critical path milestone${criticalOpen.length > 1 ? "s" : ""} still open (${openMilestones.length} total). All milestones must be complete before closure.`;
+  } else {
+    scheduleStatus = "warn";
+    scheduleDetail = `${openMilestones.length} of ${milestones.length} milestone${milestones.length > 1 ? "s" : ""} not yet complete. Close all milestones before project closure.`;
   }
 
   // ── Check: Financial Plan approved ──
@@ -276,14 +304,14 @@ export async function loadGate5Status(projectId: string): Promise<Gate5Result | 
   const checks: Gate5Check[] = [
     {
       key: "raid_closed",
-      title: "RAID items reviewed",
-      description: "All risks, issues, assumptions and dependencies are documented and reviewed.",
+      title: "All RAID items closed",
+      description: "All risks, issues, assumptions and dependencies must be closed, resolved or mitigated before project closure.",
       category: "auto",
       mandatory: true,
       status: raidStatus,
       detail: raidDetail,
-      actionLabel: charterArt ? "Open charter" : "Create charter",
-      actionHref: charterArt ? `/projects/${projectId}/artifacts/${(charterArt as any).id}` : `/projects/${projectId}/artifacts`,
+      actionLabel: openRaidItems.length > 0 ? `Close ${openRaidItems.length} open item${openRaidItems.length > 1 ? "s" : ""}` : "View RAID log",
+      actionHref: `/projects/${projectId}/raid`,
     },
     {
       key: "crs_approved",
@@ -298,8 +326,8 @@ export async function loadGate5Status(projectId: string): Promise<Gate5Result | 
     },
     {
       key: "wbs_complete",
-      title: "WBS complete",
-      description: "Work Breakdown Structure is fully built and all deliverables are captured.",
+      title: "WBS all items complete",
+      description: "All Work Breakdown Structure items must be marked complete or delivered before closure.",
       category: "auto",
       mandatory: true,
       status: wbsStatus,
@@ -309,14 +337,14 @@ export async function loadGate5Status(projectId: string): Promise<Gate5Result | 
     },
     {
       key: "schedule_complete",
-      title: "Schedule marked complete",
-      description: "Project schedule is finalised and marked as complete.",
+      title: "All milestones complete",
+      description: "All schedule milestones must be marked complete before the project can be closed.",
       category: "auto",
       mandatory: true,
       status: scheduleStatus,
       detail: scheduleDetail,
-      actionLabel: scheduleArt ? "Open schedule" : "Create schedule",
-      actionHref: scheduleArt ? `/projects/${projectId}/schedule` : `/projects/${projectId}/artifacts`,
+      actionLabel: openMilestones.length > 0 ? `Close ${openMilestones.length} milestone${openMilestones.length > 1 ? "s" : ""}` : "View schedule",
+      actionHref: scheduleArt ? `/projects/${projectId}/artifacts/${(scheduleArt as any).id}` : `/projects/${projectId}/schedule`,
     },
     {
       key: "financials_approved",
