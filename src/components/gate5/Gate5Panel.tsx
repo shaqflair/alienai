@@ -2,8 +2,8 @@
 
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
-import type { Gate5Result, Gate5Check } from "./gate5-actions";
-import { toggleManualCheck, getAiGate5Guidance } from "./gate5-actions";
+import type { Gate5Result, Gate5Check } from "@/app/projects/[id]/gate5/gate5-actions";
+import { toggleManualCheck, getAiGate5Guidance } from "@/app/projects/[id]/gate5/gate5-actions";
 import {
   CheckCircle2,
   XCircle,
