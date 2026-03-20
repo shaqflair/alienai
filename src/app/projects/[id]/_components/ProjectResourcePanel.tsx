@@ -792,7 +792,7 @@ export default function ProjectResourcePanel({
           projectId={project.id}
           startDate={project.start_date}
           endDate={project.finish_date}
-          orgRoles={Object.keys(justificationProps?.rateCard ?? {}).filter(k => !k.includes(' ')).sort()}
+          orgRoles={[...new Set(Object.keys(justificationProps?.rateCard ?? {}))].sort()}
         />
 
         {/* ── Resource Justification Panel ── */}
