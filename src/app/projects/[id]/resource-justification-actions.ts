@@ -160,14 +160,16 @@ export async function saveResourceJustification(formData: FormData): Promise<{ o
 
 export async function sendJustificationToResourceTeam(
   projectId: string,
-  justificationId: string
-): Promise<{ ok: boolean; error?: string }> {
+  justificationId: string,
+  extraEmails?: string[]
+): Promise<{ ok: boolean; error?: string; notifiedCount?: number; emailsSent?: number }> {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
   const now = new Date().toISOString();
 
+  // 1. Mark as sent
   const { error } = await supabase
     .from("project_resource_justifications")
     .update({
@@ -181,11 +183,126 @@ export async function sendJustificationToResourceTeam(
 
   if (error) return { ok: false, error: error.message };
 
-  // TODO: trigger notification to resource team here
-  // e.g. await notifyResourceTeam({ projectId, justificationId, sentBy: auth.user.id });
+  // 2. Load justification details for the notification
+  const { data: justification } = await supabase
+    .from("project_resource_justifications")
+    .select("justification_text, requested_budget_uplift, currency")
+    .eq("id", justificationId)
+    .maybeSingle();
+
+  // 3. Load project details
+  const { data: project } = await supabase
+    .from("projects")
+    .select("title, organisation_id")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  const orgId = (project as any)?.organisation_id;
+  const projectTitle = safeStr((project as any)?.title || "a project");
+
+  // 4. Find sender profile
+  const { data: senderProfile } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
+  const senderName = safeStr((senderProfile as any)?.full_name || (senderProfile as any)?.email || "A project manager");
+
+  // 5. Find resource team recipients — org admins + members with 'resource_manager' role
+  let recipientIds: string[] = [];
+  if (orgId) {
+    const { data: orgMembers } = await supabase
+      .from("organisation_members")
+      .select("user_id, role")
+      .eq("organisation_id", orgId)
+      .is("removed_at", null)
+      .in("role", ["admin", "owner", "resource_manager"]);
+
+    recipientIds = (orgMembers ?? [])
+      .map((m: any) => safeStr(m.user_id))
+      .filter((id) => id && id !== auth.user.id); // exclude sender
+  }
+
+  // 6. Insert notifications for each recipient
+  let notifiedCount = 0;
+  if (recipientIds.length > 0) {
+    const uplift = (justification as any)?.requested_budget_uplift;
+    const currency = safeStr((justification as any)?.currency || "GBP");
+    const upliftText = uplift ? ` — £${Number(uplift).toLocaleString("en-GB")} requested` : "";
+
+    const notifications = recipientIds.map((userId) => ({
+      user_id: userId,
+      organisation_id: orgId,
+      type: "resource_justification_submitted",
+      title: `Resource justification submitted for ${projectTitle}`,
+      body: `${senderName} has submitted a resource justification request for ${projectTitle}${upliftText}. Please review and approve.`,
+      action_url: `/projects/${projectId}`,
+      metadata: {
+        project_id: projectId,
+        justification_id: justificationId,
+        sent_by: auth.user.id,
+        sender_name: senderName,
+      },
+      is_read: false,
+      created_at: now,
+    }));
+
+    const { error: notifError, data: inserted } = await supabase
+      .from("notifications")
+      .insert(notifications)
+      .select("id");
+
+    if (!notifError) notifiedCount = (inserted ?? []).length;
+    // Silently ignore notification failures — the justification was still sent
+  }
+
+  // 7. Send emails to extra recipients if provided
+  let emailsSent = 0;
+  const validEmails = (extraEmails ?? []).map(e => safeStr(e).trim().toLowerCase()).filter(e => e.includes("@"));
+
+  if (validEmails.length > 0) {
+    const uplift = (justification as any)?.requested_budget_uplift;
+    const currency = safeStr((justification as any)?.currency || "GBP");
+    const upliftLine = uplift ? `\n\nBudget uplift requested: £${Number(uplift).toLocaleString("en-GB")}` : "";
+    const justText = safeStr((justification as any)?.justification_text || "").slice(0, 500);
+    const projectUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://aliena.co.uk"}/projects/${projectId}`;
+
+    const emailBody = `${senderName} has submitted a resource justification request for ${projectTitle}.${upliftLine}
+
+Justification:
+${justText}${justText.length >= 500 ? "..." : ""}
+
+Review and respond here: ${projectUrl}`;
+
+    for (const email of validEmails) {
+      try {
+        // Use Resend if available, otherwise Supabase auth email
+        if (process.env.RESEND_API_KEY) {
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+            },
+            body: JSON.stringify({
+              from: process.env.RESEND_FROM_EMAIL ?? "noreply@aliena.co.uk",
+              to: email,
+              subject: `Resource justification: ${projectTitle}`,
+              text: emailBody,
+              html: `<p><strong>${senderName}</strong> has submitted a resource justification request for <strong>${projectTitle}</strong>.</p>${uplift ? `<p><strong>Budget uplift requested:</strong> £${Number(uplift).toLocaleString("en-GB")}</p>` : ""}<blockquote style="border-left:3px solid #e2e8f0;padding-left:12px;color:#475569">${justText.replace(/\n/g, "<br>")}${justText.length >= 500 ? "..." : ""}</blockquote><p><a href="${projectUrl}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Review request →</a></p>`,
+            }),
+          });
+          emailsSent++;
+        }
+        // If no email provider configured, silently skip — in-app notifications still sent
+      } catch {
+        // Never block the send flow on email failure
+      }
+    }
+  }
 
   revalidatePath(`/projects/${projectId}`);
-  return { ok: true };
+  return { ok: true, notifiedCount, emailsSent };
 }
 
 export async function generateAiJustification(

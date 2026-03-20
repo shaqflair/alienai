@@ -182,6 +182,7 @@ export default function ResourceJustificationPanel({
   const [uplift, setUplift]                 = useState(initialJustification?.requested_budget_uplift?.toString() || "");
   const [selectedCRs, setSelectedCRs]       = useState<Set<string>>(new Set(initialJustification?.linked_cr_ids || []));
   const [fundingSource, setFundingSource]   = useState<FundingSource>("existing_budget");
+  const [notifyEmails, setNotifyEmails]     = useState<string[]>([""]);
   const [rateOverrides, setRateOverrides]   = useState<Record<string, number>>({});
   const [expanded, setExpanded]             = useState(!initialJustification || initialJustification.status === "draft");
   const [saveMsg, setSaveMsg]               = useState<string | null>(null);
@@ -227,6 +228,7 @@ export default function ResourceJustificationPanel({
     fd.set("requested_budget_uplift", uplift || String(fundingSource !== "existing_budget" ? totalUnfilledCost : 0));
     fd.set("linked_cr_ids", Array.from(selectedCRs).join(","));
     fd.set("currency", "GBP");
+    fd.set("notify_emails", notifyEmails.filter(e => e.trim()).join(","));
     return fd;
   }
 
@@ -251,14 +253,20 @@ export default function ResourceJustificationPanel({
         return;
       }
 
-      const result = await sendJustificationToResourceTeam(projectId, recordId);
+      const validEmails = notifyEmails.filter(e => e.trim().includes("@"));
+      const result = await sendJustificationToResourceTeam(projectId, recordId, validEmails);
       if (result.ok) {
         setJustification(prev =>
           prev ? { ...prev, status: "sent", sent_at: new Date().toISOString() } :
           { id: recordId, project_id: projectId, justification_text: justText, contingency_notes: contingency, requested_budget_uplift: uplift ? Number(uplift) : null, currency: "GBP", linked_cr_ids: Array.from(selectedCRs), status: "sent", sent_at: new Date().toISOString(), sent_by: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
         );
-        setSendMsg("Sent to resource team ✓");
-        setTimeout(() => setSendMsg(null), 5000);
+        const notified = (result as any).notifiedCount ?? 0;
+        const emailed  = (result as any).emailsSent ?? 0;
+        const parts = [];
+        if (notified > 0) parts.push(`${notified} in-app notification${notified > 1 ? "s" : ""}`);
+        if (emailed > 0)  parts.push(`${emailed} email${emailed > 1 ? "s" : ""} sent`);
+        setSendMsg(parts.length > 0 ? `Sent ✓ — ${parts.join(" · ")}` : "Sent to resource team ✓");
+        setTimeout(() => setSendMsg(null), 7000);
       } else {
         setSendMsg(`Failed: ${result.error}`);
       }
@@ -492,6 +500,50 @@ export default function ResourceJustificationPanel({
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ── Notify by email ── */}
+          {!alreadySent && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "#94a3b8", marginBottom: 8 }}>
+                Also notify by email (optional)
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {notifyEmails.map((email, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="email"
+                      className="rj-input"
+                      value={email}
+                      onChange={e => {
+                        const next = [...notifyEmails];
+                        next[i] = e.target.value;
+                        setNotifyEmails(next);
+                      }}
+                      placeholder="name@company.com"
+                      style={{ flex: 1 }}
+                    />
+                    {notifyEmails.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setNotifyEmails(prev => prev.filter((_, j) => j !== i))}
+                        style={{ fontSize: 12, color: "#94a3b8", background: "none", border: "1px solid #e2e8f0", borderRadius: 6, padding: "6px 10px", cursor: "pointer" }}
+                      >✕</button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setNotifyEmails(prev => [...prev, ""])}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: "#2563eb", background: "none", border: "1.5px dashed #bfdbfe", borderRadius: 7, padding: "6px 14px", cursor: "pointer", width: "fit-content" }}
+                >
+                  + Add another email
+                </button>
+              </div>
+              <p style={{ margin: "5px 0 0", fontSize: 11, color: "#94a3b8" }}>
+                These recipients will receive an email copy of the justification in addition to in-app notifications.
+              </p>
             </div>
           )}
 
