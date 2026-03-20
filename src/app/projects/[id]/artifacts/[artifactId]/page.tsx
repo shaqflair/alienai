@@ -668,35 +668,88 @@ export default async function ArtifactDetailPage({
           </div>
         )}
 
-        {/* Approver mode: Approve / Reject Final still shown as a compact bar */}
+        {/* Approver mode: clean two-card bar — Approve + Reject Final */}
         {isApproverViewingSubmitted && (
           <div style={{
-            display: "flex", gap: 10, alignItems: "center",
-            padding: "12px 24px", borderTop: "1px solid #e8ecf0",
-            background: "#fafbfc", flexWrap: "wrap",
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 12,
+            padding: "16px 24px",
+            borderTop: "1px solid #e8ecf0",
+            background: "#fafbfc",
           }}>
-            <span style={{ fontSize: 12, color: "#57606a", flex: 1 }}>
-              Quick decisions — or use <strong>inline comments</strong> in the document below:
-            </span>
-            <form action={approveAction}>
-              <button type="submit" className="af-btn af-btn-success">✓ Approve</button>
-            </form>
-            <form action={rejectFinalAction} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input
-                name="reason"
-                className="af-reason"
-                style={{ padding: "6px 10px", fontSize: 12, width: 180, resize: "none", borderRadius: 8, border: "1px solid #e8ecf0", fontFamily: "inherit" }}
-                placeholder="Rejection reason (optional)"
-              />
-              <input
-                name="confirm"
-                className="af-reason"
-                style={{ padding: "6px 10px", fontSize: 12, width: 130, resize: "none", borderRadius: 8, border: "1px solid #fecaca", fontFamily: "inherit" }}
-                placeholder='Type "REJECT"'
-                required
-              />
-              <button type="submit" className="af-btn af-btn-danger">✗ Reject final</button>
-            </form>
+            {/* Approve card */}
+            <div style={{
+              border: "1px solid #bbf7d0",
+              borderRadius: 10,
+              padding: "14px 16px",
+              background: "#f0fdf4",
+              display: "flex", flexDirection: "column", gap: 8,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>Approve</div>
+              <div style={{ fontSize: 11, color: "#4ade80", color: "#166534" }}>
+                Promotes to approved baseline. Use inline comments below to request changes instead.
+              </div>
+              <form action={approveAction} style={{ marginTop: 4 }}>
+                <button
+                  type="submit"
+                  style={{
+                    width: "100%", padding: "8px 0", borderRadius: 8,
+                    background: "#16a34a", border: "none", color: "#fff",
+                    fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >
+                  ✓ Approve
+                </button>
+              </form>
+            </div>
+
+            {/* Reject Final card */}
+            <div style={{
+              border: "1px solid #fecaca",
+              borderRadius: 10,
+              padding: "14px 16px",
+              background: "#fff5f5",
+              display: "flex", flexDirection: "column", gap: 8,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#b91c1c" }}>Reject (Final)</div>
+              <div style={{ fontSize: 11, color: "#7f1d1d" }}>
+                Permanently rejects this submission. This cannot be undone.
+              </div>
+              <form action={rejectFinalAction} style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+                <input
+                  name="reason"
+                  style={{
+                    padding: "7px 10px", fontSize: 12, borderRadius: 8,
+                    border: "1px solid #fecaca", fontFamily: "inherit",
+                    background: "#fff", color: "#0d1117",
+                    outline: "none", width: "100%", boxSizing: "border-box",
+                  }}
+                  placeholder="Rejection reason (optional)"
+                />
+                <input
+                  name="confirm"
+                  style={{
+                    padding: "7px 10px", fontSize: 12, borderRadius: 8,
+                    border: "1px solid #f87171", fontFamily: "inherit",
+                    background: "#fff", color: "#0d1117",
+                    outline: "none", width: "100%", boxSizing: "border-box",
+                  }}
+                  placeholder='Type REJECT to confirm'
+                  required
+                />
+                <button
+                  type="submit"
+                  style={{
+                    padding: "8px 0", borderRadius: 8,
+                    background: "#b91c1c", border: "none", color: "#fff",
+                    fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >
+                  ✗ Reject final
+                </button>
+              </form>
+            </div>
           </div>
         )}
       </div>
