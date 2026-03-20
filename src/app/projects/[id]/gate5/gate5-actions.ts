@@ -31,6 +31,7 @@ export type Gate5Result = {
   endDate: string | null;
   riskLevel: "green" | "amber" | "red";
   canClose: boolean;
+  showBadge: boolean;
 };
 
 function safeStr(x: any) {
@@ -428,6 +429,32 @@ export async function loadGate5Status(projectId: string): Promise<Gate5Result | 
       ? "amber"
       : "red";
 
+  // Compute whether badge should be shown (past 50% of project OR within 60 days of end)
+  const { data: projectDates } = await supabase
+    .from("projects")
+    .select("start_date, finish_date, end_date")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  const startDateRaw = (projectDates as any)?.start_date ?? null;
+  const finishDateRaw = (projectDates as any)?.finish_date ?? (projectDates as any)?.end_date ?? endDateRaw;
+  let showBadge = false;
+  if (daysToEndDate !== null && daysToEndDate <= 60) {
+    showBadge = true;
+  } else if (startDateRaw && finishDateRaw) {
+    const start = new Date(startDateRaw).getTime();
+    const finish = new Date(finishDateRaw).getTime();
+    const now = Date.now();
+    const totalDuration = finish - start;
+    if (totalDuration > 0) {
+      const elapsed = now - start;
+      const pctElapsed = elapsed / totalDuration;
+      showBadge = pctElapsed >= 0.5; // past halfway
+    }
+  } else if (mandatoryBlocked > 0) {
+    showBadge = true; // always show if there are blocks regardless of date
+  }
+
   return {
     checks,
     totalChecks: checks.length,
@@ -438,6 +465,7 @@ export async function loadGate5Status(projectId: string): Promise<Gate5Result | 
     endDate: endDateRaw,
     riskLevel,
     canClose,
+    showBadge,
   };
   } catch {
     return null;
@@ -494,19 +522,28 @@ ${itemList}
 
 Provide a concise, practical action plan (max 200 words) to resolve these items quickly. Be specific and prioritise the most critical items first. Use a pragmatic, supportive tone — the PM needs to get this done.`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "gpt-4o",
       max_tokens: 1000,
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        {
+          role: "system",
+          content: "You are a senior PMO consultant. Give concise, practical, prioritised action plans for project closure. Plain text only, no markdown formatting.",
+        },
+        { role: "user", content: prompt },
+      ],
     }),
   });
 
   if (!res.ok) return "AI guidance is temporarily unavailable. Please review the blocked items above.";
 
   const data = await res.json();
-  const text = (data?.content || []).find((b: any) => b.type === "text")?.text || "";
+  const text = data?.choices?.[0]?.message?.content || "";
   return text.trim() || "No guidance available at this time.";
 }
