@@ -692,6 +692,7 @@ function RoleRequirementsSection({ roles, projectId, startDate, endDate }: { rol
       )}
       {editingRole && (
         <EditRoleForm
+          key={editingRole.id}
           role={editingRole}
           projectId={projectId}
           onSaved={() => { setEditingRole(null); window.location.reload(); }}
