@@ -18,6 +18,7 @@ import {
   type TimesheetEntry,
   type ActualsByLine,
 } from "./computeActuals";
+import ResourcePlanSyncBar from "./ResourcePlanSyncBar";
 
 const P = {
   bg:       "#F7F7F5",
@@ -140,6 +141,8 @@ export type FinancialPlanContent = {
   monthly_data?: MonthlyData;
   fy_config?: FYConfig;
   last_updated_at?: string;
+  resource_plan_synced_at?: string;
+  resource_plan_overridden_months?: string;
 };
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -765,6 +768,9 @@ type Props = {
   budgetLocked?: boolean;
   organisationId: string;
   artifactId?: string;
+  projectId: string;
+  isAdmin?: boolean;
+  onRequestReload?: () => void;
   timesheetEntries?: TimesheetEntry[];
   raidItems?: Array<{ type: string; title: string; severity: string; status: string }>;
   approvalDelays?: Array<{ title: string; daysPending: number; cost_impact?: number }>;
@@ -777,6 +783,9 @@ export default function FinancialPlanEditor({
   budgetLocked = false,
   organisationId,
   artifactId,
+  projectId,
+  isAdmin = false,
+  onRequestReload,
   timesheetEntries = [],
   raidItems,
   approvalDelays,
@@ -786,6 +795,14 @@ export default function FinancialPlanEditor({
   const [, startTransition] = useTransition();
   const lastSignalsKeyRef = useRef<string>("");
   const baselineMonthlyDataRef = useRef<MonthlyData | null>(null);
+
+  // ── Resource plan override months (admin-only) ──
+  const [overriddenMonths, setOverriddenMonths] = useState<string[]>(() => {
+    try {
+      const raw = (content as any).resource_plan_overridden_months;
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
 
   if (baselineMonthlyDataRef.current === null && content.monthly_data && Object.keys(content.monthly_data).length > 0) {
     baselineMonthlyDataRef.current = JSON.parse(JSON.stringify(content.monthly_data));
@@ -946,22 +963,7 @@ export default function FinancialPlanEditor({
         {artifactId && (
           <a
             href={`/api/artifacts/financial-plan/export/xlsx?artifactId=${encodeURIComponent(artifactId)}`}
-            style={{
-              marginLeft: "auto",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "5px 12px",
-              border: `1px solid ${P.border}`,
-              background: P.bg,
-              color: P.textMd,
-              fontSize: 11,
-              fontWeight: 600,
-              textDecoration: "none",
-              fontFamily: P.mono,
-              marginBottom: 2,
-              flexShrink: 0,
-            }}
+            style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 12px", border: `1px solid ${P.border}`, background: P.bg, color: P.textMd, fontSize: 11, fontWeight: 600, textDecoration: "none", fontFamily: P.mono, marginBottom: 2, flexShrink: 0 }}
             download
           >
             Export XLSX
@@ -1082,14 +1084,8 @@ export default function FinancialPlanEditor({
                       </select>
                     </td>
                     <td style={{ ...cellBase, minWidth: 160 }}>
-                      <input
-                        type="text"
-                        value={l.description}
-                        onChange={e => updateLine(l.id, { description: e.target.value })}
-                        readOnly={readOnly}
-                        placeholder="Description..."
-                        style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }}
-                      />
+                      <input type="text" value={l.description} onChange={e => updateLine(l.id, { description: e.target.value })} readOnly={readOnly}
+                        placeholder="Description..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }} />
                     </td>
                     <td style={{ ...cellBase, background: hasResources && !l.override ? "#F2F8FF" : rowBg }}>
                       <MoneyCell value={l.budgeted} onChange={v => updateLine(l.id, { budgeted: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
@@ -1111,14 +1107,8 @@ export default function FinancialPlanEditor({
                       {!hasResources && <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>no resources</span>}
                     </td>
                     <td style={{ ...cellBase, minWidth: 160 }}>
-                      <input
-                        type="text"
-                        value={l.notes}
-                        onChange={e => updateLine(l.id, { notes: e.target.value })}
-                        readOnly={readOnly}
-                        placeholder="Notes..."
-                        style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.textMd, fontFamily: P.sans, outline: "none" }}
-                      />
+                      <input type="text" value={l.notes} onChange={e => updateLine(l.id, { notes: e.target.value })} readOnly={readOnly}
+                        placeholder="Notes..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.textMd, fontFamily: P.sans, outline: "none" }} />
                     </td>
                     <td style={{ ...cellBase, padding: "4px 6px" }}>
                       {!readOnly && (
@@ -1180,6 +1170,32 @@ export default function FinancialPlanEditor({
 
       {activeTab === "monthly" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* ── Resource Plan → Financial Forecast (project resource plan drives this) ── */}
+          {artifactId && projectId && (
+            <ResourcePlanSyncBar
+              projectId={projectId}
+              artifactId={artifactId}
+              isAdmin={isAdmin}
+              currency={content.currency}
+              lastSyncedAt={content.resource_plan_synced_at ?? null}
+              overriddenMonths={overriddenMonths}
+              onOverrideChange={months => {
+                setOverriddenMonths(months);
+                // persist override list inside the content so it survives saves
+                handleChange({
+                  ...content,
+                  resource_plan_overridden_months: JSON.stringify(months),
+                });
+              }}
+              onSynced={() => {
+                // parent reloads the artifact content so monthly phasing reflects sync
+                onRequestReload?.();
+              }}
+            />
+          )}
+
+          {/* ── Legacy manual resource sync (for resources added directly in this editor) ── */}
           {!readOnly && resources.length > 0 && (
             <ResourceSyncBar
               resources={resources}
@@ -1191,6 +1207,7 @@ export default function FinancialPlanEditor({
               onSync={d => updateField("monthly_data", d)}
             />
           )}
+
           <FinancialIntelligencePanel
             content={content}
             monthlyData={monthlyDataWithActuals}
