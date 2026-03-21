@@ -140,6 +140,10 @@ export default async function ArtifactDetailPage({
 
   const roleLower     = String(myRole  || "").toLowerCase();
   const canEditByRole = roleLower === "owner" || roleLower === "editor";
+
+  // ── isAdmin: used to unlock resource plan sync in financial plan ──
+  const isOrgAdmin    = roleLower === "owner" || roleLower === "admin";
+
   const statusLower   = String(status || "").toLowerCase();
   const isDraftOrCR   = statusLower === "draft" || statusLower === "changes_requested";
   const isSubmitted   = statusLower === "submitted";
@@ -162,7 +166,6 @@ export default async function ArtifactDetailPage({
     !!approvalEnabled && !(charterMode || closureMode || financialPlanMode) &&
     !!loaderIsEditable && !!isCurrent && !effectiveLockLayout;
 
-  // Approver mode: approver viewing a submitted charter/closure/financial-plan
   const isApproverViewingSubmitted =
     !!approvalEnabled &&
     !!isApprover &&
@@ -249,11 +252,6 @@ export default async function ArtifactDetailPage({
     redirect(artifactPath);
   }
 
-  /**
-   * NEW: Called from the approver inline comment system.
-   * Receives structured per-section comments, formats them into a
-   * human-readable reason string, then delegates to requestChangesArtifact.
-   */
   async function requestChangesWithCommentsAction(formData: FormData) {
     "use server";
     if (!approvalEnabled || !projectUuid || !isApproverViewingSubmitted) return;
@@ -275,7 +273,6 @@ export default async function ArtifactDetailPage({
       // malformed JSON — fall through with empty comments
     }
 
-    // Build a formatted reason string from the per-section comments
     let reason: string | undefined;
     if (comments.length > 0) {
       const lines = comments.map((c) =>
@@ -498,7 +495,6 @@ export default async function ArtifactDetailPage({
           resize: none; font-family: inherit; background: #fafbfc;
         }
         textarea.af-reason:focus { outline: 2px solid #3b82f6; outline-offset: 1px; }
-        /* Approver mode: hide the old decide grid — comments go inline in the charter editor */
         .af-decide-grid-hidden { display: none !important; }
         @media (max-width: 700px) {
           .af-decide-grid { grid-template-columns: 1fr; }
@@ -632,7 +628,6 @@ export default async function ArtifactDetailPage({
           )}
         </div>
 
-        {/* Legacy decide grid — shown for non-charter approvers, or hidden for approver-mode charter */}
         {approvalEnabled && canDecide && statusLower === "submitted" && (
           <div className={`af-decide-grid${isApproverViewingSubmitted ? " af-decide-grid-hidden" : ""}`}>
             <div className="af-decide-card">
@@ -668,7 +663,6 @@ export default async function ArtifactDetailPage({
           </div>
         )}
 
-        {/* Approver mode: clean two-card bar — Approve + Reject Final */}
         {isApproverViewingSubmitted && (
           <div style={{
             display: "grid",
@@ -678,7 +672,6 @@ export default async function ArtifactDetailPage({
             borderTop: "1px solid #e8ecf0",
             background: "#fafbfc",
           }}>
-            {/* Approve card */}
             <div style={{
               border: "1px solid #bbf7d0",
               borderRadius: 10,
@@ -687,7 +680,7 @@ export default async function ArtifactDetailPage({
               display: "flex", flexDirection: "column", gap: 8,
             }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>Approve</div>
-              <div style={{ fontSize: 11, color: "#4ade80", color: "#166534" }}>
+              <div style={{ fontSize: 11, color: "#166534" }}>
                 Promotes to approved baseline. Use inline comments below to request changes instead.
               </div>
               <form action={approveAction} style={{ marginTop: 4 }}>
@@ -704,7 +697,6 @@ export default async function ArtifactDetailPage({
               </form>
             </div>
 
-            {/* Reject Final card */}
             <div style={{
               border: "1px solid #fecaca",
               borderRadius: 10,
@@ -735,7 +727,7 @@ export default async function ArtifactDetailPage({
                     background: "#fff", color: "#0d1117",
                     outline: "none", width: "100%", boxSizing: "border-box",
                   }}
-                  placeholder='Type REJECT to confirm'
+                  placeholder="Type REJECT to confirm"
                   required
                 />
                 <button
@@ -772,6 +764,7 @@ export default async function ArtifactDetailPage({
           projectId={projectUuid!}
           artifactId={artifactId}
           organisationId={activeOrgId ?? undefined}
+          isAdmin={isOrgAdmin}
           mode={mode}
           isEditable={effectiveIsEditable}
           lockLayout={effectiveLockLayout}
@@ -825,6 +818,7 @@ export default async function ArtifactDetailPage({
         projectId={projectUuid!}
         artifactId={artifactId}
         organisationId={activeOrgId ?? undefined}
+        isAdmin={isOrgAdmin}
         mode={mode}
         isEditable={effectiveIsEditable}
         lockLayout={effectiveLockLayout}
@@ -852,7 +846,6 @@ export default async function ArtifactDetailPage({
         approvalStatus={status ?? null}
         submitForApprovalAction={submitAction}
         updateArtifactJsonAction={jsonSaveAction}
-        // NEW: approver props — only set for submitted charter/closure/financial-plan
         isApprover={isApproverViewingSubmitted}
         requestChangesWithCommentsAction={requestChangesWithCommentsAction}
       />
