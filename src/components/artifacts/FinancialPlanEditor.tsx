@@ -419,6 +419,55 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
   );
 }
 
+
+/* ─────────────────────────────────────────────────────────────────────
+   Merged ResourcesTab
+   - Heatmap is source of truth for person / allocation
+   - Shows planned days, approved days, variance, cost per person
+   - "Add exception" button for manual ad-hoc additions
+───────────────────────────────────────────────────────────────────── */
+
+type HeatmapPerson = {
+  person_id:   string;
+  name:        string;
+  job_title:   string;
+  role_title:  string;
+  day_rate:    number | null;
+  rate_source: "personal" | "role" | null;
+  week_count:  number;
+  total_days:  number;
+};
+
+function useHeatmapPeople(projectId: string, artifactId?: string) {
+  const [people,  setPeople]  = useState<HeatmapPerson[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!projectId || !artifactId) { setLoading(false); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const res  = await fetch(
+        `/api/artifacts/financial-plan/resource-plan-sync?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}`,
+        { cache: "no-store" }
+      );
+      const text = await res.text();
+      let json: any;
+      try { json = JSON.parse(text); } catch { throw new Error(`Route not found or compile error (${res.status})`); }
+      if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      setPeople(json.people ?? []);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, artifactId]);
+
+  useEffect(() => { load(); }, [load]);
+  return { people, loading, error, reload: load };
+}
+
 function ResourcesTab({
   resources, costLines, sym, currency, readOnly, onChange, organisationId,
   monthlyData, fyConfig, timesheetEntries, actualsByLine, onSyncMonthly,
@@ -430,158 +479,314 @@ function ResourcesTab({
   actualsByLine: ActualsByLine; onSyncMonthly: (d: MonthlyData) => void;
   projectId: string; artifactId?: string;
 }) {
+  const { people, loading, error, reload } = useHeatmapPeople(projectId, artifactId);
+  const [showExceptions, setShowExceptions] = useState(false);
+
   const update = useCallback((id: string, patch: Partial<Resource>) =>
     onChange(resources.map(r => r.id === id ? { ...r, ...patch } : r)),
   [onChange, resources]);
 
-  const totalCost = resources.reduce((s, r) => s + resourceTotal(r), 0);
-  const linkedCost = resources.filter(r => r.cost_line_id).reduce((s, r) => s + resourceTotal(r), 0);
-  const unlinkedCost = totalCost - linkedCost;
-
+  // Approved days by resource_id (from timesheets)
   const approvedDaysByResource = useMemo(() => {
     const map: Record<string, number> = {};
     for (const e of timesheetEntries) map[e.resource_id] = (map[e.resource_id] ?? 0) + e.approved_days;
     return map;
   }, [timesheetEntries]);
 
-  const byLine = useMemo(() => {
-    const map: Record<string, { line: CostLine; resources: Resource[]; total: number }> = {};
+  // Match heatmap person → manual resource row (by user_id)
+  const manualByPersonId = useMemo(() => {
+    const map = new Map<string, Resource>();
     for (const r of resources) {
-      if (!r.cost_line_id) continue;
-      const line = costLines.find(l => l.id === r.cost_line_id);
-      if (!line) continue;
-      if (!map[line.id]) map[line.id] = { line, resources: [], total: 0 };
-      map[line.id].resources.push(r);
-      map[line.id].total += resourceTotal(r);
+      if (r.user_id) map.set(r.user_id, r);
     }
-    return Object.values(map);
-  }, [resources, costLines]);
+    return map;
+  }, [resources]);
 
-  const statCards = [
-    { label: "Total Resources", value: String(resources.length), sub: "across all roles", color: P.text },
-    { label: "Total Resource Cost", value: fmt(totalCost, sym), sub: "calculated from rates", color: P.navy },
-    { label: "Linked to Cost Lines", value: fmt(linkedCost, sym), sub: `${byLine.length} line${byLine.length !== 1 ? "s" : ""} receiving rollup`, color: P.green },
-    { label: "Unlinked Cost", value: fmt(unlinkedCost, sym), sub: unlinkedCost > 0 ? "not rolling up" : "all linked", color: unlinkedCost > 0 ? P.amber : P.textSm },
-  ];
+  // Exceptions = manual resources NOT matched to heatmap people
+  const heatmapPersonIds = new Set(people.map(p => p.person_id));
+  const exceptions = resources.filter(r => !r.user_id || !heatmapPersonIds.has(r.user_id));
 
-  const typeBadgeStyle = (type: ResourceType): React.CSSProperties => ({
-    fontSize: 10, fontWeight: 600, fontFamily: P.mono, padding: "3px 8px",
-    background: type === "internal" ? P.navyLt : type === "contractor" ? P.amberLt : type === "vendor" ? P.violetLt : "#F4F4F2",
-    color:      type === "internal" ? P.navy   : type === "contractor" ? P.amber   : type === "vendor" ? P.violet   : P.textMd,
-    border: "none", cursor: readOnly ? "default" : "pointer", outline: "none",
-  });
+  // Totals
+  const heatmapTotalDays    = people.reduce((s, p) => s + p.total_days, 0);
+  const heatmapTotalCost    = people.reduce((s, p) => s + (p.day_rate != null ? p.total_days * p.day_rate : 0), 0);
+  const heatmapApprovedDays = people.reduce((s, p) => {
+    const r = manualByPersonId.get(p.person_id);
+    return s + (r ? (approvedDaysByResource[r.id] ?? 0) : 0);
+  }, 0);
+
+  const missingRate = people.filter(p => p.day_rate == null);
+
+  const thStyle: React.CSSProperties = {
+    padding: "8px 10px", textAlign: "left",
+    fontFamily: P.mono, fontSize: 8, fontWeight: 600,
+    color: P.textSm, letterSpacing: "0.08em", textTransform: "uppercase",
+    borderBottom: `1px solid ${P.borderMd}`, whiteSpace: "nowrap",
+    background: "#F4F4F2",
+  };
+  const thViolet: React.CSSProperties = { ...thStyle, color: P.violet, background: P.violetLt };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20, fontFamily: P.sans }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, fontFamily: P.sans }}>
 
-      {/* ── Primary: Heatmap-driven resources ── */}
-      {artifactId && (
-        <div>
-          <div style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textSm, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-            <Users style={{ width: 11, height: 11 }} />
-            Project Resource Plan
-            <span style={{ flex: 1, height: 1, background: P.border, display: "block" }} />
-          </div>
-          <HeatmapResourcesPanel
-            projectId={projectId}
-            artifactId={artifactId}
-            currency={currency}
-          />
+      {/* Missing rate warning */}
+      {missingRate.length > 0 && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 12px", background: P.amberLt, border: `1px solid #E0C080`, fontSize: 11, color: P.amber }}>
+          <AlertCircle style={{ width: 12, height: 12, flexShrink: 0, marginTop: 1 }} />
+          <span>
+            <strong>{missingRate.map(p => p.name).join(", ")}</strong>
+            {missingRate.length === 1 ? " has" : " have"} no rate card entry.
+            Add their job title to the rate card to include them in the cost forecast.
+          </span>
         </div>
       )}
 
-      {/* ── Stat cards (for manual resources) ── */}
-      {resources.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-          {statCards.map(s => (
-            <div key={s.label} style={{ background: P.surface, border: `1px solid ${P.border}`, padding: "12px 16px" }}>
-              <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
-              <div style={{ fontFamily: P.mono, fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>{s.sub}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {byLine.length > 0 && (
-        <div style={{ border: `1px solid ${P.border}`, background: P.navyLt, padding: "10px 14px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <Link2 style={{ width: 12, height: 12, color: P.navy }} />
-            <span style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.navy, letterSpacing: "0.1em", textTransform: "uppercase" }}>Cost Line Rollup</span>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {byLine.map(({ line, resources: lr, total }) => (
-              <div key={line.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: line.override ? P.amberLt : P.surface, border: `1px solid ${line.override ? "#E0C080" : P.border}`, fontSize: 11 }}>
-                <span style={{ fontWeight: 600, color: P.text, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{line.description || line.category}</span>
-                <span style={{ color: P.textSm }}>{"\u2190"}</span>
-                <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textMd }}>{lr.length} resource{lr.length !== 1 ? "s" : ""}</span>
-                <span style={{ fontFamily: P.mono, fontWeight: 700, color: P.navy }}>{fmt(total, sym)}</span>
-                {line.override && <span style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.amber, background: P.amberLt, border: `1px solid #E0C080`, padding: "1px 5px" }}>Override</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {!readOnly && (
-        <ResourceSyncBar resources={resources} costLines={costLines} monthlyData={monthlyData} fyConfig={fyConfig} currency={currency} timesheetEntries={timesheetEntries} onSync={onSyncMonthly} />
-      )}
-
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, border: `1px solid #a5f3fc`, background: P.violetLt, padding: "8px 12px", fontSize: 11, color: P.violet }}>
-        <Lock style={{ width: 12, height: 12, flexShrink: 0, marginTop: 1 }} />
-        <span><strong>People actuals are locked</strong> -- computed from approved timesheet days x rate card rate. Hardware, infrastructure and vendor lines can be edited manually in the Cost Breakdown tab.</span>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${P.border}`, background: P.navyLt, padding: "8px 12px", fontSize: 11, color: P.navy }}>
-        <Users style={{ width: 12, height: 12, flexShrink: 0 }} />
-        <span>Pick a person from your organisation -- their rate auto-fills from the <strong>Rate Card</strong>. Then hit <strong>Sync to monthly</strong> to phase costs across the timeline.</span>
-      </div>
-
-      {/* ── Manual resources section header ── */}
-      <div>
-        <div style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textSm, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-          Additional Manual Resources
-          <span style={{ flex: 1, height: 1, background: P.border, display: "block" }} />
-          <span style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>optional — for costs not in the heatmap</span>
-        </div>
-        <div style={{ border: `1px solid ${P.borderMd}`, overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 1200 }}>
+      {/* Main merged table */}
+      <div style={{ border: `1px solid ${P.borderMd}`, overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 900 }}>
           <thead>
             <tr style={{ background: "#F4F4F2", borderBottom: `1px solid ${P.borderMd}` }}>
-              {["Person / Role", "Type", "Rate Method", "Rate", "Planned Qty", "Total", "Approved Days", "Actual Cost", "Start Month", "Links to", ""].map((h, i) => (
-                <th key={i} style={{ padding: "8px 10px", textAlign: "left", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: h === "Approved Days" || h === "Actual Cost" ? P.violet : P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap", borderBottom: `1px solid ${P.borderMd}`, background: h === "Approved Days" || h === "Actual Cost" ? P.violetLt : "#F4F4F2" }}>
-                  {h}
-                </th>
-              ))}
+              <th style={{ ...thStyle, minWidth: 200 }}>Person / Role</th>
+              <th style={{ ...thStyle, minWidth: 100 }}>Job Title</th>
+              <th style={{ ...thStyle }}>Rate / Day</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Planned Days</th>
+              <th style={{ ...thViolet, textAlign: "right" }}>Approved Days</th>
+              <th style={{ ...thViolet, textAlign: "right" }}>Variance</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Planned Cost</th>
+              <th style={{ ...thViolet, textAlign: "right" }}>Actual Cost</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Weeks</th>
+              <th style={{ ...thStyle, minWidth: 120 }}>Links to</th>
+              {!readOnly && <th style={{ ...thStyle, width: 32 }} />}
             </tr>
           </thead>
           <tbody>
-            {resources.length === 0 && (
+            {/* Loading state */}
+            {loading && (
               <tr>
-                <td colSpan={11} style={{ padding: "40px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>
-                  No resources yet. Click <strong>Add resource</strong> below.
+                <td colSpan={11} style={{ padding: "24px 16px", textAlign: "center", fontFamily: P.mono, fontSize: 11, color: P.textSm }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    <div style={{ width: 12, height: 12, border: `2px solid ${P.border}`, borderTopColor: P.navy, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                    Loading from heatmap…
+                    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                  </div>
                 </td>
               </tr>
             )}
-            {resources.map((r, idx) => {
-              const total = resourceTotal(r);
-              const linkedLine = costLines.find(l => l.id === r.cost_line_id);
-              const hasRate = r.rate_type === "day_rate" ? Number(r.day_rate) > 0 : Number(r.monthly_cost) > 0;
-              const approvedDays = approvedDaysByResource[r.id] ?? 0;
-              const effectiveDayRate = r.rate_type === "day_rate" ? Number(r.day_rate) || 0 : (Number(r.monthly_cost) || 0) / 20;
-              const actualCost = Math.round(approvedDays * effectiveDayRate * 100) / 100;
-              const hasTimesheet = approvedDays > 0;
-              const rowBg = idx % 2 === 0 ? P.surface : "#FAFAF8";
-              const cellStyle: React.CSSProperties = { borderBottom: `1px solid ${P.border}`, background: rowBg };
+
+            {/* Error state */}
+            {!loading && error && (
+              <tr>
+                <td colSpan={11} style={{ padding: "16px", background: P.redLt }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: P.mono, fontSize: 11, color: P.red }}>
+                    <AlertCircle style={{ width: 12, height: 12 }} />
+                    {error}
+                    <button type="button" onClick={reload} style={{ marginLeft: 8, background: "none", border: "none", cursor: "pointer", color: P.red, fontFamily: P.mono, fontSize: 10, textDecoration: "underline" }}>
+                      Retry
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )}
+
+            {/* Empty state */}
+            {!loading && !error && people.length === 0 && (
+              <tr>
+                <td colSpan={11} style={{ padding: "32px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>
+                  No allocations found on the capacity heatmap for this project.
+                </td>
+              </tr>
+            )}
+
+            {/* Heatmap people rows */}
+            {!loading && !error && people.map((person, idx) => {
+              const manualResource  = manualByPersonId.get(person.person_id);
+              const approvedDays    = manualResource ? (approvedDaysByResource[manualResource.id] ?? 0) : 0;
+              const plannedDays     = person.total_days;
+              const variance        = approvedDays > 0 ? approvedDays - plannedDays : null;
+              const plannedCost     = person.day_rate != null ? Math.round(plannedDays * person.day_rate) : null;
+              const actualCost      = person.day_rate != null && approvedDays > 0
+                ? Math.round(approvedDays * person.day_rate) : null;
+              const hasRate         = person.day_rate != null;
+              const hasTimesheet    = approvedDays > 0;
+              const rowBg           = idx % 2 === 0 ? P.surface : "#FAFAF8";
+              const linkedLine      = manualResource ? costLines.find(l => l.id === manualResource.cost_line_id) : null;
+
+              // Initials avatar
+              const initials = person.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
 
               return (
-                <tr key={r.id} style={cellStyle}>
-                  <td style={{ ...cellStyle, minWidth: 220, padding: "4px 8px" }}>
+                <tr key={person.person_id} style={{ background: rowBg, borderBottom: `1px solid ${P.border}` }}>
+                  {/* Person */}
+                  <td style={{ padding: "10px 10px", background: rowBg }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: P.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0, fontFamily: P.mono }}>
+                        {initials}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: P.text }}>{person.name}</div>
+                        <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 1 }}>
+                          From heatmap
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Job title */}
+                  <td style={{ padding: "10px 10px", background: rowBg }}>
+                    <div style={{ fontSize: 11, color: P.textMd }}>{person.job_title || person.role_title || "—"}</div>
+                    {person.rate_source && (
+                      <div style={{ fontFamily: P.mono, fontSize: 8, color: P.green, marginTop: 2 }}>
+                        {person.rate_source === "personal" ? "personal rate" : "role rate"}
+                      </div>
+                    )}
+                  </td>
+
+                  {/* Rate */}
+                  <td style={{ padding: "10px 10px", background: rowBg }}>
+                    {hasRate ? (
+                      <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>
+                        {sym}{person.day_rate!.toLocaleString()}
+                      </div>
+                    ) : (
+                      <span style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.amber }}>No rate</span>
+                    )}
+                  </td>
+
+                  {/* Planned days */}
+                  <td style={{ padding: "10px 10px", textAlign: "right", background: rowBg }}>
+                    <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>
+                      {plannedDays.toFixed(1)}
+                    </div>
+                    <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>days</div>
+                  </td>
+
+                  {/* Approved days (locked) */}
+                  <td style={{ padding: "10px 10px", textAlign: "right", background: idx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
+                      <Lock style={{ width: 8, height: 8, color: P.violet, opacity: 0.5 }} />
+                      <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: hasTimesheet ? P.violet : P.textSm }}>
+                        {hasTimesheet ? approvedDays.toFixed(1) : "—"}
+                      </span>
+                    </div>
+                    <div style={{ fontFamily: P.mono, fontSize: 8, color: P.violet, opacity: 0.7, textAlign: "right" }}>
+                      {hasTimesheet ? "approved" : "no timesheets"}
+                    </div>
+                  </td>
+
+                  {/* Variance */}
+                  <td style={{ padding: "10px 10px", textAlign: "right", background: idx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
+                    {variance !== null ? (
+                      <>
+                        <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: variance > 0 ? P.red : variance < 0 ? P.green : P.textSm }}>
+                          {variance > 0 ? "+" : ""}{variance.toFixed(1)}
+                        </div>
+                        <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>
+                          {variance > 0 ? "over plan" : variance < 0 ? "under plan" : "on plan"}
+                        </div>
+                      </>
+                    ) : (
+                      <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>—</span>
+                    )}
+                  </td>
+
+                  {/* Planned cost */}
+                  <td style={{ padding: "10px 10px", textAlign: "right", background: rowBg }}>
+                    {plannedCost != null ? (
+                      <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>
+                        {sym}{plannedCost.toLocaleString()}
+                      </div>
+                    ) : (
+                      <span style={{ fontFamily: P.mono, fontSize: 9, color: P.amber }}>—</span>
+                    )}
+                  </td>
+
+                  {/* Actual cost (locked) */}
+                  <td style={{ padding: "10px 10px", textAlign: "right", background: idx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
+                      <Lock style={{ width: 8, height: 8, color: P.violet, opacity: 0.5 }} />
+                      <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: actualCost != null ? P.violet : P.textSm }}>
+                        {actualCost != null ? `${sym}${actualCost.toLocaleString()}` : "—"}
+                      </span>
+                    </div>
+                    <div style={{ fontFamily: P.mono, fontSize: 8, color: P.violet, opacity: 0.7, textAlign: "right" }}>
+                      {hasTimesheet ? "actual" : "awaiting"}
+                    </div>
+                  </td>
+
+                  {/* Weeks */}
+                  <td style={{ padding: "10px 10px", textAlign: "right", background: rowBg }}>
+                    <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: P.text }}>
+                      {person.week_count}
+                    </div>
+                    <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>weeks</div>
+                  </td>
+
+                  {/* Links to cost line */}
+                  <td style={{ padding: "6px 8px", background: rowBg, minWidth: 120 }}>
+                    {manualResource ? (
+                      <>
+                        <select
+                          value={manualResource.cost_line_id ?? ""}
+                          onChange={e => update(manualResource.id, { cost_line_id: e.target.value || null })}
+                          disabled={readOnly}
+                          style={{ width: "100%", border: `1px solid ${P.border}`, background: P.surface, fontSize: 10, fontFamily: P.sans, padding: "4px 6px", color: P.text, outline: "none", cursor: readOnly ? "default" : "pointer" }}
+                        >
+                          <option value="">-- not linked --</option>
+                          {costLines.map(l => <option key={l.id} value={l.id}>{l.description || l.category}</option>)}
+                        </select>
+                        {linkedLine && (
+                          <div style={{ fontFamily: P.mono, fontSize: 8, color: P.green, marginTop: 2 }}>
+                            {linkedLine.override ? "Override" : "Auto-updating"}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>—</span>
+                    )}
+                  </td>
+
+                  {/* Actions */}
+                  {!readOnly && (
+                    <td style={{ padding: "6px 6px", textAlign: "center", background: rowBg, width: 32 }}>
+                      <button
+                        type="button"
+                        onClick={reload}
+                        title="Refresh from heatmap"
+                        style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0.4 }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = "0.4"; }}
+                      >
+                        <Zap style={{ width: 12, height: 12 }} />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+
+            {/* Exception rows (manual additions) */}
+            {showExceptions && exceptions.map((r, idx) => {
+              const approvedDays    = approvedDaysByResource[r.id] ?? 0;
+              const plannedDays     = Number(r.planned_days) || 0;
+              const variance        = approvedDays > 0 ? approvedDays - plannedDays : null;
+              const dayRate         = r.rate_type === "day_rate" ? Number(r.day_rate) || 0 : (Number(r.monthly_cost) || 0) / 20;
+              const plannedCost     = dayRate > 0 && plannedDays > 0 ? Math.round(plannedDays * dayRate) : null;
+              const actualCost      = dayRate > 0 && approvedDays > 0 ? Math.round(approvedDays * dayRate) : null;
+              const linkedLine      = costLines.find(l => l.id === r.cost_line_id);
+              const hasTimesheet    = approvedDays > 0;
+              const baseIdx         = people.length + idx;
+              const rowBg           = baseIdx % 2 === 0 ? "#FFFDF5" : "#FFF9EC";
+
+              return (
+                <tr key={r.id} style={{ background: rowBg, borderBottom: `1px solid ${P.border}` }}>
+                  {/* Person — manual picker */}
+                  <td style={{ padding: "8px 10px", background: rowBg }}>
                     <ResourcePicker
-                      organisationId={organisationId} value={r.user_id ?? null}
-                      currentResource={r} disabled={readOnly}
+                      organisationId={organisationId}
+                      value={r.user_id ?? null}
+                      currentResource={r}
+                      disabled={readOnly}
                       onPick={async (person: PickedPerson) => {
-                        let finalPatch: Partial<Resource> = {
+                        let patch: Partial<Resource> = {
                           user_id: person.user_id || undefined,
                           name: person.full_name ?? person.name ?? person.email ?? r.name,
                           ...(person.rate_type != null ? {
@@ -591,203 +796,172 @@ function ResourcesTab({
                             type: (person.resource_type ?? r.type) as ResourceType,
                           } : {}),
                         };
-                        const personUid = person.user_id;
-                        if (personUid && organisationId) {
+                        if (person.user_id && organisationId) {
                           try {
-                            const res = await fetch(
-                              `/api/org/rate-card?orgId=${encodeURIComponent(organisationId)}&userId=${encodeURIComponent(personUid)}`,
-                              { cache: "no-store" }
-                            );
+                            const res = await fetch(`/api/org/rate-card?orgId=${encodeURIComponent(organisationId)}&userId=${encodeURIComponent(person.user_id)}`, { cache: "no-store" });
                             const d = await res.json().catch(() => ({ ok: false, match: null }));
-                            const match = d.ok && d.match ? d.match : null;
-                            if (match) {
-                              finalPatch = {
-                                ...finalPatch,
-                                rate_type: match.rate_type,
-                                day_rate: match.rate_type === "day_rate" ? match.rate : r.day_rate,
-                                monthly_cost: match.rate_type === "monthly_cost" ? match.rate : r.monthly_cost,
-                                type: match.resource_type as ResourceType,
-                              };
+                            if (d.ok && d.match) {
+                              patch = { ...patch, rate_type: d.match.rate_type, day_rate: d.match.rate_type === "day_rate" ? d.match.rate : r.day_rate, monthly_cost: d.match.rate_type === "monthly_cost" ? d.match.rate : r.monthly_cost, type: d.match.resource_type as ResourceType };
                             }
-                          } catch (e) {
-                            console.warn("Rate card lookup failed:", e);
-                          }
+                          } catch {}
                         }
-                        update(r.id, finalPatch);
+                        update(r.id, patch);
                       }}
                     />
-                    <input
-                      type="text"
-                      value={r.name}
-                      onChange={e => update(r.id, { name: e.target.value })}
-                      readOnly={readOnly}
-                      placeholder="Role label override..."
-                      style={{ width: "100%", border: "none", background: "transparent", padding: "2px 6px", fontSize: 10, color: P.text, fontFamily: P.sans, outline: "none" }}
-                    />
+                    <input type="text" value={r.name} onChange={e => update(r.id, { name: e.target.value })} readOnly={readOnly}
+                      placeholder="Label..." style={{ width: "100%", border: "none", background: "transparent", padding: "2px 6px", fontSize: 10, color: P.textMd, fontFamily: P.sans, outline: "none" }} />
+                    <div style={{ fontFamily: P.mono, fontSize: 8, color: P.amber, padding: "0 6px 2px" }}>Exception</div>
                   </td>
-                  <td style={{ ...cellStyle, minWidth: 110, padding: "4px 6px" }}>
-                    <select value={r.type} onChange={e => update(r.id, { type: e.target.value as ResourceType })} disabled={readOnly} style={typeBadgeStyle(r.type)}>
-                      {(Object.keys(RESOURCE_TYPE_LABELS) as ResourceType[]).map(t => (
-                        <option key={t} value={t}>{RESOURCE_TYPE_LABELS[t]}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td style={{ ...cellStyle, padding: "4px 6px" }}>
-                    <div style={{ display: "flex", background: "#EDEDEB", padding: 2, gap: 2 }}>
+
+                  {/* Rate type + value */}
+                  <td style={{ padding: "8px 10px", background: rowBg }}>
+                    <div style={{ display: "flex", background: "#EDEDEB", padding: 2, gap: 2, marginBottom: 4 }}>
                       {(["day_rate", "monthly_cost"] as ResourceRateType[]).map(rt => (
-                        <button type="button" key={rt} onClick={() => !readOnly && update(r.id, { rate_type: rt })} style={{ padding: "4px 8px", fontSize: 9, fontFamily: P.mono, fontWeight: 700, cursor: readOnly ? "default" : "pointer", background: r.rate_type === rt ? P.surface : "transparent", color: r.rate_type === rt ? P.text : P.textSm, border: r.rate_type === rt ? `1px solid ${P.border}` : "1px solid transparent", whiteSpace: "nowrap" }}>
-                          {rt === "day_rate" ? "Day Rate" : "Monthly"}
+                        <button type="button" key={rt} onClick={() => !readOnly && update(r.id, { rate_type: rt })}
+                          style={{ padding: "2px 6px", fontSize: 8, fontFamily: P.mono, fontWeight: 700, cursor: readOnly ? "default" : "pointer", background: r.rate_type === rt ? P.surface : "transparent", color: r.rate_type === rt ? P.text : P.textSm, border: r.rate_type === rt ? `1px solid ${P.border}` : "1px solid transparent" }}>
+                          {rt === "day_rate" ? "Day" : "Mo"}
                         </button>
                       ))}
                     </div>
                   </td>
-                  <td style={{ ...cellStyle, minWidth: 110 }}>
-                    {r.rate_type === "day_rate"
-                      ? <MoneyCell value={r.day_rate} onChange={v => update(r.id, { day_rate: v })} symbol={sym} readOnly={readOnly} />
-                      : <MoneyCell value={r.monthly_cost} onChange={v => update(r.id, { monthly_cost: v })} symbol={sym} readOnly={readOnly} />
-                    }
-                    <div style={{ padding: "0 8px 2px", fontFamily: P.mono, fontSize: 9, color: P.textSm }}>
-                      {r.rate_type === "day_rate" ? "per day" : "per month"}
-                    </div>
-                    {hasRate && r.user_id && (
-                      <div style={{ padding: "0 6px 4px", display: "flex", alignItems: "center", gap: 4, fontFamily: P.mono, fontSize: 9, color: P.green }}>
-                        <Zap style={{ width: 9, height: 9 }} /> from rate card
-                      </div>
-                    )}
+
+                  {/* Rate amount */}
+                  <td style={{ padding: "8px 10px", background: rowBg }}>
+                    <MoneyCell value={r.rate_type === "day_rate" ? r.day_rate : r.monthly_cost}
+                      onChange={v => update(r.id, r.rate_type === "day_rate" ? { day_rate: v } : { monthly_cost: v })}
+                      symbol={sym} readOnly={readOnly} />
                   </td>
-                  <td style={{ ...cellStyle, minWidth: 80, padding: "4px 6px" }}>
-                    <input
-                      type="number"
-                      min={0}
-                      step={r.rate_type === "day_rate" ? 1 : 0.5}
-                      value={r.rate_type === "day_rate" ? r.planned_days : r.planned_months}
-                      onChange={e => {
-                        const v = e.target.value === "" ? "" : Number(e.target.value);
-                        update(r.id, r.rate_type === "day_rate" ? { planned_days: v } : { planned_months: v });
-                      }}
-                      readOnly={readOnly}
-                      placeholder="0"
-                      style={{ width: "100%", border: "none", background: "transparent", padding: "6px 4px", fontSize: 12, textAlign: "right", fontFamily: P.mono, fontWeight: 500, color: P.text, outline: "none" }}
-                    />
-                    <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, textAlign: "right", padding: "0 4px 2px" }}>
-                      {r.rate_type === "day_rate" ? "days planned" : "months planned"}
-                    </div>
+
+                  {/* Planned days */}
+                  <td style={{ padding: "8px 10px", background: rowBg }}>
+                    <input type="number" min={0} step={1} value={r.rate_type === "day_rate" ? r.planned_days : r.planned_months}
+                      onChange={e => { const v = e.target.value === "" ? "" : Number(e.target.value); update(r.id, r.rate_type === "day_rate" ? { planned_days: v } : { planned_months: v }); }}
+                      readOnly={readOnly} placeholder="0"
+                      style={{ width: 60, border: "none", background: "transparent", padding: "4px", fontSize: 12, textAlign: "right", fontFamily: P.mono, fontWeight: 500, color: P.text, outline: "none" }} />
                   </td>
-                  <td style={{ ...cellStyle, padding: "4px 10px" }}>
-                    <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: total > 0 ? P.text : P.textSm, fontVariantNumeric: "tabular-nums" }}>{total > 0 ? fmt(total, sym) : "\u2014"}</div>
-                    {total > 0 && <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>planned total</div>}
-                  </td>
-                  <td style={{ ...cellStyle, background: idx % 2 === 0 ? P.violetLt : "#e0f7fa", padding: "4px 10px", minWidth: 100 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <Lock style={{ width: 9, height: 9, color: P.violet, flexShrink: 0, opacity: 0.5 }} />
-                      <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: hasTimesheet ? P.violet : P.textSm, fontVariantNumeric: "tabular-nums" }}>
-                        {hasTimesheet ? approvedDays.toLocaleString() : "\u2014"}
+
+                  {/* Approved days */}
+                  <td style={{ padding: "8px 10px", textAlign: "right", background: baseIdx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
+                      <Lock style={{ width: 8, height: 8, color: P.violet, opacity: 0.5 }} />
+                      <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: hasTimesheet ? P.violet : P.textSm }}>
+                        {hasTimesheet ? approvedDays.toFixed(1) : "—"}
                       </span>
                     </div>
-                    <div style={{ fontFamily: P.mono, fontSize: 9, color: P.violet, marginTop: 2, opacity: 0.7 }}>{hasTimesheet ? "approved days" : "no timesheets"}</div>
-                    {hasTimesheet && r.rate_type === "day_rate" && Number(r.planned_days) > 0 && (
-                      <div style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 600, marginTop: 2, color: approvedDays > Number(r.planned_days) ? P.red : P.green }}>
-                        {approvedDays > Number(r.planned_days) ? "\u25b2" : "\u25bc"} {Math.abs(approvedDays - Number(r.planned_days))} vs plan
-                      </div>
-                    )}
                   </td>
-                  <td style={{ ...cellStyle, background: idx % 2 === 0 ? P.violetLt : "#e0f7fa", padding: "4px 10px", minWidth: 110 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <Lock style={{ width: 9, height: 9, color: P.violet, flexShrink: 0, opacity: 0.5 }} />
-                      <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: actualCost > 0 ? P.violet : P.textSm, fontVariantNumeric: "tabular-nums" }}>
-                        {actualCost > 0 ? fmt(actualCost, sym) : "\u2014"}
+
+                  {/* Variance */}
+                  <td style={{ padding: "8px 10px", textAlign: "right", background: baseIdx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
+                    {variance !== null ? (
+                      <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: variance > 0 ? P.red : P.green }}>
+                        {variance > 0 ? "+" : ""}{variance.toFixed(1)}
                       </span>
-                    </div>
-                    <div style={{ fontFamily: P.mono, fontSize: 9, color: P.violet, marginTop: 2, opacity: 0.7 }}>{hasTimesheet ? "actual spend" : "awaiting timesheets"}</div>
-                    {actualCost > 0 && total > 0 && (
-                      <div style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 600, marginTop: 2, color: actualCost > total ? P.red : P.green }}>
-                        {Math.round((actualCost / total) * 100)}% of planned spend
-                      </div>
-                    )}
+                    ) : <span style={{ color: P.textSm }}>—</span>}
                   </td>
-                  <td style={{ ...cellStyle, minWidth: 110, padding: "4px 6px" }}>
-                    <input
-                      type="month"
-                      value={r.start_month ?? ""}
-                      onChange={e => update(r.id, { start_month: e.target.value || undefined })}
-                      readOnly={readOnly}
-                      style={{ width: "100%", border: `1px solid ${P.border}`, background: P.surface, fontSize: 11, fontFamily: P.mono, padding: "5px 6px", color: P.text, outline: "none" }}
-                    />
-                    <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>optional</div>
+
+                  {/* Planned cost */}
+                  <td style={{ padding: "8px 10px", textAlign: "right", background: rowBg }}>
+                    <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>
+                      {plannedCost != null ? `${sym}${plannedCost.toLocaleString()}` : "—"}
+                    </span>
                   </td>
-                  <td style={{ ...cellStyle, minWidth: 160, padding: "4px 6px" }}>
-                    <select
-                      value={r.cost_line_id ?? ""}
-                      onChange={e => update(r.id, { cost_line_id: e.target.value || null })}
-                      disabled={readOnly}
-                      style={{ width: "100%", border: `1px solid ${P.border}`, background: P.surface, fontSize: 11, fontFamily: P.sans, padding: "5px 6px", color: P.text, outline: "none", cursor: readOnly ? "default" : "pointer" }}
-                    >
+
+                  {/* Actual cost */}
+                  <td style={{ padding: "8px 10px", textAlign: "right", background: baseIdx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
+                    <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: actualCost != null ? P.violet : P.textSm }}>
+                      {actualCost != null ? `${sym}${actualCost.toLocaleString()}` : "—"}
+                    </span>
+                  </td>
+
+                  {/* Weeks / months */}
+                  <td style={{ padding: "8px 10px", textAlign: "right", background: rowBg }}>
+                    <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm }}>manual</span>
+                  </td>
+
+                  {/* Links to */}
+                  <td style={{ padding: "6px 8px", background: rowBg }}>
+                    <select value={r.cost_line_id ?? ""} onChange={e => update(r.id, { cost_line_id: e.target.value || null })} disabled={readOnly}
+                      style={{ width: "100%", border: `1px solid ${P.border}`, background: P.surface, fontSize: 10, fontFamily: P.sans, padding: "4px 6px", color: P.text, outline: "none" }}>
                       <option value="">-- not linked --</option>
                       {costLines.map(l => <option key={l.id} value={l.id}>{l.description || l.category}</option>)}
                     </select>
-                    {linkedLine && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 4, padding: "0 2px" }}>
-                        <Link2 style={{ width: 10, height: 10, color: P.green, flexShrink: 0 }} />
-                        <span style={{ fontFamily: P.mono, fontSize: 9, color: P.green, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {linkedLine.override ? "Override active" : "Auto-updating"}
-                        </span>
-                      </div>
-                    )}
                   </td>
-                  <td style={{ ...cellStyle, padding: "4px 6px", textAlign: "center", width: 32 }}>
-                    {!readOnly && (
-                      hasTimesheet ? (
-                        <div title="Cannot remove -- resource has approved timesheet hours"
-                          style={{ padding: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", color: P.border, cursor: "not-allowed" }}>
-                          <Lock style={{ width: 13, height: 13 }} />
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => onChange(resources.filter(x => x.id !== r.id))}
-                          style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0.35, transition: "opacity 0.15s, color 0.15s" }}
-                          onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
-                          onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0.35"; }}
-                          aria-label="Remove resource"
-                        >
-                          <Trash2 style={{ width: 13, height: 13 }} />
-                        </button>
-                      )
-                    )}
-                  </td>
+
+                  {/* Delete */}
+                  {!readOnly && (
+                    <td style={{ padding: "6px 6px", textAlign: "center", background: rowBg }}>
+                      <button type="button" onClick={() => onChange(resources.filter(x => x.id !== r.id))}
+                        style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0.35 }}
+                        onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0.35"; }}>
+                        <Trash2 style={{ width: 13, height: 13 }} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
           </tbody>
-          {resources.length > 0 && (
+
+          {/* Footer totals */}
+          {!loading && !error && people.length > 0 && (
             <tfoot>
               <tr style={{ background: "#F0F0ED", borderTop: `1px solid ${P.borderMd}` }}>
-                <td colSpan={5} style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textMd, letterSpacing: "0.06em", textTransform: "uppercase" }}>Total</td>
-                <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>{fmt(totalCost, sym)}</td>
-                <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.violet, background: P.violetLt }}>
-                  {Object.values(approvedDaysByResource).reduce((s, d) => s + d, 0).toLocaleString()} days
+                <td colSpan={3} style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textMd, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  Total · {people.length} from heatmap{exceptions.length > 0 ? ` + ${exceptions.length} exception${exceptions.length !== 1 ? "s" : ""}` : ""}
                 </td>
-                <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.violet, background: P.violetLt }}>
-                  {fmt(resources.reduce((s, r) => {
-                    const days = approvedDaysByResource[r.id] ?? 0;
-                    const rate = r.rate_type === "day_rate" ? Number(r.day_rate) || 0 : (Number(r.monthly_cost) || 0) / 20;
-                    return s + days * rate;
-                  }, 0), sym)}
+                <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>
+                  {heatmapTotalDays.toFixed(1)}
                 </td>
+                <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.violet, background: P.violetLt }}>
+                  {heatmapApprovedDays > 0 ? heatmapApprovedDays.toFixed(1) : "—"}
+                </td>
+                <td style={{ padding: "8px 10px", background: P.violetLt }} />
+                <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>
+                  {heatmapTotalCost > 0 ? `${sym}${heatmapTotalCost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "—"}
+                </td>
+                <td style={{ padding: "8px 10px", background: P.violetLt }} />
                 <td colSpan={3} />
               </tr>
             </tfoot>
           )}
         </table>
+
+        {/* Add exception button */}
         {!readOnly && (
-          <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
-            <button type="button" onClick={() => onChange([...resources, emptyResource()])} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.navy, cursor: "pointer", fontWeight: 500 }}>
-              <Plus style={{ width: 14, height: 14 }} /> Add resource
+          <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+            <button type="button" onClick={() => { setShowExceptions(true); onChange([...resources, emptyResource()]); }}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${P.amber}`, padding: "5px 12px", fontFamily: P.sans, fontSize: 11, color: P.amber, cursor: "pointer", fontWeight: 600 }}>
+              <Plus style={{ width: 13, height: 13 }} /> Add exception
+            </button>
+            {exceptions.length > 0 && !showExceptions && (
+              <button type="button" onClick={() => setShowExceptions(true)}
+                style={{ fontFamily: P.mono, fontSize: 9, color: P.amber, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                Show {exceptions.length} exception{exceptions.length !== 1 ? "s" : ""}
+              </button>
+            )}
+            {showExceptions && exceptions.length > 0 && (
+              <button type="button" onClick={() => setShowExceptions(false)}
+                style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                Hide exceptions
+              </button>
+            )}
+            <span style={{ marginLeft: "auto", fontFamily: P.mono, fontSize: 9, color: P.textSm }}>
+              Exceptions: manual costs not in the heatmap (contractors, one-off purchases)
+            </span>
+            <button type="button" onClick={reload} title="Refresh from heatmap"
+              style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: P.mono, fontSize: 9, color: P.navy, background: "none", border: "none", cursor: "pointer", opacity: 0.6 }}>
+              <Zap style={{ width: 10, height: 10 }} /> Refresh heatmap
             </button>
           </div>
         )}
-        </div>{/* end border wrapper */}
-      </div>{/* end manual resources section */}
+      </div>
+
+      {/* Locked actuals note */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, border: `1px solid #a5f3fc`, background: P.violetLt, padding: "8px 12px", fontSize: 11, color: P.violet }}>
+        <Lock style={{ width: 12, height: 12, flexShrink: 0, marginTop: 1 }} />
+        <span><strong>Approved days &amp; actual cost are locked</strong> — computed from approved timesheets × rate card. Planned days and allocation come from the capacity heatmap.</span>
+      </div>
     </div>
   );
 }
