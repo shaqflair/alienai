@@ -419,6 +419,7 @@ export default function AllocationAuditTrail({
   const [filter, setFilter] = useState<FilterType>("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
+  const [collapsed, setCollapsed] = useState(true);
   const PAGE_SIZE = 20;
 
   const load = useCallback(async () => {
@@ -482,227 +483,266 @@ export default function AllocationAuditTrail({
         background: "#fff",
         border: "1px solid #e5e7eb",
         borderRadius: 16,
-        padding: 20,
+        overflow: "hidden",
       }}
     >
-      <div
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
         style={{
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 12,
-          flexWrap: "wrap",
-          marginBottom: 14,
+          width: "100%",
+          textAlign: "left",
+          background: "transparent",
+          border: "none",
+          padding: 20,
+          cursor: "pointer",
+          fontFamily: "inherit",
         }}
       >
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>{title}</div>
-          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 3 }}>Click to view:</div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          {expanded.size > 0 && (
-            <button type="button" onClick={() => setExpanded(new Set())} style={ghostBtnStyle()}>
-              Collapse all
-            </button>
-          )}
-
-          {filtered.length > 0 && expanded.size === 0 && (
-            <button
-              type="button"
-              onClick={() => setExpanded(new Set(filtered.map((e) => e.id)))}
-              style={ghostBtnStyle()}
-            >
-              Expand all
-            </button>
-          )}
-
-          <button type="button" onClick={load} style={ghostBtnStyle(loading)}>
-            {loading ? "Refreshing..." : "Refresh"}
-          </button>
-
-          <span style={{ fontSize: 12, color: "#94a3b8" }}>
-            {entries.length} event{entries.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          flexWrap: "wrap",
-          alignItems: "center",
-          marginBottom: 16,
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            setFilter("all");
-            setPage(1);
-            setExpanded(new Set());
-          }}
-          style={chipStyle(filter === "all")}
-        >
-          All ({counts.all})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setFilter("created");
-            setPage(1);
-            setExpanded(new Set());
-          }}
-          style={chipStyle(filter === "created")}
-        >
-          New ({counts.created})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setFilter("updated");
-            setPage(1);
-            setExpanded(new Set());
-          }}
-          style={chipStyle(filter === "updated")}
-        >
-          Changes ({counts.updated})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setFilter("deleted");
-            setPage(1);
-            setExpanded(new Set());
-          }}
-          style={chipStyle(filter === "deleted")}
-        >
-          Removed ({counts.deleted})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setFilter("weekly");
-            setPage(1);
-            setExpanded(new Set());
-          }}
-          style={chipStyle(filter === "weekly")}
-        >
-          Weekly ({counts.weekly})
-        </button>
-      </div>
-
-      {loading && (
         <div
           style={{
-            minHeight: 120,
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#94a3b8",
-            fontSize: 13,
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
           }}
         >
-          Loading audit events...
-        </div>
-      )}
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>{title}</div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 3 }}>Click to view:</div>
+          </div>
 
-      {error && !loading && (
-        <div
-          style={{
-            padding: "12px 14px",
-            borderRadius: 10,
-            background: "#fff1f2",
-            border: "1px solid #fecaca",
-            fontSize: 12,
-            color: "#dc2626",
-          }}
-        >
-          {error}
-          <button
-            type="button"
-            onClick={load}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>
+              {entries.length} event{entries.length !== 1 ? "s" : ""}
+            </span>
+            <span
+              style={{
+                fontSize: 11,
+                color: "#94a3b8",
+                transform: collapsed ? "rotate(0deg)" : "rotate(180deg)",
+                transition: "transform 0.15s ease",
+                display: "inline-block",
+              }}
+            >
+              v
+            </span>
+          </div>
+        </div>
+      </button>
+
+      {!collapsed ? (
+        <div style={{ padding: "0 20px 20px" }}>
+          <div
             style={{
-              marginLeft: 10,
-              fontSize: 11,
-              color: "#dc2626",
-              fontWeight: 700,
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              textDecoration: "underline",
+              display: "flex",
+              justifyContent: "flex-end",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 12,
+              flexWrap: "wrap",
             }}
           >
-            Retry
-          </button>
-        </div>
-      )}
+            {expanded.size > 0 && (
+              <button type="button" onClick={() => setExpanded(new Set())} style={ghostBtnStyle()}>
+                Collapse all
+              </button>
+            )}
 
-      {!loading && !error && filtered.length === 0 && (
-        <div
-          style={{
-            minHeight: 120,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            textAlign: "center",
-            fontSize: 14,
-            color: "#94a3b8",
-          }}
-        >
-          Select a filter above to view audit events.
-        </div>
-      )}
+            {filtered.length > 0 && expanded.size === 0 && (
+              <button
+                type="button"
+                onClick={() => setExpanded(new Set(filtered.map((e) => e.id)))}
+                style={ghostBtnStyle()}
+              >
+                Expand all
+              </button>
+            )}
 
-      {!loading && !error && paged.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {paged.map((entry) => (
-            <EntryRow
-              key={entry.id}
-              entry={entry}
-              expanded={expanded.has(entry.id)}
-              onToggle={() => toggleExpanded(entry.id)}
-            />
-          ))}
-        </div>
-      )}
+            <button type="button" onClick={load} style={ghostBtnStyle(loading)}>
+              {loading ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
 
-      {!loading && !error && totalPages > 1 && (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            gap: 8,
-            marginTop: 14,
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            style={ghostBtnStyle(page === 1)}
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              alignItems: "center",
+              marginBottom: 16,
+            }}
           >
-            Prev
-          </button>
-          <span style={{ fontSize: 12, color: "#64748b" }}>
-            Page {page} of {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            style={ghostBtnStyle(page === totalPages)}
-          >
-            Next
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFilter("all");
+                setPage(1);
+                setExpanded(new Set());
+              }}
+              style={chipStyle(filter === "all")}
+            >
+              All ({counts.all})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setFilter("created");
+                setPage(1);
+                setExpanded(new Set());
+              }}
+              style={chipStyle(filter === "created")}
+            >
+              New ({counts.created})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setFilter("updated");
+                setPage(1);
+                setExpanded(new Set());
+              }}
+              style={chipStyle(filter === "updated")}
+            >
+              Changes ({counts.updated})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setFilter("deleted");
+                setPage(1);
+                setExpanded(new Set());
+              }}
+              style={chipStyle(filter === "deleted")}
+            >
+              Removed ({counts.deleted})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setFilter("weekly");
+                setPage(1);
+                setExpanded(new Set());
+              }}
+              style={chipStyle(filter === "weekly")}
+            >
+              Weekly ({counts.weekly})
+            </button>
+          </div>
+
+          {loading && (
+            <div
+              style={{
+                minHeight: 120,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#94a3b8",
+                fontSize: 13,
+              }}
+            >
+              Loading audit events...
+            </div>
+          )}
+
+          {error && !loading && (
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: 10,
+                background: "#fff1f2",
+                border: "1px solid #fecaca",
+                fontSize: 12,
+                color: "#dc2626",
+              }}
+            >
+              {error}
+              <button
+                type="button"
+                onClick={load}
+                style={{
+                  marginLeft: 10,
+                  fontSize: 11,
+                  color: "#dc2626",
+                  fontWeight: 700,
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {!loading && !error && filtered.length === 0 && (
+            <div
+              style={{
+                minHeight: 120,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                textAlign: "center",
+                fontSize: 14,
+                color: "#94a3b8",
+              }}
+            >
+              Select a filter above to view audit events.
+            </div>
+          )}
+
+          {!loading && !error && paged.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {paged.map((entry) => (
+                <EntryRow
+                  key={entry.id}
+                  entry={entry}
+                  expanded={expanded.has(entry.id)}
+                  onToggle={() => toggleExpanded(entry.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {!loading && !error && totalPages > 1 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                gap: 8,
+                marginTop: 14,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                style={ghostBtnStyle(page === 1)}
+              >
+                Prev
+              </button>
+              <span style={{ fontSize: 12, color: "#64748b" }}>
+                Page {page} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                style={ghostBtnStyle(page === totalPages)}
+              >
+                Next
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
