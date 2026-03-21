@@ -502,9 +502,17 @@ function ResourcesTab({
     return map;
   }, [resources]);
 
-  // Exceptions = manual resources NOT matched to heatmap people
+  // Exceptions = manual resources NOT matched to active heatmap people
+  // Also include resources where user_id matches a heatmap person but has extra data (cost overrides etc.)
   const heatmapPersonIds = new Set(people.map(p => p.person_id));
-  const exceptions = resources.filter(r => !r.user_id || !heatmapPersonIds.has(r.user_id));
+  const exceptions = resources.filter(r => {
+    // If no user_id, it's always an exception
+    if (!r.user_id) return true;
+    // If user_id not in heatmap, it's an exception
+    if (!heatmapPersonIds.has(r.user_id)) return true;
+    // If in heatmap but has planned_days set manually, treat as exception
+    return false;
+  });
 
   // Totals
   const heatmapTotalDays    = people.reduce((s, p) => s + p.total_days, 0);
@@ -997,6 +1005,7 @@ export default function FinancialPlanEditor({
 }: Props) {
   const [activeTab, setActiveTab] = useState<"budget" | "resources" | "monthly" | "changes" | "narrative">("budget");
   const [signals, setSignals] = useState<Signal[]>([]);
+  const [heatmapPeopleCount, setHeatmapPeopleCount] = useState<number | null>(null);
   const [, startTransition] = useTransition();
   const lastSignalsKeyRef = useRef<string>("");
   const baselineMonthlyDataRef = useRef<MonthlyData | null>(null);
@@ -1008,6 +1017,15 @@ export default function FinancialPlanEditor({
       return raw ? JSON.parse(raw) : [];
     } catch { return []; }
   });
+
+  // ── Fetch heatmap people count for tab badge ──
+  useEffect(() => {
+    if (!projectId || !artifactId) return;
+    fetch(`/api/artifacts/financial-plan/resource-plan-sync?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}`, { cache: "no-store" })
+      .then(r => r.json())
+      .then(d => { if (d.ok && typeof d.role_count === "number") setHeatmapPeopleCount(d.role_count); })
+      .catch(() => {});
+  }, [projectId, artifactId]);
 
   if (baselineMonthlyDataRef.current === null && content.monthly_data && Object.keys(content.monthly_data).length > 0) {
     baselineMonthlyDataRef.current = JSON.parse(JSON.stringify(content.monthly_data));
@@ -1117,7 +1135,7 @@ export default function FinancialPlanEditor({
 
   const tabs = useMemo(() => [
     { id: "budget" as const, label: "Cost Breakdown" },
-    { id: "resources" as const, label: `Resources${resources.length > 0 ? ` (${resources.length})` : ""}` },
+    { id: "resources" as const, label: `Resources${heatmapPeopleCount != null ? ` (${heatmapPeopleCount + resources.length})` : resources.length > 0 ? ` (${resources.length})` : ""}` },
     { id: "monthly" as const, label: "Monthly Phasing", badge: criticalCount > 0 ? { count: criticalCount, color: P.red } : warningCount > 0 ? { count: warningCount, color: P.amber } : undefined },
     { id: "changes" as const, label: `Change Exposure${content.change_exposure.length > 0 ? ` (${content.change_exposure.length})` : ""}` },
     { id: "narrative" as const, label: "Narrative & Assumptions" },
