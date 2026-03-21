@@ -158,6 +158,7 @@ function FinancialPlanEditorHost({
   sessionId,
   clientDraftRev,
   onDraftRevChange,
+  updateArtifactJsonAction,
 }: {
   projectId: string;
   artifactId: string;
