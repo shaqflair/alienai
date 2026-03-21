@@ -213,50 +213,63 @@ function FinancialPlanEditorHost({
       setSaveMessage(null);
 
       try {
-        // Always use the draft endpoint — it handles both session and non-session saves
-        const res = await fetch(`/api/artifacts/${encodeURIComponent(artifactId)}/draft`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId:      sessionId ?? `manual-${Date.now()}`,
-            clientDraftRev: draftRevRef.current,
-            title:          "Financial Plan",
-            content:        updated,
-            autosave:       false,
-            summary:        "Financial plan saved",
-            // fallback: also include content_json for routes that accept it
-            content_json:   updated,
-          }),
-        });
+        let ok = false;
+        let errorMsg = "";
 
-        const data = await res.json().catch(() => ({ ok: false }));
-
-        if (data?.ok || res.ok) {
-          lastSavedJsonRef.current = json;
-          if (typeof data.currentDraftRev === "number") {
+        // ── Path 1: use the server action (updateArtifactJsonSilent) ──
+        // This is the correct save path — it directly writes content_json to the artifact.
+        if (updateArtifactJsonAction && projectId && artifactId) {
+          const result = await updateArtifactJsonAction({
+            projectId,
+            artifactId,
+            contentJson: updated,
+          });
+          ok       = result?.ok ?? false;
+          errorMsg = result?.error ?? "Save failed";
+        }
+        // ── Path 2: draft endpoint (when sessionId is available) ──
+        else if (sessionId && artifactId) {
+          const res = await fetch(`/api/artifacts/${encodeURIComponent(artifactId)}/draft`, {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({
+              sessionId,
+              clientDraftRev: draftRevRef.current,
+              title:          "Financial Plan",
+              content:        updated,
+              autosave:       false,
+              summary:        "Financial plan saved",
+            }),
+          });
+          const data = await res.json().catch(() => ({ ok: false }));
+          ok = data?.ok || res.ok;
+          if (ok && typeof data.currentDraftRev === "number") {
             draftRevRef.current = data.currentDraftRev;
             onDraftRevChange?.(data.currentDraftRev);
           }
+          errorMsg = data?.error ?? data?.message ?? "Save failed";
+        } else {
+          errorMsg = !artifactId ? "Missing artifactId — cannot save" : "No save method available";
+        }
+
+        if (ok) {
+          lastSavedJsonRef.current = json;
           setSaveState("saved");
-          setSaveMessage(
-            typeof data.currentDraftRev === "number"
-              ? `Saved rev ${data.currentDraftRev}`
-              : "Saved"
-          );
+          setSaveMessage("Saved");
         } else {
           setSaveState("error");
-          setSaveMessage(data?.message || data?.error || "Save failed — check console");
-          console.error("[FinancialPlanEditorHost] save failed:", data?.error ?? data?.message ?? "Unknown");
+          setSaveMessage(errorMsg);
+          console.error("[FinancialPlanEditorHost] save failed:", errorMsg);
         }
-      } catch (e) {
+      } catch (e: any) {
         setSaveState("error");
-        setSaveMessage("Network error — save failed");
+        setSaveMessage(e?.message || "Save error");
         console.error("[FinancialPlanEditorHost] save error:", e);
       } finally {
         savingRef.current = false;
       }
     },
-    [artifactId, onDraftRevChange, readOnly, sessionId]
+    [artifactId, projectId, updateArtifactJsonAction, onDraftRevChange, readOnly, sessionId]
   );
 
   const queueSave = useCallback(
