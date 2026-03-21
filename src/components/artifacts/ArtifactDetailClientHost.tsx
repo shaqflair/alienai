@@ -86,6 +86,7 @@ export type ArtifactDetailClientHostProps = {
   projectId: string;
   artifactId: string;
   organisationId?: string;
+  isAdmin?: boolean;
   mode: ArtifactDetailClientMode;
   isEditable: boolean;
   lockLayout: boolean;
@@ -151,6 +152,7 @@ function FinancialPlanEditorHost({
   projectId,
   artifactId,
   organisationId,
+  isAdmin = false,
   initialJson,
   readOnly,
   sessionId,
@@ -160,6 +162,7 @@ function FinancialPlanEditorHost({
   projectId: string;
   artifactId: string;
   organisationId?: string;
+  isAdmin?: boolean;
   initialJson: any;
   readOnly: boolean;
   sessionId?: string | null;
@@ -280,6 +283,24 @@ function FinancialPlanEditorHost({
     [queueSave]
   );
 
+  // Reload content from server after resource plan sync
+  const handleRequestReload = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/artifacts/${encodeURIComponent(artifactId)}?nocache=${Date.now()}`, {
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => null);
+      const freshContent = data?.content_json ?? data?.content ?? null;
+      if (freshContent && typeof freshContent === "object" && typeof freshContent.currency === "string") {
+        setContent(freshContent as FinancialPlanContent);
+        lastSavedJsonRef.current = stableStringify(freshContent);
+        lastQueuedJsonRef.current = stableStringify(freshContent);
+      }
+    } catch (e) {
+      console.warn("[FinancialPlanEditorHost] reload after sync failed:", e);
+    }
+  }, [artifactId]);
+
   useEffect(() => {
     return () => {
       clearPendingSave();
@@ -299,7 +320,11 @@ function FinancialPlanEditorHost({
         content={content}
         onChange={handleChange}
         organisationId={organisationId ?? projectId}
+        projectId={projectId}
+        artifactId={artifactId}
+        isAdmin={isAdmin}
         readOnly={readOnly}
+        onRequestReload={handleRequestReload}
       />
     </div>
   );
@@ -414,6 +439,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     projectId,
     artifactId,
     organisationId,
+    isAdmin = false,
     mode,
     isEditable,
     lockLayout,
@@ -438,7 +464,6 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     approvalStatus,
     submitForApprovalAction,
     updateArtifactJsonAction,
-    // NEW
     isApprover = false,
     requestChangesWithCommentsAction = null,
   } = props;
@@ -508,11 +533,8 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     collaboration.isReadOnly ||
     approvalLocked;
 
-  // Approver mode: the document is read-only for editing but MUST be
-  // fully visible and interactive for commenting. Skip the dim overlay.
   const isApproverMode = isApprover && effectiveReadOnly && mode === "charter";
 
-  // Bridge: convert SectionComment[] → FormData → server action
   const handleRequestChangesWithComments = useMemo(() => {
     if (!requestChangesWithCommentsAction || !isApproverMode) return null;
     return async (comments: SectionComment[]) => {
@@ -568,6 +590,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               projectId={projectId}
               artifactId={artifactId}
               organisationId={organisationId}
+              isAdmin={isAdmin}
               initialJson={typedInitialJson ?? rawContentJson ?? null}
               readOnly={effectiveReadOnly}
               sessionId={collaboration.sessionId}
@@ -588,7 +611,6 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
 
   return (
     <div className="space-y-6 text-slate-900">
-      {/* Hide banner when approval-locked (submitted/approved/rejected) — renders an empty beige bar with no useful info */}
       {!isApproverMode && !approvalLocked && (
         <ArtifactCollaborationBanner
           readOnly={effectiveReadOnly}
@@ -647,14 +669,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           <section className={sectionClassName}>
             {contentHeader}
 
-            {/*
-              For approver mode on the charter:
-              - Do NOT wrap with pointer-events-none/opacity-80 (approver must read and click "Add Comment")
-              - Do NOT show ArtifactEditorReadOnlyOverlay (no blur tooltip)
-              For all other read-only states: keep existing behaviour unchanged
-            */}
             {isApproverMode ? (
-              /* ── Approver: full-visibility, no dim, no overlay ── */
               <ProjectCharterEditorFormLazy
                 projectId={projectId}
                 artifactId={artifactId}
@@ -673,7 +688,6 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 onRequestChangesWithComments={handleRequestChangesWithComments}
               />
             ) : (
-              /* ── Normal read-only or editable path ── */
               <div className="relative">
                 <div className={effectiveReadOnly ? "pointer-events-none select-none opacity-80" : ""}>
                   {mode === "charter" ? (
