@@ -108,7 +108,8 @@ async function loadPersonInfo(
   const jobTitleByUserId = new Map<string, string>();
   for (const m of (orgMembers ?? []) as any[]) {
     const uid = safeStr(m.user_id).trim();
-    const jt  = safeStr(m.job_title ?? m.role ?? "").trim();
+    // Only use job_title — never fall back to role (owner/member/admin are org roles, not job titles)
+    const jt  = safeStr(m.job_title ?? "").trim();
     if (uid && jt) jobTitleByUserId.set(uid, jt);
   }
 

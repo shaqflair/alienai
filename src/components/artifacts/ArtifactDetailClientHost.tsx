@@ -203,7 +203,7 @@ function FinancialPlanEditorHost({
 
   const runSave = useCallback(
     async (updated: FinancialPlanContent) => {
-      if (readOnly || savingRef.current || !sessionId) return;
+      if (readOnly || savingRef.current) return;
 
       const json = stableStringify(updated);
       if (!json || json === lastSavedJsonRef.current) return;
@@ -213,22 +213,33 @@ function FinancialPlanEditorHost({
       setSaveMessage(null);
 
       try {
-        const res = await fetch(`/api/artifacts/${encodeURIComponent(artifactId)}/draft`, {
-          method: "POST",
+        // Prefer draft endpoint if sessionId available, else save directly to artifact
+        const endpoint = sessionId
+          ? `/api/artifacts/${encodeURIComponent(artifactId)}/draft`
+          : `/api/artifacts/${encodeURIComponent(artifactId)}`;
+
+        const body = sessionId
+          ? JSON.stringify({
+              sessionId,
+              clientDraftRev: draftRevRef.current,
+              title: "Financial Plan",
+              content: updated,
+              autosave: true,
+              summary: "Financial plan autosave",
+            })
+          : JSON.stringify({ content_json: updated });
+
+        const method = sessionId ? "POST" : "PATCH";
+
+        const res = await fetch(endpoint, {
+          method,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId,
-            clientDraftRev: draftRevRef.current,
-            title: "Financial Plan",
-            content: updated,
-            autosave: true,
-            summary: "Financial plan autosave",
-          }),
+          body,
         });
 
         const data = await res.json().catch(() => ({ ok: false }));
 
-        if (data?.ok) {
+        if (data?.ok || res.ok) {
           lastSavedJsonRef.current = json;
           if (typeof data.currentDraftRev === "number") {
             draftRevRef.current = data.currentDraftRev;
@@ -237,17 +248,17 @@ function FinancialPlanEditorHost({
           setSaveState("saved");
           setSaveMessage(
             typeof data.currentDraftRev === "number"
-              ? `Saved draft rev ${data.currentDraftRev}`
+              ? `Saved rev ${data.currentDraftRev}`
               : "Saved"
           );
         } else {
           setSaveState("error");
-          setSaveMessage(data?.message || "Autosave failed");
+          setSaveMessage(data?.message || data?.error || "Save failed");
           console.error("[FinancialPlanEditorHost] save failed:", data?.error ?? data?.message ?? "Unknown error");
         }
       } catch (e) {
         setSaveState("error");
-        setSaveMessage("Autosave failed");
+        setSaveMessage("Save failed");
         console.error("[FinancialPlanEditorHost] save error:", e);
       } finally {
         savingRef.current = false;
@@ -258,7 +269,7 @@ function FinancialPlanEditorHost({
 
   const queueSave = useCallback(
     (updated: FinancialPlanContent) => {
-      if (readOnly || !sessionId) return;
+      if (readOnly) return;
 
       const json = stableStringify(updated);
       if (!json) return;
@@ -272,7 +283,7 @@ function FinancialPlanEditorHost({
         void runSave(updated);
       }, 800);
     },
-    [clearPendingSave, readOnly, runSave, sessionId]
+    [clearPendingSave, readOnly, runSave]
   );
 
   const handleChange = useCallback(
@@ -311,8 +322,26 @@ function FinancialPlanEditorHost({
     <div className="w-full text-slate-900">
       <div className="mb-3 flex items-center justify-between text-xs text-slate-500">
         <div>{readOnly ? "Read-only" : "Autosave enabled"}</div>
-        <div>
-          {saveState === "saving" ? "Saving…" : saveState === "saved" ? saveMessage : saveState === "error" ? saveMessage : null}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => runSave(content)}
+              disabled={saveState === "saving"}
+              style={{
+                padding: "4px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600,
+                background: saveState === "saving" ? "#e2e8f0" : "#0d1117",
+                color: saveState === "saving" ? "#94a3b8" : "#fff",
+                border: "none", cursor: saveState === "saving" ? "not-allowed" : "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              {saveState === "saving" ? "Saving…" : "Save"}
+            </button>
+          )}
+          <span>
+            {saveState === "saved" ? `✓ ${saveMessage}` : saveState === "error" ? `⚠ ${saveMessage}` : null}
+          </span>
         </div>
       </div>
 
