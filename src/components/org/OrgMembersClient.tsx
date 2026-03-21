@@ -3,6 +3,7 @@
 
 import React, { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import JobTitleCombobox from "@/components/org/JobTitleCombobox";
 
 type OrgRole = "owner" | "admin" | "member";
 
@@ -90,12 +91,13 @@ type EditForm = {
 };
 
 function EditModal({
-  member, allMembers, onClose, onSaved,
+  member, allMembers, organisationId, onClose, onSaved,
 }: {
-  member:     MemberRow;
-  allMembers: MemberRow[];
-  onClose:    () => void;
-  onSaved:    (patch: EditForm) => void;
+  member:         MemberRow;
+  allMembers:     MemberRow[];
+  organisationId: string;
+  onClose:        () => void;
+  onSaved:        (patch: EditForm) => void;
 }) {
   const [form, setForm] = useState<EditForm>({
     full_name:       safeText(member.full_name),
@@ -160,11 +162,16 @@ function EditModal({
               placeholder="e.g. Jane Smith" />
           </div>
 
+          {/* ── Job title: combobox from rate card ── */}
           <div>
             <label className={lbl}>Job title</label>
-            <input className={inp} value={form.job_title}
-              onChange={e => setForm(f => ({ ...f, job_title: e.target.value }))}
-              placeholder="e.g. Senior Delivery Manager" />
+            <JobTitleCombobox
+              orgId={organisationId}
+              value={form.job_title}
+              onChange={val => setForm(f => ({ ...f, job_title: val }))}
+              disabled={saving}
+              placeholder="e.g. Senior Delivery Manager"
+            />
           </div>
 
           <div>
@@ -276,6 +283,7 @@ export default function OrgMembersClient(props: {
         <EditModal
           member={editing}
           allMembers={members}
+          organisationId={props.organisationId}
           onClose={() => setEditing(null)}
           onSaved={handleEdited}
         />
@@ -371,7 +379,7 @@ export default function OrgMembersClient(props: {
                       <div className="font-medium">
                         {name}
                         {m.isMe ? <span className="ml-2 text-xs text-gray-500">(You)</span> : null}
-                        {justSaved ? <span className="ml-2 text-xs font-semibold text-emerald-600">Saved</span> : null}
+                        {justSaved ? <span className="ml-2 text-xs font-semibold text-emerald-600">Saved ✓</span> : null}
                       </div>
                       {email  ? <div className="text-xs text-gray-500">{email}</div>   : null}
                       {!email ? <div className="text-xs text-gray-400">{m.user_id}</div> : null}
