@@ -213,28 +213,20 @@ function FinancialPlanEditorHost({
       setSaveMessage(null);
 
       try {
-        // Prefer draft endpoint if sessionId available, else save directly to artifact
-        const endpoint = sessionId
-          ? `/api/artifacts/${encodeURIComponent(artifactId)}/draft`
-          : `/api/artifacts/${encodeURIComponent(artifactId)}`;
-
-        const body = sessionId
-          ? JSON.stringify({
-              sessionId,
-              clientDraftRev: draftRevRef.current,
-              title: "Financial Plan",
-              content: updated,
-              autosave: true,
-              summary: "Financial plan autosave",
-            })
-          : JSON.stringify({ content_json: updated });
-
-        const method = sessionId ? "POST" : "PATCH";
-
-        const res = await fetch(endpoint, {
-          method,
+        // Always use the draft endpoint — it handles both session and non-session saves
+        const res = await fetch(`/api/artifacts/${encodeURIComponent(artifactId)}/draft`, {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body,
+          body: JSON.stringify({
+            sessionId:      sessionId ?? `manual-${Date.now()}`,
+            clientDraftRev: draftRevRef.current,
+            title:          "Financial Plan",
+            content:        updated,
+            autosave:       false,
+            summary:        "Financial plan saved",
+            // fallback: also include content_json for routes that accept it
+            content_json:   updated,
+          }),
         });
 
         const data = await res.json().catch(() => ({ ok: false }));
@@ -253,12 +245,12 @@ function FinancialPlanEditorHost({
           );
         } else {
           setSaveState("error");
-          setSaveMessage(data?.message || data?.error || "Save failed");
-          console.error("[FinancialPlanEditorHost] save failed:", data?.error ?? data?.message ?? "Unknown error");
+          setSaveMessage(data?.message || data?.error || "Save failed — check console");
+          console.error("[FinancialPlanEditorHost] save failed:", data?.error ?? data?.message ?? "Unknown");
         }
       } catch (e) {
         setSaveState("error");
-        setSaveMessage("Save failed");
+        setSaveMessage("Network error — save failed");
         console.error("[FinancialPlanEditorHost] save error:", e);
       } finally {
         savingRef.current = false;

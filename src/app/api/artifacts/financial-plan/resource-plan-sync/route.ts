@@ -300,26 +300,53 @@ async function buildGroupedAllocations(
   // 6. Rates
   const { personalRates, roleRates } = await loadRates(supabase, orgId, personIds, jobTitles);
 
-  // 7. Apply rates to each person
+  // 7. Apply rates to each person — with fuzzy job title matching
   for (const person of grouped) {
     if (personalRates.has(person.person_id)) {
       person.day_rate    = personalRates.get(person.person_id)!;
       person.rate_source = "personal";
     } else {
-      // Try job title match
-      const jt = person.jobTitle.toLowerCase();
-      if (jt && roleRates.has(jt)) {
+      const jt = person.jobTitle.toLowerCase().trim();
+      if (!jt) continue;
+
+      // Exact match first
+      if (roleRates.has(jt)) {
         person.day_rate    = roleRates.get(jt)!;
         person.rate_source = "role";
-      } else {
-        // Partial match: find any role_label that contains the job title words
-        for (const [label, rate] of roleRates.entries()) {
-          if (jt && (label.includes(jt) || jt.includes(label))) {
-            person.day_rate    = rate;
-            person.rate_source = "role";
-            break;
-          }
+        continue;
+      }
+
+      // Normalised match: remove common prefixes (Sr/Senior/Jr/Junior/Lead)
+      const normalise = (s: string) => s
+        .toLowerCase()
+        .replace(/\b(senior|sr|junior|jr|lead|principal|associate|staff|chief|head of)\b/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const normJt = normalise(jt);
+
+      let bestRate: number | null = null;
+      for (const [label, rate] of roleRates.entries()) {
+        const normLabel = normalise(label);
+        // Full normalised match
+        if (normLabel === normJt) { bestRate = rate; break; }
+        // One contains the other (e.g. "project consultant" ⊂ "sr project consultant")
+        if (normLabel.includes(normJt) || normJt.includes(normLabel)) {
+          bestRate = rate;
+          break;
         }
+        // Word overlap ≥ 50%
+        const jtWords    = normJt.split(" ").filter(Boolean);
+        const labelWords = normLabel.split(" ").filter(Boolean);
+        const overlap    = jtWords.filter(w => labelWords.includes(w)).length;
+        if (overlap > 0 && overlap >= Math.min(jtWords.length, labelWords.length) * 0.5) {
+          bestRate = rate;
+        }
+      }
+
+      if (bestRate != null) {
+        person.day_rate    = bestRate;
+        person.rate_source = "role";
       }
     }
   }
