@@ -157,30 +157,30 @@ export async function POST(
 
     // Create the change request
     const { data: cr, error: crErr } = await supabase
-      .from("change_requests")
-      .insert({
-        project_id:       projectId,
-        organisation_id:  project.organisation_id,
-        requester_id:     user.id,
-        requester_name:   requesterName,
-        title:            `Date Change Request — ${project.title}`,
-        description:      reason,
-        proposed_change:  proposedChangeSummary,
-        justification:    reason,
-        schedule:         impact || `Finish date moved by ${finishSlipDays != null ? `${finishSlipDays} days` : "unknown"}.`,
-        impact_analysis:  impactAnalysis,
-        tags:             ["date_change"],
-        status:           "pending",
-        delivery_status:  "on_track",
-        decision_status:  "pending",
-        priority:         finishSlipDays != null && finishSlipDays > 30 ? "high" : "medium",
-        financial:        "No direct financial impact unless resources are extended.",
-        risks:            "Delay may impact downstream dependencies and stakeholder commitments.",
-        assumptions:      "Proposed dates have been reviewed with the delivery team.",
-        lane_sort:        0,
-      })
-      .select("id, public_id")
-      .single();
+  .from("change_requests")
+  .insert({
+    project_id:       projectId,
+    organisation_id:  project.organisation_id,
+    requester_id:     user.id,
+    requester_name:   requesterName,
+    title:            `Date Change Request — ${project.title}`,
+    description:      reason,
+    proposed_change:  proposedChangeSummary,
+    justification:    reason,
+    schedule:         impact || `Finish date moved by ${finishSlipDays != null ? `${finishSlipDays} days` : "unknown"}.`,
+    impact_analysis:  impactAnalysis,
+    tags:             ["date_change"],
+    status:           "new",
+    delivery_status:  "analysis",
+    decision_status:  "draft",
+    priority:         finishSlipDays != null && finishSlipDays > 30 ? "High" : "Medium",
+    financial:        "No direct financial impact unless resources are extended.",
+    risks:            "Delay may impact downstream dependencies and stakeholder commitments.",
+    assumptions:      "Proposed dates have been reviewed with the delivery team.",
+    lane_sort:        0,
+  })
+  .select("id, public_id")
+  .single();
 
     if (crErr || !cr) {
       return NextResponse.json({ ok: false, error: crErr?.message || "Failed to create change request" }, { status: 500 });
