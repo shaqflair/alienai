@@ -1,12 +1,11 @@
 ﻿// src/app/api/artifacts/financial-plan/resource-plan-sync/route.ts
-// GET  ?artifactId=xxx&projectId=xxx  → returns ResourceAllocation[] + forecast preview
+// GET  ?artifactId=xxx&projectId=xxx  → returns grouped allocation preview
 // POST ?artifactId=xxx&projectId=xxx  → writes the forecast into the financial plan artifact
 
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import {
-  mapRoleRequirementsToAllocations,
   computeResourcePlanForecast,
   findOrCreatePeopleCostLine,
   formatMonthlySummary,
@@ -50,7 +49,6 @@ async function requireProjectAccess(supabase: any, projectId: string, userId: st
     .maybeSingle();
 
   if (!mem) {
-    // Fall back to project membership
     const { data: pmem } = await supabase
       .from("project_members")
       .select("role")
@@ -67,210 +65,265 @@ async function requireProjectAccess(supabase: any, projectId: string, userId: st
   return { organisation_id: proj.organisation_id, isAdmin };
 }
 
-/**
- * Load allocations from the `allocations` table (what drives the capacity heatmap).
- * Falls back to `role_requirements` if allocations table has no rows for this project.
- */
-async function loadAllocationsForProject(supabase: any, projectId: string) {
-  // Try allocations table first (heatmap source)
-  const { data: allocs, error: allocErr } = await supabase
-    .from("allocations")
-    .select("*")
-    .eq("project_id", projectId);
+/* ─────────────────────────────────────────────────────────────────────
+   Person info: name + job title from profiles + organisation_members
+───────────────────────────────────────────────────────────────────── */
 
-  if (!allocErr && Array.isArray(allocs) && allocs.length > 0) {
-    return { source: "allocations" as const, rows: allocs };
-  }
+type PersonInfo = {
+  name:      string;
+  jobTitle:  string;
+  email:     string;
+};
 
-  // Fall back to role_requirements
-  const { data: roleRows, error: roleErr } = await supabase
-    .from("role_requirements")
-    .select("id, role_title, seniority_level, required_days_per_week, start_date, end_date, filled_by_person_id, notes")
-    .eq("project_id", projectId)
-    .order("start_date", { ascending: true });
-
-  if (roleErr) throw new Error(roleErr.message);
-  return { source: "role_requirements" as const, rows: roleRows ?? [] };
-}
-
-/**
- * Load rate card using the actual column names: role_label, rate (not role_title, day_rate).
- * Tries v_resource_rates_latest view first, falls back to resource_rates table directly.
- */
-async function loadRateCardForRoles(
+async function loadPersonInfo(
   supabase: any,
   orgId: string,
-  source: "allocations" | "role_requirements",
-  rows: any[]
-): Promise<Map<string, { day_rate: number; rate_source: "personal" | "role" }>> {
-  const result = new Map<string, { day_rate: number; rate_source: "personal" | "role" }>();
-  if (!rows.length) return result;
+  personIds: string[]
+): Promise<Map<string, PersonInfo>> {
+  const map = new Map<string, PersonInfo>();
+  if (!personIds.length) return map;
 
-  // Determine role key field based on source
-  const getRoleKey = (row: any): string => {
-    return safeStr(
-      row.role_label ?? row.role_title ?? row.role ?? ""
-    ).trim().toLowerCase();
-  };
+  // Profiles — for name and email
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("user_id, id, full_name, email")
+    .or(`user_id.in.(${personIds.join(",")}),id.in.(${personIds.join(",")})`);
 
-  const getPersonId = (row: any): string => {
-    return safeStr(
-      row.user_id ?? row.filled_by_person_id ?? row.person_id ?? ""
-    ).trim();
-  };
+  const nameByUserId = new Map<string, { name: string; email: string }>();
+  for (const p of (profiles ?? []) as any[]) {
+    const uid   = safeStr(p.user_id).trim() || safeStr(p.id).trim();
+    const name  = safeStr(p.full_name).trim();
+    const email = safeStr(p.email).trim();
+    if (uid) nameByUserId.set(uid, { name: name || email, email });
+  }
 
-  // Load role-based rates from resource_rates (using role_label column)
-  const ratesByRoleLabel = new Map<string, number>();
-
-  // Try v_resource_rates_latest first
-  const { data: viewRates, error: viewErr } = await supabase
-    .from("v_resource_rates_latest")
-    .select("role_label, rate, rate_type, user_id")
+  // Organisation members — for job_title
+  const { data: orgMembers } = await supabase
+    .from("organisation_members")
+    .select("user_id, job_title, role")
     .eq("organisation_id", orgId)
-    .eq("rate_type", "day_rate");
+    .in("user_id", personIds)
+    .is("removed_at", null);
 
-  if (!viewErr && Array.isArray(viewRates)) {
-    for (const r of viewRates) {
-      const key = safeStr(r.role_label ?? r.role_title ?? "").trim().toLowerCase();
-      if (key && !ratesByRoleLabel.has(key)) {
-        ratesByRoleLabel.set(key, Number(r.rate ?? r.day_rate ?? 0));
-      }
-    }
-  } else {
-    // Fall back to resource_rates table directly
-    const { data: tableRates } = await supabase
-      .from("resource_rates")
-      .select("role_label, rate, rate_type, user_id")
+  const jobTitleByUserId = new Map<string, string>();
+  for (const m of (orgMembers ?? []) as any[]) {
+    const uid = safeStr(m.user_id).trim();
+    const jt  = safeStr(m.job_title ?? m.role ?? "").trim();
+    if (uid && jt) jobTitleByUserId.set(uid, jt);
+  }
+
+  for (const uid of personIds) {
+    const profile  = nameByUserId.get(uid);
+    const jobTitle = jobTitleByUserId.get(uid) ?? "";
+    map.set(uid, {
+      name:     profile?.name      ?? uid,
+      email:    profile?.email     ?? "",
+      jobTitle,
+    });
+  }
+
+  return map;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Rate card: personal rate first, then job title match, then role match
+───────────────────────────────────────────────────────────────────── */
+
+async function loadRates(
+  supabase: any,
+  orgId: string,
+  personIds: string[],
+  jobTitles: string[]
+): Promise<{ personalRates: Map<string, number>; roleRates: Map<string, number> }> {
+  const personalRates = new Map<string, number>();
+  const roleRates     = new Map<string, number>();
+
+  // Try view first, then table
+  for (const tableName of ["v_resource_rates_latest", "resource_rates"]) {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select("user_id, role_label, rate, rate_type")
       .eq("organisation_id", orgId)
       .eq("rate_type", "day_rate");
 
-    for (const r of (tableRates ?? []) as any[]) {
-      const key = safeStr(r.role_label ?? "").trim().toLowerCase();
-      if (key && !ratesByRoleLabel.has(key)) {
-        ratesByRoleLabel.set(key, Number(r.rate ?? 0));
+    if (error) continue;
+
+    for (const r of (data ?? []) as any[]) {
+      const rate = Number(r.rate ?? r.day_rate ?? 0);
+      if (!rate) continue;
+
+      // Personal rate (matched by user_id)
+      const uid = safeStr(r.user_id ?? "").trim();
+      if (uid && personIds.includes(uid) && !personalRates.has(uid)) {
+        personalRates.set(uid, rate);
+      }
+
+      // Role/job title rate (matched by role_label)
+      const label = safeStr(r.role_label ?? r.role_title ?? "").trim().toLowerCase();
+      if (label && !roleRates.has(label)) {
+        roleRates.set(label, rate);
       }
     }
+
+    // If we got data, don't try the other table
+    if ((data ?? []).length > 0) break;
   }
 
-  // Load personal rates for users that appear in rows
-  const personIds = Array.from(new Set(
-    rows.map((r: any) => getPersonId(r)).filter(Boolean)
-  ));
-
-  const personalRates = new Map<string, number>();
-  if (personIds.length) {
-    // From view
-    const { data: personalView, error: pvErr } = await supabase
-      .from("v_resource_rates_latest")
-      .select("user_id, rate, rate_type")
-      .eq("organisation_id", orgId)
-      .eq("rate_type", "day_rate")
-      .in("user_id", personIds);
-
-    if (!pvErr && Array.isArray(personalView)) {
-      for (const r of personalView) {
-        if (r.user_id) personalRates.set(r.user_id, Number(r.rate ?? r.day_rate ?? 0));
-      }
-    } else {
-      // Fall back to resource_rates
-      const { data: personalTable } = await supabase
-        .from("resource_rates")
-        .select("user_id, rate, rate_type")
-        .eq("organisation_id", orgId)
-        .eq("rate_type", "day_rate")
-        .in("user_id", personIds);
-
-      for (const r of (personalTable ?? []) as any[]) {
-        if (r.user_id) personalRates.set(r.user_id, Number(r.rate ?? 0));
-      }
-    }
-  }
-
-  // Map each row to a rate
-  for (const row of rows) {
-    const personId = getPersonId(row);
-    const roleKey  = getRoleKey(row);
-
-    if (personId && personalRates.has(personId) && (personalRates.get(personId) ?? 0) > 0) {
-      result.set(row.id, { day_rate: personalRates.get(personId)!, rate_source: "personal" });
-    } else if (roleKey && ratesByRoleLabel.has(roleKey) && (ratesByRoleLabel.get(roleKey) ?? 0) > 0) {
-      result.set(row.id, { day_rate: ratesByRoleLabel.get(roleKey)!, rate_source: "role" });
-    }
-  }
-
-  return result;
+  return { personalRates, roleRates };
 }
 
-/**
- * Normalise allocations rows into the shape mapRoleRequirementsToAllocations expects.
- * Works for both allocations table and role_requirements table.
- */
-function normaliseRows(source: "allocations" | "role_requirements", rows: any[], personNames: Map<string, string>) {
-  if (source === "role_requirements") {
-    return rows.map((row: any) => ({
-      id:                     row.id,
-      person_id:              row.filled_by_person_id ?? null,
-      person_name:            row.filled_by_person_id ? (personNames.get(row.filled_by_person_id) ?? null) : null,
-      role_title:             safeStr(row.role_title ?? row.role_label ?? "Role"),
-      seniority_level:        row.seniority_level ?? null,
-      required_days_per_week: Number(row.required_days_per_week ?? 5),
-      start_date:             safeStr(row.start_date),
-      end_date:               safeStr(row.end_date),
-      day_rate:               null as number | null,
-      rate_source:            null as "personal" | "role" | null,
-    }));
-  }
+/* ─────────────────────────────────────────────────────────────────────
+   Group allocations weekly rows → one entry per person
+   allocations schema:
+     person_id, project_id, week_start_date, days_allocated, role_on_project
+───────────────────────────────────────────────────────────────────── */
 
-  // allocations table — each row is a single week.
-  // days_allocated = actual days that week (e.g. 1.0, 2.0, 3.0)
-  // week_start_date = Monday of that week; derive end as +6 days (Sunday)
-  return rows.map((row: any) => {
-    const userId     = safeStr(row.person_id ?? row.user_id ?? "").trim();
-    const daysAlloc  = Math.max(0, Number(row.days_allocated ?? 0));
-    const weekStart  = safeStr(row.week_start_date ?? row.start_date ?? "").trim();
+type PersonAllocation = {
+  id:        string;   // person_id (stable key)
+  person_id: string;
+  name:      string;
+  jobTitle:  string;
+  // Weekly entries: each is a span of Mon–Sun with N days allocated
+  weeks: Array<{ week_start: string; week_end: string; days: number }>;
+  // Resolved rate
+  day_rate:    number | null;
+  rate_source: "personal" | "role" | null;
+  role_title:  string;
+};
 
-    if (!weekStart || daysAlloc <= 0) return null;
+function groupAllocationsByPerson(
+  rows: any[],
+  personInfoMap: Map<string, PersonInfo>
+): PersonAllocation[] {
+  const byPerson = new Map<string, PersonAllocation>();
 
-    // Derive week end date (6 days after week start = same week Sunday)
+  for (const row of rows) {
+    const personId  = safeStr(row.person_id ?? row.user_id ?? "").trim();
+    if (!personId) continue;
+
+    const days = Number(row.days_allocated ?? 0);
+    if (days <= 0) continue;
+
+    const weekStart = safeStr(row.week_start_date ?? row.start_date ?? "").trim();
+    if (!weekStart) continue;
+
     let weekEnd = "";
     try {
       const d = new Date(weekStart + "T00:00:00Z");
       d.setUTCDate(d.getUTCDate() + 6);
       weekEnd = d.toISOString().slice(0, 10);
-    } catch { return null; }
+    } catch { continue; }
 
-    return {
-      id:                     row.id,
-      person_id:              userId || null,
-      person_name:            userId ? (personNames.get(userId) ?? null) : null,
-      // Use role_on_project if set, otherwise look up from org member data
-      role_title:             safeStr(row.role_on_project ?? row.role_label ?? row.role ?? row.role_title ?? "Team Member"),
-      seniority_level:        null,
-      // days_allocated is already days/week for this specific week
-      required_days_per_week: daysAlloc,
-      start_date:             weekStart,
-      end_date:               weekEnd,
-      day_rate:               null as number | null,
-      rate_source:            null as "personal" | "role" | null,
-    };
-  }).filter(Boolean) as any[];
+    if (!byPerson.has(personId)) {
+      const info = personInfoMap.get(personId);
+      byPerson.set(personId, {
+        id:        personId,
+        person_id: personId,
+        name:      info?.name      ?? personId,
+        jobTitle:  info?.jobTitle  ?? "",
+        weeks:     [],
+        day_rate:     null,
+        rate_source:  null,
+        role_title:   safeStr(row.role_on_project ?? info?.jobTitle ?? "Team Member"),
+      });
+    }
+
+    byPerson.get(personId)!.weeks.push({ week_start: weekStart, week_end: weekEnd, days });
+  }
+
+  return Array.from(byPerson.values());
 }
 
-async function loadPersonNames(supabase: any, personIds: string[]): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  if (!personIds.length) return map;
+/* ─────────────────────────────────────────────────────────────────────
+   Convert grouped PersonAllocation[] → the shape computeResourcePlanForecast expects.
+   Each week becomes its own allocation entry spanning Mon–Sun.
+───────────────────────────────────────────────────────────────────── */
 
-  const { data } = await supabase
-    .from("profiles")
-    .select("user_id, id, full_name, email")
-    .or(`user_id.in.(${personIds.join(",")}),id.in.(${personIds.join(",")})`);
-
-  for (const p of (data ?? []) as any[]) {
-    const name = safeStr(p.full_name).trim() || safeStr(p.email).trim();
-    if (p.user_id && name) map.set(p.user_id, name);
-    if (p.id && name && !map.has(p.id)) map.set(p.id, name);
+function toForecastAllocations(grouped: PersonAllocation[]): any[] {
+  const out: any[] = [];
+  for (const person of grouped) {
+    for (const week of person.weeks) {
+      out.push({
+        id:                     `${person.person_id}::${week.week_start}`,
+        person_id:              person.person_id,
+        person_name:            person.name,
+        role_title:             person.role_title,
+        seniority_level:        null,
+        required_days_per_week: week.days,   // already actual days for this week
+        start_date:             week.week_start,
+        end_date:               week.week_end,
+        day_rate:               person.day_rate,
+        rate_source:            person.rate_source,
+      });
+    }
   }
-  return map;
+  return out;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Load + resolve everything
+───────────────────────────────────────────────────────────────────── */
+
+async function buildGroupedAllocations(
+  supabase: any,
+  projectId: string,
+  orgId: string
+) {
+  // 1. Raw allocation rows
+  const { data: rawRows, error } = await supabase
+    .from("allocations")
+    .select("person_id, project_id, week_start_date, days_allocated, role_on_project")
+    .eq("project_id", projectId);
+
+  if (error) throw new Error(error.message);
+  const rows = (rawRows ?? []) as any[];
+
+  if (!rows.length) {
+    return { grouped: [] as PersonAllocation[], source: "allocations" as const };
+  }
+
+  // 2. Unique person IDs
+  const personIds = Array.from(new Set(
+    rows.map((r: any) => safeStr(r.person_id ?? "").trim()).filter(Boolean)
+  ));
+
+  // 3. Person info (name + job title)
+  const personInfoMap = await loadPersonInfo(supabase, orgId, personIds);
+
+  // 4. Group rows by person
+  const grouped = groupAllocationsByPerson(rows, personInfoMap);
+
+  // 5. Job titles for rate lookup
+  const jobTitles = grouped.map(p => p.jobTitle.toLowerCase()).filter(Boolean);
+
+  // 6. Rates
+  const { personalRates, roleRates } = await loadRates(supabase, orgId, personIds, jobTitles);
+
+  // 7. Apply rates to each person
+  for (const person of grouped) {
+    if (personalRates.has(person.person_id)) {
+      person.day_rate    = personalRates.get(person.person_id)!;
+      person.rate_source = "personal";
+    } else {
+      // Try job title match
+      const jt = person.jobTitle.toLowerCase();
+      if (jt && roleRates.has(jt)) {
+        person.day_rate    = roleRates.get(jt)!;
+        person.rate_source = "role";
+      } else {
+        // Partial match: find any role_label that contains the job title words
+        for (const [label, rate] of roleRates.entries()) {
+          if (jt && (label.includes(jt) || jt.includes(label))) {
+            person.day_rate    = rate;
+            person.rate_source = "role";
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return { grouped, source: "allocations" as const };
 }
 
 async function loadFinancialPlanArtifact(supabase: any, artifactId: string): Promise<FinancialPlanContent | null> {
@@ -299,23 +352,7 @@ export async function GET(req: Request) {
     if (!projectId) return noStore({ ok: false, error: "Missing projectId" }, 400);
 
     const { organisation_id, isAdmin } = await requireProjectAccess(supabase, projectId, user.id);
-    const { source, rows } = await loadAllocationsForProject(supabase, projectId);
-
-    const personIds = Array.from(new Set(
-      rows.map((r: any) => safeStr(r.person_id ?? r.user_id ?? r.filled_by_person_id ?? "").trim()).filter(Boolean)
-    ));
-    const personNames = await loadPersonNames(supabase, personIds);
-    const rateMap     = await loadRateCardForRoles(supabase, organisation_id, source, rows);
-    const allocations = normaliseRows(source, rows, personNames);
-
-    // Apply rates to allocations
-    for (const alloc of allocations) {
-      const rateMatch = rateMap.get(alloc.id);
-      if (rateMatch) {
-        alloc.day_rate    = rateMatch.day_rate;
-        alloc.rate_source = rateMatch.rate_source;
-      }
-    }
+    const { grouped } = await buildGroupedAllocations(supabase, projectId, organisation_id);
 
     let fyConfig: FYConfig = { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 };
     let existingMonthlyData: MonthlyData = {};
@@ -330,38 +367,55 @@ export async function GET(req: Request) {
         const { line } = findOrCreatePeopleCostLine(fp.cost_lines ?? []);
         peopleCostLineId = line.id;
         try {
-          overriddenMonths = fp.resource_plan_overridden_months ? JSON.parse(fp.resource_plan_overridden_months) : [];
+          overriddenMonths = fp.resource_plan_overridden_months
+            ? JSON.parse(fp.resource_plan_overridden_months) : [];
         } catch { overriddenMonths = []; }
       }
     }
 
+    const forecastAllocations = toForecastAllocations(grouped);
+
     const forecast = computeResourcePlanForecast(
-      allocations as any,
+      forecastAllocations,
       peopleCostLineId,
       fyConfig,
       existingMonthlyData,
       new Set(overriddenMonths)
     );
 
-    const missingRates = allocations.filter(a => a.day_rate == null).map(a => ({
-      id:          a.id,
-      role_title:  a.role_title,
-      person_name: a.person_name,
-    }));
+    const missingRates = grouped
+      .filter(p => p.day_rate == null)
+      .map(p => ({ id: p.person_id, role_title: p.jobTitle || p.role_title, person_name: p.name }));
+
+    const totalCost = Object.values(forecast.monthly_totals).reduce((s, t) => s + t.cost, 0);
+    const currency  = artifactId
+      ? ((await loadFinancialPlanArtifact(supabase, artifactId))?.currency ?? "GBP")
+      : "GBP";
 
     return noStore({
       ok: true,
       isAdmin,
-      source,
-      allocations: allocations.map(a => ({ id: a.id, person_name: a.person_name, role_title: a.role_title, day_rate: a.day_rate, rate_source: a.rate_source, required_days_per_week: a.required_days_per_week })),
+      source: "allocations",
+      // Summary for the sync bar — shows people not weekly rows
+      role_count:    grouped.length,
+      rate_coverage: `${grouped.filter(p => p.day_rate != null).length}/${grouped.length}`,
+      people: grouped.map(p => ({
+        person_id:   p.person_id,
+        name:        p.name,
+        job_title:   p.jobTitle,
+        role_title:  p.role_title,
+        day_rate:    p.day_rate,
+        rate_source: p.rate_source,
+        week_count:  p.weeks.length,
+        total_days:  p.weeks.reduce((s, w) => s + w.days, 0),
+      })),
       forecast: {
         monthly_totals:  forecast.monthly_totals,
         missing_rates:   missingRates,
-        summary:         formatMonthlySummary(forecast.monthly_totals, "GBP"),
+        summary:         formatMonthlySummary(forecast.monthly_totals, currency),
         months_affected: Object.keys(forecast.monthly_totals).filter(mk => forecast.monthly_totals[mk].cost > 0).length,
+        total_cost:      totalCost,
       },
-      role_count:        allocations.length,
-      rate_coverage:     `${allocations.filter(a => a.day_rate != null).length}/${allocations.length}`,
       overridden_months: overriddenMonths,
     });
   } catch (e: any) {
@@ -385,22 +439,7 @@ export async function POST(req: Request) {
     const body             = await req.json().catch(() => ({}));
     const overriddenMonths: string[] = Array.isArray(body?.overridden_months) ? body.overridden_months : [];
 
-    const { source, rows } = await loadAllocationsForProject(supabase, projectId);
-
-    const personIds = Array.from(new Set(
-      rows.map((r: any) => safeStr(r.person_id ?? r.user_id ?? r.filled_by_person_id ?? "").trim()).filter(Boolean)
-    ));
-    const personNames = await loadPersonNames(supabase, personIds);
-    const rateMap     = await loadRateCardForRoles(supabase, organisation_id, source, rows);
-    const allocations = normaliseRows(source, rows, personNames);
-
-    for (const alloc of allocations) {
-      const rateMatch = rateMap.get(alloc.id);
-      if (rateMatch) {
-        alloc.day_rate    = rateMatch.day_rate;
-        alloc.rate_source = rateMatch.rate_source;
-      }
-    }
+    const { grouped } = await buildGroupedAllocations(supabase, projectId, organisation_id);
 
     const fp = await loadFinancialPlanArtifact(supabase, artifactId);
     if (!fp) return noStore({ ok: false, error: "Financial plan artifact not found" }, 404);
@@ -410,8 +449,10 @@ export async function POST(req: Request) {
     const { line: peopleLine, isNew } = findOrCreatePeopleCostLine(fp.cost_lines ?? []);
     const newCostLines = isNew ? [...(fp.cost_lines ?? []), peopleLine] : fp.cost_lines;
 
+    const forecastAllocations = toForecastAllocations(grouped);
+
     const forecast = computeResourcePlanForecast(
-      allocations as any,
+      forecastAllocations,
       peopleLine.id,
       fyConfig,
       fp.monthly_data ?? {},
@@ -422,7 +463,11 @@ export async function POST(req: Request) {
 
     const updatedCostLines = newCostLines.map((l: any) =>
       l.id === peopleLine.id
-        ? { ...l, forecast: totalForecast, budgeted: l.override ? l.budgeted : (l.budgeted === "" ? totalForecast : l.budgeted) }
+        ? {
+            ...l,
+            forecast: totalForecast,
+            budgeted: l.override ? l.budgeted : (l.budgeted === "" ? totalForecast : l.budgeted),
+          }
         : l
     );
 
@@ -430,9 +475,9 @@ export async function POST(req: Request) {
       ...fp,
       cost_lines:   updatedCostLines,
       monthly_data: forecast.monthly_data_patch,
-      last_updated_at: new Date().toISOString(),
-      resource_plan_synced_at: new Date().toISOString(),
-      resource_plan_overridden_months: JSON.stringify(overriddenMonths),
+      last_updated_at:                  new Date().toISOString(),
+      resource_plan_synced_at:          new Date().toISOString(),
+      resource_plan_overridden_months:  JSON.stringify(overriddenMonths),
     };
 
     const { error: writeErr } = await supabase
@@ -442,12 +487,12 @@ export async function POST(req: Request) {
 
     if (writeErr) throw new Error(writeErr.message);
 
-    const missingRates = allocations.filter(a => a.day_rate == null);
+    const missingRates = grouped.filter(p => p.day_rate == null);
 
     return noStore({
       ok: true,
       isAdmin,
-      source,
+      people_count:      grouped.length,
       months_updated:    Object.keys(forecast.monthly_totals).filter(mk => forecast.monthly_totals[mk].cost > 0).length,
       total_forecast:    totalForecast,
       missing_rates:     missingRates.length,
