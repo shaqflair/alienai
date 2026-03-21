@@ -19,6 +19,7 @@ import {
   type ActualsByLine,
 } from "./computeActuals";
 import ResourcePlanSyncBar from "./ResourcePlanSyncBar";
+import HeatmapResourcesPanel from "./HeatmapResourcesPanel";
 
 const P = {
   bg:       "#F7F7F5",
@@ -421,11 +422,13 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
 function ResourcesTab({
   resources, costLines, sym, currency, readOnly, onChange, organisationId,
   monthlyData, fyConfig, timesheetEntries, actualsByLine, onSyncMonthly,
+  projectId, artifactId,
 }: {
   resources: Resource[]; costLines: CostLine[]; sym: string; currency: Currency;
   readOnly: boolean; onChange: (r: Resource[]) => void; organisationId: string;
   monthlyData: MonthlyData; fyConfig: FYConfig; timesheetEntries: TimesheetEntry[];
   actualsByLine: ActualsByLine; onSyncMonthly: (d: MonthlyData) => void;
+  projectId: string; artifactId?: string;
 }) {
   const update = useCallback((id: string, patch: Partial<Resource>) =>
     onChange(resources.map(r => r.id === id ? { ...r, ...patch } : r)),
@@ -470,15 +473,35 @@ function ResourcesTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20, fontFamily: P.sans }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-        {statCards.map(s => (
-          <div key={s.label} style={{ background: P.surface, border: `1px solid ${P.border}`, padding: "12px 16px" }}>
-            <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
-            <div style={{ fontFamily: P.mono, fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
-            <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>{s.sub}</div>
+
+      {/* ── Primary: Heatmap-driven resources ── */}
+      {artifactId && (
+        <div>
+          <div style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textSm, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <Users style={{ width: 11, height: 11 }} />
+            Project Resource Plan
+            <span style={{ flex: 1, height: 1, background: P.border, display: "block" }} />
           </div>
-        ))}
-      </div>
+          <HeatmapResourcesPanel
+            projectId={projectId}
+            artifactId={artifactId}
+            currency={currency}
+          />
+        </div>
+      )}
+
+      {/* ── Stat cards (for manual resources) ── */}
+      {resources.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+          {statCards.map(s => (
+            <div key={s.label} style={{ background: P.surface, border: `1px solid ${P.border}`, padding: "12px 16px" }}>
+              <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
+              <div style={{ fontFamily: P.mono, fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>{s.sub}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {byLine.length > 0 && (
         <div style={{ border: `1px solid ${P.border}`, background: P.navyLt, padding: "10px 14px" }}>
@@ -514,7 +537,14 @@ function ResourcesTab({
         <span>Pick a person from your organisation -- their rate auto-fills from the <strong>Rate Card</strong>. Then hit <strong>Sync to monthly</strong> to phase costs across the timeline.</span>
       </div>
 
-      <div style={{ border: `1px solid ${P.borderMd}`, overflowX: "auto" }}>
+      {/* ── Manual resources section header ── */}
+      <div>
+        <div style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textSm, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+          Additional Manual Resources
+          <span style={{ flex: 1, height: 1, background: P.border, display: "block" }} />
+          <span style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>optional — for costs not in the heatmap</span>
+        </div>
+        <div style={{ border: `1px solid ${P.borderMd}`, overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 1200 }}>
           <thead>
             <tr style={{ background: "#F4F4F2", borderBottom: `1px solid ${P.borderMd}` }}>
@@ -756,7 +786,8 @@ function ResourcesTab({
             </button>
           </div>
         )}
-      </div>
+        </div>{/* end border wrapper */}
+      </div>{/* end manual resources section */}
     </div>
   );
 }
@@ -1165,6 +1196,8 @@ export default function FinancialPlanEditor({
           timesheetEntries={timesheetEntries}
           actualsByLine={actualsByLine}
           onSyncMonthly={d => updateField("monthly_data", d)}
+          projectId={projectId}
+          artifactId={artifactId}
         />
       )}
 
