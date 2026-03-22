@@ -1103,6 +1103,9 @@ export default function FinancialPlanEditor({
   const [activeTab, setActiveTab] = useState<"budget" | "resources" | "monthly" | "changes" | "narrative">("budget");
   const [signals, setSignals] = useState<Signal[]>([]);
   const [heatmapPeopleCount, setHeatmapPeopleCount] = useState<number | null>(null);
+  const [heatmapTotals, setHeatmapTotals] = useState<{
+    totalCost: number; totalCharge: number; hasBothRates: boolean;
+  } | null>(null);
   const [, startTransition] = useTransition();
   const lastSignalsKeyRef = useRef<string>("");
   const baselineMonthlyDataRef = useRef<MonthlyData | null>(null);
@@ -1115,12 +1118,20 @@ export default function FinancialPlanEditor({
     } catch { return []; }
   });
 
-  // ── Fetch heatmap people count for tab badge ──
+  // ── Fetch heatmap people count + cost/charge totals for tab badge and monthly summary ──
   useEffect(() => {
     if (!projectId || !artifactId) return;
     fetch(`/api/artifacts/financial-plan/resource-plan-sync?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}`, { cache: "no-store" })
       .then(r => r.json())
-      .then(d => { if (d.ok && typeof d.role_count === "number") setHeatmapPeopleCount(d.role_count); })
+      .then(d => {
+        if (!d.ok) return;
+        if (typeof d.role_count === "number") setHeatmapPeopleCount(d.role_count);
+        const people: Array<{ planned_cost: number | null; planned_charge: number | null; cost_day_rate: number | null; charge_day_rate: number | null }> = d.people ?? [];
+        const totalCost   = people.reduce((s, p) => s + (p.planned_cost   ?? 0), 0);
+        const totalCharge = people.reduce((s, p) => s + (p.planned_charge ?? 0), 0);
+        const hasBothRates = people.some(p => p.cost_day_rate != null && p.charge_day_rate != null && p.cost_day_rate !== p.charge_day_rate);
+        setHeatmapTotals({ totalCost, totalCharge, hasBothRates });
+      })
       .catch(() => {});
   }, [projectId, artifactId]);
 
@@ -1494,13 +1505,10 @@ export default function FinancialPlanEditor({
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
           {/* ── Cost vs Charge-out summary ── */}
-          {heatmapPeopleCount != null && heatmapPeopleCount > 0 && (() => {
-            const totalCost   = people.reduce((s, p) => s + (p.planned_cost   ?? 0), 0);
-            const totalCharge = people.reduce((s, p) => s + (p.planned_charge ?? 0), 0);
-            const margin      = totalCharge - totalCost;
-            const marginPct   = totalCharge > 0 ? Math.round((margin / totalCharge) * 100) : null;
-            const hasBothRates = people.some(p => p.cost_day_rate != null && p.charge_day_rate != null && p.cost_day_rate !== p.charge_day_rate);
-            if (!hasBothRates && totalCharge === 0) return null;
+          {heatmapTotals && (heatmapTotals.hasBothRates || heatmapTotals.totalCharge > 0) && (() => {
+            const { totalCost, totalCharge } = heatmapTotals;
+            const margin    = totalCharge - totalCost;
+            const marginPct = totalCharge > 0 ? Math.round((margin / totalCharge) * 100) : null;
             return (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
                 <div style={{ border: `1px solid ${P.border}`, background: P.navyLt, padding: "12px 16px" }}>
