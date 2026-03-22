@@ -146,66 +146,49 @@ async function loadRates(
   const roleCostRates       = new Map<string, number>();
   const roleChargeRates     = new Map<string, number>();
 
-  for (const tableName of ["v_resource_rates_latest", "resource_rates"]) {
-    const { data, error } = await supabase
-      .from(tableName)
-      .select("user_id, role_label, rate, rate_type, resource_type")
-      .eq("organisation_id", orgId)
-      .eq("rate_type", "day_rate");
+  // Use base table — the view dedupes and collapses Internal+Vendor into one row per role
+  const { data, error } = await supabase
+    .from("resource_rates")
+    .select("user_id, role_label, rate, rate_type, resource_type")
+    .eq("organisation_id", orgId)
+    .eq("rate_type", "day_rate")
+    .order("effective_from", { ascending: false });
 
-    if (error) continue;
-    if (!data?.length) continue;
+  if (error || !data?.length) return { personalCostRates, personalChargeRates, roleCostRates, roleChargeRates };
 
-    for (const r of data as any[]) {
-      const rate         = Number(r.rate ?? 0);
-      if (!rate) continue;
+  for (const r of data as any[]) {
+    const rate         = Number(r.rate ?? 0);
+    if (!rate) continue;
 
-      const uid          = safeStr(r.user_id ?? "").trim();
-      const label        = safeStr(r.role_label ?? r.role_title ?? "").trim().toLowerCase();
-      const resourceType = safeStr(r.resource_type ?? "").trim().toLowerCase();
+    const uid          = safeStr(r.user_id ?? "").trim();
+    const label        = safeStr(r.role_label ?? "").trim().toLowerCase();
+    const resourceType = safeStr(r.resource_type ?? "").trim().toLowerCase();
 
-      // Classify the entry:
-      // "internal" / "employee"                             → COST rate only
-      // "vendor" / "external" / "consultant" / "contractor" → CHARGE rate only
-      // empty / unrecognised                                → BOTH (legacy / single-rate setup)
-      const isInternalType = resourceType === "internal" || resourceType === "employee";
-      const isVendorType   = resourceType === "vendor"   || resourceType === "external"
-                          || resourceType === "consultant" || resourceType === "contractor";
-      const isBothType     = !isInternalType && !isVendorType; // no type set
+    const isInternal = resourceType === "internal" || resourceType === "employee";
+    const isVendor   = resourceType === "vendor"   || resourceType === "external"
+                    || resourceType === "consultant" || resourceType === "contractor";
+    const isBoth     = !isInternal && !isVendor; // no type = fallback for both
 
-      // Personal rates (matched by user_id)
-      if (uid && personIds.includes(uid)) {
-        if (isInternalType || isBothType) {
-          if (!personalCostRates.has(uid))   personalCostRates.set(uid, rate);
-        }
-        if (isVendorType || isBothType) {
-          if (!personalChargeRates.has(uid)) personalChargeRates.set(uid, rate);
-        }
-      }
-
-      // Role rates (matched by role_label)
-      if (label) {
-        if (isInternalType || isBothType) {
-          if (!roleCostRates.has(label))   roleCostRates.set(label, rate);
-        }
-        if (isVendorType || isBothType) {
-          if (!roleChargeRates.has(label)) roleChargeRates.set(label, rate);
-        }
-      }
+    // Personal rates (has a specific user_id)
+    if (uid && personIds.includes(uid)) {
+      if ((isInternal || isBoth) && !personalCostRates.has(uid))   personalCostRates.set(uid, rate);
+      if ((isVendor   || isBoth) && !personalChargeRates.has(uid)) personalChargeRates.set(uid, rate);
     }
 
-    break; // got data from this table, don't try next
+    // Role rates (no specific user — applies to anyone in the role)
+    if (label && !uid) {
+      if ((isInternal || isBoth) && !roleCostRates.has(label))   roleCostRates.set(label, rate);
+      if ((isVendor   || isBoth) && !roleChargeRates.has(label)) roleChargeRates.set(label, rate);
+    }
   }
 
-  // Fallback: if a person has a cost rate but no charge rate, use cost for both (and vice versa)
+  // Fallback: if only one rate type found, use it for both
   for (const uid of personIds) {
     if (personalCostRates.has(uid)   && !personalChargeRates.has(uid)) personalChargeRates.set(uid, personalCostRates.get(uid)!);
     if (personalChargeRates.has(uid) && !personalCostRates.has(uid))   personalCostRates.set(uid, personalChargeRates.get(uid)!);
   }
-
-  // Same fallback for role rates
-  for (const [label, rate] of roleCostRates)   { if (!roleChargeRates.has(label)) roleChargeRates.set(label, rate); }
-  for (const [label, rate] of roleChargeRates)  { if (!roleCostRates.has(label))   roleCostRates.set(label, rate); }
+  for (const [label, rate] of roleCostRates)  if (!roleChargeRates.has(label)) roleChargeRates.set(label, rate);
+  for (const [label, rate] of roleChargeRates) if (!roleCostRates.has(label))  roleCostRates.set(label, rate);
 
   return { personalCostRates, personalChargeRates, roleCostRates, roleChargeRates };
 }

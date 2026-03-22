@@ -1110,6 +1110,11 @@ export default function FinancialPlanEditor({
   const [heatmapTotals, setHeatmapTotals] = useState<{
     totalCost: number; totalCharge: number; hasBothRates: boolean;
   } | null>(null);
+
+  // Stable callback — won't cause ResourcesTab to re-mount
+  const handlePeopleLoaded = useCallback((count: number) => {
+    setHeatmapPeopleCount(count);
+  }, []);
   const [, startTransition] = useTransition();
   const lastSignalsKeyRef = useRef<string>("");
   const baselineMonthlyDataRef = useRef<MonthlyData | null>(null);
@@ -1501,7 +1506,7 @@ export default function FinancialPlanEditor({
           onSyncMonthly={d => updateField("monthly_data", d)}
           projectId={projectId}
           artifactId={artifactId}
-          onPeopleLoaded={setHeatmapPeopleCount}
+          onPeopleLoaded={handlePeopleLoaded}
         />
       )}
 

@@ -33,7 +33,8 @@ type PersonSummary = {
   name:        string;
   job_title:   string;
   role_title:  string;
-  day_rate:    number | null;
+  cost_day_rate:   number | null;
+  charge_day_rate: number | null;
   rate_source: "personal" | "role" | null;
   week_count:  number;
   total_days:  number;
@@ -220,7 +221,7 @@ export default function ResourcePlanSyncBar({
                 People on project
               </div>
               {preview.people.map(person => {
-                const hasRate = person.day_rate != null;
+                const hasRate = person.cost_day_rate != null || person.charge_day_rate != null;
                 return (
                   <div key={person.person_id} style={{ display: "flex", alignItems: "center", gap: 16, padding: "7px 16px", borderTop: `1px solid ${P.border}` }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -236,10 +237,17 @@ export default function ResourcePlanSyncBar({
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
                       {hasRate ? (
                         <>
-                          <div style={{ fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: P.navy }}>
-                            {sym}{person.day_rate!.toLocaleString()}/day
-                          </div>
-                          <div style={{ fontFamily: P.mono, fontSize: 9, color: P.green }}>
+                          {person.cost_day_rate != null && (
+                            <div style={{ fontFamily: P.mono, fontSize: 10, color: P.navy }}>
+                              Cost: {sym}{person.cost_day_rate.toLocaleString()}/day
+                            </div>
+                          )}
+                          {person.charge_day_rate != null && person.charge_day_rate !== person.cost_day_rate && (
+                            <div style={{ fontFamily: P.mono, fontSize: 10, color: "#059669" }}>
+                              Charge: {sym}{person.charge_day_rate.toLocaleString()}/day
+                            </div>
+                          )}
+                          <div style={{ fontFamily: P.mono, fontSize: 8, color: P.green }}>
                             {person.rate_source === "personal" ? "personal rate" : "role rate"}
                           </div>
                         </>
