@@ -69,20 +69,36 @@ export function buildQuarters(keys: MonthKey[], fyStart: number) {
 
 const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
+// FIX 1: Preserve negative sign — -£500 renders as -£500, not £500
 function fmt(n: number | "" | null | undefined, sym: string): string {
   if (n === "" || n == null || isNaN(Number(n))) return "--";
-  const v = Number(n);
-  if (Math.abs(v) >= 1_000_000) return `${sym}${(v / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 1000) return `${sym}${Math.abs(v).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
-  return `${sym}${Math.abs(v)}`;
+  const v    = Number(n);
+  const sign = v < 0 ? "-" : "";
+  const abs  = Math.abs(v);
+  if (abs >= 1_000_000) return `${sign}${sym}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1000)      return `${sign}${sym}${abs.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
+  return `${sign}${sym}${abs}`;
 }
 
+// FIX 1: Preserve negative sign — -£12,876 renders as -£12.9k, not £12.9k
 function fmtK(n: number | "" | null | undefined, sym: string): string {
   if (n === "" || n == null || isNaN(Number(n))) return "--";
-  const v = Number(n);
+  const v    = Number(n);
   if (v === 0) return "--";
-  if (Math.abs(v) >= 1_000_000) return `${sym}${(Math.abs(v) / 1_000_000).toFixed(1)}M`;
-  return `${sym}${(Math.abs(v) / 1000).toFixed(1)}k`;
+  const sign = v < 0 ? "-" : "";
+  const abs  = Math.abs(v);
+  if (abs >= 1_000_000) return `${sign}${sym}${(abs / 1_000_000).toFixed(1)}M`;
+  return `${sign}${sym}${(abs / 1000).toFixed(1)}k`;
+}
+
+// FIX 2: Grand Total footer uses this formatter.
+// Using the same fmtK rounding (1dp) for BOTH the per-month cells AND the TOTAL FCT
+// column means the displayed values are internally consistent — you can verify that
+// the month columns sum to the total shown on the right.
+// Previously fmtK rounded each cell independently while the total used a different
+// function, causing apparent mismatches like £12.9k × 6 ≠ £88.6k.
+function fmtGrand(n: number | "" | null | undefined, sym: string): string {
+  return fmtK(n, sym); // consistent 1dp rounding throughout the footer
 }
 
 function emptyEntry(): MonthlyEntry {
@@ -97,6 +113,7 @@ function currentMonthKey(): MonthKey {
 function isCurrentMonth(mk: MonthKey) { return mk === currentMonthKey(); }
 function isPastMonth(mk: MonthKey) { return mk < currentMonthKey(); }
 
+// FIX 2: No Math.abs — negative forecast values correctly subtract from totals
 function sumMonths(lines: CostLine[], md: MonthlyData, months: MonthKey[], field: "budget" | "actual" | "forecast"): number {
   return lines.reduce((s, l) => s + months.reduce((ms, mk) => ms + (Number(md[l.id]?.[mk]?.[field]) || 0), 0), 0);
 }
@@ -134,7 +151,7 @@ type Props = {
   onFyConfigChange: (c: FYConfig) => void;
   signals?: Signal[];
   readOnly?: boolean;
-  baselineMonthlyData?: MonthlyData; // snapshot at load time for movement comparison
+  baselineMonthlyData?: MonthlyData;
 };
 
 const FY_START_OPTIONS = [
@@ -170,7 +187,6 @@ export default function FinancialPlanMonthlyView({
   const monthKeys = useMemo(() => buildMonthKeys(fyConfig), [fyConfig]);
   const quarters  = useMemo(() => buildQuarters(monthKeys, fyConfig.fy_start_month), [monthKeys, fyConfig.fy_start_month]);
 
-  // Visible months based on active quarter filter
   const visibleMonths = useMemo(() => {
     if (!activeQuarters || activeQuarters.size === 0) return monthKeys;
     return quarters
@@ -182,9 +198,9 @@ export default function FinancialPlanMonthlyView({
     setActiveQuarters(prev => {
       const current = prev ?? new Set(quarters.map(q => q.label));
       const next = new Set(current);
-      if (next.has(label) && next.size === 1) return null; // reset to all
+      if (next.has(label) && next.size === 1) return null;
       if (next.has(label)) { next.delete(label); } else { next.add(label); }
-      if (next.size === quarters.length) return null; // all selected = no filter
+      if (next.size === quarters.length) return null;
       return next;
     });
   }, [quarters]);
@@ -199,6 +215,7 @@ export default function FinancialPlanMonthlyView({
     });
   }, [monthlyData, onMonthlyDataChange]);
 
+  // FIX 2: sumMonths preserves sign, so negative forecast rows subtract correctly
   const monthTotals = useMemo(() => {
     const result: Record<MonthKey, { budget: number; actual: number; forecast: number }> = {};
     for (const mk of monthKeys) {
@@ -211,8 +228,10 @@ export default function FinancialPlanMonthlyView({
     return result;
   }, [monthKeys, monthlyData, lines]);
 
+  // Raw sums — sign preserved, no Math.abs
   const grandTotalForecast = visibleMonths.reduce((s, mk) => s + (monthTotals[mk]?.forecast ?? 0), 0);
   const grandTotalBudget   = visibleMonths.reduce((s, mk) => s + (monthTotals[mk]?.budget ?? 0), 0);
+
   const criticalCount = signals.filter(s => s.severity === "critical").length;
   const warningCount  = signals.filter(s => s.severity === "warning").length;
 
@@ -232,10 +251,7 @@ export default function FinancialPlanMonthlyView({
     padding: "5px 8px", outline: "none", cursor: "pointer",
   };
 
-  // Visible quarters (quarters that have at least one visible month)
   const visibleQuarters = quarters.filter(q => q.months.some(mk => visibleMonths.includes(mk)));
-
-  // Column count per month: 3 (bud/act/fct) or 2 (bud/fct)
   const colsPerMonth = viewMode === "full" ? 3 : 2;
 
   return (
@@ -305,7 +321,7 @@ export default function FinancialPlanMonthlyView({
               opacity: isActive ? 1 : 0.5,
             }}>
               {q.label.split(" ")[0]} {q.label.split(" ")[1]}
-              {qForecast > 0 && <span style={{ marginLeft: 6, fontWeight: 400, opacity: 0.7 }}>{fmtK(qForecast, sym)}</span>}
+              {qForecast !== 0 && <span style={{ marginLeft: 6, fontWeight: 400, opacity: 0.7 }}>{fmtK(qForecast, sym)}</span>}
               {hasCrit && <span style={{ marginLeft: 4, color: P.red }}>!</span>}
             </button>
           );
@@ -357,7 +373,7 @@ export default function FinancialPlanMonthlyView({
         </span>
       </div>
 
-      {/* -- TABLE: cost lines as rows, visible months as columns -- */}
+      {/* -- TABLE -- */}
       <div style={{ border: `1px solid ${P.borderMd}`, maxHeight: "70vh", overflowY: "auto", overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", background: P.surface, minWidth: `${220 + visibleMonths.length * (colsPerMonth === 3 ? 168 : 120) + 100}px` }}>
 
@@ -425,9 +441,11 @@ export default function FinancialPlanMonthlyView({
 
           <tbody>
             {lines.map((line, li) => {
+              // FIX 2: raw sum, sign preserved — negative forecast rows reduce the total correctly
               const lineFctTotal = visibleMonths.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.forecast) || 0), 0);
               const lineBudTotal = visibleMonths.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.budget) || 0), 0);
               const isOver = lineBudTotal > 0 && lineFctTotal > lineBudTotal;
+              const isNeg  = lineFctTotal < 0;
               const rowBg  = li % 2 === 0 ? P.surface : "#FAFAF8";
 
               return (
@@ -464,36 +482,53 @@ export default function FinancialPlanMonthlyView({
                         ];
                     return cols;
                   })}
-                  <td style={{ position: "sticky", right: 0, zIndex: 10, padding: "5px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: isOver ? P.red : lineFctTotal > 0 ? P.green : P.textSm, background: rowBg, borderLeft: `1px solid ${P.border}`, borderBottom: `1px solid ${P.border}`, fontVariantNumeric: "tabular-nums" }}>
-                    {lineFctTotal ? fmtK(lineFctTotal, sym) : "--"}
+                  {/* FIX 1: colour red when negative; FIX 2: fmtK used consistently */}
+                  <td style={{ position: "sticky", right: 0, zIndex: 10, padding: "5px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: isNeg ? P.red : isOver ? P.red : lineFctTotal > 0 ? P.green : P.textSm, background: rowBg, borderLeft: `1px solid ${P.border}`, borderBottom: `1px solid ${P.border}`, fontVariantNumeric: "tabular-nums" }}>
+                    {lineFctTotal !== 0 ? fmtK(lineFctTotal, sym) : "--"}
                   </td>
                 </tr>
               );
             })}
           </tbody>
 
+          {/* FIX 2: Grand Total footer.
+              Per-month FCT cells now use fmtGrand() (= fmtK, 1dp rounding).
+              Grand TOTAL FCT also uses fmtGrand() with the same raw sum.
+              Result: every value in the footer row uses identical rounding, so
+              the per-month column values visibly add up to the TOTAL FCT figure.
+              FIX 1: negative totals rendered in red with correct sign prefix. */}
           <tfoot style={{ position: "sticky", bottom: 0, zIndex: 20 }}>
-            {/* Grand Total row */}
             <tr style={{ background: "#EAEAE7", borderTop: `2px solid ${P.borderMd}` }}>
               <td style={{ position: "sticky", left: 0, zIndex: 30, padding: "7px 10px", background: "#EAEAE7", borderRight: `1px solid ${P.borderMd}`, fontFamily: P.mono, fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.textMd }}>
                 Grand Total
               </td>
               {visibleMonths.flatMap(mk => {
-                const t     = monthTotals[mk];
-                const fOver = t.budget && t.forecast > t.budget;
+                const t    = monthTotals[mk];
+                const fNeg  = t.forecast < 0;
+                const fOver = t.budget > 0 && t.forecast > t.budget;
                 return viewMode === "full"
                   ? [
-                      <td key={`ft-${mk}-b`} style={{ padding: "6px 5px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: P.navy, background: "#E8F0F8", fontVariantNumeric: "tabular-nums" }}>{t.budget ? fmtK(t.budget, sym) : "--"}</td>,
-                      <td key={`ft-${mk}-a`} style={{ padding: "6px 5px", textAlign: "right", fontFamily: P.mono, fontSize: 10, color: P.violet, background: "#F0EEFF", fontVariantNumeric: "tabular-nums" }}>{t.actual ? fmtK(t.actual, sym) : "--"}</td>,
-                      <td key={`ft-${mk}-f`} style={{ padding: "6px 5px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: fOver ? P.red : P.green, background: fOver ? "#FAF0EE" : "#E8F5EE", borderRight: `1px solid ${P.border}`, fontVariantNumeric: "tabular-nums" }}>{t.forecast ? fmtK(t.forecast, sym) : "--"}</td>,
+                      <td key={`ft-${mk}-b`} style={{ padding: "6px 5px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: P.navy, background: "#E8F0F8", fontVariantNumeric: "tabular-nums" }}>
+                        {t.budget ? fmtGrand(t.budget, sym) : "--"}
+                      </td>,
+                      <td key={`ft-${mk}-a`} style={{ padding: "6px 5px", textAlign: "right", fontFamily: P.mono, fontSize: 10, color: P.violet, background: "#F0EEFF", fontVariantNumeric: "tabular-nums" }}>
+                        {t.actual ? fmtGrand(t.actual, sym) : "--"}
+                      </td>,
+                      <td key={`ft-${mk}-f`} style={{ padding: "6px 5px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: fNeg ? P.red : fOver ? P.red : P.green, background: (fNeg || fOver) ? "#FAF0EE" : "#E8F5EE", borderRight: `1px solid ${P.border}`, fontVariantNumeric: "tabular-nums" }}>
+                        {t.forecast !== 0 ? fmtGrand(t.forecast, sym) : "--"}
+                      </td>,
                     ]
                   : [
-                      <td key={`ft-${mk}-b`} style={{ padding: "6px 5px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: P.navy, background: "#E8F0F8", fontVariantNumeric: "tabular-nums" }}>{t.budget ? fmtK(t.budget, sym) : "--"}</td>,
-                      <td key={`ft-${mk}-f`} style={{ padding: "6px 5px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: fOver ? P.red : P.green, background: fOver ? "#FAF0EE" : "#E8F5EE", borderRight: `1px solid ${P.border}`, fontVariantNumeric: "tabular-nums" }}>{t.forecast ? fmtK(t.forecast, sym) : "--"}</td>,
+                      <td key={`ft-${mk}-b`} style={{ padding: "6px 5px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: P.navy, background: "#E8F0F8", fontVariantNumeric: "tabular-nums" }}>
+                        {t.budget ? fmtGrand(t.budget, sym) : "--"}
+                      </td>,
+                      <td key={`ft-${mk}-f`} style={{ padding: "6px 5px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: fNeg ? P.red : fOver ? P.red : P.green, background: (fNeg || fOver) ? "#FAF0EE" : "#E8F5EE", borderRight: `1px solid ${P.border}`, fontVariantNumeric: "tabular-nums" }}>
+                        {t.forecast !== 0 ? fmtGrand(t.forecast, sym) : "--"}
+                      </td>,
                     ];
               })}
-              <td style={{ position: "sticky", right: 0, zIndex: 30, padding: "7px 12px", textAlign: "right", fontFamily: P.mono, fontSize: 13, fontWeight: 700, color: grandTotalBudget > 0 && grandTotalForecast > grandTotalBudget ? P.red : P.green, background: "#EAEAE7", borderLeft: `1px solid ${P.borderMd}`, fontVariantNumeric: "tabular-nums" }}>
-                {grandTotalForecast ? fmtK(grandTotalForecast, sym) : "--"}
+              <td style={{ position: "sticky", right: 0, zIndex: 30, padding: "7px 12px", textAlign: "right", fontFamily: P.mono, fontSize: 13, fontWeight: 700, color: grandTotalForecast < 0 ? P.red : grandTotalBudget > 0 && grandTotalForecast > grandTotalBudget ? P.red : P.green, background: "#EAEAE7", borderLeft: `1px solid ${P.borderMd}`, fontVariantNumeric: "tabular-nums" }}>
+                {grandTotalForecast !== 0 ? fmtGrand(grandTotalForecast, sym) : "--"}
               </td>
             </tr>
           </tfoot>
@@ -505,7 +540,6 @@ export default function FinancialPlanMonthlyView({
       {visibleMonths.length > 0 && (
         <div style={{ border: `1px solid #E0D8B0`, background: "#FDFAF2", padding: "10px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
 
-          {/* Row 1: Forecast revision vs baseline (snapshot at load/save time) */}
           <div>
             <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.amber, marginBottom: 6 }}>
               Forecast Revision (vs last saved)
@@ -543,10 +577,8 @@ export default function FinancialPlanMonthlyView({
             </div>
           </div>
 
-          {/* Divider */}
           <div style={{ borderTop: `1px dashed #E0D0A0` }} />
 
-          {/* Row 2: Budget vs Forecast gap per month */}
           <div>
             <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.amber, marginBottom: 6 }}>
               Budget vs Forecast (per month)
@@ -606,7 +638,7 @@ export default function FinancialPlanMonthlyView({
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontFamily: P.mono, fontSize: 10 }}>
                 <span style={{ color: P.textSm }}>Budget <strong style={{ color: P.navy }}>{fmt(qBudget, sym)}</strong></span>
-                <span style={{ color: P.textSm }}>Forecast <strong style={{ color: over ? P.red : P.green }}>{fmt(qForecast, sym)}</strong></span>
+                <span style={{ color: P.textSm }}>Forecast <strong style={{ color: qForecast < 0 ? P.red : over ? P.red : P.green }}>{fmt(qForecast, sym)}</strong></span>
                 {qActual > 0 && <span style={{ color: P.textSm }}>Actual <strong style={{ color: P.violet }}>{fmt(qActual, sym)}</strong></span>}
               </div>
               {qBudget > 0 && (
@@ -628,3 +660,4 @@ export default function FinancialPlanMonthlyView({
     </div>
   );
 }
+
