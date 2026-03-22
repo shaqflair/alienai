@@ -441,7 +441,7 @@ type HeatmapPerson = {
   planned_charge:  number | null;
 };
 
-function useHeatmapPeople(projectId: string, artifactId?: string) {
+function useHeatmapPeople(projectId: string, artifactId?: string, onLoad?: (count: number) => void) {
   const [people,  setPeople]  = useState<HeatmapPerson[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
@@ -459,11 +459,15 @@ function useHeatmapPeople(projectId: string, artifactId?: string) {
       let json: any;
       try { json = JSON.parse(text); } catch { throw new Error(`Route not found or compile error (${res.status})`); }
       if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-      setPeople(json.people ?? []);
+      const loadedPeople = json.people ?? [];
+      setPeople(loadedPeople);
+      onLoad?.(loadedPeople.length);
     } catch (e: any) {
+      setError(e.message ?? "Failed to load");
+    } finally {
       setLoading(false);
     }
-  }, [projectId, artifactId]);
+  }, [projectId, artifactId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
   return { people, loading, error, reload: load };
@@ -472,15 +476,15 @@ function useHeatmapPeople(projectId: string, artifactId?: string) {
 function ResourcesTab({
   resources, costLines, sym, currency, readOnly, onChange, organisationId,
   monthlyData, fyConfig, timesheetEntries, actualsByLine, onSyncMonthly,
-  projectId, artifactId,
+  projectId, artifactId, onPeopleLoaded,
 }: {
   resources: Resource[]; costLines: CostLine[]; sym: string; currency: Currency;
   readOnly: boolean; onChange: (r: Resource[]) => void; organisationId: string;
   monthlyData: MonthlyData; fyConfig: FYConfig; timesheetEntries: TimesheetEntry[];
   actualsByLine: ActualsByLine; onSyncMonthly: (d: MonthlyData) => void;
-  projectId: string; artifactId?: string;
+  projectId: string; artifactId?: string; onPeopleLoaded?: (count: number) => void;
 }) {
-  const { people, loading, error, reload } = useHeatmapPeople(projectId, artifactId);
+  const { people, loading, error, reload } = useHeatmapPeople(projectId, artifactId, onPeopleLoaded);
   const [showExceptions, setShowExceptions] = useState(false);
 
   const update = useCallback((id: string, patch: Partial<Resource>) =>
@@ -1118,14 +1122,13 @@ export default function FinancialPlanEditor({
     } catch { return []; }
   });
 
-  // ── Fetch heatmap people count + cost/charge totals for tab badge and monthly summary ──
+  // ── Fetch heatmap cost/charge totals for monthly summary ──
   useEffect(() => {
     if (!projectId || !artifactId) return;
     fetch(`/api/artifacts/financial-plan/resource-plan-sync?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}`, { cache: "no-store" })
       .then(r => r.json())
       .then(d => {
         if (!d.ok) return;
-        if (typeof d.role_count === "number") setHeatmapPeopleCount(d.role_count);
         const people: Array<{ planned_cost: number | null; planned_charge: number | null; cost_day_rate: number | null; charge_day_rate: number | null }> = d.people ?? [];
         const totalCost   = people.reduce((s, p) => s + (p.planned_cost   ?? 0), 0);
         const totalCharge = people.reduce((s, p) => s + (p.planned_charge ?? 0), 0);
@@ -1498,6 +1501,7 @@ export default function FinancialPlanEditor({
           onSyncMonthly={d => updateField("monthly_data", d)}
           projectId={projectId}
           artifactId={artifactId}
+          onPeopleLoaded={setHeatmapPeopleCount}
         />
       )}
 
