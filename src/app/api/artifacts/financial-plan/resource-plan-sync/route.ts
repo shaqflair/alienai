@@ -182,13 +182,8 @@ async function loadRates(
     }
   }
 
-  // Fallback: if only one rate type found, use it for both
-  for (const uid of personIds) {
-    if (personalCostRates.has(uid)   && !personalChargeRates.has(uid)) personalChargeRates.set(uid, personalCostRates.get(uid)!);
-    if (personalChargeRates.has(uid) && !personalCostRates.has(uid))   personalCostRates.set(uid, personalChargeRates.get(uid)!);
-  }
-  for (const [label, rate] of roleCostRates)  if (!roleChargeRates.has(label)) roleChargeRates.set(label, rate);
-  for (const [label, rate] of roleChargeRates) if (!roleCostRates.has(label))  roleCostRates.set(label, rate);
+  // NOTE: no personal fallback here — we apply it AFTER role lookup in buildGroupedAllocations
+  // so role-based vendor rates take priority over using cost as charge fallback
 
   return { personalCostRates, personalChargeRates, roleCostRates, roleChargeRates };
 }
@@ -348,10 +343,11 @@ async function buildGroupedAllocations(
   }
 
   // 7. Apply both rates to each person
+  // Priority: personal explicit rate → role-based rate → cost-as-fallback
   for (const person of grouped) {
     const jt = person.jobTitle.toLowerCase().trim();
 
-    // Cost rate
+    // ── Cost rate (internal) ──
     if (personalCostRates.has(person.person_id)) {
       person.cost_day_rate = personalCostRates.get(person.person_id)!;
       person.rate_source   = "personal";
@@ -360,11 +356,25 @@ async function buildGroupedAllocations(
       if (person.cost_day_rate) person.rate_source = "role";
     }
 
-    // Charge-out rate
+    // ── Charge-out rate (vendor/external) ──
+    // Check explicit personal vendor rate first, then role-based vendor rate.
+    // Do NOT fall back to cost rate yet — check role first.
     if (personalChargeRates.has(person.person_id)) {
       person.charge_day_rate = personalChargeRates.get(person.person_id)!;
     } else {
-      person.charge_day_rate = findRate(jt, roleChargeRates);
+      // Role-based vendor rate (e.g. "Lead Project Manager" Vendor £850)
+      const roleCharge = findRate(jt, roleChargeRates);
+      if (roleCharge != null) {
+        person.charge_day_rate = roleCharge;
+      } else {
+        // No vendor rate found at all — use cost as charge fallback
+        person.charge_day_rate = person.cost_day_rate;
+      }
+    }
+
+    // If charge found but no cost, use charge as cost fallback
+    if (person.cost_day_rate == null && person.charge_day_rate != null) {
+      person.cost_day_rate = person.charge_day_rate;
     }
   }
 
