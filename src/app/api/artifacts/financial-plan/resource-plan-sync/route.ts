@@ -345,7 +345,8 @@ async function buildGroupedAllocations(
   // 7. Apply both rates to each person
   // Priority: personal explicit rate → role-based rate → cost-as-fallback
   for (const person of grouped) {
-    const jt = person.jobTitle.toLowerCase().trim();
+    // Use job_title first, fall back to role_title if job_title is empty
+    const jt = (person.jobTitle || person.role_title || "").toLowerCase().trim();
 
     // ── Cost rate (internal) ──
     if (personalCostRates.has(person.person_id)) {
