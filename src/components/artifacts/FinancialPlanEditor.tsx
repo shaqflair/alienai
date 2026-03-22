@@ -428,14 +428,17 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
 ───────────────────────────────────────────────────────────────────── */
 
 type HeatmapPerson = {
-  person_id:   string;
-  name:        string;
-  job_title:   string;
-  role_title:  string;
-  day_rate:    number | null;
-  rate_source: "personal" | "role" | null;
-  week_count:  number;
-  total_days:  number;
+  person_id:       string;
+  name:            string;
+  job_title:       string;
+  role_title:      string;
+  cost_day_rate:   number | null;
+  charge_day_rate: number | null;
+  rate_source:     "personal" | "role" | null;
+  week_count:      number;
+  total_days:      number;
+  planned_cost:    number | null;
+  planned_charge:  number | null;
 };
 
 function useHeatmapPeople(projectId: string, artifactId?: string) {
@@ -458,8 +461,6 @@ function useHeatmapPeople(projectId: string, artifactId?: string) {
       if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
       setPeople(json.people ?? []);
     } catch (e: any) {
-      setError(e.message);
-    } finally {
       setLoading(false);
     }
   }, [projectId, artifactId]);
@@ -516,13 +517,13 @@ function ResourcesTab({
 
   // Totals
   const heatmapTotalDays    = people.reduce((s, p) => s + p.total_days, 0);
-  const heatmapTotalCost    = people.reduce((s, p) => s + (p.day_rate != null ? p.total_days * p.day_rate : 0), 0);
+  const heatmapTotalCost    = people.reduce((s, p) => s + (p.planned_cost ?? 0), 0);
   const heatmapApprovedDays = people.reduce((s, p) => {
     const r = manualByPersonId.get(p.person_id);
     return s + (r ? (approvedDaysByResource[r.id] ?? 0) : 0);
   }, 0);
 
-  const missingRate = people.filter(p => p.day_rate == null);
+  const missingRate = people.filter(p => p.cost_day_rate == null && p.charge_day_rate == null);
 
   const thStyle: React.CSSProperties = {
     padding: "8px 10px", textAlign: "left",
@@ -555,11 +556,14 @@ function ResourcesTab({
             <tr style={{ background: "#F4F4F2", borderBottom: `1px solid ${P.borderMd}` }}>
               <th style={{ ...thStyle, minWidth: 200 }}>Person / Role</th>
               <th style={{ ...thStyle, minWidth: 100 }}>Job Title</th>
-              <th style={{ ...thStyle }}>Rate / Day</th>
+              <th style={{ ...thStyle }}>Cost / Day</th>
+              <th style={{ ...thStyle }}>Charge / Day</th>
               <th style={{ ...thStyle, textAlign: "right" }}>Planned Days</th>
               <th style={{ ...thViolet, textAlign: "right" }}>Approved Days</th>
               <th style={{ ...thViolet, textAlign: "right" }}>Variance</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Planned Cost</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Cost</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Charge-out</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Margin</th>
               <th style={{ ...thViolet, textAlign: "right" }}>Actual Cost</th>
               <th style={{ ...thStyle, textAlign: "right" }}>Weeks</th>
               <th style={{ ...thStyle, minWidth: 120 }}>Links to</th>
@@ -610,10 +614,15 @@ function ResourcesTab({
               const approvedDays    = manualResource ? (approvedDaysByResource[manualResource.id] ?? 0) : 0;
               const plannedDays     = person.total_days;
               const variance        = approvedDays > 0 ? approvedDays - plannedDays : null;
-              const plannedCost     = person.day_rate != null ? Math.round(plannedDays * person.day_rate) : null;
-              const actualCost      = person.day_rate != null && approvedDays > 0
-                ? Math.round(approvedDays * person.day_rate) : null;
-              const hasRate         = person.day_rate != null;
+              const plannedCost     = person.planned_cost;
+              const plannedCharge   = person.planned_charge;
+              const margin          = plannedCost != null && plannedCharge != null ? plannedCharge - plannedCost : null;
+              const marginPct       = plannedCharge != null && plannedCharge > 0 && margin != null
+                                        ? Math.round((margin / plannedCharge) * 100) : null;
+              const actualCost      = person.cost_day_rate != null && approvedDays > 0
+                ? Math.round(approvedDays * person.cost_day_rate) : null;
+              const hasCost         = person.cost_day_rate != null;
+              const hasCharge       = person.charge_day_rate != null;
               const hasTimesheet    = approvedDays > 0;
               const rowBg           = idx % 2 === 0 ? P.surface : "#FAFAF8";
               const linkedLine      = manualResource ? costLines.find(l => l.id === manualResource.cost_line_id) : null;
@@ -648,14 +657,31 @@ function ResourcesTab({
                     )}
                   </td>
 
-                  {/* Rate */}
+                  {/* Cost rate */}
                   <td style={{ padding: "10px 10px", background: rowBg }}>
-                    {hasRate ? (
-                      <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>
-                        {sym}{person.day_rate!.toLocaleString()}
-                      </div>
+                    {hasCost ? (
+                      <>
+                        <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>
+                          {sym}{person.cost_day_rate!.toLocaleString()}
+                        </div>
+                        <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>internal cost</div>
+                      </>
                     ) : (
                       <span style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.amber }}>No rate</span>
+                    )}
+                  </td>
+
+                  {/* Charge-out rate */}
+                  <td style={{ padding: "10px 10px", background: rowBg }}>
+                    {hasCharge ? (
+                      <>
+                        <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: "#059669" }}>
+                          {sym}{person.charge_day_rate!.toLocaleString()}
+                        </div>
+                        <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>charge-out</div>
+                      </>
+                    ) : (
+                      <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>—</span>
                     )}
                   </td>
 
@@ -704,6 +730,37 @@ function ResourcesTab({
                       </div>
                     ) : (
                       <span style={{ fontFamily: P.mono, fontSize: 9, color: P.amber }}>—</span>
+                    )}
+                    {plannedCost != null && <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>cost</div>}
+                  </td>
+
+                  {/* Charge-out total */}
+                  <td style={{ padding: "10px 10px", textAlign: "right", background: rowBg }}>
+                    {plannedCharge != null ? (
+                      <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: "#059669" }}>
+                        {sym}{plannedCharge.toLocaleString()}
+                      </div>
+                    ) : (
+                      <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>—</span>
+                    )}
+                    {plannedCharge != null && <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>charge</div>}
+                  </td>
+
+                  {/* Margin */}
+                  <td style={{ padding: "10px 10px", textAlign: "right", background: rowBg }}>
+                    {margin != null ? (
+                      <>
+                        <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: margin >= 0 ? "#059669" : P.red }}>
+                          {sym}{Math.abs(margin).toLocaleString()}
+                        </div>
+                        {marginPct != null && (
+                          <div style={{ fontFamily: P.mono, fontSize: 8, color: margin >= 0 ? "#059669" : P.red }}>
+                            {marginPct}% margin
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>—</span>
                     )}
                   </td>
 
@@ -915,9 +972,11 @@ function ResourcesTab({
           {!loading && !error && people.length > 0 && (
             <tfoot>
               <tr style={{ background: "#F0F0ED", borderTop: `1px solid ${P.borderMd}` }}>
-                <td colSpan={3} style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textMd, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                <td colSpan={2} style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textMd, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                   Total · {people.length} from heatmap{exceptions.length > 0 ? ` + ${exceptions.length} exception${exceptions.length !== 1 ? "s" : ""}` : ""}
                 </td>
+                <td style={{ padding: "8px 10px" }} />
+                <td style={{ padding: "8px 10px" }} />
                 <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>
                   {heatmapTotalDays.toFixed(1)}
                 </td>
@@ -925,8 +984,46 @@ function ResourcesTab({
                   {heatmapApprovedDays > 0 ? heatmapApprovedDays.toFixed(1) : "—"}
                 </td>
                 <td style={{ padding: "8px 10px", background: P.violetLt }} />
-                <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>
-                  {heatmapTotalCost > 0 ? `${sym}${heatmapTotalCost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "—"}
+                {/* Cost total */}
+                <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                  {heatmapTotalCost > 0 && (
+                    <>
+                      <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>
+                        {sym}{heatmapTotalCost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                      </div>
+                      <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>cost</div>
+                    </>
+                  )}
+                </td>
+                {/* Charge total */}
+                <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                  {(() => {
+                    const totalCharge = people.reduce((s, p) => s + (p.planned_charge ?? 0), 0);
+                    return totalCharge > 0 ? (
+                      <>
+                        <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: "#059669" }}>
+                          {sym}{totalCharge.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                        </div>
+                        <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>charge</div>
+                      </>
+                    ) : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>—</span>;
+                  })()}
+                </td>
+                {/* Margin total */}
+                <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                  {(() => {
+                    const totalCharge = people.reduce((s, p) => s + (p.planned_charge ?? 0), 0);
+                    const margin = totalCharge - heatmapTotalCost;
+                    const pct = totalCharge > 0 ? Math.round((margin / totalCharge) * 100) : null;
+                    return totalCharge > 0 && heatmapTotalCost > 0 ? (
+                      <>
+                        <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: margin >= 0 ? "#059669" : P.red }}>
+                          {sym}{Math.abs(margin).toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                        </div>
+                        {pct != null && <div style={{ fontFamily: P.mono, fontSize: 8, color: margin >= 0 ? "#059669" : P.red }}>{pct}% margin</div>}
+                      </>
+                    ) : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>—</span>;
+                  })()}
                 </td>
                 <td style={{ padding: "8px 10px", background: P.violetLt }} />
                 <td colSpan={3} />
@@ -1396,6 +1493,39 @@ export default function FinancialPlanEditor({
       {activeTab === "monthly" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
+          {/* ── Cost vs Charge-out summary ── */}
+          {heatmapPeopleCount != null && heatmapPeopleCount > 0 && (() => {
+            const totalCost   = people.reduce((s, p) => s + (p.planned_cost   ?? 0), 0);
+            const totalCharge = people.reduce((s, p) => s + (p.planned_charge ?? 0), 0);
+            const margin      = totalCharge - totalCost;
+            const marginPct   = totalCharge > 0 ? Math.round((margin / totalCharge) * 100) : null;
+            const hasBothRates = people.some(p => p.cost_day_rate != null && p.charge_day_rate != null && p.cost_day_rate !== p.charge_day_rate);
+            if (!hasBothRates && totalCharge === 0) return null;
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                <div style={{ border: `1px solid ${P.border}`, background: P.navyLt, padding: "12px 16px" }}>
+                  <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, color: P.textSm, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Internal Cost</div>
+                  <div style={{ fontFamily: P.mono, fontSize: 18, fontWeight: 700, color: P.navy }}>{sym}{totalCost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</div>
+                  <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>what you pay staff</div>
+                </div>
+                <div style={{ border: "1px solid #a7f3d0", background: "#f0fdf4", padding: "12px 16px" }}>
+                  <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, color: "#065f46", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Charge-out Revenue</div>
+                  <div style={{ fontFamily: P.mono, fontSize: 18, fontWeight: 700, color: "#059669" }}>{totalCharge > 0 ? `${sym}${totalCharge.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "—"}</div>
+                  <div style={{ fontFamily: P.mono, fontSize: 9, color: "#065f46", marginTop: 2 }}>what client is billed</div>
+                </div>
+                <div style={{ border: `1px solid ${margin >= 0 ? "#a7f3d0" : "#fecaca"}`, background: margin >= 0 ? "#f0fdf4" : "#fff5f5", padding: "12px 16px" }}>
+                  <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, color: margin >= 0 ? "#065f46" : P.red, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Gross Margin</div>
+                  <div style={{ fontFamily: P.mono, fontSize: 18, fontWeight: 700, color: margin >= 0 ? "#059669" : P.red }}>
+                    {totalCharge > 0 ? `${sym}${Math.abs(margin).toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "—"}
+                  </div>
+                  <div style={{ fontFamily: P.mono, fontSize: 9, color: margin >= 0 ? "#065f46" : P.red, marginTop: 2 }}>
+                    {marginPct != null ? `${marginPct}% margin` : "add charge-out rates to see margin"}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ── Resource Plan → Financial Forecast (project resource plan drives this) ── */}
           {artifactId && projectId && (
             <ResourcePlanSyncBar
@@ -1407,14 +1537,12 @@ export default function FinancialPlanEditor({
               overriddenMonths={overriddenMonths}
               onOverrideChange={months => {
                 setOverriddenMonths(months);
-                // persist override list inside the content so it survives saves
                 handleChange({
                   ...content,
                   resource_plan_overridden_months: JSON.stringify(months),
                 });
               }}
               onSynced={() => {
-                // parent reloads the artifact content so monthly phasing reflects sync
                 onRequestReload?.();
               }}
             />

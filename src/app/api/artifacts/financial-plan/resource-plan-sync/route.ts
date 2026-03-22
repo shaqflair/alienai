@@ -135,42 +135,75 @@ async function loadRates(
   orgId: string,
   personIds: string[],
   jobTitles: string[]
-): Promise<{ personalRates: Map<string, number>; roleRates: Map<string, number> }> {
-  const personalRates = new Map<string, number>();
-  const roleRates     = new Map<string, number>();
+): Promise<{
+  personalCostRates:   Map<string, number>;
+  personalChargeRates: Map<string, number>;
+  roleCostRates:       Map<string, number>;
+  roleChargeRates:     Map<string, number>;
+}> {
+  const personalCostRates   = new Map<string, number>();
+  const personalChargeRates = new Map<string, number>();
+  const roleCostRates       = new Map<string, number>();
+  const roleChargeRates     = new Map<string, number>();
 
-  // Try view first, then table
   for (const tableName of ["v_resource_rates_latest", "resource_rates"]) {
     const { data, error } = await supabase
       .from(tableName)
-      .select("user_id, role_label, rate, rate_type")
+      .select("user_id, role_label, rate, rate_type, resource_type")
       .eq("organisation_id", orgId)
       .eq("rate_type", "day_rate");
 
     if (error) continue;
 
     for (const r of (data ?? []) as any[]) {
-      const rate = Number(r.rate ?? r.day_rate ?? 0);
+      const rate         = Number(r.rate ?? 0);
       if (!rate) continue;
 
-      // Personal rate (matched by user_id)
-      const uid = safeStr(r.user_id ?? "").trim();
-      if (uid && personIds.includes(uid) && !personalRates.has(uid)) {
-        personalRates.set(uid, rate);
+      const uid          = safeStr(r.user_id ?? "").trim();
+      const label        = safeStr(r.role_label ?? r.role_title ?? "").trim().toLowerCase();
+      const resourceType = safeStr(r.resource_type ?? "").trim().toLowerCase();
+
+      // "internal" = cost rate (what the company pays)
+      // "external" / "consultant" / anything else = charge-out rate (what client is billed)
+      const isInternal   = resourceType === "internal" || resourceType === "employee";
+      const isCharge     = resourceType === "external" || resourceType === "consultant"
+                           || resourceType === "contractor" || resourceType === "vendor"
+                           || (!resourceType && !isInternal); // unset = charge by default for legacy
+
+      if (uid && personIds.includes(uid)) {
+        if (isInternal  && !personalCostRates.has(uid))   personalCostRates.set(uid, rate);
+        if (!isInternal && !personalChargeRates.has(uid)) personalChargeRates.set(uid, rate);
+        // If only one rate exists per person, use it for both
+        if (!isInternal && !isCharge) {
+          if (!personalCostRates.has(uid))   personalCostRates.set(uid, rate);
+          if (!personalChargeRates.has(uid)) personalChargeRates.set(uid, rate);
+        }
       }
 
-      // Role/job title rate (matched by role_label)
-      const label = safeStr(r.role_label ?? r.role_title ?? "").trim().toLowerCase();
-      if (label && !roleRates.has(label)) {
-        roleRates.set(label, rate);
+      if (label) {
+        if (isInternal  && !roleCostRates.has(label))   roleCostRates.set(label, rate);
+        if (!isInternal && !roleChargeRates.has(label)) roleChargeRates.set(label, rate);
       }
     }
 
-    // If we got data, don't try the other table
+    // If a person has only one rate (not separated by type), use it for both
+    for (const uid of personIds) {
+      const hasCost   = personalCostRates.has(uid);
+      const hasCharge = personalChargeRates.has(uid);
+      if (hasCost && !hasCharge) personalChargeRates.set(uid, personalCostRates.get(uid)!);
+      if (hasCharge && !hasCost) personalCostRates.set(uid, personalChargeRates.get(uid)!);
+    }
+    for (const [label, rate] of roleCostRates) {
+      if (!roleChargeRates.has(label)) roleChargeRates.set(label, rate);
+    }
+    for (const [label, rate] of roleChargeRates) {
+      if (!roleCostRates.has(label)) roleCostRates.set(label, rate);
+    }
+
     if ((data ?? []).length > 0) break;
   }
 
-  return { personalRates, roleRates };
+  return { personalCostRates, personalChargeRates, roleCostRates, roleChargeRates };
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -184,10 +217,11 @@ type PersonAllocation = {
   person_id: string;
   name:      string;
   jobTitle:  string;
-  // Weekly entries: each is a span of Mon–Sun with N days allocated
   weeks: Array<{ week_start: string; week_end: string; days: number }>;
-  // Resolved rate
-  day_rate:    number | null;
+  // Cost rate = what company pays internally
+  cost_day_rate:    number | null;
+  // Charge rate = what client is billed (external/vendor rate)
+  charge_day_rate:  number | null;
   rate_source: "personal" | "role" | null;
   role_title:  string;
 };
@@ -218,14 +252,15 @@ function groupAllocationsByPerson(
     if (!byPerson.has(personId)) {
       const info = personInfoMap.get(personId);
       byPerson.set(personId, {
-        id:        personId,
-        person_id: personId,
-        name:      info?.name      ?? personId,
-        jobTitle:  info?.jobTitle  ?? "",
-        weeks:     [],
-        day_rate:     null,
-        rate_source:  null,
-        role_title:   safeStr(row.role_on_project ?? info?.jobTitle ?? "Team Member"),
+        id:               personId,
+        person_id:        personId,
+        name:             info?.name      ?? personId,
+        jobTitle:         info?.jobTitle  ?? "",
+        weeks:            [],
+        cost_day_rate:    null,
+        charge_day_rate:  null,
+        rate_source:      null,
+        role_title:       safeStr(row.role_on_project ?? info?.jobTitle ?? "Team Member"),
       });
     }
 
@@ -250,10 +285,11 @@ function toForecastAllocations(grouped: PersonAllocation[]): any[] {
         person_name:            person.name,
         role_title:             person.role_title,
         seniority_level:        null,
-        required_days_per_week: week.days,   // already actual days for this week
+        required_days_per_week: week.days,
         start_date:             week.week_start,
         end_date:               week.week_end,
-        day_rate:               person.day_rate,
+        // Use cost rate for forecast (what company pays)
+        day_rate:               person.cost_day_rate,
         rate_source:            person.rate_source,
       });
     }
@@ -297,57 +333,51 @@ async function buildGroupedAllocations(
   // 5. Job titles for rate lookup
   const jobTitles = grouped.map(p => p.jobTitle.toLowerCase()).filter(Boolean);
 
-  // 6. Rates
-  const { personalRates, roleRates } = await loadRates(supabase, orgId, personIds, jobTitles);
+  // 6. Both rate types
+  const { personalCostRates, personalChargeRates, roleCostRates, roleChargeRates } =
+    await loadRates(supabase, orgId, personIds, jobTitles);
 
-  // 7. Apply rates to each person — with fuzzy job title matching
+  // Helper: fuzzy match job title → rate map
+  function findRate(jt: string, rateMap: Map<string, number>): number | null {
+    if (!jt) return null;
+    if (rateMap.has(jt)) return rateMap.get(jt)!;
+
+    const normalise = (s: string) => s
+      .toLowerCase()
+      .replace(/\b(senior|sr|junior|jr|lead|principal|associate|staff|chief|head of)\b/g, "")
+      .replace(/\s+/g, " ").trim();
+
+    const normJt = normalise(jt);
+    for (const [label, rate] of rateMap.entries()) {
+      const normLabel = normalise(label);
+      if (normLabel === normJt) return rate;
+      if (normLabel.includes(normJt) || normJt.includes(normLabel)) return rate;
+      const jtWords    = normJt.split(" ").filter(Boolean);
+      const labelWords = normLabel.split(" ").filter(Boolean);
+      const overlap    = jtWords.filter(w => labelWords.includes(w)).length;
+      if (overlap > 0 && overlap >= Math.min(jtWords.length, labelWords.length) * 0.5) return rate;
+    }
+    return null;
+  }
+
+  // 7. Apply both rates to each person
   for (const person of grouped) {
-    if (personalRates.has(person.person_id)) {
-      person.day_rate    = personalRates.get(person.person_id)!;
-      person.rate_source = "personal";
+    const jt = person.jobTitle.toLowerCase().trim();
+
+    // Cost rate
+    if (personalCostRates.has(person.person_id)) {
+      person.cost_day_rate = personalCostRates.get(person.person_id)!;
+      person.rate_source   = "personal";
     } else {
-      const jt = person.jobTitle.toLowerCase().trim();
-      if (!jt) continue;
+      person.cost_day_rate = findRate(jt, roleCostRates);
+      if (person.cost_day_rate) person.rate_source = "role";
+    }
 
-      // Exact match first
-      if (roleRates.has(jt)) {
-        person.day_rate    = roleRates.get(jt)!;
-        person.rate_source = "role";
-        continue;
-      }
-
-      // Normalised match: remove common prefixes (Sr/Senior/Jr/Junior/Lead)
-      const normalise = (s: string) => s
-        .toLowerCase()
-        .replace(/\b(senior|sr|junior|jr|lead|principal|associate|staff|chief|head of)\b/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      const normJt = normalise(jt);
-
-      let bestRate: number | null = null;
-      for (const [label, rate] of roleRates.entries()) {
-        const normLabel = normalise(label);
-        // Full normalised match
-        if (normLabel === normJt) { bestRate = rate; break; }
-        // One contains the other (e.g. "project consultant" ⊂ "sr project consultant")
-        if (normLabel.includes(normJt) || normJt.includes(normLabel)) {
-          bestRate = rate;
-          break;
-        }
-        // Word overlap ≥ 50%
-        const jtWords    = normJt.split(" ").filter(Boolean);
-        const labelWords = normLabel.split(" ").filter(Boolean);
-        const overlap    = jtWords.filter(w => labelWords.includes(w)).length;
-        if (overlap > 0 && overlap >= Math.min(jtWords.length, labelWords.length) * 0.5) {
-          bestRate = rate;
-        }
-      }
-
-      if (bestRate != null) {
-        person.day_rate    = bestRate;
-        person.rate_source = "role";
-      }
+    // Charge-out rate
+    if (personalChargeRates.has(person.person_id)) {
+      person.charge_day_rate = personalChargeRates.get(person.person_id)!;
+    } else {
+      person.charge_day_rate = findRate(jt, roleChargeRates);
     }
   }
 
@@ -412,10 +442,18 @@ export async function GET(req: Request) {
     );
 
     const missingRates = grouped
-      .filter(p => p.day_rate == null)
+      .filter(p => p.cost_day_rate == null && p.charge_day_rate == null)
       .map(p => ({ id: p.person_id, role_title: p.jobTitle || p.role_title, person_name: p.name }));
 
-    const totalCost = Object.values(forecast.monthly_totals).reduce((s, t) => s + t.cost, 0);
+    const totalCostForecast   = Object.values(forecast.monthly_totals).reduce((s, t) => s + t.cost, 0);
+    // Charge-out forecast: recompute with charge rate
+    const totalChargeForecast = grouped.reduce((sum, p) => {
+      if (!p.charge_day_rate) return sum;
+      return sum + p.weeks.reduce((s, w) => s + w.days * p.charge_day_rate!, 0);
+    }, 0);
+    const margin = totalChargeForecast - totalCostForecast;
+    const marginPct = totalChargeForecast > 0 ? Math.round((margin / totalChargeForecast) * 100) : null;
+
     const currency  = artifactId
       ? ((await loadFinancialPlanArtifact(supabase, artifactId))?.currency ?? "GBP")
       : "GBP";
@@ -424,25 +462,30 @@ export async function GET(req: Request) {
       ok: true,
       isAdmin,
       source: "allocations",
-      // Summary for the sync bar — shows people not weekly rows
       role_count:    grouped.length,
-      rate_coverage: `${grouped.filter(p => p.day_rate != null).length}/${grouped.length}`,
+      rate_coverage: `${grouped.filter(p => p.cost_day_rate != null || p.charge_day_rate != null).length}/${grouped.length}`,
       people: grouped.map(p => ({
-        person_id:   p.person_id,
-        name:        p.name,
-        job_title:   p.jobTitle,
-        role_title:  p.role_title,
-        day_rate:    p.day_rate,
-        rate_source: p.rate_source,
-        week_count:  p.weeks.length,
-        total_days:  p.weeks.reduce((s, w) => s + w.days, 0),
+        person_id:       p.person_id,
+        name:            p.name,
+        job_title:       p.jobTitle,
+        role_title:      p.role_title,
+        cost_day_rate:   p.cost_day_rate,
+        charge_day_rate: p.charge_day_rate,
+        rate_source:     p.rate_source,
+        week_count:      p.weeks.length,
+        total_days:      p.weeks.reduce((s, w) => s + w.days, 0),
+        planned_cost:    p.cost_day_rate   != null ? Math.round(p.weeks.reduce((s, w) => s + w.days, 0) * p.cost_day_rate)   : null,
+        planned_charge:  p.charge_day_rate != null ? Math.round(p.weeks.reduce((s, w) => s + w.days, 0) * p.charge_day_rate) : null,
       })),
       forecast: {
-        monthly_totals:  forecast.monthly_totals,
-        missing_rates:   missingRates,
-        summary:         formatMonthlySummary(forecast.monthly_totals, currency),
-        months_affected: Object.keys(forecast.monthly_totals).filter(mk => forecast.monthly_totals[mk].cost > 0).length,
-        total_cost:      totalCost,
+        monthly_totals:   forecast.monthly_totals,
+        missing_rates:    missingRates,
+        summary:          formatMonthlySummary(forecast.monthly_totals, currency),
+        months_affected:  Object.keys(forecast.monthly_totals).filter(mk => forecast.monthly_totals[mk].cost > 0).length,
+        total_cost:       totalCostForecast,
+        total_charge:     totalChargeForecast,
+        margin:           margin,
+        margin_pct:       marginPct,
       },
       overridden_months: overriddenMonths,
     });
