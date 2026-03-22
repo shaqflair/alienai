@@ -69,11 +69,15 @@ export type CostLine = {
   id: string;
   category: CostCategory;
   description: string;
-  budgeted: number | "";
-  actual: number | "";
-  forecast: number | "";
+  budgeted:  number | "";
+  actual:    number | "";
+  forecast:  number | "";
   notes: string;
   override?: boolean;
+  // Cost vs charge-out (for tools, licences, hardware, vendor, etc.)
+  unit_cost:    number | "";  // what you pay per unit (e.g. £1000/licence)
+  unit_charge:  number | "";  // what you charge client per unit (e.g. £1500/licence)
+  quantity:     number | "";  // number of units
 };
 
 export type ChangeExposure = {
@@ -166,7 +170,7 @@ export function emptyFinancialPlan(currency: Currency = "GBP"): FinancialPlanCon
 }
 
 function emptyCostLine(): CostLine {
-  return { id: uid(), category: "people", description: "", budgeted: "", actual: "", forecast: "", notes: "", override: false };
+  return { id: uid(), category: "people", description: "", budgeted: "", actual: "", forecast: "", notes: "", override: false, unit_cost: "", unit_charge: "", quantity: "" };
 }
 
 function emptyChangeExposure(): ChangeExposure {
@@ -1386,8 +1390,22 @@ export default function FinancialPlanEditor({
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "#F4F4F2", borderBottom: `1px solid ${P.borderMd}` }}>
-                {["Category", "Description", `Budgeted (${sym})`, `Actual (${sym})`, `Forecast (${sym})`, "Variance", "Resources", "Notes", ""].map((h, i) => (
-                  <th key={i} style={{ padding: "8px 10px", textAlign: "left", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: h.startsWith("Actual") ? P.violet : P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", borderBottom: `1px solid ${P.borderMd}`, background: h.startsWith("Actual") ? P.violetLt : "#F4F4F2", whiteSpace: "nowrap" }}>
+                {[
+                  { h: "Category",           bg: "#F4F4F2", color: P.textSm },
+                  { h: "Description",        bg: "#F4F4F2", color: P.textSm },
+                  { h: `Budgeted (${sym})`,  bg: "#F4F4F2", color: P.textSm },
+                  { h: `Actual (${sym})`,    bg: P.violetLt, color: P.violet },
+                  { h: `Forecast (${sym})`,  bg: "#F4F4F2", color: P.textSm },
+                  { h: "Variance",           bg: "#F4F4F2", color: P.textSm },
+                  { h: "Qty",                bg: "#f0fdf4", color: "#065f46" },
+                  { h: "Unit Cost",          bg: "#f0fdf4", color: "#065f46" },
+                  { h: "Unit Charge",        bg: "#f0fdf4", color: "#059669" },
+                  { h: "Margin",             bg: "#f0fdf4", color: "#059669" },
+                  { h: "Resources",          bg: "#F4F4F2", color: P.textSm },
+                  { h: "Notes",              bg: "#F4F4F2", color: P.textSm },
+                  { h: "",                   bg: "#F4F4F2", color: P.textSm },
+                ].map(({ h, bg, color }, i) => (
+                  <th key={i} style={{ padding: "8px 10px", textAlign: "left", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color, letterSpacing: "0.08em", textTransform: "uppercase", borderBottom: `1px solid ${P.borderMd}`, background: bg, whiteSpace: "nowrap" }}>
                     {h}
                   </th>
                 ))}
@@ -1396,59 +1414,140 @@ export default function FinancialPlanEditor({
             <tbody>
               {lines.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: "32px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>
+                  <td colSpan={13} style={{ padding: "32px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>
                     No cost lines yet. Click <strong>Add line</strong> below.
                   </td>
                 </tr>
               )}
               {linesWithActuals.map((l, idx) => {
-                const resTotal = resourceTotalsByLine[l.id] ?? 0;
-                const hasResources = resTotal > 0;
+                const resTotal       = resourceTotalsByLine[l.id] ?? 0;
+                const hasResources   = resTotal > 0;
                 const lineApprovedDays = timesheetEntries
-                  .filter(e => {
-                    const r = resources.find(r => r.id === e.resource_id);
-                    return r?.cost_line_id === l.id;
-                  })
+                  .filter(e => { const r = resources.find(r => r.id === e.resource_id); return r?.cost_line_id === l.id; })
                   .reduce((s, e) => s + e.approved_days, 0);
                 const hasTimesheetData = lineApprovedDays > 0;
                 const rowBg = idx % 2 === 0 ? P.surface : "#FAFAF8";
                 const cellBase: React.CSSProperties = { borderBottom: `1px solid ${P.border}`, background: rowBg };
+                const greenBg = idx % 2 === 0 ? "#f0fdf4" : "#e8faf0";
+
+                // Cost / charge / margin computation
+                const qty         = Number(l.quantity   || 0);
+                const unitCost    = Number(l.unit_cost   || 0);
+                const unitCharge  = Number(l.unit_charge || 0);
+                const lineCost    = qty > 0 && unitCost   > 0 ? qty * unitCost   : null;
+                const lineCharge  = qty > 0 && unitCharge > 0 ? qty * unitCharge : null;
+                const lineMargin  = lineCost != null && lineCharge != null ? lineCharge - lineCost : null;
+                const marginPct   = lineCharge != null && lineCharge > 0 && lineMargin != null
+                  ? Math.round((lineMargin / lineCharge) * 100) : null;
+                const isPeople    = l.category === "people";
 
                 return (
                   <tr key={l.id} style={{ background: rowBg }}>
+                    {/* Category */}
                     <td style={{ ...cellBase, minWidth: 140, padding: "4px 6px" }}>
                       <select value={l.category} onChange={e => updateLine(l.id, { category: e.target.value as CostCategory })} disabled={readOnly}
                         style={{ width: "100%", border: "none", background: "transparent", fontSize: 11, fontFamily: P.sans, fontWeight: 500, color: P.text, outline: "none", cursor: readOnly ? "default" : "pointer" }}>
                         {(Object.keys(CATEGORY_LABELS) as CostCategory[]).map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
                       </select>
                     </td>
+
+                    {/* Description */}
                     <td style={{ ...cellBase, minWidth: 160 }}>
                       <input type="text" value={l.description} onChange={e => updateLine(l.id, { description: e.target.value })} readOnly={readOnly}
                         placeholder="Description..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }} />
                     </td>
+
+                    {/* Budgeted */}
                     <td style={{ ...cellBase, background: hasResources && !l.override ? "#F2F8FF" : rowBg }}>
                       <MoneyCell value={l.budgeted} onChange={v => updateLine(l.id, { budgeted: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
                     </td>
-                    <td style={{ ...cellBase, background: l.category === "people" ? P.violetLt : rowBg }}>
-                      {l.category === "people"
+
+                    {/* Actual */}
+                    <td style={{ ...cellBase, background: isPeople ? P.violetLt : rowBg }}>
+                      {isPeople
                         ? <ActualCell value={l.actual} symbol={sym} approvedDays={lineApprovedDays} hasTimesheetData={hasTimesheetData} />
                         : <MoneyCell value={l.actual} onChange={v => updateLine(l.id, { actual: v })} symbol={sym} readOnly={readOnly} />
                       }
                     </td>
+
+                    {/* Forecast */}
                     <td style={{ ...cellBase, background: hasResources && !l.override ? "#F2F8FF" : rowBg }}>
                       <MoneyCell value={l.forecast} onChange={v => updateLine(l.id, { forecast: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
                     </td>
+
+                    {/* Variance */}
                     <td style={{ ...cellBase, padding: "4px 10px" }}>
                       <VarianceBadge budget={l.budgeted} forecast={l.forecast} />
                     </td>
+
+                    {/* Qty — not for people */}
+                    <td style={{ ...cellBase, background: isPeople ? rowBg : greenBg, minWidth: 60 }}>
+                      {!isPeople ? (
+                        <input type="number" min={0} step={1} value={l.quantity === "" ? "" : l.quantity}
+                          onChange={e => {
+                            const v = e.target.value === "" ? "" : Number(e.target.value);
+                            updateLine(l.id, { quantity: v });
+                          }}
+                          readOnly={readOnly} placeholder="1"
+                          style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.mono, outline: "none" }} />
+                      ) : <span style={{ padding: "6px 8px", display: "block", fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
+                    </td>
+
+                    {/* Unit Cost */}
+                    <td style={{ ...cellBase, background: isPeople ? rowBg : greenBg }}>
+                      {!isPeople ? (
+                        <MoneyCell value={l.unit_cost} onChange={v => {
+                          // Auto-populate budgeted if qty set
+                          const q = Number(l.quantity || 0);
+                          const patch: Partial<CostLine> = { unit_cost: v };
+                          if (q > 0 && v !== "") patch.budgeted = q * Number(v);
+                          updateLine(l.id, patch);
+                        }} symbol={sym} readOnly={readOnly} />
+                      ) : <span style={{ padding: "6px 8px", display: "block", fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
+                    </td>
+
+                    {/* Unit Charge */}
+                    <td style={{ ...cellBase, background: isPeople ? rowBg : greenBg }}>
+                      {!isPeople ? (
+                        <MoneyCell value={l.unit_charge} onChange={v => {
+                          // Auto-populate forecast if qty set
+                          const q = Number(l.quantity || 0);
+                          const patch: Partial<CostLine> = { unit_charge: v };
+                          if (q > 0 && v !== "") patch.forecast = q * Number(v);
+                          updateLine(l.id, patch);
+                        }} symbol={sym} readOnly={readOnly} />
+                      ) : <span style={{ padding: "6px 8px", display: "block", fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
+                    </td>
+
+                    {/* Margin */}
+                    <td style={{ ...cellBase, background: isPeople ? rowBg : greenBg, padding: "4px 10px" }}>
+                      {!isPeople && lineMargin != null ? (
+                        <div>
+                          <div style={{ fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: lineMargin >= 0 ? "#059669" : P.red }}>
+                            {sym}{Math.abs(lineMargin).toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                          </div>
+                          {marginPct != null && (
+                            <div style={{ fontFamily: P.mono, fontSize: 8, color: lineMargin >= 0 ? "#059669" : P.red }}>
+                              {marginPct}% margin
+                            </div>
+                          )}
+                        </div>
+                      ) : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
+                    </td>
+
+                    {/* Resources */}
                     <td style={{ ...cellBase, padding: "4px 8px", minWidth: 130 }}>
                       {!readOnly && <OverrideToggle line={l} hasLinkedResources={hasResources} resTotal={resTotal} sym={sym} onToggle={() => toggleLineOverride(l.id)} />}
                       {!hasResources && <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>no resources</span>}
                     </td>
+
+                    {/* Notes */}
                     <td style={{ ...cellBase, minWidth: 160 }}>
                       <input type="text" value={l.notes} onChange={e => updateLine(l.id, { notes: e.target.value })} readOnly={readOnly}
                         placeholder="Notes..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.textMd, fontFamily: P.sans, outline: "none" }} />
                     </td>
+
+                    {/* Delete */}
                     <td style={{ ...cellBase, padding: "4px 6px" }}>
                       {!readOnly && (
                         <button type="button" onClick={() => removeLine(l.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
@@ -1463,22 +1562,60 @@ export default function FinancialPlanEditor({
                 );
               })}
             </tbody>
-            {lines.length > 0 && (
-              <tfoot>
-                <tr style={{ background: "#F0F0ED", borderTop: `2px solid ${P.borderMd}` }}>
-                  <td colSpan={2} style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textMd, letterSpacing: "0.06em", textTransform: "uppercase" }}>Total</td>
-                  <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>{fmt(totalBudgeted, sym)}</td>
-                  <td style={{ padding: "8px 10px", background: P.violetLt }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.violet }}>
-                      <Lock style={{ width: 10, height: 10 }} /> {fmt(totalActual, sym)}
-                    </span>
-                  </td>
-                  <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>{fmt(totalForecast, sym)}</td>
-                  <td style={{ padding: "8px 10px" }}><VarianceBadge budget={totalBudgeted} forecast={totalForecast} /></td>
-                  <td colSpan={3} />
-                </tr>
-              </tfoot>
-            )}
+            {lines.length > 0 && (() => {
+              // Total cost and charge across all non-people lines
+              const nonPeopleLines = linesWithActuals.filter(l => l.category !== "people");
+              const totalLineCost   = nonPeopleLines.reduce((s, l) => {
+                const q = Number(l.quantity || 0), uc = Number(l.unit_cost || 0);
+                return s + (q > 0 && uc > 0 ? q * uc : 0);
+              }, 0);
+              const totalLineCharge = nonPeopleLines.reduce((s, l) => {
+                const q = Number(l.quantity || 0), uch = Number(l.unit_charge || 0);
+                return s + (q > 0 && uch > 0 ? q * uch : 0);
+              }, 0);
+              const totalLineMargin = totalLineCharge - totalLineCost;
+              const totalMarginPct  = totalLineCharge > 0 ? Math.round((totalLineMargin / totalLineCharge) * 100) : null;
+
+              return (
+                <tfoot>
+                  <tr style={{ background: "#F0F0ED", borderTop: `2px solid ${P.borderMd}` }}>
+                    <td colSpan={2} style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textMd, letterSpacing: "0.06em", textTransform: "uppercase" }}>Total</td>
+                    <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>{fmt(totalBudgeted, sym)}</td>
+                    <td style={{ padding: "8px 10px", background: P.violetLt }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.violet }}>
+                        <Lock style={{ width: 10, height: 10 }} /> {fmt(totalActual, sym)}
+                      </span>
+                    </td>
+                    <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>{fmt(totalForecast, sym)}</td>
+                    <td style={{ padding: "8px 10px" }}><VarianceBadge budget={totalBudgeted} forecast={totalForecast} /></td>
+                    {/* Qty/UnitCost totals empty */}
+                    <td /><td />
+                    {/* Unit Charge total */}
+                    <td style={{ padding: "8px 10px", background: "#f0fdf4" }}>
+                      {totalLineCharge > 0 && (
+                        <div style={{ fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: "#059669" }}>
+                          {sym}{totalLineCharge.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                        </div>
+                      )}
+                    </td>
+                    {/* Margin total */}
+                    <td style={{ padding: "8px 10px", background: "#f0fdf4" }}>
+                      {totalLineCost > 0 && totalLineCharge > 0 && (
+                        <div>
+                          <div style={{ fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: totalLineMargin >= 0 ? "#059669" : P.red }}>
+                            {sym}{Math.abs(totalLineMargin).toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                          </div>
+                          {totalMarginPct != null && (
+                            <div style={{ fontFamily: P.mono, fontSize: 8, color: totalLineMargin >= 0 ? "#059669" : P.red }}>{totalMarginPct}% margin</div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td colSpan={3} />
+                  </tr>
+                </tfoot>
+              );
+            })()}
           </table>
           {!readOnly && (
             <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
@@ -1514,19 +1651,31 @@ export default function FinancialPlanEditor({
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
           {/* ── Cost vs Charge-out summary ── */}
-          {heatmapTotals && (heatmapTotals.hasBothRates || heatmapTotals.totalCharge > 0) && (() => {
-            const { totalCost, totalCharge } = heatmapTotals;
+          {heatmapTotals && (() => {
+            const { totalCost: peopleCost, totalCharge: peopleCharge } = heatmapTotals;
+            // Add tools/licences/hardware/vendor line charges
+            const toolsCost   = lines.filter(l => l.category !== "people").reduce((s, l) => {
+              const q = Number(l.quantity || 0), uc = Number(l.unit_cost || 0);
+              return s + (q > 0 && uc > 0 ? q * uc : Number(l.budgeted || 0));
+            }, 0);
+            const toolsCharge = lines.filter(l => l.category !== "people").reduce((s, l) => {
+              const q = Number(l.quantity || 0), uch = Number(l.unit_charge || 0);
+              return s + (q > 0 && uch > 0 ? q * uch : Number(l.forecast || l.budgeted || 0));
+            }, 0);
+            const totalCost   = peopleCost   + toolsCost;
+            const totalCharge = peopleCharge + toolsCharge;
+            if (totalCost === 0 && totalCharge === 0) return null;
             const margin    = totalCharge - totalCost;
             const marginPct = totalCharge > 0 ? Math.round((margin / totalCharge) * 100) : null;
             return (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
                 <div style={{ border: `1px solid ${P.border}`, background: P.navyLt, padding: "12px 16px" }}>
-                  <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, color: P.textSm, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Internal Cost</div>
+                  <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, color: P.textSm, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Total Internal Cost</div>
                   <div style={{ fontFamily: P.mono, fontSize: 18, fontWeight: 700, color: P.navy }}>{sym}{totalCost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</div>
-                  <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>what you pay staff</div>
+                  <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>people + tools &amp; licences</div>
                 </div>
                 <div style={{ border: "1px solid #a7f3d0", background: "#f0fdf4", padding: "12px 16px" }}>
-                  <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, color: "#065f46", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Charge-out Revenue</div>
+                  <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, color: "#065f46", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Total Charge-out Revenue</div>
                   <div style={{ fontFamily: P.mono, fontSize: 18, fontWeight: 700, color: "#059669" }}>{totalCharge > 0 ? `${sym}${totalCharge.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "—"}</div>
                   <div style={{ fontFamily: P.mono, fontSize: 9, color: "#065f46", marginTop: 2 }}>what client is billed</div>
                 </div>
