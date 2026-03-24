@@ -90,6 +90,12 @@ export async function GET(req: NextRequest) {
       .not("status", "ilike", "%delet%")
       .not("status", "ilike", "%closed%")
       .not("status", "ilike", "%pipeline%")
+      .not("status", "ilike", "%prospect%")
+      .not("status", "ilike", "%pre-project%")
+      .not("status", "ilike", "%pre_project%")
+      .not("status", "ilike", "%proposed%")
+      .not("status", "ilike", "%cancelled%")
+      .not("status", "ilike", "%canceled%")
       .order("title");
 
     if (projErr) {
@@ -183,19 +189,22 @@ export async function GET(req: NextRequest) {
         safeStr(a.artifact_type).toLowerCase() === "financial_plan"
       );
       if (!finPlan) {
-        checks.push({ id: "budget", label: "Budget", status: "missing", detail: "No financial plan", severity: "medium" });
+        checks.push({ id: "budget", label: "Budget", status: "missing", detail: "No financial plan exists", severity: "high" });
+      } else if (finPlan.approval_status !== "approved") {
+        // Financial plan must be approved by governance authority before budget is considered sanctioned
+        checks.push({ id: "budget", label: "Budget", status: "fail", detail: `Financial plan not governance-approved (${finPlan.approval_status})`, severity: "high" });
       } else {
         const cj       = safeJson(finPlan.content_json);
         const approved = safeNum(cj?.total_approved_budget);
         const forecast = (Array.isArray(cj?.cost_lines) ? cj.cost_lines : [])
           .reduce((s: number, l: any) => s + safeNum(l.forecast), 0);
         if (approved === 0) {
-          checks.push({ id: "budget", label: "Budget", status: "warn", detail: "No approved budget set", severity: "medium" });
+          checks.push({ id: "budget", label: "Budget", status: "warn", detail: "Plan approved but no approved budget amount set", severity: "medium" });
         } else {
           const overpct = Math.round(((forecast - approved) / approved) * 100);
-          if (overpct > 10)     checks.push({ id: "budget", label: "Budget", status: "fail", detail: `${overpct}% over approved budget`, severity: "critical" });
-          else if (overpct > 0) checks.push({ id: "budget", label: "Budget", status: "warn", detail: `${overpct}% over approved budget`, severity: "high" });
-          else                  checks.push({ id: "budget", label: "Budget", status: "pass", detail: `${Math.round((forecast / approved) * 100)}% of budget`, severity: "low" });
+          if (overpct > 10)     checks.push({ id: "budget", label: "Budget", status: "fail",   detail: `${overpct}% over approved budget`, severity: "critical" });
+          else if (overpct > 0) checks.push({ id: "budget", label: "Budget", status: "warn",   detail: `${overpct}% over approved budget`, severity: "high" });
+          else                  checks.push({ id: "budget", label: "Budget", status: "pass",   detail: `${Math.round((forecast / approved) * 100)}% of approved budget`, severity: "low" });
         }
       }
 

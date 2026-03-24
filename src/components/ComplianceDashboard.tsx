@@ -173,7 +173,7 @@ function Modal({ project, check, onClose }: { project: ProjectCompliance; check:
     g1_charter:   "Ensure the project charter is submitted and approved before proceeding with any significant project spend or delivery.",
     gate5:        "The project closure report must be completed and formally approved before the project can be closed in the system.",
     weekly:       "Assign the PM to submit a weekly status update immediately. Reports must be updated at least every 7 days.",
-    budget:       "Raise a formal change request to uplift the approved budget, or identify cost reductions to bring forecast within the approved envelope.",
+    budget:       "The financial plan must be formally approved by the appropriate governance authority before the budget is considered sanctioned. Submit the financial plan for approval through the governance workflow.",
     raid:         "Review all overdue RAID items with the project team. Escalate high-risk items to the steering committee this week.",
     changes:      "Change requests must not remain pending for more than 14 days. Schedule a change board review.",
     artifacts:    "All governance artefacts must be created and maintained. Missing artefacts indicate an incomplete governance framework.",
