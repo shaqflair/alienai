@@ -76,7 +76,8 @@ export default function AuthForm({ next }: { next?: string }) {
   const router = useRouter();
   const sp = useSearchParams();
   const nextUrl = next ?? sp.get("next") ?? "/projects";
-  const resetDone = sp.get("reset") === "done";
+  const resetDone      = sp.get("reset") === "done";
+  const accountCreated = sp.get("info")  === "account_created";
 
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
@@ -88,7 +89,10 @@ export default function AuthForm({ next }: { next?: string }) {
 
   const showResend = useMemo(() => {
     const e = (err ?? "").toLowerCase();
-    return mode==="signin" && !!pendingEmail && (e.includes("confirm")||e.includes("verified")||e.includes("verification")||e.includes("not confirmed"));
+    return mode==="signin" && !!pendingEmail && (
+      e.includes("confirm") || e.includes("verified") ||
+      e.includes("verification") || e.includes("not confirmed")
+    );
   }, [err, mode, pendingEmail]);
 
   async function resendVerification() {
@@ -97,7 +101,10 @@ export default function AuthForm({ next }: { next?: string }) {
     setErr(null); setInfo(null); setLoading(true);
     try {
       const supabase = createClient();
-      const { error } = await supabase.auth.resend({ type:"signup", email:target, options:{ emailRedirectTo:`${getOrigin()}/auth/callback?next=${encodeURIComponent(nextUrl)}` } });
+      const { error } = await supabase.auth.resend({
+        type: "signup", email: target,
+        options: { emailRedirectTo: `${getOrigin()}/auth/callback?next=${encodeURIComponent(nextUrl)}` },
+      });
       if (error) throw error;
       setInfo("Verification email resent. Check your inbox (and spam).");
     } catch (e:any) { setErr(e?.message ?? "Failed to resend"); }
@@ -109,28 +116,46 @@ export default function AuthForm({ next }: { next?: string }) {
     setErr(null); setInfo(null); setLoading(true);
     try {
       const supabase = createClient();
+
       if (mode === "magic") {
-        const { error } = await supabase.auth.signInWithOtp({ email, options:{ emailRedirectTo:`${getOrigin()}/auth/callback?next=${encodeURIComponent(nextUrl)}` } });
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: `${getOrigin()}/auth/callback?next=${encodeURIComponent(nextUrl)}` },
+        });
         if (error) throw error;
         setPendingEmail(email);
         setInfo("Magic link sent. Check your email to continue.");
         return;
       }
+
+      // Password sign-in
       const res = await supabase.auth.signInWithPassword({ email, password });
       if (res.error) {
-        const msg = String(res.error.message??"").toLowerCase();
-        if (msg.includes("confirm")||msg.includes("verified")||msg.includes("not confirmed")) {
+        const msg = String(res.error.message ?? "").toLowerCase();
+        // Catch unconfirmed email — show resend button
+        if (
+          msg.includes("confirm") || msg.includes("verified") ||
+          msg.includes("not confirmed") || msg.includes("email not confirmed")
+        ) {
           setPendingEmail(email);
-          setInfo("Your email is not verified yet. Check your inbox or resend verification.");
+          setInfo("Your email is not verified yet. Check your inbox or resend the verification email.");
         }
         throw res.error;
       }
-      router.replace(nextUrl); router.refresh();
-    } catch (e:any) { setErr(e?.message ?? "Failed to authenticate"); }
-    finally { setLoading(false); }
+
+      router.replace(nextUrl);
+      router.refresh();
+    } catch (e:any) {
+      setErr(e?.message ?? "Failed to authenticate");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  const modeLabel = mode === "signin" ? "INITIATE SESSION" : "SEND MAGIC LINK";
+  // ── LABEL CHANGES ──────────────────────────────────────────────
+  // "Authorization Key" → "Password"
+  // "INITIATE SESSION"  → "SIGN IN"
+  const submitLabel = mode === "signin" ? "SIGN IN" : "SEND MAGIC LINK";
 
   return (
     <>
@@ -237,7 +262,6 @@ export default function AuthForm({ next }: { next?: string }) {
             <div className="auth-brand-sub">Project Intelligence Platform</div>
           </div>
 
-          {/* signin + magic only -- no open registration */}
           <div className="auth-mode-bar">
             {(["signin","magic"] as Mode[]).map(m => (
               <button key={m} className={`auth-mode-btn${mode===m?" active":""}`} type="button"
@@ -250,12 +274,14 @@ export default function AuthForm({ next }: { next?: string }) {
           <div className="auth-divider"><span>AUTHENTICATE TO PROCEED</span></div>
 
           {resetDone && <div className="auth-msg auth-msg-ok">Password reset complete. Please sign in.</div>}
+          {accountCreated && <div className="auth-msg auth-msg-ok">Account created! Sign in below to continue.</div>}
           {info  && <div className="auth-msg auth-msg-info">{info}</div>}
           {err   && <div className="auth-msg auth-msg-err">{err}</div>}
 
           <form onSubmit={onSubmit}>
             <div className="auth-field">
-              <label className="auth-label">Access Credential</label>
+              {/* CHANGED: "Access Credential" → "Email" */}
+              <label className="auth-label">Email</label>
               <input className="auth-input" type="email" placeholder="operator@domain.com"
                 autoComplete="email" required value={email}
                 onChange={e => setEmail(e.target.value)} />
@@ -263,15 +289,17 @@ export default function AuthForm({ next }: { next?: string }) {
 
             {mode === "signin" && (
               <div className="auth-field">
-                <label className="auth-label">Authorization Key</label>
+                {/* CHANGED: "Authorization Key" → "Password" */}
+                <label className="auth-label">Password</label>
                 <input className="auth-input" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"
                   autoComplete="current-password" required value={password}
                   onChange={e => setPassword(e.target.value)} />
               </div>
             )}
 
+            {/* CHANGED: "INITIATE SESSION" → "SIGN IN" */}
             <button className="auth-btn-primary" type="submit" disabled={loading}>
-              {loading ? <><span className="auth-spin" /> PROCESSING</> : modeLabel}
+              {loading ? <><span className="auth-spin" /> PROCESSING</> : submitLabel}
             </button>
 
             {showResend && (
@@ -287,7 +315,6 @@ export default function AuthForm({ next }: { next?: string }) {
             </div>
           )}
 
-          {/* Invite-only notice */}
           <div className="auth-invite-notice">
             ACCESS BY INVITATION ONLY<br />
             New accounts require an invitation from your organisation administrator.
