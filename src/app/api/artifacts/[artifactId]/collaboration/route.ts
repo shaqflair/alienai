@@ -10,8 +10,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function readArtifactId(ctx: any): string {
-  const v = ctx?.params?.artifactId;
+type RouteContext = {
+  params: Promise<{ artifactId: string }> | { artifactId: string };
+};
+
+async function readArtifactId(ctx: RouteContext): Promise<string> {
+  const params = await ctx?.params;
+  const v = params?.artifactId;
   return typeof v === "string" ? v : Array.isArray(v) ? String(v[0] || "") : "";
 }
 
@@ -19,13 +24,15 @@ async function safeJson(req: Request) {
   return req.json().catch(() => ({}));
 }
 
-export async function GET(_req: Request, ctx: any) {
-  const artifactId = readArtifactId(ctx);
+export async function GET(_req: Request, ctx: RouteContext) {
+  const artifactId = await readArtifactId(ctx);
+
   if (!artifactId) {
     return NextResponse.json({ ok: false, error: "Missing artifactId" }, { status: 400 });
   }
 
   const state = await getArtifactCollaborationState(artifactId);
+
   if (!state) {
     return NextResponse.json({ ok: false, error: "Artifact not found" }, { status: 404 });
   }
@@ -33,8 +40,9 @@ export async function GET(_req: Request, ctx: any) {
   return NextResponse.json({ ok: true, state });
 }
 
-export async function POST(req: Request, ctx: any) {
-  const artifactId = readArtifactId(ctx);
+export async function POST(req: Request, ctx: RouteContext) {
+  const artifactId = await readArtifactId(ctx);
+
   if (!artifactId) {
     return NextResponse.json({ ok: false, error: "Missing artifactId" }, { status: 400 });
   }
@@ -48,20 +56,24 @@ export async function POST(req: Request, ctx: any) {
   }
 
   if (action === "refresh") {
-    const sessionId = String(body?.sessionId || "");
+    const sessionId = String(body?.sessionId || "").trim();
+
     if (!sessionId) {
       return NextResponse.json({ ok: false, error: "Missing sessionId" }, { status: 400 });
     }
+
     const result = await refreshArtifactLock(artifactId, sessionId);
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   }
 
   if (action === "release") {
-    const sessionId = String(body?.sessionId || "");
-    const releaseReason = String(body?.releaseReason || "released");
+    const sessionId = String(body?.sessionId || "").trim();
+    const releaseReason = String(body?.releaseReason || "released").trim();
+
     if (!sessionId) {
       return NextResponse.json({ ok: false, error: "Missing sessionId" }, { status: 400 });
     }
+
     const result = await releaseArtifactLock(artifactId, sessionId, releaseReason);
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   }
