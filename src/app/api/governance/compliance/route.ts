@@ -89,6 +89,7 @@ export async function GET(req: NextRequest) {
       .not("status", "ilike", "%archiv%")
       .not("status", "ilike", "%delet%")
       .not("status", "ilike", "%closed%")
+      .not("status", "ilike", "%pipeline%")
       .order("title");
 
     if (projErr) {
