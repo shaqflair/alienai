@@ -81,21 +81,17 @@ export async function GET(req: NextRequest) {
     // ── Load ALL non-deleted projects (no status filter — avoids case mismatch) ──
     const { data: projects, error: projErr } = await admin
       .from("projects")
-      .select("id, title, project_code, status, created_at, updated_at, finish_date, organisation_id")
+      .select("id, title, project_code, status, resource_status, created_at, updated_at, finish_date, organisation_id")
       .eq("organisation_id", orgId)
       .is("deleted_at", null)
-      // Case-insensitive match — handles active/Active/ACTIVE/on_hold etc.
-      // Only exclude archived/deleted
+      // Exclude archived/deleted by status
       .not("status", "ilike", "%archiv%")
       .not("status", "ilike", "%delet%")
       .not("status", "ilike", "%closed%")
-      .not("status", "ilike", "%pipeline%")
-      .not("status", "ilike", "%prospect%")
-      .not("status", "ilike", "%pre-project%")
-      .not("status", "ilike", "%pre_project%")
-      .not("status", "ilike", "%proposed%")
       .not("status", "ilike", "%cancelled%")
       .not("status", "ilike", "%canceled%")
+      // Exclude pipeline projects — identified by resource_status (matches project page logic)
+      .not("resource_status", "ilike", "%pipeline%")
       .order("title");
 
     if (projErr) {
