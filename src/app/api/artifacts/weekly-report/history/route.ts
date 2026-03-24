@@ -44,19 +44,38 @@ function extractHeadline(cj: any): string | null {
   return v || null;
 }
 
-function isWeeklyReportType(type: string) {
-  const t = safeStr(type).trim();
-  if (!t) return false;
-  const lower = t.toLowerCase().replace(/[_\s-]/g, "");
-  return lower.includes("weeklyreport");
+function mapArtifactRow(row: any) {
+  const cj = safeJson(row.content_json ?? row.snapshot);
+  return {
+    artifactId:     safeStr(row.id ?? row.artifact_id),
+    title:          safeStr(row.title) || null,
+    period:         extractPeriod(cj),
+    rag:            extractRag(cj),
+    headline:       extractHeadline(cj),
+    savedAt:        safeStr(row.last_saved_at ?? row.updated_at ?? row.created_at),
+    contentJson:    cj,
+    versionNo:      row.version ?? row.version_no ?? null,
+    isCurrent:      row.is_current ?? false,
+    approvalStatus: safeStr(row.approval_status ?? row.status ?? ""),
+    source:         "artifact_revision",
+  };
 }
+
+const ARTIFACT_SELECT = [
+  "id", "title", "content_json", "version",
+  "updated_at", "created_at", "last_saved_at",
+  "is_current", "approval_status", "status",
+  "artifact_type", "type", "root_artifact_id",
+].join(", ");
 
 export async function GET(req: Request) {
   try {
     const supabase = await createClient();
 
     const { data: auth, error: authErr } = await supabase.auth.getUser();
-    if (authErr || !auth?.user) return noStore({ ok: false, error: "Unauthorized" }, { status: 401 });
+    if (authErr || !auth?.user) {
+      return noStore({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
 
     const url        = new URL(req.url);
     const projectId  = safeStr(url.searchParams.get("projectId")).trim();
@@ -64,16 +83,21 @@ export async function GET(req: Request) {
     const limitRaw   = parseInt(url.searchParams.get("limit") ?? "50", 10);
     const limit      = Math.max(1, Math.min(100, isNaN(limitRaw) ? 50 : limitRaw));
 
-    if (!projectId) return noStore({ ok: false, error: "Missing projectId" }, { status: 400 });
+    if (!projectId) {
+      return noStore({ ok: false, error: "Missing projectId" }, { status: 400 });
+    }
 
-    // ── Access check ──────────────────────────────────────────────────────
+    // ── Access check ─────────────────────────────────────────────
     const { data: proj, error: projErr } = await supabase
       .from("projects")
       .select("id, organisation_id, deleted_at")
       .eq("id", projectId)
       .maybeSingle();
+
     if (projErr) return noStore({ ok: false, error: projErr.message }, { status: 500 });
-    if (!proj?.id || proj.deleted_at != null) return noStore({ ok: false, error: "Project not found" }, { status: 404 });
+    if (!proj?.id || proj.deleted_at != null) {
+      return noStore({ ok: false, error: "Project not found" }, { status: 404 });
+    }
 
     const orgId = safeStr(proj.organisation_id).trim();
     if (orgId) {
@@ -89,18 +113,100 @@ export async function GET(req: Request) {
 
     let reports: any[] = [];
 
-    // ── Strategy 1: artifact_versions table (written by updateArtifactJsonArgs) ──
+    /* ══════════════════════════════════════════════════════════════
+       STRATEGY 1 — Revision chain for this specific artifact
+       Covers: root artifact + all revisions linked by root_artifact_id
+    ══════════════════════════════════════════════════════════════ */
     if (artifactId) {
-      const { data: versions } = await supabase
-        .from("artifact_versions")
-        .select("id, artifact_id, snapshot, title, version_no, created_at, artifact_type")
-        .eq("artifact_id", artifactId)
+      const { data: current } = await supabase
+        .from("artifacts")
+        .select("id, root_artifact_id")
+        .eq("id", artifactId)
+        .maybeSingle();
+
+      // root_artifact_id is null when the artifact IS the root
+      const rootId = safeStr(current?.root_artifact_id || artifactId);
+
+      const { data: chain, error: chainErr } = await supabase
+        .from("artifacts")
+        .select(ARTIFACT_SELECT)
         .eq("project_id", projectId)
+        .is("deleted_at", null)
+        // id.eq.rootId catches the root row (root_artifact_id is null on root)
+        // root_artifact_id.eq.rootId catches all revision rows
+        .or(`id.eq.${rootId},root_artifact_id.eq.${rootId}`)
+        .order("version", { ascending: false })
+        .limit(limit);
+
+      if (chainErr) {
+        console.warn("[weekly-history] S1 chain failed:", chainErr.message);
+      } else if (Array.isArray(chain) && chain.length > 0) {
+        reports = chain.map(mapArtifactRow).filter(Boolean);
+        console.log(`[weekly-history] S1: ${reports.length} versions, root=${rootId}`);
+      }
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       STRATEGY 2 — All WEEKLY_REPORT rows in project by type column
+       NB: artifact_type is NULL for weekly reports in this app —
+       the normalize trigger did not fire. Query by type='WEEKLY_REPORT'
+       (uppercase) which is the actual stored value.
+    ══════════════════════════════════════════════════════════════ */
+    if (reports.length === 0) {
+      const { data: byType, error: btErr } = await supabase
+        .from("artifacts")
+        .select(ARTIFACT_SELECT)
+        .eq("project_id", projectId)
+        .is("deleted_at", null)
+        .eq("type", "WEEKLY_REPORT")          // exact match, uppercase
+        .order("version", { ascending: false })
+        .limit(limit);
+
+      if (btErr) {
+        console.warn("[weekly-history] S2 (type=WEEKLY_REPORT) failed:", btErr.message);
+      } else if (Array.isArray(byType) && byType.length > 0) {
+        reports = byType.map(mapArtifactRow).filter(Boolean);
+        console.log(`[weekly-history] S2: ${reports.length} rows`);
+      }
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       STRATEGY 3 — artifact_type = 'weekly_report' (lowercase enum)
+       Fallback for rows where the trigger DID normalise artifact_type
+    ══════════════════════════════════════════════════════════════ */
+    if (reports.length === 0) {
+      const { data: byArtType, error: batErr } = await supabase
+        .from("artifacts")
+        .select(ARTIFACT_SELECT)
+        .eq("project_id", projectId)
+        .is("deleted_at", null)
+        .eq("artifact_type", "weekly_report")
+        .order("version", { ascending: false })
+        .limit(limit);
+
+      if (batErr) {
+        console.warn("[weekly-history] S3 (artifact_type) failed:", batErr.message);
+      } else if (Array.isArray(byArtType) && byArtType.length > 0) {
+        reports = byArtType.map(mapArtifactRow).filter(Boolean);
+        console.log(`[weekly-history] S3: ${reports.length} rows`);
+      }
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       STRATEGY 4 — artifact_versions snapshot table (last resort)
+    ══════════════════════════════════════════════════════════════ */
+    if (reports.length === 0 && artifactId) {
+      const { data: versions, error: vErr } = await supabase
+        .from("artifact_versions")
+        .select("id, artifact_id, snapshot, title, version_no, created_at")
+        .eq("artifact_id", artifactId)
         .order("created_at", { ascending: false })
         .limit(limit);
 
-      if (Array.isArray(versions) && versions.length > 0) {
-        reports = versions.map((row: any) => {
+      if (vErr) {
+        console.warn("[weekly-history] S4 (artifact_versions) failed:", vErr.message);
+      } else if (Array.isArray(versions) && versions.length > 0) {
+        reports = versions.map(row => {
           const cj = safeJson(row.snapshot);
           return {
             artifactId:  safeStr(row.artifact_id),
@@ -114,134 +220,16 @@ export async function GET(req: Request) {
             source:      "version_snapshot",
           };
         }).filter(Boolean);
+        console.log(`[weekly-history] S4: ${reports.length} snapshots`);
       }
     }
 
-    // ── Strategy 2: artifact_versions by project (check both artifact_type and snapshot) ──
-    // artifact_type is NULL for WEEKLY_REPORT in this project, so we match all versions
-    // and filter by known artifact IDs from the artifacts table.
-    if (reports.length === 0) {
-      // First get all weekly report artifact IDs for this project
-      const { data: weeklyArtifacts } = await supabase
-        .from("artifacts")
-        .select("id")
-        .eq("project_id", projectId)
-        .or("type.ilike.%weekly%,artifact_type.ilike.%weekly%")
-        .is("deleted_at", null);
-
-      const weeklyIds = new Set((weeklyArtifacts ?? []).map((a: any) => safeStr(a.id)));
-
-      const { data: projVersions } = await supabase
-        .from("artifact_versions")
-        .select("id, artifact_id, snapshot, title, version_no, created_at, artifact_type")
-        .eq("project_id", projectId)
-        .order("created_at", { ascending: false })
-        .limit(limit + 5);
-
-      const filtered = (projVersions ?? []).filter((row: any) => {
-        // Match by artifact_type field OR by artifact being a known weekly report
-        return isWeeklyReportType(safeStr(row.artifact_type)) ||
-               weeklyIds.has(safeStr(row.artifact_id));
-      });
-
-      if (filtered.length > 0) {
-        reports = filtered
-          .filter((row: any) => !artifactId || safeStr(row.artifact_id) !== artifactId)
-          .map((row: any) => {
-            const cj = safeJson(row.snapshot);
-            return {
-              artifactId:  safeStr(row.artifact_id),
-              title:       safeStr(row.title) || null,
-              period:      extractPeriod(cj),
-              rag:         extractRag(cj),
-              headline:    extractHeadline(cj),
-              savedAt:     safeStr(row.created_at),
-              contentJson: cj,
-              versionNo:   row.version_no ?? null,
-              source:      "version_snapshot",
-            };
-          })
-          .filter(Boolean)
-          .slice(0, limit);
-      }
-    }
-
-    // ── Strategy 3: artifacts revision chain (root_artifact_id siblings) ──
-    // Each save via reviseArtifact creates a new row — these are full versions.
-    if (reports.length === 0 && artifactId) {
-      // Get the root of this artifact's chain
-      const { data: currentArt } = await supabase
-        .from("artifacts")
-        .select("id, root_artifact_id, content_json, updated_at, title, type, artifact_type")
-        .eq("id", artifactId)
-        .maybeSingle();
-
-      const rootId = safeStr((currentArt as any)?.root_artifact_id ?? artifactId);
-
-      // Get all versions in the chain
-      const { data: chain } = await supabase
-        .from("artifacts")
-        .select("id, content_json, updated_at, created_at, title, version, type, artifact_type")
-        .eq("root_artifact_id", rootId)
-        .is("deleted_at", null)
-        .order("version", { ascending: false })
-        .limit(limit + 5);
-
-      const chainRows = (chain ?? []).filter((row: any) => safeStr(row.id) !== artifactId);
-
-      if (chainRows.length > 0) {
-        reports = chainRows.map((row: any) => {
-          const cj = safeJson(row.content_json);
-          return {
-            artifactId:  safeStr(row.id),
-            title:       safeStr(row.title) || null,
-            period:      extractPeriod(cj),
-            rag:         extractRag(cj),
-            headline:    extractHeadline(cj),
-            savedAt:     safeStr(row.updated_at ?? row.created_at),
-            contentJson: cj,
-            versionNo:   row.version ?? null,
-            source:      "artifact_revision",
-          };
-        }).filter(Boolean).slice(0, limit);
-      }
-    }
-
-    // ── Strategy 4: other weekly_report artifacts in project (original fallback) ──
-    if (reports.length === 0) {
-      const { data: artData } = await supabase
-        .from("artifacts")
-        .select("id, title, content_json, updated_at, created_at, type, artifact_type")
-        .eq("project_id", projectId)
-        .is("deleted_at", null)
-        .order("updated_at", { ascending: false })
-        .limit(limit + 5);
-
-      const weeklyArts = (artData ?? []).filter((row: any) =>
-        isWeeklyReportType(safeStr(row.type)) || isWeeklyReportType(safeStr(row.artifact_type))
-      );
-
-      reports = weeklyArts
-        .filter((row: any) => !artifactId || safeStr(row.id) !== artifactId)
-        .map((row: any) => {
-          const cj = safeJson(row.content_json);
-          return {
-            artifactId:  safeStr(row.id),
-            title:       safeStr(row.title) || null,
-            period:      extractPeriod(cj),
-            rag:         extractRag(cj),
-            headline:    extractHeadline(cj),
-            savedAt:     safeStr(row.updated_at ?? row.created_at),
-            contentJson: cj,
-            source:      "other_artifact",
-          };
-        })
-        .filter(Boolean)
-        .slice(0, limit);
-    }
+    console.log(`[weekly-history] DONE: project=${projectId} artifact=${artifactId} total=${reports.length}`);
 
     return noStore({ ok: true, reports });
+
   } catch (e: any) {
+    console.error("[weekly-history] FATAL:", e?.message, e?.stack);
     return noStore({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
   }
 }
