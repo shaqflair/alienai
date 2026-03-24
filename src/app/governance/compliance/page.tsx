@@ -20,7 +20,7 @@ export default async function GovernanceCompliancePage({
 
   if (!user) redirect("/login?next=/governance/compliance");
 
-  // Only admins/owners can access
+  // Allow admin OR owner roles
   const { data: memberships } = await supabase
     .from("organisation_members")
     .select("organisation_id, role, organisations(id, name)")
@@ -29,11 +29,12 @@ export default async function GovernanceCompliancePage({
     .in("role", ["admin", "owner"]);
 
   if (!memberships?.length) {
-    // Not an admin of any org
     redirect("/projects");
   }
 
-  const orgId = safeStr(searchParams.orgId || (memberships[0] as any)?.organisation_id);
+  // Prefer owner role org, fall back to first admin org
+  const preferred = (memberships as any[]).find(m => m.role === "owner") ?? memberships[0];
+  const orgId = safeStr(searchParams.orgId || (preferred as any)?.organisation_id);
   const orgs  = memberships.map((m: any) => ({
     id:   safeStr(m.organisation_id),
     name: safeStr(m.organisations?.name || "Organisation"),
