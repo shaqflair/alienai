@@ -1,7 +1,7 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
       console.error("[xlsx] Missing SUPABASE env vars");
       return jsonErr("Server misconfigured", 500);
     }
-    const admin = createAdminClient(supabaseUrl, serviceKey);
+   const admin = createServiceClient();
 
     /* ── Load artifact + project ────────────────────────────────── */
     const { data: artifact, error: artErr } = await admin
