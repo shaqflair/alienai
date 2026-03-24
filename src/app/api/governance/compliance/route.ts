@@ -22,10 +22,10 @@ function daysUntil(iso: string | null | undefined): number {
 export type CheckStatus = "pass" | "fail" | "warn" | "missing" | "na";
 
 export type ComplianceCheck = {
-  id:        string;
-  label:     string;
-  status:    CheckStatus;
-  detail:    string;
+  id:       string;
+  label:    string;
+  status:   CheckStatus;
+  detail:   string;
   severity: "critical" | "high" | "medium" | "low";
 };
 
@@ -64,21 +64,22 @@ export async function GET(req: NextRequest) {
     const orgId = safeStr(url.searchParams.get("orgId"));
     if (!orgId)  return fail("orgId required", 400);
 
-    // -- Admin-only gate -------------------------------------------
-    const { data: member } = await supabase
+    // ── Admin-only gate (supports admin + owner roles) ────────────
+    const { data: members } = await supabase
       .from("organisation_members")
       .select("role")
       .eq("organisation_id", orgId)
       .eq("user_id", user.id)
       .is("removed_at", null)
-      .maybeSingle();
+      .in("role", ["admin", "owner"])
+      .limit(1);
 
-    if (!member)                 return fail("Forbidden", 403);
-    if (member.role !== "admin") return fail("Admin access required", 403);
+    const member = members?.[0];
+    if (!member) return fail("Admin access required", 403);
 
     const admin = createServiceClient();
 
-    // -- Load all active projects ----------------------------------
+    // ── Load all active projects ──────────────────────────────────
     const { data: projects, error: projErr } = await admin
       .from("projects")
       .select("id, title, project_code, status, created_at, updated_at, finish_date, organisation_id")
@@ -94,7 +95,7 @@ export async function GET(req: NextRequest) {
 
     const projectIds = projects.map(p => p.id);
 
-    // -- Bulk-load all current artifacts for all projects ----------
+    // ── Bulk-load all current artifacts for all projects ──────────
     const { data: artifacts } = await admin
       .from("artifacts")
       .select("id, project_id, type, artifact_type, title, approval_status, status, content_json, updated_at, created_at, is_current, deleted_at")
@@ -108,7 +109,7 @@ export async function GET(req: NextRequest) {
       artsByProject.get(art.project_id)!.push(art);
     }
 
-    // -- Run checks per project ------------------------------------
+    // ── Run checks per project ────────────────────────────────────
     const projectCompliance: ProjectCompliance[] = [];
 
     for (const project of projects) {
@@ -126,7 +127,7 @@ export async function GET(req: NextRequest) {
       const isClosing = ["closing", "closed"].includes(safeStr(project.status).toLowerCase());
       const finishIn  = daysUntil(project.finish_date);
 
-      /* -- G1: Project Charter approved ----------------------- */
+      /* ── G1: Project Charter approved ─────────────────────── */
       const charter = getArt("project_charter");
       if (!charter) {
         checks.push({ id: "g1_charter", label: "G1 — Charter", status: "missing", detail: "No project charter exists", severity: "critical" });
@@ -136,7 +137,7 @@ export async function GET(req: NextRequest) {
         checks.push({ id: "g1_charter", label: "G1 — Charter", status: "pass", detail: "Approved", severity: "low" });
       }
 
-      /* -- Gate 5: Closure report ----------------------------- */
+      /* ── Gate 5: Closure report ───────────────────────────── */
       const closure = getArt("project_closure_report");
       if (!isClosing) {
         checks.push({ id: "gate5", label: "Gate 5", status: "na", detail: "Not applicable — project not closing", severity: "low" });
@@ -148,7 +149,7 @@ export async function GET(req: NextRequest) {
         checks.push({ id: "gate5", label: "Gate 5", status: "pass", detail: "Closure report approved", severity: "low" });
       }
 
-      /* -- Weekly Report: overdue ----------------------------- */
+      /* ── Weekly Report: overdue ───────────────────────────── */
       const weekly = getArt("weekly_report") ?? arts.find(a => safeStr(a.type).toUpperCase() === "WEEKLY_REPORT");
       if (!weekly) {
         checks.push({ id: "weekly", label: "Weekly Report", status: "missing", detail: "No weekly report exists", severity: "high" });
@@ -159,7 +160,7 @@ export async function GET(req: NextRequest) {
         else               checks.push({ id: "weekly", label: "Weekly Report", status: "pass",   detail: `Updated ${age === 0 ? "today" : `${age}d ago`}`, severity: "low" });
       }
 
-      /* -- Budget: forecast vs approved ---------------------- */
+      /* ── Budget: forecast vs approved ────────────────────── */
       const finPlan = getArt("financial_plan") ?? arts.find(a => safeStr(a.type).toUpperCase() === "FINANCIAL_PLAN");
       if (!finPlan) {
         checks.push({ id: "budget", label: "Budget", status: "missing", detail: "No financial plan", severity: "medium" });
@@ -177,7 +178,7 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      /* -- RAID: overdue / high-risk items ------------------- */
+      /* ── RAID: overdue / high-risk items ─────────────────── */
       const raidArt = getArt("raid");
       if (!raidArt) {
         checks.push({ id: "raid", label: "RAID", status: "missing", detail: "No RAID log", severity: "medium" });
@@ -201,7 +202,7 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      /* -- Change Requests: pending / unapproved ------------- */
+      /* ── Change Requests: pending / unapproved ───────────── */
       const finPlanCj = safeJson(finPlan?.content_json);
       const changes   = Array.isArray(finPlanCj?.change_exposure) ? finPlanCj.change_exposure : [];
       const pending   = changes.filter((c: any) => c.status === "pending");
@@ -209,7 +210,7 @@ export async function GET(req: NextRequest) {
       else if (pending.length > 0) checks.push({ id: "changes", label: "Change Requests", status: "warn", detail: `${pending.length} pending approval`, severity: "medium" });
       else                         checks.push({ id: "changes", label: "Change Requests", status: "pass", detail: "All resolved", severity: "low" });
 
-      /* -- Required Artifacts: present / missing ------------- */
+      /* ── Required Artifacts: present / missing ───────────── */
       const required = [
         { type: "raid",              label: "RAID Log" },
         { type: "schedule",          label: "Schedule" },
@@ -225,9 +226,9 @@ export async function GET(req: NextRequest) {
       );
       if (missingArts.length > 1)    checks.push({ id: "artifacts", label: "Artifacts", status: "fail", detail: `Missing: ${missingArts.map(m => m.label).join(", ")}`, severity: "high" });
       else if (missingArts.length === 1) checks.push({ id: "artifacts", label: "Artifacts", status: "warn", detail: `Missing: ${missingArts[0].label}`, severity: "medium" });
-      else                               checks.push({ id: "artifacts", label: "Artifacts", status: "pass", detail: "All required artifacts present", severity: "low" });
+      else                           checks.push({ id: "artifacts", label: "Artifacts", status: "pass", detail: "All required artifacts present", severity: "low" });
 
-      /* -- Schedule: milestones overdue ---------------------- */
+      /* ── Schedule: milestones overdue ────────────────────── */
       const scheduleArt = getArt("schedule");
       if (!scheduleArt) {
         checks.push({ id: "schedule", label: "Schedule", status: "missing", detail: "No schedule found", severity: "medium" });
@@ -246,13 +247,13 @@ export async function GET(req: NextRequest) {
         else                      checks.push({ id: "schedule", label: "Schedule", status: "pass", detail: `${openTasks.length} tasks, all on track`, severity: "low" });
       }
 
-      /* -- WBS: overdue work packages ------------------------- */
+      /* ── WBS: overdue work packages ───────────────────────── */
       const wbsArt = getArt("wbs");
       if (!wbsArt) {
         checks.push({ id: "wbs", label: "WBS", status: "missing", detail: "No WBS found", severity: "medium" });
       } else {
         const cj    = safeJson(wbsArt.content_json);
-        // WBS items can be nested -- flatten them
+        // WBS items can be nested — flatten them
         const flattenItems = (items: any[]): any[] =>
           items.flatMap((item: any) => [item, ...(Array.isArray(item?.children) ? flattenItems(item.children) : [])]);
         const rawItems  = Array.isArray(cj?.items) ? cj.items : Array.isArray(cj?.nodes) ? cj.nodes : Array.isArray(cj?.wbs) ? cj.wbs : [];
@@ -273,7 +274,7 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      /* -- Delivery Deadline ---------------------------------- */
+      /* ── Delivery Deadline ────────────────────────────────── */
       if (!project.finish_date) {
         checks.push({ id: "deadline", label: "Deadline", status: "warn", detail: "No delivery date set", severity: "medium" });
       } else if (finishIn < 0) {
@@ -286,13 +287,13 @@ export async function GET(req: NextRequest) {
         checks.push({ id: "deadline", label: "Deadline", status: "pass", detail: `${finishIn} days remaining`, severity: "low" });
       }
 
-      /* -- Pending Approvals: submitted artifacts -------------- */
+      /* ── Pending Approvals: submitted artifacts ────────────── */
       const submitted = arts.filter(a => a.approval_status === "submitted");
       if (submitted.length > 3)      checks.push({ id: "approvals", label: "Approvals", status: "fail", detail: `${submitted.length} artifacts awaiting approval`, severity: "high" });
       else if (submitted.length > 0) checks.push({ id: "approvals", label: "Approvals", status: "warn", detail: `${submitted.length} awaiting approval`, severity: "medium" });
-      else                            checks.push({ id: "approvals", label: "Approvals", status: "pass", detail: "No pending approvals", severity: "low" });
+      else                           checks.push({ id: "approvals", label: "Approvals", status: "pass", detail: "No pending approvals", severity: "low" });
 
-      /* -- Lessons Learned: exists & updated for mature projects */
+      /* ── Lessons Learned: exists & updated for mature projects */
       const lessonsArt = getArt("lessons_learned");
       const projectAgeDays = daysSince(project.created_at);
       if (projectAgeDays < 30) {
@@ -305,7 +306,7 @@ export async function GET(req: NextRequest) {
         else              checks.push({ id: "lessons", label: "Lessons Learned", status: "pass", detail: `Updated ${age}d ago`, severity: "low" });
       }
 
-      /* -- Stakeholder Register: present & not stale ----------- */
+      /* ── Stakeholder Register: present & not stale ─────────── */
       const stakeholderArt = getArt("stakeholder_register");
       if (!stakeholderArt) {
         checks.push({ id: "stakeholders", label: "Stakeholders", status: "missing", detail: "No stakeholder register", severity: "medium" });
@@ -315,7 +316,7 @@ export async function GET(req: NextRequest) {
         else               checks.push({ id: "stakeholders", label: "Stakeholders", status: "pass", detail: `Last reviewed ${age}d ago`, severity: "low" });
       }
 
-      /* -- Overall RAG ------------------------------------------ */
+      /* ── Overall RAG ────────────────────────────────────────── */
       const failCount   = checks.filter(c => c.status === "fail"  || c.status === "missing").length;
       const warnCount   = checks.filter(c => c.status === "warn").length;
       const passCount   = checks.filter(c => c.status === "pass").length;
@@ -344,7 +345,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Sort: red -> amber -> green, then by fail count desc
+    // Sort: red → amber → green, then by fail count desc
     projectCompliance.sort((a, b) => {
       const order = { red: 0, amber: 1, green: 2 };
       const diff  = order[a.overallRag] - order[b.overallRag];

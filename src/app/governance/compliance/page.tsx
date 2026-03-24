@@ -20,13 +20,13 @@ export default async function GovernanceCompliancePage({
 
   if (!user) redirect("/login?next=/governance/compliance");
 
-  // Only admins can access — fetch their admin memberships
+  // Only admins/owners can access
   const { data: memberships } = await supabase
     .from("organisation_members")
     .select("organisation_id, role, organisations(id, name)")
     .eq("user_id", user.id)
     .is("removed_at", null)
-    .eq("role", "admin");
+    .in("role", ["admin", "owner"]);
 
   if (!memberships?.length) {
     // Not an admin of any org
