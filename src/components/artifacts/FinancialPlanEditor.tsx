@@ -74,10 +74,9 @@ export type CostLine = {
   forecast:  number | "";
   notes: string;
   override?: boolean;
-  // Cost vs charge-out (for tools, licences, hardware, vendor, etc.)
-  unit_cost:    number | "";  // what you pay per unit (e.g. £1000/licence)
-  unit_charge:  number | "";  // what you charge client per unit (e.g. £1500/licence)
-  quantity:     number | "";  // number of units
+  unit_cost:    number | "";
+  unit_charge:  number | "";
+  quantity:     number | "";
 };
 
 export type ChangeExposure = {
@@ -495,14 +494,12 @@ function ResourcesTab({
     onChange(resources.map(r => r.id === id ? { ...r, ...patch } : r)),
   [onChange, resources]);
 
-  // Approved days by resource_id (from timesheets)
   const approvedDaysByResource = useMemo(() => {
     const map: Record<string, number> = {};
     for (const e of timesheetEntries) map[e.resource_id] = (map[e.resource_id] ?? 0) + e.approved_days;
     return map;
   }, [timesheetEntries]);
 
-  // Match heatmap person → manual resource row (by user_id)
   const manualByPersonId = useMemo(() => {
     const map = new Map<string, Resource>();
     for (const r of resources) {
@@ -511,19 +508,13 @@ function ResourcesTab({
     return map;
   }, [resources]);
 
-  // Exceptions = manual resources NOT matched to active heatmap people
-  // Also include resources where user_id matches a heatmap person but has extra data (cost overrides etc.)
   const heatmapPersonIds = new Set(people.map(p => p.person_id));
   const exceptions = resources.filter(r => {
-    // If no user_id, it's always an exception
     if (!r.user_id) return true;
-    // If user_id not in heatmap, it's an exception
     if (!heatmapPersonIds.has(r.user_id)) return true;
-    // If in heatmap but has planned_days set manually, treat as exception
     return false;
   });
 
-  // Totals
   const heatmapTotalDays    = people.reduce((s, p) => s + p.total_days, 0);
   const heatmapTotalCost    = people.reduce((s, p) => s + (p.planned_cost ?? 0), 0);
   const heatmapApprovedDays = people.reduce((s, p) => {
@@ -545,7 +536,6 @@ function ResourcesTab({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, fontFamily: P.sans }}>
 
-      {/* Missing rate warning */}
       {missingRate.length > 0 && (
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 12px", background: P.amberLt, border: `1px solid #E0C080`, fontSize: 11, color: P.amber }}>
           <AlertCircle style={{ width: 12, height: 12, flexShrink: 0, marginTop: 1 }} />
@@ -557,7 +547,6 @@ function ResourcesTab({
         </div>
       )}
 
-      {/* Main merged table */}
       <div style={{ border: `1px solid ${P.borderMd}`, overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 900 }}>
           <thead>
@@ -579,7 +568,6 @@ function ResourcesTab({
             </tr>
           </thead>
           <tbody>
-            {/* Loading state */}
             {loading && (
               <tr>
                 <td colSpan={11} style={{ padding: "24px 16px", textAlign: "center", fontFamily: P.mono, fontSize: 11, color: P.textSm }}>
@@ -592,7 +580,6 @@ function ResourcesTab({
               </tr>
             )}
 
-            {/* Error state */}
             {!loading && error && (
               <tr>
                 <td colSpan={11} style={{ padding: "16px", background: P.redLt }}>
@@ -607,7 +594,6 @@ function ResourcesTab({
               </tr>
             )}
 
-            {/* Empty state */}
             {!loading && !error && people.length === 0 && (
               <tr>
                 <td colSpan={11} style={{ padding: "32px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>
@@ -616,7 +602,6 @@ function ResourcesTab({
               </tr>
             )}
 
-            {/* Heatmap people rows */}
             {!loading && !error && people.map((person, idx) => {
               const manualResource  = manualByPersonId.get(person.person_id);
               const approvedDays    = manualResource ? (approvedDaysByResource[manualResource.id] ?? 0) : 0;
@@ -635,12 +620,10 @@ function ResourcesTab({
               const rowBg           = idx % 2 === 0 ? P.surface : "#FAFAF8";
               const linkedLine      = manualResource ? costLines.find(l => l.id === manualResource.cost_line_id) : null;
 
-              // Initials avatar
               const initials = person.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
 
               return (
                 <tr key={person.person_id} style={{ background: rowBg, borderBottom: `1px solid ${P.border}` }}>
-                  {/* Person */}
                   <td style={{ padding: "10px 10px", background: rowBg }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ width: 28, height: 28, borderRadius: "50%", background: P.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0, fontFamily: P.mono }}>
@@ -655,7 +638,6 @@ function ResourcesTab({
                     </div>
                   </td>
 
-                  {/* Job title */}
                   <td style={{ padding: "10px 10px", background: rowBg }}>
                     <div style={{ fontSize: 11, color: P.textMd }}>{person.job_title || person.role_title || "—"}</div>
                     {person.rate_source && (
@@ -665,7 +647,6 @@ function ResourcesTab({
                     )}
                   </td>
 
-                  {/* Cost rate */}
                   <td style={{ padding: "10px 10px", background: rowBg }}>
                     {hasCost ? (
                       <>
@@ -679,7 +660,6 @@ function ResourcesTab({
                     )}
                   </td>
 
-                  {/* Charge-out rate */}
                   <td style={{ padding: "10px 10px", background: rowBg }}>
                     {hasCharge ? (
                       <>
@@ -693,7 +673,6 @@ function ResourcesTab({
                     )}
                   </td>
 
-                  {/* Planned days */}
                   <td style={{ padding: "10px 10px", textAlign: "right", background: rowBg }}>
                     <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>
                       {plannedDays.toFixed(1)}
@@ -701,7 +680,6 @@ function ResourcesTab({
                     <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>days</div>
                   </td>
 
-                  {/* Approved days (locked) */}
                   <td style={{ padding: "10px 10px", textAlign: "right", background: idx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
                       <Lock style={{ width: 8, height: 8, color: P.violet, opacity: 0.5 }} />
@@ -714,7 +692,6 @@ function ResourcesTab({
                     </div>
                   </td>
 
-                  {/* Variance */}
                   <td style={{ padding: "10px 10px", textAlign: "right", background: idx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
                     {variance !== null ? (
                       <>
@@ -730,7 +707,6 @@ function ResourcesTab({
                     )}
                   </td>
 
-                  {/* Planned cost */}
                   <td style={{ padding: "10px 10px", textAlign: "right", background: rowBg }}>
                     {plannedCost != null ? (
                       <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>
@@ -742,7 +718,6 @@ function ResourcesTab({
                     {plannedCost != null && <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>cost</div>}
                   </td>
 
-                  {/* Charge-out total */}
                   <td style={{ padding: "10px 10px", textAlign: "right", background: rowBg }}>
                     {plannedCharge != null ? (
                       <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: "#059669" }}>
@@ -754,7 +729,6 @@ function ResourcesTab({
                     {plannedCharge != null && <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>charge</div>}
                   </td>
 
-                  {/* Margin */}
                   <td style={{ padding: "10px 10px", textAlign: "right", background: rowBg }}>
                     {margin != null ? (
                       <>
@@ -772,7 +746,6 @@ function ResourcesTab({
                     )}
                   </td>
 
-                  {/* Actual cost (locked) */}
                   <td style={{ padding: "10px 10px", textAlign: "right", background: idx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
                       <Lock style={{ width: 8, height: 8, color: P.violet, opacity: 0.5 }} />
@@ -785,7 +758,6 @@ function ResourcesTab({
                     </div>
                   </td>
 
-                  {/* Weeks */}
                   <td style={{ padding: "10px 10px", textAlign: "right", background: rowBg }}>
                     <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: P.text }}>
                       {person.week_count}
@@ -793,7 +765,6 @@ function ResourcesTab({
                     <div style={{ fontFamily: P.mono, fontSize: 8, color: P.textSm }}>weeks</div>
                   </td>
 
-                  {/* Links to cost line */}
                   <td style={{ padding: "6px 8px", background: rowBg, minWidth: 120 }}>
                     {manualResource ? (
                       <>
@@ -817,7 +788,6 @@ function ResourcesTab({
                     )}
                   </td>
 
-                  {/* Actions */}
                   {!readOnly && (
                     <td style={{ padding: "6px 6px", textAlign: "center", background: rowBg, width: 32 }}>
                       <button
@@ -836,7 +806,6 @@ function ResourcesTab({
               );
             })}
 
-            {/* Exception rows (manual additions) */}
             {showExceptions && exceptions.map((r, idx) => {
               const approvedDays    = approvedDaysByResource[r.id] ?? 0;
               const plannedDays     = Number(r.planned_days) || 0;
@@ -851,7 +820,6 @@ function ResourcesTab({
 
               return (
                 <tr key={r.id} style={{ background: rowBg, borderBottom: `1px solid ${P.border}` }}>
-                  {/* Person — manual picker */}
                   <td style={{ padding: "8px 10px", background: rowBg }}>
                     <ResourcePicker
                       organisationId={organisationId}
@@ -886,7 +854,6 @@ function ResourcesTab({
                     <div style={{ fontFamily: P.mono, fontSize: 8, color: P.amber, padding: "0 6px 2px" }}>Exception</div>
                   </td>
 
-                  {/* Rate type + value */}
                   <td style={{ padding: "8px 10px", background: rowBg }}>
                     <div style={{ display: "flex", background: "#EDEDEB", padding: 2, gap: 2, marginBottom: 4 }}>
                       {(["day_rate", "monthly_cost"] as ResourceRateType[]).map(rt => (
@@ -898,14 +865,12 @@ function ResourcesTab({
                     </div>
                   </td>
 
-                  {/* Rate amount */}
                   <td style={{ padding: "8px 10px", background: rowBg }}>
                     <MoneyCell value={r.rate_type === "day_rate" ? r.day_rate : r.monthly_cost}
                       onChange={v => update(r.id, r.rate_type === "day_rate" ? { day_rate: v } : { monthly_cost: v })}
                       symbol={sym} readOnly={readOnly} />
                   </td>
 
-                  {/* Planned days */}
                   <td style={{ padding: "8px 10px", background: rowBg }}>
                     <input type="number" min={0} step={1} value={r.rate_type === "day_rate" ? r.planned_days : r.planned_months}
                       onChange={e => { const v = e.target.value === "" ? "" : Number(e.target.value); update(r.id, r.rate_type === "day_rate" ? { planned_days: v } : { planned_months: v }); }}
@@ -913,7 +878,6 @@ function ResourcesTab({
                       style={{ width: 60, border: "none", background: "transparent", padding: "4px", fontSize: 12, textAlign: "right", fontFamily: P.mono, fontWeight: 500, color: P.text, outline: "none" }} />
                   </td>
 
-                  {/* Approved days */}
                   <td style={{ padding: "8px 10px", textAlign: "right", background: baseIdx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
                       <Lock style={{ width: 8, height: 8, color: P.violet, opacity: 0.5 }} />
@@ -923,7 +887,6 @@ function ResourcesTab({
                     </div>
                   </td>
 
-                  {/* Variance */}
                   <td style={{ padding: "8px 10px", textAlign: "right", background: baseIdx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
                     {variance !== null ? (
                       <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: variance > 0 ? P.red : P.green }}>
@@ -932,26 +895,22 @@ function ResourcesTab({
                     ) : <span style={{ color: P.textSm }}>—</span>}
                   </td>
 
-                  {/* Planned cost */}
                   <td style={{ padding: "8px 10px", textAlign: "right", background: rowBg }}>
                     <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>
                       {plannedCost != null ? `${sym}${plannedCost.toLocaleString()}` : "—"}
                     </span>
                   </td>
 
-                  {/* Actual cost */}
                   <td style={{ padding: "8px 10px", textAlign: "right", background: baseIdx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
                     <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: actualCost != null ? P.violet : P.textSm }}>
                       {actualCost != null ? `${sym}${actualCost.toLocaleString()}` : "—"}
                     </span>
                   </td>
 
-                  {/* Weeks / months */}
                   <td style={{ padding: "8px 10px", textAlign: "right", background: rowBg }}>
                     <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm }}>manual</span>
                   </td>
 
-                  {/* Links to */}
                   <td style={{ padding: "6px 8px", background: rowBg }}>
                     <select value={r.cost_line_id ?? ""} onChange={e => update(r.id, { cost_line_id: e.target.value || null })} disabled={readOnly}
                       style={{ width: "100%", border: `1px solid ${P.border}`, background: P.surface, fontSize: 10, fontFamily: P.sans, padding: "4px 6px", color: P.text, outline: "none" }}>
@@ -960,7 +919,6 @@ function ResourcesTab({
                     </select>
                   </td>
 
-                  {/* Delete */}
                   {!readOnly && (
                     <td style={{ padding: "6px 6px", textAlign: "center", background: rowBg }}>
                       <button type="button" onClick={() => onChange(resources.filter(x => x.id !== r.id))}
@@ -976,7 +934,6 @@ function ResourcesTab({
             })}
           </tbody>
 
-          {/* Footer totals */}
           {!loading && !error && people.length > 0 && (
             <tfoot>
               <tr style={{ background: "#F0F0ED", borderTop: `1px solid ${P.borderMd}` }}>
@@ -992,7 +949,6 @@ function ResourcesTab({
                   {heatmapApprovedDays > 0 ? heatmapApprovedDays.toFixed(1) : "—"}
                 </td>
                 <td style={{ padding: "8px 10px", background: P.violetLt }} />
-                {/* Cost total */}
                 <td style={{ padding: "8px 10px", textAlign: "right" }}>
                   {heatmapTotalCost > 0 && (
                     <>
@@ -1003,7 +959,6 @@ function ResourcesTab({
                     </>
                   )}
                 </td>
-                {/* Charge total */}
                 <td style={{ padding: "8px 10px", textAlign: "right" }}>
                   {(() => {
                     const totalCharge = people.reduce((s, p) => s + (p.planned_charge ?? 0), 0);
@@ -1017,7 +972,6 @@ function ResourcesTab({
                     ) : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>—</span>;
                   })()}
                 </td>
-                {/* Margin total */}
                 <td style={{ padding: "8px 10px", textAlign: "right" }}>
                   {(() => {
                     const totalCharge = people.reduce((s, p) => s + (p.planned_charge ?? 0), 0);
@@ -1040,7 +994,6 @@ function ResourcesTab({
           )}
         </table>
 
-        {/* Add exception button */}
         {!readOnly && (
           <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}`, display: "flex", alignItems: "center", gap: 12 }}>
             <button type="button" onClick={() => { setShowExceptions(true); onChange([...resources, emptyResource()]); }}
@@ -1070,7 +1023,6 @@ function ResourcesTab({
         )}
       </div>
 
-      {/* Locked actuals note */}
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8, border: `1px solid #a5f3fc`, background: P.violetLt, padding: "8px 12px", fontSize: 11, color: P.violet }}>
         <Lock style={{ width: 12, height: 12, flexShrink: 0, marginTop: 1 }} />
         <span><strong>Approved days &amp; actual cost are locked</strong> — computed from approved timesheets × rate card. Planned days and allocation come from the capacity heatmap.</span>
@@ -1110,12 +1062,12 @@ export default function FinancialPlanEditor({
 }: Props) {
   const [activeTab, setActiveTab] = useState<"budget" | "resources" | "monthly" | "changes" | "narrative">("budget");
   const [signals, setSignals] = useState<Signal[]>([]);
+  // FIX 1: Track heatmap count separately — tab label shows only heatmap people, not manual resources
   const [heatmapPeopleCount, setHeatmapPeopleCount] = useState<number | null>(null);
   const [heatmapTotals, setHeatmapTotals] = useState<{
     totalCost: number; totalCharge: number; hasBothRates: boolean;
   } | null>(null);
 
-  // Stable callback — won't cause ResourcesTab to re-mount
   const handlePeopleLoaded = useCallback((count: number) => {
     setHeatmapPeopleCount(count);
   }, []);
@@ -1123,7 +1075,6 @@ export default function FinancialPlanEditor({
   const lastSignalsKeyRef = useRef<string>("");
   const baselineMonthlyDataRef = useRef<MonthlyData | null>(null);
 
-  // ── Resource plan override months (admin-only) ──
   const [overriddenMonths, setOverriddenMonths] = useState<string[]>(() => {
     try {
       const raw = (content as any).resource_plan_overridden_months;
@@ -1131,7 +1082,6 @@ export default function FinancialPlanEditor({
     } catch { return []; }
   });
 
-  // ── Fetch heatmap cost/charge totals for monthly summary ──
   useEffect(() => {
     if (!projectId || !artifactId) return;
     fetch(`/api/artifacts/financial-plan/resource-plan-sync?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}`, { cache: "no-store" })
@@ -1227,9 +1177,43 @@ export default function FinancialPlanEditor({
   const addCE = useCallback(() => handleChange({ ...content, change_exposure: [...content.change_exposure, emptyChangeExposure()] }), [content, handleChange]);
   const removeCE = useCallback((id: string) => handleChange({ ...content, change_exposure: content.change_exposure.filter(c => c.id !== id) }), [content, handleChange]);
 
-  const totalBudgeted = sumField(linesWithActuals, "budgeted");
-  const totalActual = sumField(linesWithActuals, "actual");
-  const totalForecast = sumField(linesWithActuals, "forecast");
+  const fyConfig = useMemo<FYConfig>(() => content.fy_config ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 }, [content.fy_config]);
+  const monthlyData = useMemo<MonthlyData>(() => content.monthly_data ?? {}, [content.monthly_data]);
+  const monthlyDataWithActuals = useMemo(() => applyActualsToMonthlyData(monthlyData, actualsByLine), [monthlyData, actualsByLine]);
+
+  // FIX 2: Derive per-line forecast totals from monthly phasing — this is the single source of truth.
+  // When monthly phasing data exists for a line, that sum overrides whatever is stored in cost_line.forecast.
+  const forecastFromMonthly = useMemo(() => {
+    const result: Record<string, number> = {};
+    for (const line of lines) {
+      const lineData = monthlyData[line.id];
+      if (!lineData) continue;
+      const total = Object.values(lineData).reduce(
+        (s, e) => s + (Number(e.forecast) || 0), 0
+      );
+      // Only override when at least one month has a forecast value entered
+      if (total !== 0) result[line.id] = total;
+    }
+    return result;
+  }, [lines, monthlyData]);
+
+  // FIX 2: Lines displayed in Cost Breakdown have their forecast column replaced with the
+  // monthly-derived total when available, keeping the two views always in sync.
+  const linesForDisplay = useMemo(() =>
+    linesWithActuals.map(l => ({
+      ...l,
+      forecast: forecastFromMonthly[l.id] !== undefined
+        ? forecastFromMonthly[l.id]
+        : l.forecast,
+    })),
+  [linesWithActuals, forecastFromMonthly]);
+
+  // FIX 2: totalForecast now reads from linesForDisplay so the summary cards and
+  // tfoot also reflect the monthly-phasing-derived numbers.
+  const totalBudgeted = sumField(linesForDisplay, "budgeted");
+  const totalActual = sumField(linesForDisplay, "actual");
+  const totalForecast = sumField(linesForDisplay, "forecast");
+
   const approvedBudget = Number(content.total_approved_budget) || 0;
   const forecastVariance = approvedBudget ? totalForecast - approvedBudget : null;
   const pendingExposure = content.change_exposure.filter(c => c.status === "pending").reduce((s, c) => s + (Number(c.cost_impact) || 0), 0);
@@ -1237,10 +1221,6 @@ export default function FinancialPlanEditor({
   const utilPct = approvedBudget ? Math.round((totalForecast / approvedBudget) * 100) : null;
   const overBudget = forecastVariance !== null && forecastVariance > 0;
   const totalResourceCost = resources.reduce((s, r) => s + resourceTotal(r), 0);
-
-  const fyConfig = useMemo<FYConfig>(() => content.fy_config ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 }, [content.fy_config]);
-  const monthlyData = useMemo<MonthlyData>(() => content.monthly_data ?? {}, [content.monthly_data]);
-  const monthlyDataWithActuals = useMemo(() => applyActualsToMonthlyData(monthlyData, actualsByLine), [monthlyData, actualsByLine]);
 
   useEffect(() => {
     const sigs = analyseFinancialPlan(contentDeps, monthlyDataWithActuals, fyConfig, { lastUpdatedAt: contentDeps.last_updated_at });
@@ -1255,11 +1235,12 @@ export default function FinancialPlanEditor({
 
   const tabs = useMemo(() => [
     { id: "budget" as const, label: "Cost Breakdown" },
-    { id: "resources" as const, label: `Resources${heatmapPeopleCount != null ? ` (${heatmapPeopleCount + resources.length})` : resources.length > 0 ? ` (${resources.length})` : ""}` },
+    // FIX 1: Show only heatmap people count in the tab label, not heatmap + manual resources
+    { id: "resources" as const, label: `Resources${heatmapPeopleCount != null ? ` (${heatmapPeopleCount})` : ""}` },
     { id: "monthly" as const, label: "Monthly Phasing", badge: criticalCount > 0 ? { count: criticalCount, color: P.red } : warningCount > 0 ? { count: warningCount, color: P.amber } : undefined },
     { id: "changes" as const, label: `Change Exposure${content.change_exposure.length > 0 ? ` (${content.change_exposure.length})` : ""}` },
     { id: "narrative" as const, label: "Narrative & Assumptions" },
-  ], [resources.length, content.change_exposure.length, criticalCount, warningCount]);
+  ], [heatmapPeopleCount, content.change_exposure.length, criticalCount, warningCount]);
 
   const inputBase: React.CSSProperties = { border: `1px solid ${P.border}`, background: P.surface, fontFamily: P.sans, fontSize: 13, color: P.text, padding: "6px 10px", outline: "none" };
   const labelStyle: React.CSSProperties = { display: "block", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.textSm, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 5 };
@@ -1385,7 +1366,7 @@ export default function FinancialPlanEditor({
         <div style={{ border: `1px solid ${P.borderMd}`, overflow: "hidden" }}>
           <div style={{ padding: "6px 12px", background: P.violetLt, borderBottom: `1px solid #a5f3fc`, display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 9, color: P.violet, fontWeight: 500 }}>
             <Lock style={{ width: 11, height: 11 }} />
-            People actuals are locked -- auto-computed from approved timesheets x rate card. All other categories (hardware, infrastructure, vendors etc.) can be edited manually.
+            People actuals are locked -- auto-computed from approved timesheets x rate card. Forecast is derived from Monthly Phasing and is read-only here.
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
@@ -1395,7 +1376,7 @@ export default function FinancialPlanEditor({
                   { h: "Description",        bg: "#F4F4F2", color: P.textSm },
                   { h: `Budgeted (${sym})`,  bg: "#F4F4F2", color: P.textSm },
                   { h: `Actual (${sym})`,    bg: P.violetLt, color: P.violet },
-                  { h: `Forecast (${sym})`,  bg: "#F4F4F2", color: P.textSm },
+                  { h: `Forecast (${sym})`,  bg: P.greenLt, color: P.green },
                   { h: "Variance",           bg: "#F4F4F2", color: P.textSm },
                   { h: "Qty",                bg: "#f0fdf4", color: "#065f46" },
                   { h: "Unit Cost",          bg: "#f0fdf4", color: "#065f46" },
@@ -1419,7 +1400,8 @@ export default function FinancialPlanEditor({
                   </td>
                 </tr>
               )}
-              {linesWithActuals.map((l, idx) => {
+              {/* FIX 2: Use linesForDisplay so Forecast column reflects monthly phasing totals */}
+              {linesForDisplay.map((l, idx) => {
                 const resTotal       = resourceTotalsByLine[l.id] ?? 0;
                 const hasResources   = resTotal > 0;
                 const lineApprovedDays = timesheetEntries
@@ -1430,7 +1412,6 @@ export default function FinancialPlanEditor({
                 const cellBase: React.CSSProperties = { borderBottom: `1px solid ${P.border}`, background: rowBg };
                 const greenBg = idx % 2 === 0 ? "#f0fdf4" : "#e8faf0";
 
-                // Cost / charge / margin computation
                 const qty         = Number(l.quantity   || 0);
                 const unitCost    = Number(l.unit_cost   || 0);
                 const unitCharge  = Number(l.unit_charge || 0);
@@ -1440,6 +1421,9 @@ export default function FinancialPlanEditor({
                 const marginPct   = lineCharge != null && lineCharge > 0 && lineMargin != null
                   ? Math.round((lineMargin / lineCharge) * 100) : null;
                 const isPeople    = l.category === "people";
+
+                // Whether this line has monthly-phasing-derived forecast
+                const hasMonthlForecast = forecastFromMonthly[l.id] !== undefined;
 
                 return (
                   <tr key={l.id} style={{ background: rowBg }}>
@@ -1470,9 +1454,18 @@ export default function FinancialPlanEditor({
                       }
                     </td>
 
-                    {/* Forecast */}
-                    <td style={{ ...cellBase, background: hasResources && !l.override ? "#F2F8FF" : rowBg }}>
-                      <MoneyCell value={l.forecast} onChange={v => updateLine(l.id, { forecast: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
+                    {/* FIX 2: Forecast — always derived from Monthly Phasing when data exists, locked with green indicator */}
+                    <td style={{ ...cellBase, background: hasMonthlForecast ? P.greenLt : hasResources && !l.override ? "#F2F8FF" : rowBg }}>
+                      {hasMonthlForecast ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 8px" }} title="Derived from Monthly Phasing — edit values there to update">
+                          <Lock style={{ width: 9, height: 9, color: P.green, flexShrink: 0, opacity: 0.7 }} />
+                          <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: P.green, fontVariantNumeric: "tabular-nums" }}>
+                            {fmt(forecastFromMonthly[l.id], sym)}
+                          </span>
+                        </div>
+                      ) : (
+                        <MoneyCell value={l.forecast} onChange={v => updateLine(l.id, { forecast: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
+                      )}
                     </td>
 
                     {/* Variance */}
@@ -1480,7 +1473,7 @@ export default function FinancialPlanEditor({
                       <VarianceBadge budget={l.budgeted} forecast={l.forecast} />
                     </td>
 
-                    {/* Qty — not for people */}
+                    {/* Qty */}
                     <td style={{ ...cellBase, background: isPeople ? rowBg : greenBg, minWidth: 60 }}>
                       {!isPeople ? (
                         <input type="number" min={0} step={1} value={l.quantity === "" ? "" : l.quantity}
@@ -1497,7 +1490,6 @@ export default function FinancialPlanEditor({
                     <td style={{ ...cellBase, background: isPeople ? rowBg : greenBg }}>
                       {!isPeople ? (
                         <MoneyCell value={l.unit_cost} onChange={v => {
-                          // Auto-populate budgeted if qty set
                           const q = Number(l.quantity || 0);
                           const patch: Partial<CostLine> = { unit_cost: v };
                           if (q > 0 && v !== "") patch.budgeted = q * Number(v);
@@ -1510,7 +1502,6 @@ export default function FinancialPlanEditor({
                     <td style={{ ...cellBase, background: isPeople ? rowBg : greenBg }}>
                       {!isPeople ? (
                         <MoneyCell value={l.unit_charge} onChange={v => {
-                          // Auto-populate forecast if qty set
                           const q = Number(l.quantity || 0);
                           const patch: Partial<CostLine> = { unit_charge: v };
                           if (q > 0 && v !== "") patch.forecast = q * Number(v);
@@ -1563,8 +1554,7 @@ export default function FinancialPlanEditor({
               })}
             </tbody>
             {lines.length > 0 && (() => {
-              // Total cost and charge across all non-people lines
-              const nonPeopleLines = linesWithActuals.filter(l => l.category !== "people");
+              const nonPeopleLines = linesForDisplay.filter(l => l.category !== "people");
               const totalLineCost   = nonPeopleLines.reduce((s, l) => {
                 const q = Number(l.quantity || 0), uc = Number(l.unit_cost || 0);
                 return s + (q > 0 && uc > 0 ? q * uc : 0);
@@ -1586,11 +1576,14 @@ export default function FinancialPlanEditor({
                         <Lock style={{ width: 10, height: 10 }} /> {fmt(totalActual, sym)}
                       </span>
                     </td>
-                    <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>{fmt(totalForecast, sym)}</td>
+                    {/* FIX 2: Total forecast in footer also shows monthly-derived sum with lock icon */}
+                    <td style={{ padding: "8px 10px", background: P.greenLt }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.green }}>
+                        <Lock style={{ width: 10, height: 10 }} /> {fmt(totalForecast, sym)}
+                      </span>
+                    </td>
                     <td style={{ padding: "8px 10px" }}><VarianceBadge budget={totalBudgeted} forecast={totalForecast} /></td>
-                    {/* Qty/UnitCost totals empty */}
                     <td /><td />
-                    {/* Unit Charge total */}
                     <td style={{ padding: "8px 10px", background: "#f0fdf4" }}>
                       {totalLineCharge > 0 && (
                         <div style={{ fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: "#059669" }}>
@@ -1598,7 +1591,6 @@ export default function FinancialPlanEditor({
                         </div>
                       )}
                     </td>
-                    {/* Margin total */}
                     <td style={{ padding: "8px 10px", background: "#f0fdf4" }}>
                       {totalLineCost > 0 && totalLineCharge > 0 && (
                         <div>
@@ -1650,10 +1642,8 @@ export default function FinancialPlanEditor({
       {activeTab === "monthly" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-          {/* ── Cost vs Charge-out summary ── */}
           {heatmapTotals && (() => {
             const { totalCost: peopleCost, totalCharge: peopleCharge } = heatmapTotals;
-            // Add tools/licences/hardware/vendor line charges
             const toolsCost   = lines.filter(l => l.category !== "people").reduce((s, l) => {
               const q = Number(l.quantity || 0), uc = Number(l.unit_cost || 0);
               return s + (q > 0 && uc > 0 ? q * uc : Number(l.budgeted || 0));
@@ -1692,7 +1682,6 @@ export default function FinancialPlanEditor({
             );
           })()}
 
-          {/* ── Resource Plan → Financial Forecast (project resource plan drives this) ── */}
           {artifactId && projectId && (
             <ResourcePlanSyncBar
               projectId={projectId}
@@ -1714,7 +1703,6 @@ export default function FinancialPlanEditor({
             />
           )}
 
-          {/* ── Legacy manual resource sync (for resources added directly in this editor) ── */}
           {!readOnly && resources.length > 0 && (
             <ResourceSyncBar
               resources={resources}
