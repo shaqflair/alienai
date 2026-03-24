@@ -125,6 +125,18 @@ export async function GET(req: NextRequest) {
       artsByProject.get(art.project_id)!.push(art);
     }
 
+    // ── Bulk-load raid_items (RAID is stored in its own table, not artifacts) ──
+    const { data: raidRows } = await admin
+      .from("raid_items")
+      .select("id, project_id, type, title, status, priority, severity, impact, due_date, probability")
+      .in("project_id", projectIds);
+
+    const raidByProject = new Map<string, any[]>();
+    for (const r of (raidRows ?? [])) {
+      if (!raidByProject.has(r.project_id)) raidByProject.set(r.project_id, []);
+      raidByProject.get(r.project_id)!.push(r);
+    }
+
     // ── Run checks per project ────────────────────────────────────
     const projectCompliance: ProjectCompliance[] = [];
 
@@ -205,21 +217,20 @@ export async function GET(req: NextRequest) {
       }
 
       /* ── RAID ─────────────────────────────────────────────── */
-      const raidArt = getArt("raid");
-      if (!raidArt) {
-        checks.push({ id: "raid", label: "RAID", status: "missing", detail: "No RAID log", severity: "medium" });
+      // RAID items live in raid_items table, not in artifacts
+      const raidItems = raidByProject.get(project.id) ?? [];
+      if (raidItems.length === 0) {
+        checks.push({ id: "raid", label: "RAID", status: "missing", detail: "No RAID items logged", severity: "medium" });
       } else {
-        const cj        = safeJson(raidArt.content_json);
-        const items     = Array.isArray(cj?.items) ? cj.items : Array.isArray(cj?.raid) ? cj.raid : [];
-        const open      = items.filter((it: any) => !["closed","resolved","complete"].includes(safeStr(it?.status).toLowerCase()));
-        const overdue   = open.filter((it: any) => { const d = it?.due_date||it?.due||it?.target_date; return d && new Date(d) < new Date(); });
-        const highRisk  = open.filter((it: any) => ["high","critical"].includes(safeStr(it?.severity||it?.impact||it?.priority).toLowerCase()));
+        const open     = raidItems.filter((it: any) => !["closed","resolved","complete","done","archived"].includes(safeStr(it?.status).toLowerCase()));
+        const overdue  = open.filter((it: any) => { const d = it?.due_date; return d && new Date(d) < new Date(); });
+        const highRisk = open.filter((it: any) => ["high","critical"].includes(safeStr(it?.severity || it?.impact || it?.priority).toLowerCase()));
         if (overdue.length > 3 || (overdue.length > 0 && highRisk.some((h: any) => overdue.includes(h)))) {
-          checks.push({ id: "raid", label: "RAID", status: "fail", detail: `${overdue.length} overdue, ${highRisk.length} high-risk`, severity: "critical" });
+          checks.push({ id: "raid", label: "RAID", status: "fail",   detail: `${overdue.length} overdue · ${highRisk.length} high-risk`, severity: "critical" });
         } else if (overdue.length > 0 || highRisk.length > 0) {
-          checks.push({ id: "raid", label: "RAID", status: "warn", detail: `${overdue.length} overdue · ${highRisk.length} high-risk`, severity: "high" });
+          checks.push({ id: "raid", label: "RAID", status: "warn",   detail: `${overdue.length} overdue · ${highRisk.length} high-risk open`, severity: "high" });
         } else {
-          checks.push({ id: "raid", label: "RAID", status: "pass", detail: `${open.length} open, none overdue`, severity: "low" });
+          checks.push({ id: "raid", label: "RAID", status: "pass",   detail: `${raidItems.length} items (${open.length} open), none overdue`, severity: "low" });
         }
       }
 
@@ -232,8 +243,8 @@ export async function GET(req: NextRequest) {
       else                         checks.push({ id: "changes", label: "Change Requests", status: "pass", detail: "All resolved", severity: "low" });
 
       /* ── Required Artifacts ───────────────────────────────── */
+      // Note: RAID excluded here — checked separately via raid_items table above
       const requiredTypes = [
-        { type: "raid",                 label: "RAID Log" },
         { type: "schedule",             label: "Schedule" },
         { type: "wbs",                  label: "WBS" },
         { type: "stakeholder_register", label: "Stakeholder Register" },
