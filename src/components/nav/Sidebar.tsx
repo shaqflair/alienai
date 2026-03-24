@@ -102,21 +102,12 @@ function safeUpper(x: unknown) {
 }
 
 /* =============================================================================
-   ICONS  (inline SVG -- no dep needed)
+   ICONS
 ============================================================================= */
 
 const Icons = {
   dashboard: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="7" height="7" />
       <rect x="14" y="3" width="7" height="7" />
       <rect x="14" y="14" width="7" height="7" />
@@ -124,30 +115,12 @@ const Icons = {
     </svg>
   ),
   projects: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
     </svg>
   ),
   heatmap: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="4" height="4" rx="1" />
       <rect x="10" y="3" width="4" height="4" rx="1" />
       <rect x="17" y="3" width="4" height="4" rx="1" />
@@ -160,16 +133,7 @@ const Icons = {
     </svg>
   ),
   allocations: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
       <circle cx="9" cy="7" r="4" />
       <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -177,31 +141,13 @@ const Icons = {
     </svg>
   ),
   people: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
       <circle cx="12" cy="7" r="4" />
     </svg>
   ),
   leave: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
       <line x1="16" y1="2" x2="16" y2="6" />
       <line x1="8" y1="2" x2="8" y2="6" />
@@ -210,74 +156,35 @@ const Icons = {
     </svg>
   ),
   settings: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2" />
     </svg>
   ),
   timesheet: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" />
       <polyline points="12 6 12 12 16 14" />
     </svg>
   ),
   scenarios: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18" />
     </svg>
   ),
+  compliance: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <polyline points="9 12 11 14 15 10" />
+    </svg>
+  ),
   chevronLeft: (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="15 18 9 12 15 6" />
     </svg>
   ),
   chevronRight: (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="9 18 15 12 9 6" />
     </svg>
   ),
@@ -447,7 +354,7 @@ function ProjectContextStrip({ projectRef, collapsed }: { projectRef: string; co
 }
 
 /* =============================================================================
-   INLINE ARTIFACTS (merged into left sidebar)
+   INLINE ARTIFACTS
 ============================================================================= */
 
 type GroupName = "Plan" | "Control" | "Close";
@@ -525,16 +432,13 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
         setErr(e?.message || "Failed to load artifacts");
       });
 
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [projectRef]);
 
-  const items = useMemo(() => (Array.isArray(data?.items) ? data!.items : []), [data]);
-  const visible = useMemo(() => items, [items]);
-
-  const artifactItems = useMemo(() => visible.filter((it) => !isGovernanceKey(it.ui_kind || it.key)), [visible]);
-  const governanceItems = useMemo(() => visible.filter((it) => isGovernanceKey(it.ui_kind || it.key)), [visible]);
+  const items          = useMemo(() => (Array.isArray(data?.items) ? data!.items : []), [data]);
+  const visible        = useMemo(() => items, [items]);
+  const artifactItems  = useMemo(() => visible.filter((it) => !isGovernanceKey(it.ui_kind || it.key)), [visible]);
+  const governanceItems= useMemo(() => visible.filter((it) => isGovernanceKey(it.ui_kind || it.key)), [visible]);
 
   const grouped = useMemo(() => {
     const out: Record<GroupName, ArtifactSidebarItem[]> = { Plan: [], Control: [], Close: [] };
@@ -561,8 +465,8 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
     );
   }
 
-  const governanceFallbackHref = `/projects/${projectRef}/governance`;
-  const showGovernanceFallback = governanceItems.length === 0;
+  const governanceFallbackHref  = `/projects/${projectRef}/governance`;
+  const showGovernanceFallback  = governanceItems.length === 0;
 
   return (
     <div className="mx-2 mt-2 rounded-xl border border-slate-200 bg-white overflow-hidden">
@@ -624,7 +528,9 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
           <div className="px-2 py-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">{err}</div>
         )}
 
-        {!err && items.length === 0 && <div className="px-2 py-6 text-center text-xs text-slate-500">No artifacts found</div>}
+        {!err && items.length === 0 && (
+          <div className="px-2 py-6 text-center text-xs text-slate-500">No artifacts found</div>
+        )}
 
         {(["Plan", "Control", "Close"] as const).map((g) => {
           const list = grouped[g];
@@ -643,12 +549,12 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
                 {list.map((it) => {
                   const kUpper = safeUpper(it.ui_kind || it.key);
                   const status = safeLower(it.current?.approval_status);
-                  const badge = badgeForStatus(status);
+                  const badge  = badgeForStatus(status);
 
                   const isActive =
                     activeHref === it.href ||
                     (it.current?.id && activeHref.includes(`/artifacts/${it.current.id}`)) ||
-                    (isRaidKey(kUpper) && activeHref.includes(`/raid`)) ||
+                    (isRaidKey(kUpper)   && activeHref.includes(`/raid`)) ||
                     (isChangeKey(kUpper) && activeHref.includes(`/change`));
 
                   return (
@@ -665,12 +571,7 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div
-                            className={cx(
-                              "text-xs font-semibold truncate",
-                              it.current ? "text-slate-900" : "text-slate-600"
-                            )}
-                          >
+                          <div className={cx("text-xs font-semibold truncate", it.current ? "text-slate-900" : "text-slate-600")}>
                             {it.label}
                           </div>
                           <div className="mt-0.5 text-[10px] text-slate-500">
@@ -678,12 +579,7 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
                             {it.current?.is_locked ? <span className="ml-1.5 text-slate-400">🔒</span> : null}
                           </div>
                         </div>
-                        <span
-                          className={cx(
-                            "shrink-0 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold",
-                            badge.cls
-                          )}
-                        >
+                        <span className={cx("shrink-0 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold", badge.cls)}>
                           {it.current ? badge.label : it.canCreate ? "Create" : "View"}
                         </span>
                       </div>
@@ -708,8 +604,8 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
               ? [{ key: "__delivery_governance__", label: "Delivery Governance", href: governanceFallbackHref }]
               : governanceItems
             ).map((it: any) => {
-              const href = safeStr(it?.href) || governanceFallbackHref;
-              const label = safeStr(it?.label) || "Delivery Governance";
+              const href    = safeStr(it?.href) || governanceFallbackHref;
+              const label   = safeStr(it?.label) || "Delivery Governance";
               const isActive = activeHref.includes(`/projects/${projectRef}/governance`);
 
               return (
@@ -750,15 +646,14 @@ export default function Sidebar({
   orgName?: string | null;
   projectCount?: number;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
+  const router     = useRouter();
+  const pathname   = usePathname();
   const projectRef = getActiveProjectRef(pathname);
 
-  const [collapsed, setCollapsed] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
+  const [collapsed,    setCollapsed]    = useState(false);
+  const [mounted,      setMounted]      = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
+  const [signingOut,   setSigningOut]   = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -777,22 +672,17 @@ export default function Sidebar({
 
   useEffect(() => {
     if (!userMenuOpen) return;
-
     const onDown = (e: MouseEvent) => {
       const el = userMenuRef.current;
       if (!el) return;
       if (!el.contains(e.target as any)) setUserMenuOpen(false);
     };
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setUserMenuOpen(false);
-    };
-
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setUserMenuOpen(false); };
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown",   onKey);
     return () => {
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown",   onKey);
     };
   }, [userMenuOpen]);
 
@@ -816,30 +706,38 @@ export default function Sidebar({
     {
       label: "Portfolio",
       items: [
-        { href: "/", label: "Overview", icon: Icons.dashboard, exact: true },
-        { href: "/projects", label: "Projects", icon: Icons.projects, badge: projectBadge },
+        { href: "/",         label: "Overview",  icon: Icons.dashboard,   exact: true },
+        { href: "/projects", label: "Projects",  icon: Icons.projects,    badge: projectBadge },
         { href: "/portfolio/raid", label: "RAID", icon: Icons.raid },
       ],
     },
     {
       label: "Resource",
       items: [
-        { href: "/heatmap", label: "Heatmap", icon: Icons.heatmap },
-        { href: "/allocations/new", label: "Allocate", icon: Icons.allocations },
-        { href: "/capacity", label: "Leave / Cap", icon: Icons.leave },
-        { href: "/timesheet", label: "Timesheet", icon: Icons.timesheet },
+        { href: "/heatmap",        label: "Heatmap",   icon: Icons.heatmap      },
+        { href: "/allocations/new",label: "Allocate",  icon: Icons.allocations  },
+        { href: "/capacity",       label: "Leave / Cap",icon: Icons.leave       },
+        { href: "/timesheet",      label: "Timesheet", icon: Icons.timesheet    },
       ],
     },
     {
       label: "Team",
       items: [
-        { href: "/people", label: "People", icon: Icons.people },
+        { href: "/people",    label: "People",  icon: Icons.people    },
         { href: "/scenarios", label: "What-if", icon: Icons.scenarios },
+      ],
+    },
+    {
+      label: "Governance",
+      items: [
+        { href: "/governance/compliance", label: "Compliance", icon: Icons.compliance },
       ],
     },
   ];
 
-  const BOTTOM_ITEMS: NavItem[] = [{ href: "/settings", label: "Settings", icon: Icons.settings }];
+  const BOTTOM_ITEMS: NavItem[] = [
+    { href: "/settings", label: "Settings", icon: Icons.settings },
+  ];
 
   const w = mounted ? (collapsed ? "64px" : "220px") : "220px";
 
@@ -972,12 +870,7 @@ export default function Sidebar({
               )}
               aria-label="Account menu"
             >
-              <div
-                className={cx(
-                  "flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center",
-                  "bg-sky-100 text-sky-700 text-xs font-black"
-                )}
-              >
+              <div className={cx("flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center", "bg-sky-100 text-sky-700 text-xs font-black")}>
                 {(userName || "U").charAt(0).toUpperCase()}
               </div>
 
@@ -997,13 +890,7 @@ export default function Sidebar({
             </button>
 
             {userMenuOpen && !collapsed && (
-              <div
-                className={cx(
-                  "absolute left-0 right-0 bottom-[56px]",
-                  "rounded-xl border border-slate-200 bg-white shadow-2xl",
-                  "p-2 z-50"
-                )}
-              >
+              <div className={cx("absolute left-0 right-0 bottom-[56px]", "rounded-xl border border-slate-200 bg-white shadow-2xl", "p-2 z-50")}>
                 {userName ? (
                   <button
                     type="button"
