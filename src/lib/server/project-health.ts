@@ -106,7 +106,7 @@ export function scoreSchedule(
     detail.wbsTotal = wbsItems.length;
     const doneStatuses = new Set(["done", "completed", "complete", "closed", "delivered"]);
     detail.wbsComplete = wbsItems.filter((w) => {
-      const st = String(w?.delivery_status || w?.status || "").toLowerCase().replace(/\s+/g, "_");
+      const st = String(w?.status || w?.delivery_status || "").toLowerCase().replace(/\s+/g, "_");
       return doneStatuses.has(st);
     }).length;
     detail.wbsCompletionPct = Math.round((detail.wbsComplete / detail.wbsTotal) * 100);
@@ -444,7 +444,7 @@ async function fetchPortfolioMilestones(supabase: any, projectIds: string[]) {
 async function fetchPortfolioWbs(supabase: any, projectIds: string[]) {
   const { data, error } = await supabase
     .from("wbs_items")
-    .select("project_id, status, delivery_status")
+    .select("project_id, status")
     .in("project_id", projectIds)
     .limit(50000);
   return { ok: !error, rows: Array.isArray(data) ? data : [] };

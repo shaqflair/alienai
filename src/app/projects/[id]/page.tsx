@@ -289,6 +289,7 @@ export default async function ProjectPage({
     keyArtifactsResult,
     orgMembersBaseResult,
     spendResult,
+    finPlanResult,
     briefingResult,
     gateQueryResult,
     gate5Result,
@@ -337,12 +338,12 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid)
       .limit(100),
     // Include status + charter/stakeholder types for governance scoring
-   supabase
+    supabase
       .from("artifacts")
-      .select("id, type, status, content_json")
+      .select("id, type, status")
       .eq("project_id", projectUuid)
       .in("type", [
-              "SCHEDULE", "WBS", "FINANCIAL_PLAN", "WEEKLY_REPORT",
+        "SCHEDULE", "WBS", "FINANCIAL_PLAN", "WEEKLY_REPORT",
         "PROJECT_CHARTER", "CHARTER", "STAKEHOLDER_REGISTER", "STAKEHOLDERS",
       ])
       .order("created_at", { ascending: false })
@@ -359,6 +360,14 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid)
       .is("deleted_at", null)
       .limit(100000),
+    // Financial plan content_json for actual spend from cost_lines
+    supabase
+      .from("artifacts")
+      .select("content_json")
+      .eq("project_id", projectUuid)
+      .eq("type", "FINANCIAL_PLAN")
+      .eq("is_current", true)
+      .maybeSingle(),
     getCachedBriefing(projectUuid),
     (async () => {
       try {
@@ -394,24 +403,27 @@ export default async function ProjectPage({
   const rateCardRoles    = rateCardRolesResult.status === "fulfilled" ? (rateCardRolesResult.value as string[] ?? []) : [];
 
   const spendRows   = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
+  const finPlanJson = finPlanResult.status === "fulfilled" ? (finPlanResult.value as any)?.data?.content_json : null;
+
   const spentAmount = (() => {
-  // Primary: project_spend table
-  const dbSpend = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
-  if (dbSpend > 0) return dbSpend;
-  // Fallback: financial plan artifact actual spend
-  const finArt = (keyArtifacts as any[]).find((a: any) =>
-    String(a.type || "").toUpperCase() === "FINANCIAL_PLAN"
-  );
-  const j = (finArt as any)?.content_json;
-  if (j) {
-    const v = j.total_spent ?? j.totalSpent ?? j?.summary?.total_spent ?? j?.summary?.totalSpent ?? j?.actual_spent ?? 0;
-    const n = Number(v);
-    if (Number.isFinite(n) && n > 0) return n;
-  }
-  return 0;
-})();
-const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
-const budgetDays   = project?.budget_days   != null ? Number(project.budget_days)   : null;
+    // Primary: project_spend table rows
+    const dbSpend = (spendRows as any[]).reduce((s, r) => s + Number(r.amount ?? 0), 0);
+    if (dbSpend > 0) return dbSpend;
+    // Fallback: sum actual values from financial plan cost_lines
+    // (covers licence fees, tools, vendors entered directly in the financial plan)
+    if (finPlanJson) {
+      const lines = Array.isArray(finPlanJson?.cost_lines) ? finPlanJson.cost_lines : [];
+      const lineTotal = lines.reduce((sum: number, line: any) => {
+        const actual = Number(line?.actual ?? 0);
+        return sum + (Number.isFinite(actual) && actual > 0 ? actual : 0);
+      }, 0);
+      if (lineTotal > 0) return lineTotal;
+    }
+    return 0;
+  })();
+  const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
+  const budgetDays   = project?.budget_days   != null ? Number(project.budget_days)   : null;
+
   // ── Governance flags ───────────────────────────────────────────────────────
   const APPROVED_ART_STATUSES = new Set([
     "approved", "active", "current", "published", "signed_off", "signed off",
@@ -590,12 +602,15 @@ const budgetDays   = project?.budget_days   != null ? Number(project.budget_days
   const pmJobTitle   = resolvedPmJobTitle || "";
 
   const budgetTooltip = budgetDetail.budgetAmount != null
-    ? `${formatCurrency(budgetDetail.spentAmount)} spent of ${formatCurrency(budgetDetail.budgetAmount!)} approved budget` +
-      ` (${budgetDetail.utilisationPct}% used).` +
-      (budgetDetail.forecastOverrun
-        ? ` Over budget by ${formatCurrency(Math.abs(budgetDetail.variance!))}.`
-        : ` ${formatCurrency(budgetDetail.variance!)} remaining.`) +
-      (budgetDetail.overAllocated ? ` Resource over-allocated.` : "")
+    ? budgetDetail.spentAmount > 0
+      ? `${formatCurrency(budgetDetail.spentAmount)} spent of ${formatCurrency(budgetDetail.budgetAmount!)} approved budget` +
+        ` (${budgetDetail.utilisationPct}% used).` +
+        (budgetDetail.forecastOverrun
+          ? ` Over budget by ${formatCurrency(Math.abs(budgetDetail.variance!))}.`
+          : ` ${formatCurrency(budgetDetail.variance!)} remaining.`) +
+        (budgetDetail.overAllocated ? ` Resource over-allocated.` : "")
+      : `Approved budget: ${formatCurrency(budgetDetail.budgetAmount!)}. No spend logged in project_spend — actual costs tracked via Financial Plan tab.` +
+        (budgetDetail.overAllocated ? ` Resource days over-allocated vs budget days.` : "")
     : "No approved budget set on this project.";
 
   const governanceTooltip = [
