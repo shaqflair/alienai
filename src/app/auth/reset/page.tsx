@@ -101,8 +101,8 @@ export default function ResetPasswordPage() {
         }}>
           {/* Logo */}
           <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: "0.2em", color: "#ffffff", fontFamily: "monospace" }}>
-              ALIE<span style={{ color: "#38bdf8" }}>N</span>A
+            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "0.35em", color: "#ffffff", fontFamily: "monospace" }}>
+              <span style={{ color: "#38bdf8", textShadow: "0 0 12px #38bdf8, 0 0 24px #38bdf8" }}>Λ</span> L <span style={{ color: "#38bdf8", textShadow: "0 0 12px #38bdf8, 0 0 24px #38bdf8" }}>I</span> Ξ N Λ
             </div>
             <div style={{ fontSize: 10, letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginTop: 4 }}>
               Project Intelligence Platform
