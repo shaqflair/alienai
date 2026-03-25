@@ -254,7 +254,7 @@ export async function inviteToOrganisation(formData: FormData) {
   //    Non-fatal: if user already exists in Supabase auth, we just skip.
   try {
     const admin = createAdminClient();
-    const baseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || "https://aliena.co.uk";
+   const baseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || "https://www.aliena.co.uk";
     const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${baseUrl}/organisations/invite/accept`,
       data: {
