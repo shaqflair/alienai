@@ -453,9 +453,18 @@ async function fetchPortfolioRaid(supabase: any, projectIds: string[]) {
     .from("raid_items")
     .select("project_id, status, due_date, probability, severity, type, item_type, category, severity_label, impact, priority, rag")
     .in("project_id", projectIds)
-    .not("status", "in", '("Closed","Invalid")')
     .limit(20000);
-  return { ok: !error, rows: Array.isArray(data) ? data : [] };
+
+  // Filter in code — case-insensitive
+  const CLOSED = ["closed", "invalid", "resolved", "done", "completed", "cancelled", "canceled"];
+  const rows = Array.isArray(data)
+    ? data.filter((r: any) => {
+        const st = String(r?.status || "").toLowerCase();
+        return !CLOSED.some((k) => st.includes(k));
+      })
+    : [];
+
+  return { ok: !error, rows };
 }
 
 async function fetchPortfolioBudget(
@@ -626,14 +635,35 @@ export async function computePortfolioHealth(
     };
   }
 
+  // Exclude pipeline projects from health scoring
+  const { data: projectMeta } = await supabase
+    .from("projects")
+    .select("id, resource_status")
+    .in("id", projectIds)
+    .limit(20000);
+
+  const activeIds = projectIds.filter((pid) => {
+    const p = Array.isArray(projectMeta) ? projectMeta.find((r: any) => String(r.id) === pid) : null;
+    return String(p?.resource_status ?? "").toLowerCase() !== "pipeline";
+  });
+
+  if (!activeIds.length) {
+    return {
+      score: null,
+      parts: { schedule: null, raid: null, budget: null, governance: null },
+      projectCount: 0,
+      perProject: {},
+    };
+  }
+
   const today = ymd(new Date());
 
   const [milestonesRes, wbsRes, raidRes, budgetMap, govMap] = await Promise.all([
-    fetchPortfolioMilestones(supabase, projectIds),
-    fetchPortfolioWbs(supabase, projectIds),
-    fetchPortfolioRaid(supabase, projectIds),
-    fetchPortfolioBudget(supabase, projectIds),
-    fetchPortfolioGovernance(supabase, projectIds),
+    fetchPortfolioMilestones(supabase, activeIds),
+    fetchPortfolioWbs(supabase, activeIds),
+    fetchPortfolioRaid(supabase, activeIds),
+    fetchPortfolioBudget(supabase, activeIds),
+    fetchPortfolioGovernance(supabase, activeIds),
   ]);
 
   // Group by project
@@ -660,7 +690,7 @@ export async function computePortfolioHealth(
   // Score each project
   const perProject: Record<string, HealthResult> = {};
 
-  for (const pid of projectIds) {
+  for (const pid of activeIds) {
     const budget = budgetMap.get(pid) ?? { budgetAmount: null, spentAmount: 0 };
     const gov    = govMap.get(pid);
 

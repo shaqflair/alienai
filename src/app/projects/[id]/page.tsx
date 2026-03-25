@@ -1,4 +1,4 @@
-// FILE: src/app/projects/[id]/page.tsx
+// src/app/projects/[id]/page.tsx
 import "server-only";
 
 import Link from "next/link";
@@ -153,8 +153,6 @@ async function getOrgMembership(supabase: any, organisationId: string, userId: s
   return { isMember: Boolean(role), isAdmin: role === "admin" || role === "owner", role };
 }
 
-// -- Server actions ----------------------------------------------------------
-
 async function assignPmAction(formData: FormData) {
   "use server";
   const supabase = await createClient();
@@ -205,8 +203,6 @@ async function assignPmAction(formData: FormData) {
   redirect(`${returnTo}?msg=pm_assigned`);
 }
 
-// -- Page --------------------------------------------------------------------
-
 export default async function ProjectPage({
   params,
   searchParams,
@@ -249,7 +245,7 @@ export default async function ProjectPage({
       .select(
         "id, organisation_id, title, project_code, colour, start_date, finish_date, " +
         "resource_status, status, created_at, project_manager_id, pm_user_id, pm_name, " +
-        "budget_amount, win_probability"
+        "budget_amount, budget_days, win_probability"
       )
       .eq("id", projectUuid)
       .eq("organisation_id", activeOrgId)
@@ -340,13 +336,17 @@ export default async function ProjectPage({
       .select("id, status")
       .eq("project_id", projectUuid)
       .limit(100),
+    // Include status + charter/stakeholder types for governance scoring
     supabase
       .from("artifacts")
-      .select("id, type")
+      .select("id, type, status")
       .eq("project_id", projectUuid)
-      .in("type", ["SCHEDULE", "WBS", "FINANCIAL_PLAN", "WEEKLY_REPORT"])
+      .in("type", [
+        "SCHEDULE", "WBS", "FINANCIAL_PLAN", "WEEKLY_REPORT",
+        "PROJECT_CHARTER", "CHARTER", "STAKEHOLDER_REGISTER", "STAKEHOLDERS",
+      ])
       .order("created_at", { ascending: false })
-      .limit(20),
+      .limit(30),
     supabase
       .from("organisation_members")
       .select("user_id, job_title, role")
@@ -360,7 +360,6 @@ export default async function ProjectPage({
       .is("deleted_at", null)
       .limit(100000),
     getCachedBriefing(projectUuid),
-    // Gate 1 record -- wrapped in async IIFE so allSettled catches table-not-found errors
     (async () => {
       try {
         return await supabase
@@ -397,8 +396,35 @@ export default async function ProjectPage({
   const spendRows   = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
   const spentAmount = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
   const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
+  const budgetDays   = project?.budget_days   != null ? Number(project.budget_days)   : null;
 
-  // -- Profile map -----------------------------------------------------------
+  // ── Governance flags ───────────────────────────────────────────────────────
+  const APPROVED_ART_STATUSES = new Set([
+    "approved", "active", "current", "published", "signed_off", "signed off",
+  ]);
+  const artApproved = (types: string[]) =>
+    (keyArtifacts as any[]).some((a: any) => {
+      if (!types.includes(String(a.type || "").toUpperCase())) return false;
+      const s = String(a.status || "").toLowerCase().replace(/\s+/g, "_");
+      return APPROVED_ART_STATUSES.has(s) || s.includes("approv") || s.includes("publish");
+    });
+
+  const charterApproved            = artApproved(["PROJECT_CHARTER", "CHARTER"]);
+  const budgetApproved             = artApproved(["FINANCIAL_PLAN"]);
+  const stakeholderRegisterPresent = (keyArtifacts as any[]).some((a: any) =>
+    ["STAKEHOLDER_REGISTER", "STAKEHOLDERS"].includes(String(a.type || "").toUpperCase()),
+  );
+  const gate1Complete = !!(
+    gateRecord?.passed_at ||
+    gateRecord?.status === "passed" ||
+    gateRecord?.status === "complete"
+  );
+  const _todayStr = new Date().toISOString().slice(0, 10);
+  const _in60Str  = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+  const _endStr   = project?.finish_date ? String(project.finish_date).slice(0, 10) : null;
+  const gate5Applicable = !!(_endStr && _endStr <= _in60Str && _endStr >= _todayStr);
+
+  // ── Profile map ────────────────────────────────────────────────────────────
   let profileMap = new Map<string, any>();
   if (orgMembersBase.length > 0) {
     const userIds = (orgMembersBase as any[]).map((m: any) => m.user_id).filter(Boolean);
@@ -419,7 +445,7 @@ export default async function ProjectPage({
     _profile: profileMap.get(m.user_id) ?? {},
   }));
 
-  // -- Switcher projects -----------------------------------------------------
+  // ── Switcher projects ──────────────────────────────────────────────────────
   let switcherProjects: { id: string; title: string; project_code: string | null; colour: string | null }[] = [];
   if (myProjectMembershipsResult.status === "fulfilled") {
     const myIds = (myProjectMembershipsResult.value.data ?? []).map((r: any) => String(r.project_id));
@@ -438,7 +464,7 @@ export default async function ProjectPage({
     }
   }
 
-  // -- PM resolution ---------------------------------------------------------
+  // ── PM resolution ──────────────────────────────────────────────────────────
   const pmUserId         = safeStr((project as any)?.pm_user_id ?? (project as any)?.project_manager_id ?? "").trim();
   const storedPmName     = safeStr((project as any)?.pm_name).trim();
   let resolvedPmName     = storedPmName;
@@ -473,16 +499,24 @@ export default async function ProjectPage({
     resolvedPmJobTitle = safeStr((orgPm as any)?.job_title).trim();
   }
 
-  // -- Health ----------------------------------------------------------------
+  // ── Health ─────────────────────────────────────────────────────────────────
   const health: HealthResult = computeHealthFromData({
-    milestones:           milestones as any[],
-    raidItems:            raidItems as any[],
+    milestones:                 milestones as any[],
+    raidItems:                  raidItems as any[],
     budgetAmount,
     spentAmount,
-    pendingApprovalCount: pendingApprovals.length,
-    openChangeRequests:   (changeReqs as any[]).filter((c) =>
+    allocatedDays:              resource?.budgetSummary?.allocatedDays ?? null,
+    budgetDays:                 budgetDays,
+    pendingApprovalCount:       pendingApprovals.length,
+    openChangeRequests:         (changeReqs as any[]).filter((c) =>
       ["pending", "open", "submitted", "draft"].includes(String(c.status ?? "").toLowerCase()),
     ).length,
+    charterApproved,
+    budgetApproved,
+    stakeholderRegisterPresent,
+    gate1Complete,
+    gate5Applicable,
+    gate5Ready: false,
   });
 
   const healthScore      = health.score;
@@ -495,7 +529,21 @@ export default async function ProjectPage({
   const budgetDetail     = health.detail.budget;
   const govDetail        = health.detail.governance;
 
-  // -- Derived values --------------------------------------------------------
+  // ── RAG colour helpers ─────────────────────────────────────────────────────
+  const ragFromScore = (s: number | null) =>
+    s == null ? "unknown" : s >= 85 ? "green" : s >= 70 ? "amber" : "red";
+
+  const overallRag = ragFromScore(healthScore);
+
+  // Icon background & colour for the health score stat card — tracks live RAG
+  const healthIconStyle = {
+    green:   { bg: "rgba(34,197,94,0.12)",  icon: "#16a34a" },
+    amber:   { bg: "rgba(245,158,11,0.12)", icon: "#d97706" },
+    red:     { bg: "rgba(239,68,68,0.12)",  icon: "#dc2626" },
+    unknown: { bg: "rgba(148,163,184,0.12)", icon: "#64748b" },
+  }[overallRag];
+
+  // ── Derived values ─────────────────────────────────────────────────────────
   const projectTitle      = safeStr(project?.title ?? "Project") || "Project";
   const projectCode       = safeStr(project?.project_code ?? "").trim();
   const projectColour     = safeStr(project?.colour ?? "#22c55e");
@@ -532,10 +580,23 @@ export default async function ProjectPage({
       ` (${budgetDetail.utilisationPct}% used).` +
       (budgetDetail.forecastOverrun
         ? ` Over budget by ${formatCurrency(Math.abs(budgetDetail.variance!))}.`
-        : ` ${formatCurrency(budgetDetail.variance!)} remaining.`)
+        : ` ${formatCurrency(budgetDetail.variance!)} remaining.`) +
+      (budgetDetail.overAllocated ? ` Resource over-allocated.` : "")
     : "No approved budget set on this project.";
 
-  // -- Render ----------------------------------------------------------------
+  const governanceTooltip = [
+    govDetail.charterApproved            ? "Charter: approved ✓"              : "Charter: not yet approved",
+    govDetail.budgetApproved             ? "Financial plan: approved ✓"       : "Financial plan: not yet approved",
+    govDetail.stakeholderRegisterPresent ? "Stakeholder register: present ✓"  : "Stakeholder register: missing",
+    govDetail.gate1Complete              ? "Gate 1: complete ✓"               : "Gate 1: not complete",
+    gate5Applicable
+      ? (govDetail.gate5Ready ? "Gate 5: ready ✓" : "Gate 5: readiness check needed")
+      : "",
+    govDetail.pendingApprovalCount > 0 ? `${govDetail.pendingApprovalCount} pending approval${govDetail.pendingApprovalCount !== 1 ? "s" : ""}` : "",
+    govDetail.openChangeRequests   > 0 ? `${govDetail.openChangeRequests} open change request${govDetail.openChangeRequests !== 1 ? "s" : ""}` : "",
+  ].filter(Boolean).join(" · ");
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", width: "100%" }}>
       <style>{`
@@ -570,7 +631,7 @@ export default async function ProjectPage({
           background: #0a0e17; color: #e2e8f0;
           font-size: 11px; font-weight: 400; line-height: 1.5;
           padding: 8px 12px; border-radius: 8px;
-          width: 240px; white-space: normal; text-align: left;
+          width: 260px; white-space: normal; text-align: left;
           box-shadow: 0 4px 20px rgba(0,0,0,0.4);
           z-index: 100; pointer-events: none;
         }
@@ -617,14 +678,12 @@ export default async function ProjectPage({
       {flash    && <div className="flash-ok"  style={{ marginBottom: 14 }}>{flash}</div>}
       {flashErr && <div className="flash-err" style={{ marginBottom: 14 }}>{flashErr}</div>}
 
-      {/* AI Daily Briefing */}
       <ProjectDailyBriefing
         projectId={projectUuid}
         initialBriefing={cachedBriefing}
         canRegenerate={canRegenerate}
       />
 
-      {/* Action buttons */}
       {canEdit && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
           <a href={`/allocations/new?project_id=${projectUuid}&return_to=/projects/${projectRefForUrls}`} className="action-btn primary">
@@ -640,7 +699,6 @@ export default async function ProjectPage({
               returnTo={`/projects/${projectRefForUrls}`}
             />
           )}
-          {/* Win probability -- pipeline only */}
           {isPipeline && (
             <WinProbabilityEditor
               projectId={projectUuid}
@@ -651,7 +709,6 @@ export default async function ProjectPage({
         </div>
       )}
 
-      {/* Win probability read-only for viewers on pipeline */}
       {!canEdit && isPipeline && winProbability != null && (
         <div style={{ marginBottom: 16 }}>
           <WinProbabilityEditor
@@ -662,7 +719,6 @@ export default async function ProjectPage({
         </div>
       )}
 
-      {/* Gate 1 status -- shown for confirmed/active projects */}
       {!isPipeline && (
         <GateStatusPanel
           projectId={projectUuid}
@@ -673,12 +729,6 @@ export default async function ProjectPage({
         />
       )}
 
-
-
-
-
-
-      {/* Gate 5 closure readiness badge — only shown when end date is within 60 days, overdue, or mandatory items blocked */}
       {!isPipeline && isActive && gate5Data && gate5Data.showBadge && (() => {
         const g5 = gate5Data;
         const c = g5.riskLevel === "green"
@@ -721,19 +771,38 @@ export default async function ProjectPage({
         );
       })()}
 
-      {/* Stat cards */}
+      {/* ── Stat cards ─────────────────────────────────────────────────────── */}
       <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 16 }}>
+
+        {/* Health Score — icon colour tracks RAG */}
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: "#dcfce7" }}>
-            <span style={{ fontSize: 18 }}>*</span>
+          <div
+            className="stat-icon"
+            style={{ background: healthIconStyle.bg }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={healthIconStyle.icon} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+            </svg>
           </div>
           <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Health Score</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", lineHeight: 1 }}>{healthScore != null ? `${healthScore}%` : "-"}</div>
-          <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Overall RAG</div>
+          <div style={{
+            fontSize: 28, fontWeight: 700, lineHeight: 1,
+            color: overallRag === "green" ? "#16a34a" : overallRag === "amber" ? "#d97706" : overallRag === "red" ? "#dc2626" : "var(--text-1)",
+          }}>
+            {healthScore != null ? `${healthScore}%` : "—"}
+          </div>
+          <div style={{ fontSize: 12, marginTop: 4, fontWeight: 600,
+            color: overallRag === "green" ? "#16a34a" : overallRag === "amber" ? "#d97706" : overallRag === "red" ? "#dc2626" : "var(--text-3)",
+          }}>
+            {overallRag === "green" ? "Green — on track" : overallRag === "amber" ? "Amber — monitor" : overallRag === "red" ? "Red — action required" : "Overall RAG"}
+          </div>
         </div>
+
         <div className="stat-card">
           <div className="stat-icon" style={{ background: "#ede9fe" }}>
-            <span style={{ fontSize: 18 }}>@</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
           </div>
           <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Project Manager</div>
           <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>
@@ -747,6 +816,7 @@ export default async function ProjectPage({
             {pmName === "Unassigned" ? "Not assigned" : (pmJobTitle || "Assigned")}
           </div>
         </div>
+
         <div className="stat-card" style={{ gridColumn: "span 2" }}>
           <ProjectDateEditor
             projectId={projectUuid}
@@ -759,14 +829,16 @@ export default async function ProjectPage({
         </div>
       </div>
 
-      {/* Description + health */}
+      {/* ── Description + health panel ─────────────────────────────────────── */}
       <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, marginBottom: 16 }}>
         <div className="card" style={{ padding: "24px" }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 12 }}>Project Description</h3>
           <p style={{ fontSize: 14, color: "var(--text-2)", lineHeight: 1.7, margin: 0 }}>
-            {`${projectTitle} is currently ${isActive ? "active and progressing well" : "closed"}.${
-              healthScore != null ? ` The project is tracking at ${healthScore}% health with all major milestones on schedule.` : ""
-            }${project?.finish_date ? ` The team is working towards the delivery deadline of ${formatDateShort(project?.finish_date)}.` : ""}`}
+            {`${projectTitle} is currently ${isActive ? "active" : "closed"}.${
+              healthScore != null
+                ? ` Project health is ${healthScore}% (${overallRag === "green" ? "on track" : overallRag === "amber" ? "needs monitoring" : "requires attention"}).`
+                : ""
+            }${project?.finish_date ? ` Delivery deadline: ${formatDateShort(project?.finish_date)}.` : ""}`}
           </p>
           <div style={{ display: "flex", gap: 8, marginTop: 20, flexWrap: "wrap" }}>
             {[
@@ -794,30 +866,39 @@ export default async function ProjectPage({
               {
                 label: "Schedule", value: scheduleHealth, weight: 35,
                 tooltip: scheduleHealth != null
-                  ? `Based on ${scheduleDetail.total} milestone${scheduleDetail.total !== 1 ? "s" : ""}. ${scheduleDetail.overdue} overdue${scheduleDetail.critical > 0 ? ` (${scheduleDetail.critical} on critical path)` : ""}. Avg baseline slip: ${scheduleDetail.avgSlipDays}d.`
-                  : "No schedule milestones found for this project.",
-                empty: "No milestones - add schedule milestones to track this.",
+                  ? `Based on ${scheduleDetail.total} milestone${scheduleDetail.total !== 1 ? "s" : ""}. ` +
+                    `${scheduleDetail.overdue} overdue${scheduleDetail.critical > 0 ? ` (${scheduleDetail.critical} on critical path)` : ""}. ` +
+                    `Avg slip: ${scheduleDetail.avgSlipDays}d. WBS: ${scheduleDetail.wbsComplete}/${scheduleDetail.wbsTotal} items complete.`
+                  : "No schedule milestones found.",
+                empty: "No milestones — add schedule milestones to track.",
               },
               {
                 label: "RAID Risk", value: raidHealth, weight: 30,
                 tooltip: raidHealth != null
-                  ? `${raidDetail.total} open item${raidDetail.total !== 1 ? "s" : ""}. ${raidDetail.highRisk} high-risk. ${raidDetail.overdue} past due date.`
-                  : "No open RAID items found for this project.",
-                empty: "No open RAID items - log risks and issues to track this.",
+                  ? `${raidDetail.total} open items. Issues: ${raidDetail.openIssues} (${raidDetail.highSeverityIssues} high). ` +
+                    `Risks: ${raidDetail.highRisks} high. ` +
+                    `Dependencies: ${raidDetail.openDependencies}. Assumptions: ${raidDetail.openAssumptions}. ` +
+                    `${raidDetail.overdue} past due.`
+                  : "No open RAID items.",
+                empty: "No open RAID items — log risks and issues to track.",
               },
               {
                 label: "Budget", value: budgetHealth, weight: 20,
                 tooltip: budgetTooltip,
-                empty: "Set an approved budget and log spend to track this.",
+                empty: "Set an approved budget and log spend to track.",
               },
               {
                 label: "Governance", value: governanceHealth, weight: 15,
-                tooltip: `${govDetail.pendingApprovalCount} pending approval${govDetail.pendingApprovalCount !== 1 ? "s" : ""}. ${govDetail.openChangeRequests} open change request${govDetail.openChangeRequests !== 1 ? "s" : ""}. High backlogs reduce this score.`,
+                tooltip: governanceTooltip,
                 empty: "",
               },
             ] as { label: string; value: number | null; weight: number; tooltip: string; empty: string }[]).map(
               ({ label, value, weight, tooltip, empty }) => {
-                const barColor = value == null ? "var(--border)" : value >= 85 ? "var(--green)" : value >= 70 ? "var(--amber)" : "var(--red)";
+                const barColor = value == null
+                  ? "var(--border)"
+                  : value >= 85 ? "var(--green)"
+                  : value >= 70 ? "var(--amber)"
+                  : "var(--red)";
                 const ragLabel = value == null ? null : value >= 85 ? "Green" : value >= 70 ? "Amber" : "Red";
                 return (
                   <div key={label} style={{ position: "relative" }} className="health-row">
@@ -831,19 +912,21 @@ export default async function ProjectPage({
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         {ragLabel && (
-                          <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 20,
+                          <span style={{
+                            fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 20,
                             background: ragLabel === "Green" ? "rgba(22,163,74,0.1)" : ragLabel === "Amber" ? "rgba(217,119,6,0.1)" : "rgba(220,38,38,0.1)",
-                            color: ragLabel === "Green" ? "var(--green)" : ragLabel === "Amber" ? "var(--amber)" : "var(--red)" }}>
+                            color: ragLabel === "Green" ? "var(--green)" : ragLabel === "Amber" ? "var(--amber)" : "var(--red)",
+                          }}>
                             {ragLabel}
                           </span>
                         )}
                         <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", minWidth: 32, textAlign: "right" }}>
-                          {value != null ? `${value}%` : ""}
+                          {value != null ? `${value}%` : "—"}
                         </span>
                       </div>
                     </div>
                     <div className="hbar-track">
-                      <div className="hbar-fill" style={{ width: `${value ?? 0}%`, background: barColor }}/>
+                      <div className="hbar-fill" style={{ width: `${value ?? 0}%`, background: barColor }} />
                     </div>
                     {value == null && empty && (
                       <p style={{ fontSize: 10, color: "var(--text-3)", margin: "4px 0 0", fontStyle: "italic" }}>{empty}</p>
@@ -861,10 +944,18 @@ export default async function ProjectPage({
                 {[{ t: "Red", min: 0, max: 69 }, { t: "Amber", min: 70, max: 84 }, { t: "Green", min: 85, max: 100 }].map(({ t, min, max }) => {
                   const active = healthScore >= min && healthScore <= max;
                   return (
-                    <span key={t} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20,
-                      background: active ? (t === "Green" ? "rgba(22,163,74,0.12)" : t === "Amber" ? "rgba(217,119,6,0.12)" : "rgba(220,38,38,0.12)") : "var(--surface-2)",
-                      color: active ? (t === "Green" ? "var(--green)" : t === "Amber" ? "var(--amber)" : "var(--red)") : "var(--text-3)",
-                      border: active ? `1px solid ${t === "Green" ? "rgba(22,163,74,0.25)" : t === "Amber" ? "rgba(217,119,6,0.25)" : "rgba(220,38,38,0.25)"}` : "1px solid var(--border)" }}>
+                    <span key={t} style={{
+                      fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20,
+                      background: active
+                        ? (t === "Green" ? "rgba(22,163,74,0.12)" : t === "Amber" ? "rgba(217,119,6,0.12)" : "rgba(220,38,38,0.12)")
+                        : "var(--surface-2)",
+                      color: active
+                        ? (t === "Green" ? "var(--green)" : t === "Amber" ? "var(--amber)" : "var(--red)")
+                        : "var(--text-3)",
+                      border: active
+                        ? `1px solid ${t === "Green" ? "rgba(22,163,74,0.25)" : t === "Amber" ? "rgba(217,119,6,0.25)" : "rgba(220,38,38,0.25)"}`
+                        : "1px solid var(--border)",
+                    }}>
                       {t}
                     </span>
                   );
@@ -875,7 +966,7 @@ export default async function ProjectPage({
         </div>
       </div>
 
-      {/* Resource panel */}
+      {/* ── Resource panel ─────────────────────────────────────────────────── */}
       {resource && (
         <div className="card" style={{ padding: "24px", marginBottom: 16 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
@@ -900,11 +991,10 @@ export default async function ProjectPage({
               />
             </div>
           )}
-
         </div>
       )}
 
-      {/* RAID + activity */}
+      {/* ── RAID + activity ────────────────────────────────────────────────── */}
       <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14 }}>
         <div className="card" style={{ padding: "24px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
