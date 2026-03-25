@@ -4,16 +4,41 @@ import { createClient } from "@/utils/supabase/server";
 import OnboardingWizard from "./_components/OnboardingWizard";
 import ProfileSetupForm from "./_components/ProfileSetupForm";
 
-export const dynamic  = "force-dynamic";
+export const dynamic = "force-dynamic";
 export const metadata = { title: "Get started | Aliena" };
 
-export default async function OnboardingPage() {
+type OnboardingPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function first(v: string | string[] | undefined): string {
+  if (Array.isArray(v)) return v[0] ?? "";
+  return v ?? "";
+}
+
+function cleanParam(v: string): string {
+  return v.trim();
+}
+
+export default async function OnboardingPage({ searchParams }: OnboardingPageProps) {
+  const sp = (await searchParams) ?? {};
+  const orgName = cleanParam(first(sp.org));
+  const invitedRole = cleanParam(first(sp.role));
+
   const supabase = await createClient();
 
   // 1. Authenticate
-  const { data: { user }, error } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
   if (error || !user) {
-    redirect("/login?next=/onboarding");
+    const qs = new URLSearchParams();
+    qs.set("next", "/onboarding");
+    if (orgName) qs.set("org", orgName);
+    if (invitedRole) qs.set("role", invitedRole);
+    redirect(`/login?${qs.toString()}`);
   }
 
   // 2. Check org membership
@@ -34,17 +59,26 @@ export default async function OnboardingPage() {
       .maybeSingle();
 
     if (profile?.job_title) {
-      // Profile complete -- go to dashboard
-      // Use absolute path to avoid relative redirect resolving to /onboarding/
       redirect("/");
     }
 
-    // Has org membership but no profile fields -- show profile setup
-    const initialName = profile?.full_name || user.user_metadata?.full_name || user.email || "";
-    return <ProfileSetupForm initialName={initialName} />;
+    // Has org membership but no profile fields — show profile setup
+    const initialName =
+      profile?.full_name ||
+      user.user_metadata?.full_name ||
+      user.email ||
+      "";
+
+    return (
+      <ProfileSetupForm
+        initialName={initialName}
+        orgName={orgName || undefined}
+        invitedRole={invitedRole || undefined}
+      />
+    );
   }
 
-  // 3. No org yet -- show the original org creation wizard
+  // 3. No org yet — show original org creation wizard
   return (
     <OnboardingWizard
       userEmail={user.email ?? ""}

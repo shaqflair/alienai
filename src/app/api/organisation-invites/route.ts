@@ -142,10 +142,15 @@ export async function POST(req: Request) {
     inviteToken = newToken;
   }
 
-  let origin: string;
-  try { origin = requireOrigin(); } catch (e: any) { return bad(e.message, 500); }
+ let origin: string;
+try {
+  origin = requireOrigin();
+} catch (e: any) {
+  return bad(e.message, 500);
+}
 
-  const inviteUrl = `${origin}/organisations/invite/${encodeURIComponent(inviteToken)}`;
+const inviteNext = `/organisations/invite/${encodeURIComponent(inviteToken)}`;
+const inviteUrl = `${origin}/auth/reset?next=${encodeURIComponent(inviteNext)}`;
 
   try {
     await sendOrgInviteEmail({

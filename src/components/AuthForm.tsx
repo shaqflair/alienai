@@ -12,72 +12,162 @@ function getOrigin() {
   return window.location.origin;
 }
 
+function safeNext(next: string | null | undefined) {
+  const value = (next ?? "").trim();
+  if (!value) return "/projects";
+  if (!value.startsWith("/")) return "/projects";
+  if (value.startsWith("//")) return "/projects";
+  return value;
+}
+
 const LOGO_SRC = "/aliena-eye.png";
 
 function CosmosCanvas() {
   const ref = useRef<HTMLCanvasElement>(null);
+
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d")!;
-    let t = 0, raf = 0;
-    type Star = { x:number; y:number; r:number; a:number; speed:number; phase:number; blue:boolean };
-    type Shooter = { x:number; y:number; vx:number; vy:number; len:number; life:number };
-    let stars: Star[] = [], shooters: Shooter[] = [], w = 0, h = 0;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let t = 0;
+    let raf = 0;
+
+    type Star = {
+      x: number;
+      y: number;
+      r: number;
+      a: number;
+      speed: number;
+      phase: number;
+      blue: boolean;
+    };
+
+    type Shooter = {
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      len: number;
+      life: number;
+    };
+
+    let stars: Star[] = [];
+    let shooters: Shooter[] = [];
+    let w = 0;
+    let h = 0;
+
     function resize() {
       w = canvas.width = window.innerWidth;
       h = canvas.height = window.innerHeight;
       stars = Array.from({ length: 320 }, () => ({
-        x: Math.random()*w, y: Math.random()*h, r: Math.random()*1.5+0.2,
-        a: Math.random()*0.8+0.2, speed: Math.random()*0.4+0.1,
-        phase: Math.random()*Math.PI*2, blue: Math.random()>0.75,
+        x: Math.random() * w,
+        y: Math.random() * h,
+        r: Math.random() * 1.5 + 0.2,
+        a: Math.random() * 0.8 + 0.2,
+        speed: Math.random() * 0.4 + 0.1,
+        phase: Math.random() * Math.PI * 2,
+        blue: Math.random() > 0.75,
       }));
     }
+
     resize();
     window.addEventListener("resize", resize);
+
     function draw() {
-      t += 0.016; ctx.clearRect(0,0,w,h);
-      const bg = ctx.createRadialGradient(w*0.45,h*0.4,0,w*0.5,h*0.5,w*0.9);
-      bg.addColorStop(0,"rgba(0,12,35,1)"); bg.addColorStop(0.5,"rgba(0,6,18,1)"); bg.addColorStop(1,"rgba(0,2,8,1)");
-      ctx.fillStyle=bg; ctx.fillRect(0,0,w,h);
-      stars.forEach(s => {
-        const alpha=(Math.sin(t*s.speed+s.phase)*0.35+0.65)*s.a;
-        ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
-        ctx.fillStyle=s.blue?`rgba(0,180,220,${alpha})`:`rgba(200,225,255,${alpha*0.9})`; ctx.fill();
-        if(s.r>1.2){ctx.beginPath();ctx.arc(s.x,s.y,s.r*3.5,0,Math.PI*2);ctx.fillStyle=s.blue?`rgba(0,180,220,${alpha*0.07})`:`rgba(200,225,255,${alpha*0.04})`;ctx.fill();}
+      t += 0.016;
+      ctx.clearRect(0, 0, w, h);
+
+      const bg = ctx.createRadialGradient(w * 0.45, h * 0.4, 0, w * 0.5, h * 0.5, w * 0.9);
+      bg.addColorStop(0, "rgba(0,12,35,1)");
+      bg.addColorStop(0.5, "rgba(0,6,18,1)");
+      bg.addColorStop(1, "rgba(0,2,8,1)");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+
+      stars.forEach((s) => {
+        const alpha = (Math.sin(t * s.speed + s.phase) * 0.35 + 0.65) * s.a;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = s.blue
+          ? `rgba(0,180,220,${alpha})`
+          : `rgba(200,225,255,${alpha * 0.9})`;
+        ctx.fill();
+
+        if (s.r > 1.2) {
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r * 3.5, 0, Math.PI * 2);
+          ctx.fillStyle = s.blue
+            ? `rgba(0,180,220,${alpha * 0.07})`
+            : `rgba(200,225,255,${alpha * 0.04})`;
+          ctx.fill();
+        }
       });
-      if(Math.random()>0.985) shooters.push({x:Math.random()*w*0.7,y:Math.random()*h*0.35,vx:7+Math.random()*5,vy:2+Math.random()*3,len:90+Math.random()*60,life:1});
-      shooters=shooters.filter(s=>s.life>0);
-      shooters.forEach(s=>{
-        const g=ctx.createLinearGradient(s.x,s.y,s.x-s.len,s.y-s.len*0.38);
-        g.addColorStop(0,`rgba(0,220,255,${s.life*0.85})`); g.addColorStop(1,"rgba(0,80,180,0)");
-        ctx.beginPath();ctx.moveTo(s.x,s.y);ctx.lineTo(s.x-s.len,s.y-s.len*0.38);
-        ctx.strokeStyle=g;ctx.lineWidth=1.5*s.life;ctx.stroke();
-        s.x+=s.vx;s.y+=s.vy;s.life-=0.022;
+
+      if (Math.random() > 0.985) {
+        shooters.push({
+          x: Math.random() * w * 0.7,
+          y: Math.random() * h * 0.35,
+          vx: 7 + Math.random() * 5,
+          vy: 2 + Math.random() * 3,
+          len: 90 + Math.random() * 60,
+          life: 1,
+        });
+      }
+
+      shooters = shooters.filter((s) => s.life > 0);
+
+      shooters.forEach((s) => {
+        const g = ctx.createLinearGradient(s.x, s.y, s.x - s.len, s.y - s.len * 0.38);
+        g.addColorStop(0, `rgba(0,220,255,${s.life * 0.85})`);
+        g.addColorStop(1, "rgba(0,80,180,0)");
+
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(s.x - s.len, s.y - s.len * 0.38);
+        ctx.strokeStyle = g;
+        ctx.lineWidth = 1.5 * s.life;
+        ctx.stroke();
+
+        s.x += s.vx;
+        s.y += s.vy;
+        s.life -= 0.022;
       });
-      raf=requestAnimationFrame(draw);
+
+      raf = requestAnimationFrame(draw);
     }
+
     draw();
-    return () => { window.removeEventListener("resize",resize); cancelAnimationFrame(raf); };
+
+    return () => {
+      window.removeEventListener("resize", resize);
+      cancelAnimationFrame(raf);
+    };
   }, []);
-  return <canvas ref={ref} style={{ position:"fixed", inset:0, zIndex:0, pointerEvents:"none" }} />;
+
+  return <canvas ref={ref} style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none" }} />;
 }
 
 function HudClock() {
   const [time, setTime] = useState("");
+
   useEffect(() => {
-    const tick = () => setTime(new Date().toUTCString().replace("GMT","UTC").toUpperCase());
-    tick(); const id = setInterval(tick,1000); return () => clearInterval(id);
+    const tick = () => setTime(new Date().toUTCString().replace("GMT", "UTC").toUpperCase());
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
   }, []);
+
   return <>{time}</>;
 }
 
 export default function AuthForm({ next }: { next?: string }) {
   const router = useRouter();
   const sp = useSearchParams();
-  const nextUrl = next ?? sp.get("next") ?? "/projects";
-  const resetDone      = sp.get("reset") === "done";
-  const accountCreated = sp.get("info")  === "account_created";
+  const nextUrl = safeNext(next ?? sp.get("next"));
+  const resetDone = sp.get("reset") === "done";
+  const accountCreated = sp.get("info") === "account_created";
 
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
@@ -87,78 +177,107 @@ export default function AuthForm({ next }: { next?: string }) {
   const [info, setInfo] = useState<string | null>(null);
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
-  // ── Detect invite / recovery hash tokens and redirect immediately ──────────
-  // Supabase sends invite emails that land on /login#access_token=...&type=invite
-  // We intercept and redirect to /auth/reset before the user sees the login form
   useEffect(() => {
     if (typeof window === "undefined") return;
+
     const hash = window.location.hash;
     if (!hash || !hash.includes("access_token")) return;
+
     const params = new URLSearchParams(hash.replace("#", ""));
     const type = params.get("type");
+
     if (type === "invite" || type === "recovery") {
-      // Preserve the full hash so /auth/reset can read the tokens
-      window.location.replace("/auth/reset" + hash);
+      const url = new URL(window.location.href);
+      const nextParam = safeNext(url.searchParams.get("next"));
+      const nextQuery = nextParam ? `?next=${encodeURIComponent(nextParam)}` : "";
+      window.location.replace(`/auth/reset${nextQuery}${hash}`);
     }
   }, []);
 
   const showResend = useMemo(() => {
     const e = (err ?? "").toLowerCase();
-    return mode==="signin" && !!pendingEmail && (
-      e.includes("confirm") || e.includes("verified") ||
-      e.includes("verification") || e.includes("not confirmed")
+    return (
+      mode === "signin" &&
+      !!pendingEmail &&
+      (e.includes("confirm") ||
+        e.includes("verified") ||
+        e.includes("verification") ||
+        e.includes("not confirmed"))
     );
   }, [err, mode, pendingEmail]);
 
   async function resendVerification() {
     const target = pendingEmail ?? email;
     if (!target) return;
-    setErr(null); setInfo(null); setLoading(true);
+
+    setErr(null);
+    setInfo(null);
+    setLoading(true);
+
     try {
       const supabase = createClient();
       const { error } = await supabase.auth.resend({
-        type: "signup", email: target,
-        options: { emailRedirectTo: `${getOrigin()}/auth/callback?next=${encodeURIComponent(nextUrl)}` },
+        type: "signup",
+        email: target,
+        options: {
+          emailRedirectTo: `${getOrigin()}/auth/callback?next=${encodeURIComponent(nextUrl)}`,
+        },
       });
+
       if (error) throw error;
       setInfo("Verification email resent. Check your inbox (and spam).");
-    } catch (e:any) { setErr(e?.message ?? "Failed to resend"); }
-    finally { setLoading(false); }
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to resend");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null); setInfo(null); setLoading(true);
+    setErr(null);
+    setInfo(null);
+    setLoading(true);
+
     try {
       const supabase = createClient();
 
       if (mode === "magic") {
         const { error } = await supabase.auth.signInWithOtp({
           email,
-          options: { emailRedirectTo: `${getOrigin()}/auth/callback?next=${encodeURIComponent(nextUrl)}` },
+          options: {
+            emailRedirectTo: `${getOrigin()}/auth/callback?next=${encodeURIComponent(nextUrl)}`,
+          },
         });
+
         if (error) throw error;
+
         setPendingEmail(email);
         setInfo("Magic link sent. Check your email to continue.");
         return;
       }
 
       const res = await supabase.auth.signInWithPassword({ email, password });
+
       if (res.error) {
         const msg = String(res.error.message ?? "").toLowerCase();
+
         if (
-          msg.includes("confirm") || msg.includes("verified") ||
-          msg.includes("not confirmed") || msg.includes("email not confirmed")
+          msg.includes("confirm") ||
+          msg.includes("verified") ||
+          msg.includes("not confirmed") ||
+          msg.includes("email not confirmed")
         ) {
           setPendingEmail(email);
           setInfo("Your email is not verified yet. Check your inbox or resend the verification email.");
         }
+
         throw res.error;
       }
 
       router.replace(nextUrl);
       router.refresh();
-    } catch (e:any) {
+    } catch (e: any) {
       setErr(e?.message ?? "Failed to authenticate");
     } finally {
       setLoading(false);
@@ -242,21 +361,37 @@ export default function AuthForm({ next }: { next?: string }) {
       <div className="auth-scan" />
 
       <div className="auth-hud auth-hud-tl">
-        &Lambda; L I &Xi; N &Lambda; &nbsp;OS v4.2.1<br />
-        SYS.SECURE // ENCRYPTED<br />
+        &Lambda; L I &Xi; N &Lambda; &nbsp;OS v4.2.1
+        <br />
+        SYS.SECURE // ENCRYPTED
+        <br />
         <HudClock />
       </div>
       <div className="auth-hud auth-hud-tr">
-        NODE: EU-WEST-2<br />UPTIME: 99.97%<br />STATUS: NOMINAL
+        NODE: EU-WEST-2
+        <br />
+        UPTIME: 99.97%
+        <br />
+        STATUS: NOMINAL
       </div>
       <div className="auth-hud auth-hud-bl">
-        CONN: TLS 1.3 // AES-256<br />AUTH: MULTI-FACTOR READY
+        CONN: TLS 1.3 // AES-256
+        <br />
+        AUTH: MULTI-FACTOR READY
       </div>
 
       <div className="auth-root">
         <div className="auth-logo-wrap">
-          <div style={{ position:"relative", display:"inline-block" }}>
-            <div style={{ position:"absolute", inset:"-16px", borderRadius:"50%", background:"radial-gradient(ellipse,rgba(0,120,200,0.12) 0%,rgba(0,60,140,0.06) 50%,transparent 72%)" }} />
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <div
+              style={{
+                position: "absolute",
+                inset: "-16px",
+                borderRadius: "50%",
+                background:
+                  "radial-gradient(ellipse,rgba(0,120,200,0.12) 0%,rgba(0,60,140,0.06) 50%,transparent 72%)",
+              }}
+            />
             <img className="auth-logo-img" src={LOGO_SRC} alt="Aliena" />
           </div>
         </div>
@@ -273,44 +408,77 @@ export default function AuthForm({ next }: { next?: string }) {
           </div>
 
           <div className="auth-mode-bar">
-            {(["signin","magic"] as Mode[]).map(m => (
-              <button key={m} className={`auth-mode-btn${mode===m?" active":""}`} type="button"
-                onClick={() => { setMode(m); setErr(null); setInfo(null); }}>
-                {m==="signin" ? "Sign In" : "Magic Link"}
+            {(["signin", "magic"] as Mode[]).map((m) => (
+              <button
+                key={m}
+                className={`auth-mode-btn${mode === m ? " active" : ""}`}
+                type="button"
+                onClick={() => {
+                  setMode(m);
+                  setErr(null);
+                  setInfo(null);
+                }}
+              >
+                {m === "signin" ? "Sign In" : "Magic Link"}
               </button>
             ))}
           </div>
 
-          <div className="auth-divider"><span>AUTHENTICATE TO PROCEED</span></div>
+          <div className="auth-divider">
+            <span>AUTHENTICATE TO PROCEED</span>
+          </div>
 
           {resetDone && <div className="auth-msg auth-msg-ok">Password reset complete. Please sign in.</div>}
           {accountCreated && <div className="auth-msg auth-msg-ok">Account created! Sign in below to continue.</div>}
-          {info  && <div className="auth-msg auth-msg-info">{info}</div>}
-          {err   && <div className="auth-msg auth-msg-err">{err}</div>}
+          {info && <div className="auth-msg auth-msg-info">{info}</div>}
+          {err && <div className="auth-msg auth-msg-err">{err}</div>}
 
           <form onSubmit={onSubmit}>
             <div className="auth-field">
               <label className="auth-label">Email</label>
-              <input className="auth-input" type="email" placeholder="operator@domain.com"
-                autoComplete="email" required value={email}
-                onChange={e => setEmail(e.target.value)} />
+              <input
+                className="auth-input"
+                type="email"
+                placeholder="operator@domain.com"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
 
             {mode === "signin" && (
               <div className="auth-field">
                 <label className="auth-label">Password</label>
-                <input className="auth-input" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"
-                  autoComplete="current-password" required value={password}
-                  onChange={e => setPassword(e.target.value)} />
+                <input
+                  className="auth-input"
+                  type="password"
+                  placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
               </div>
             )}
 
             <button className="auth-btn-primary" type="submit" disabled={loading}>
-              {loading ? <><span className="auth-spin" /> PROCESSING</> : submitLabel}
+              {loading ? (
+                <>
+                  <span className="auth-spin" /> PROCESSING
+                </>
+              ) : (
+                submitLabel
+              )}
             </button>
 
             {showResend && (
-              <button type="button" className="auth-btn-ghost" disabled={loading} onClick={resendVerification}>
+              <button
+                type="button"
+                className="auth-btn-ghost"
+                disabled={loading}
+                onClick={resendVerification}
+              >
                 Resend Verification Email
               </button>
             )}
@@ -318,12 +486,13 @@ export default function AuthForm({ next }: { next?: string }) {
 
           {mode === "signin" && (
             <div className="auth-links">
-              <Link href="/forgot-password">Forgot password?</Link>
+              <Link href={`/forgot-password?next=${encodeURIComponent(nextUrl)}`}>Forgot password?</Link>
             </div>
           )}
 
           <div className="auth-invite-notice">
-            ACCESS BY INVITATION ONLY<br />
+            ACCESS BY INVITATION ONLY
+            <br />
             New accounts require an invitation from your organisation administrator.
           </div>
         </div>
@@ -332,7 +501,10 @@ export default function AuthForm({ next }: { next?: string }) {
       <div className="auth-ticker">
         <div className="auth-tdot" />
         <div className="auth-ttext">
-          &Lambda; L I &Xi; N &Lambda; &nbsp;INTELLIGENCE PLATFORM // SECURE CHANNEL ESTABLISHED // ALL SYSTEMS OPERATIONAL // ACCESS BY INVITATION ONLY // PROJECT MONITORING ACTIVE // AI INFERENCE ENGINE ONLINE // PORTFOLIO ANALYTICS READY // AWAITING OPERATOR AUTHENTICATION //&nbsp;&nbsp;
+          &Lambda; L I &Xi; N &Lambda; &nbsp;INTELLIGENCE PLATFORM // SECURE CHANNEL ESTABLISHED //
+          ALL SYSTEMS OPERATIONAL // ACCESS BY INVITATION ONLY // PROJECT MONITORING ACTIVE //
+          AI INFERENCE ENGINE ONLINE // PORTFOLIO ANALYTICS READY // AWAITING OPERATOR
+          AUTHENTICATION //&nbsp;&nbsp;
         </div>
       </div>
     </>

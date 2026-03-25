@@ -1,39 +1,40 @@
 ﻿"use client";
 
 import { useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 
-/**
- * OrgInviteAcceptPage
- * Handles Supabase auth invite landing page - whitelisted under organisations/invite/*
- * Forwards the hash token to /auth/reset without any server redirect.
- */
 export default function OrgInviteAcceptPage() {
+  const sp = useSearchParams();
+
   useEffect(() => {
-    // Supabase sends token in the URL fragment (hash) which the server cannot read.
     const hash = window.location.hash;
-    
+    const next = sp.get("next");
+    const nextQuery = next ? `?next=${encodeURIComponent(next)}` : "";
+
     if (hash && hash.includes("access_token")) {
-      // Forward the full hash to the reset handler to establish the session.
-      window.location.replace("/auth/reset" + hash);
-    } else {
-      // No token found - likely an expired link or manual navigation.
-      window.location.replace("/forgot-password");
+      window.location.replace(`/auth/reset${nextQuery}${hash}`);
+      return;
     }
-  }, []);
+
+    // No hash: do nothing destructive.
+    // Let the user recover manually or show a nicer expired-link screen later.
+  }, [sp]);
 
   return (
-    <div style={{
-      minHeight: "100vh", 
-      display: "flex", 
-      alignItems: "center",
-      justifyContent: "center", 
-      background: "#000810",
-      fontFamily: "'Share Tech Mono', monospace",
-      color: "rgba(135,230,255,0.8)", 
-      fontSize: 13, 
-      letterSpacing: "0.1em",
-      textTransform: "uppercase"
-    }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#000810",
+        fontFamily: "'Share Tech Mono', monospace",
+        color: "rgba(135,230,255,0.8)",
+        fontSize: 13,
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+      }}
+    >
       Authenticating Invite Token...
     </div>
   );

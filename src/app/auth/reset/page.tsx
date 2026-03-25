@@ -1,120 +1,383 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 
 function CosmosCanvas() {
   const ref = useRef<HTMLCanvasElement>(null);
+
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d")!;
-    let t = 0, raf = 0;
-    type Star = { x:number; y:number; r:number; a:number; speed:number; phase:number; blue:boolean };
-    type Shooter = { x:number; y:number; vx:number; vy:number; len:number; life:number };
-    let stars: Star[] = [], shooters: Shooter[] = [], w = 0, h = 0;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let t = 0;
+    let raf = 0;
+
+    type Star = {
+      x: number;
+      y: number;
+      r: number;
+      a: number;
+      speed: number;
+      phase: number;
+      blue: boolean;
+    };
+
+    type Shooter = {
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      len: number;
+      life: number;
+    };
+
+    let stars: Star[] = [];
+    let shooters: Shooter[] = [];
+    let w = 0;
+    let h = 0;
+
     function resize() {
-      w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight;
-      stars = Array.from({ length: 320 }, () => ({ x: Math.random()*w, y: Math.random()*h, r: Math.random()*1.5+0.2, a: Math.random()*0.8+0.2, speed: Math.random()*0.4+0.1, phase: Math.random()*Math.PI*2, blue: Math.random()>0.75 }));
+      w = canvas.width = window.innerWidth;
+      h = canvas.height = window.innerHeight;
+
+      stars = Array.from({ length: 320 }, () => ({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        r: Math.random() * 1.5 + 0.2,
+        a: Math.random() * 0.8 + 0.2,
+        speed: Math.random() * 0.4 + 0.1,
+        phase: Math.random() * Math.PI * 2,
+        blue: Math.random() > 0.75,
+      }));
     }
-    resize(); window.addEventListener("resize", resize);
+
     function draw() {
-      t += 0.016; ctx.clearRect(0,0,w,h);
-      const bg = ctx.createRadialGradient(w*0.45,h*0.4,0,w*0.5,h*0.5,w*0.9);
-      bg.addColorStop(0,"rgba(0,12,35,1)"); bg.addColorStop(0.5,"rgba(0,6,18,1)"); bg.addColorStop(1,"rgba(0,2,8,1)");
-      ctx.fillStyle=bg; ctx.fillRect(0,0,w,h);
-      stars.forEach(s => {
-        const alpha=(Math.sin(t*s.speed+s.phase)*0.35+0.65)*s.a;
-        ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
-        ctx.fillStyle=s.blue?`rgba(0,180,220,${alpha})`:`rgba(200,225,255,${alpha*0.9})`; ctx.fill();
-        if(s.r>1.2){ctx.beginPath();ctx.arc(s.x,s.y,s.r*3.5,0,Math.PI*2);ctx.fillStyle=s.blue?`rgba(0,180,220,${alpha*0.07})`:`rgba(200,225,255,${alpha*0.04})`;ctx.fill();}
+      t += 0.016;
+      ctx.clearRect(0, 0, w, h);
+
+      const bg = ctx.createRadialGradient(
+        w * 0.45,
+        h * 0.4,
+        0,
+        w * 0.5,
+        h * 0.5,
+        w * 0.9
+      );
+      bg.addColorStop(0, "rgba(0,12,35,1)");
+      bg.addColorStop(0.5, "rgba(0,6,18,1)");
+      bg.addColorStop(1, "rgba(0,2,8,1)");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+
+      stars.forEach((s) => {
+        const alpha = (Math.sin(t * s.speed + s.phase) * 0.35 + 0.65) * s.a;
+
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = s.blue
+          ? `rgba(0,180,220,${alpha})`
+          : `rgba(200,225,255,${alpha * 0.9})`;
+        ctx.fill();
+
+        if (s.r > 1.2) {
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r * 3.5, 0, Math.PI * 2);
+          ctx.fillStyle = s.blue
+            ? `rgba(0,180,220,${alpha * 0.07})`
+            : `rgba(200,225,255,${alpha * 0.04})`;
+          ctx.fill();
+        }
       });
-      if(Math.random()>0.985) shooters.push({x:Math.random()*w*0.7,y:Math.random()*h*0.35,vx:7+Math.random()*5,vy:2+Math.random()*3,len:90+Math.random()*60,life:1});
-      shooters=shooters.filter(s=>s.life>0);
-      shooters.forEach(s=>{
-        const g=ctx.createLinearGradient(s.x,s.y,s.x-s.len,s.y-s.len*0.38);
-        g.addColorStop(0,`rgba(0,220,255,${s.life*0.85})`); g.addColorStop(1,"rgba(0,80,180,0)");
-        ctx.beginPath();ctx.moveTo(s.x,s.y);ctx.lineTo(s.x-s.len,s.y-s.len*0.38);
-        ctx.strokeStyle=g;ctx.lineWidth=1.5*s.life;ctx.stroke();
-        s.x+=s.vx;s.y+=s.vy;s.life-=0.022;
+
+      if (Math.random() > 0.985) {
+        shooters.push({
+          x: Math.random() * w * 0.7,
+          y: Math.random() * h * 0.35,
+          vx: 7 + Math.random() * 5,
+          vy: 2 + Math.random() * 3,
+          len: 90 + Math.random() * 60,
+          life: 1,
+        });
+      }
+
+      shooters = shooters.filter((s) => s.life > 0);
+
+      shooters.forEach((s) => {
+        const g = ctx.createLinearGradient(
+          s.x,
+          s.y,
+          s.x - s.len,
+          s.y - s.len * 0.38
+        );
+        g.addColorStop(0, `rgba(0,220,255,${s.life * 0.85})`);
+        g.addColorStop(1, "rgba(0,80,180,0)");
+
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(s.x - s.len, s.y - s.len * 0.38);
+        ctx.strokeStyle = g;
+        ctx.lineWidth = 1.5 * s.life;
+        ctx.stroke();
+
+        s.x += s.vx;
+        s.y += s.vy;
+        s.life -= 0.022;
       });
-      raf=requestAnimationFrame(draw);
+
+      raf = requestAnimationFrame(draw);
     }
+
+    resize();
+    window.addEventListener("resize", resize);
     draw();
-    return () => { window.removeEventListener("resize",resize); cancelAnimationFrame(raf); };
+
+    return () => {
+      window.removeEventListener("resize", resize);
+      cancelAnimationFrame(raf);
+    };
   }, []);
-  return <canvas ref={ref} style={{ position:"fixed", inset:0, zIndex:0, pointerEvents:"none" }} />;
+
+  return (
+    <canvas
+      ref={ref}
+      style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none" }}
+    />
+  );
 }
 
 function HudClock() {
   const [time, setTime] = useState("");
+
   useEffect(() => {
-    const tick = () => setTime(new Date().toUTCString().replace("GMT","UTC").toUpperCase());
-    tick(); const id = setInterval(tick,1000); return () => clearInterval(id);
+    const tick = () =>
+      setTime(new Date().toUTCString().replace("GMT", "UTC").toUpperCase());
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
   }, []);
+
   return <>{time}</>;
 }
 
 const LOGO_SRC = "/aliena-eye.png";
 
+function safeNext(next: string | null) {
+  if (!next) return "/projects";
+  if (!next.startsWith("/")) return "/projects";
+  if (next.startsWith("//")) return "/projects";
+  return next;
+}
+
+function extractInviteToken(nextPath: string) {
+  const match = nextPath.match(/^\/organisations\/invite\/([^/?#]+)/i);
+  if (!match) return null;
+  return decodeURIComponent(match[1] || "").trim() || null;
+}
+
 export default function ResetPasswordPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = safeNext(searchParams.get("next"));
+
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState(
+    "Password set. Redirecting you to continue…"
+  );
   const [loading, setLoading] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
-  const [isInvite, setIsInvite] = useState(false);
+  const [isInviteFlow, setIsInviteFlow] = useState(false);
+  const [statusText, setStatusText] = useState("Verifying your link…");
 
-  // Handle hash-based tokens from Supabase invite/recovery emails
   useEffect(() => {
+    let mounted = true;
     const supabase = createClient();
-    async function handleHashSession() {
-      const hash = window.location.hash;
-      if (hash && hash.includes("access_token")) {
-        const params = new URLSearchParams(hash.replace("#", ""));
-        const accessToken = params.get("access_token");
-        const refreshToken = params.get("refresh_token") ?? "";
-        const type = params.get("type");
-        if (accessToken) {
-          const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-          if (error) { setError("Invalid or expired link. Please request a new one."); return; }
-          if (type === "invite") setIsInvite(true);
-          window.history.replaceState(null, "", window.location.pathname);
-          setSessionReady(true);
+
+    async function establishRecoverySession() {
+      try {
+        setError(null);
+        setStatusText("Verifying your link…");
+
+        const hash = typeof window !== "undefined" ? window.location.hash : "";
+
+        if (hash && hash.includes("access_token")) {
+          const params = new URLSearchParams(hash.replace(/^#/, ""));
+          const accessToken = params.get("access_token");
+          const refreshToken = params.get("refresh_token") ?? "";
+          const type = params.get("type");
+
+          if (type === "invite" || type === "recovery") {
+            setIsInviteFlow(true);
+          }
+
+          if (accessToken) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+
+            if (sessionError) {
+              if (!mounted) return;
+              setError(
+                "This link has expired or is invalid. Request a new invite or reset link."
+              );
+              setSessionReady(false);
+              return;
+            }
+
+            if (mounted) {
+              const nextQuery =
+                next && next !== "/projects"
+                  ? `?next=${encodeURIComponent(next)}`
+                  : "";
+              window.history.replaceState(null, "", `/auth/reset${nextQuery}`);
+              setSessionReady(true);
+              setStatusText("Secure session established.");
+            }
+
+            return;
+          }
+        }
+
+        const { data, error: getSessionError } = await supabase.auth.getSession();
+
+        if (getSessionError) {
+          if (!mounted) return;
+          setError(
+            "Unable to verify your session. Request a new invite or reset link."
+          );
+          setSessionReady(false);
           return;
         }
+
+        if (data?.session) {
+          if (!mounted) return;
+
+          const searchType = searchParams.get("type");
+          if (searchType === "invite" || searchType === "recovery") {
+            setIsInviteFlow(true);
+          }
+
+          setSessionReady(true);
+          setStatusText("Secure session established.");
+          return;
+        }
+
+        if (!mounted) return;
+        setError(
+          "This link has expired or is invalid. Request a new invite or reset link."
+        );
+        setSessionReady(false);
+      } catch {
+        if (!mounted) return;
+        setError(
+          "This link has expired or is invalid. Request a new invite or reset link."
+        );
+        setSessionReady(false);
       }
-      const { data } = await supabase.auth.getSession();
-      if (data?.session) { setSessionReady(true); }
-      else { setError("No valid session. Please use the link from your email or request a new one."); }
     }
-    handleHashSession();
-  }, []);
+
+    establishRecoverySession();
+
+    return () => {
+      mounted = false;
+    };
+  }, [next, searchParams]);
+
+  async function acceptOrgInviteIfPresent(nextPath: string) {
+    const token = extractInviteToken(nextPath);
+    if (!token) {
+      return { accepted: false as const };
+    }
+
+    const res = await fetch("/api/organisation-invites/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+      cache: "no-store",
+    });
+
+    const json = await res
+      .json()
+      .catch(() => ({ ok: false, error: "Bad response" }));
+
+    if (!json?.ok) {
+      throw new Error(json?.error || "Failed to accept organisation invite");
+    }
+
+    return {
+      accepted: true as const,
+      orgName:
+        typeof json?.org_name === "string" ? json.org_name : null,
+      role: typeof json?.role === "string" ? json.role : null,
+    };
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
-    if (password !== confirm) { setError("Passwords do not match."); return; }
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     setLoading(true);
+
     try {
       const supabase = createClient();
-      const { error } = await supabase.auth.updateUser({ password });
-      if (error) throw error;
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+
+      if (updateError) throw updateError;
+
+      const inviteResult = await acceptOrgInviteIfPresent(next);
+
+      if (inviteResult.accepted) {
+        setSuccessMessage(
+          "Password set. Your organisation invite has been accepted. Taking you into onboarding…"
+        );
+      } else {
+        setSuccessMessage("Password set. Redirecting you to continue…");
+      }
+
       setSuccess(true);
-      setTimeout(() => { router.replace("/projects"); router.refresh(); }, 1500);
+
+      setTimeout(() => {
+        if (inviteResult.accepted) {
+          const qp = new URLSearchParams();
+          if (inviteResult.orgName) qp.set("org", inviteResult.orgName);
+          if (inviteResult.role) qp.set("role", inviteResult.role);
+          const onboardingUrl = qp.toString()
+            ? `/onboarding?${qp.toString()}`
+            : "/onboarding";
+          router.replace(onboardingUrl);
+        } else {
+          router.replace(next);
+        }
+        router.refresh();
+      }, 1200);
     } catch (e: any) {
-      setError(e?.message ?? "Failed to set password");
+      setError(e?.message ?? "Failed to set password.");
     } finally {
       setLoading(false);
     }
   }
 
   const passwordsMatch = password === confirm;
-  const canSubmit = !loading && password.length >= 8 && passwordsMatch && sessionReady;
+  const canSubmit =
+    !loading && password.length >= 8 && passwordsMatch && sessionReady;
 
   return (
     <>
@@ -181,21 +444,39 @@ export default function ResetPasswordPage() {
       <div className="rp-scan" />
 
       <div className="rp-hud rp-hud-tl">
-        &Lambda; L I &Xi; N &Lambda; &nbsp;OS v4.2.1<br />
-        SYS.SECURE // ENCRYPTED<br />
+        &Lambda; L I &Xi; N &Lambda; &nbsp;OS v4.2.1
+        <br />
+        SYS.SECURE // ENCRYPTED
+        <br />
         <HudClock />
       </div>
+
       <div className="rp-hud rp-hud-tr">
-        NODE: EU-WEST-2<br />UPTIME: 99.97%<br />STATUS: NOMINAL
+        NODE: EU-WEST-2
+        <br />
+        UPTIME: 99.97%
+        <br />
+        STATUS: NOMINAL
       </div>
+
       <div className="rp-hud rp-hud-bl">
-        CONN: TLS 1.3 // AES-256<br />AUTH: MULTI-FACTOR READY
+        CONN: TLS 1.3 // AES-256
+        <br />
+        AUTH: MULTI-FACTOR READY
       </div>
 
       <div className="rp-root">
         <div className="rp-logo-wrap">
-          <div style={{ position:"relative", display:"inline-block" }}>
-            <div style={{ position:"absolute", inset:"-16px", borderRadius:"50%", background:"radial-gradient(ellipse,rgba(0,120,200,0.12) 0%,rgba(0,60,140,0.06) 50%,transparent 72%)" }} />
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <div
+              style={{
+                position: "absolute",
+                inset: "-16px",
+                borderRadius: "50%",
+                background:
+                  "radial-gradient(ellipse,rgba(0,120,200,0.12) 0%,rgba(0,60,140,0.06) 50%,transparent 72%)",
+              }}
+            />
             <img className="rp-logo-img" src={LOGO_SRC} alt="Aliena" />
           </div>
         </div>
@@ -207,20 +488,25 @@ export default function ResetPasswordPage() {
           <div className="rp-corner rp-c-br" />
 
           <div className="rp-brand">
-            <div className="rp-brand-name">&Lambda;&thinsp;L&thinsp;I&thinsp;&Xi;&thinsp;N&thinsp;&Lambda;</div>
+            <div className="rp-brand-name">
+              &Lambda;&thinsp;L&thinsp;I&thinsp;&Xi;&thinsp;N&thinsp;&Lambda;
+            </div>
             <div className="rp-brand-sub">Project Intelligence Platform</div>
           </div>
 
           <div className="rp-divider">
-            <span>{isInvite ? "WELCOME — SET YOUR PASSWORD" : "SET NEW PASSWORD"}</span>
+            <span>{isInviteFlow ? "WELCOME — SET YOUR PASSWORD" : "SET NEW PASSWORD"}</span>
           </div>
 
           {success ? (
-            <div className="rp-msg rp-msg-ok">✓ Password set. Taking you in…</div>
+            <div className="rp-msg rp-msg-ok">✓ {successMessage}</div>
           ) : !sessionReady && !error ? (
             <div className="rp-msg rp-msg-info">
-              <span className="rp-spin" style={{ marginRight: 8, verticalAlign: "middle" }} />
-              Verifying your link…
+              <span
+                className="rp-spin"
+                style={{ marginRight: 8, verticalAlign: "middle" }}
+              />
+              {statusText}
             </div>
           ) : error && !sessionReady ? (
             <>
@@ -237,7 +523,9 @@ export default function ResetPasswordPage() {
               <div className="rp-field">
                 <label className="rp-label">New Password</label>
                 <input
-                  className="rp-input" type="password" required
+                  className="rp-input"
+                  type="password"
+                  required
                   placeholder="Min. 8 characters"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -247,24 +535,45 @@ export default function ResetPasswordPage() {
               <div className="rp-field">
                 <label className="rp-label">Confirm Password</label>
                 <input
-                  className="rp-input" type="password" required
+                  className="rp-input"
+                  type="password"
+                  required
                   placeholder="Re-enter password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                 />
                 {confirm.length > 0 && (
-                  <div className="rp-match" style={{ color: passwordsMatch ? "rgba(130,235,180,0.96)" : "#fecaca" }}>
-                    {passwordsMatch ? "✓ PASSWORDS MATCH" : "✗ PASSWORDS DO NOT MATCH"}
+                  <div
+                    className="rp-match"
+                    style={{
+                      color: passwordsMatch
+                        ? "rgba(130,235,180,0.96)"
+                        : "#fecaca",
+                    }}
+                  >
+                    {passwordsMatch
+                      ? "✓ PASSWORDS MATCH"
+                      : "✗ PASSWORDS DO NOT MATCH"}
                   </div>
                 )}
               </div>
 
               {error && <div className="rp-msg rp-msg-err">{error}</div>}
 
-              <button className="rp-btn-primary" type="submit" disabled={!canSubmit}>
-                {loading
-                  ? <><span className="rp-spin" /> PROCESSING</>
-                  : isInvite ? "SET PASSWORD & ENTER" : "UPDATE PASSWORD"}
+              <button
+                className="rp-btn-primary"
+                type="submit"
+                disabled={!canSubmit}
+              >
+                {loading ? (
+                  <>
+                    <span className="rp-spin" /> PROCESSING
+                  </>
+                ) : isInviteFlow ? (
+                  "SET PASSWORD & CONTINUE"
+                ) : (
+                  "UPDATE PASSWORD"
+                )}
               </button>
 
               <div className="rp-links">
@@ -278,7 +587,10 @@ export default function ResetPasswordPage() {
       <div className="rp-ticker">
         <div className="rp-tdot" />
         <div className="rp-ttext">
-          &Lambda; L I &Xi; N &Lambda; &nbsp;INTELLIGENCE PLATFORM // SECURE CHANNEL ESTABLISHED // ALL SYSTEMS OPERATIONAL // ACCESS BY INVITATION ONLY // PROJECT MONITORING ACTIVE // AI INFERENCE ENGINE ONLINE // PORTFOLIO ANALYTICS READY //&nbsp;&nbsp;
+          &Lambda; L I &Xi; N &Lambda; &nbsp;INTELLIGENCE PLATFORM // SECURE CHANNEL
+          ESTABLISHED // ALL SYSTEMS OPERATIONAL // ACCESS BY INVITATION ONLY //
+          PROJECT MONITORING ACTIVE // AI INFERENCE ENGINE ONLINE // PORTFOLIO
+          ANALYTICS READY //&nbsp;&nbsp;
         </div>
       </div>
     </>
