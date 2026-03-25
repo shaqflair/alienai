@@ -496,7 +496,7 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
   const FINANCIAL_TYPES  = ["FINANCIAL_PLAN"];
   const STAKEHOLDER_TYPES = ["STAKEHOLDER_REGISTER", "STAKEHOLDERS"];
 
-  const [approvalsRes, changeReqsRes, artifactsRes, projectsRes] = await Promise.allSettled([
+  const [approvalsRes, changeReqsRes, artifactsRes, projectsRes, gatesRes] = await Promise.allSettled([
     supabase
       .from("approvals")
       .select("id, project_id, status")
@@ -516,15 +516,21 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
       .limit(50000),
     supabase
       .from("projects")
-      .select("id, end_date, gate_1_completed_at, gate_1_status")
+      .select("id, finish_date, lifecycle_status")
       .in("id", projectIds)
       .limit(20000),
+    supabase
+      .from("project_gates")
+      .select("project_id, gate_number, status, passed_at")
+      .in("project_id", projectIds)
+      .limit(50000),
   ]);
 
   const approvals:  any[] = approvalsRes.status  === "fulfilled" ? approvalsRes.value.data  ?? [] : [];
   const changeReqs: any[] = changeReqsRes.status === "fulfilled" ? changeReqsRes.value.data ?? [] : [];
   const artifacts:  any[] = artifactsRes.status  === "fulfilled" ? artifactsRes.value.data  ?? [] : [];
   const projects:   any[] = projectsRes.status   === "fulfilled" ? projectsRes.value.data   ?? [] : [];
+  const gates:      any[] = (gatesRes as any).status === "fulfilled" ? (gatesRes as any).value.data ?? [] : [];
 
   const openStatuses = new Set(["pending", "open", "submitted", "draft"]);
   const approvedStatuses = new Set(["approved", "active", "current", "published", "signed_off", "signed off"]);
@@ -547,17 +553,21 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
   const sixtyDaysFromNow = ymd(new Date(Date.now() + 60 * 86400000));
 
   for (const pid of projectIds) {
-    const proj   = projects.find((p: any) => String(p.id) === pid);
-    const endDate = proj?.end_date ? String(proj.end_date).slice(0, 10) : null;
+    const proj     = projects.find((p: any) => String(p.id) === pid);
+    const endDate  = proj?.finish_date ? String(proj.finish_date).slice(0, 10) : null;
     const gate5Applicable = !!(endDate && endDate <= sixtyDaysFromNow && endDate >= today);
+    const gate1Row = gates.find((g: any) => String(g.project_id) === pid && Number(g.gate_number) === 1);
+    const gate1Complete = !!(gate1Row?.passed_at || gate1Row?.status === "passed" || gate1Row?.status === "complete");
+    const gate5Row = gates.find((g: any) => String(g.project_id) === pid && Number(g.gate_number) === 5);
+    const gate5Ready = !!(gate5Row?.passed_at || gate5Row?.status === "passed");
 
     byProject.set(pid, {
       charterApproved:            false,
       budgetApproved:             false,
       stakeholderRegisterPresent: false,
-      gate1Complete:              !!(proj?.gate_1_completed_at || proj?.gate_1_status === "complete" || proj?.gate_1_status === "passed"),
+      gate1Complete,
       gate5Applicable,
-      gate5Ready:                 false,
+      gate5Ready,
       pendingApprovals:           0,
       openCRs:                    0,
     });
@@ -572,9 +582,10 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
     const stat = String(a.status || "").toLowerCase().replace(/\s+/g, "_");
     const isApproved = approvedStatuses.has(stat) || stat.includes("approv") || stat.includes("publish");
 
-    if (CHARTER_TYPES.includes(ct)     && isApproved) rec.charterApproved            = true;
-    if (FINANCIAL_TYPES.includes(ct)   && isApproved) rec.budgetApproved             = true;
-    if (STAKEHOLDER_TYPES.includes(ct))               rec.stakeholderRegisterPresent = true;
+    if (CHARTER_TYPES.includes(ct)    && isApproved) rec.charterApproved            = true;
+    if (FINANCIAL_TYPES.includes(ct)  && isApproved) rec.budgetApproved             = true;
+    // Stakeholder register counts as present even if draft
+    if (STAKEHOLDER_TYPES.includes(ct))              rec.stakeholderRegisterPresent = true;
   }
 
   // Pending approvals

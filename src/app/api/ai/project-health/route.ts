@@ -220,7 +220,37 @@ function scoreRaid(raidItems: any[], today: string) {
   return { score: clamp(score), signals, detail };
 }
 
-/* ─── FINANCIAL scorer (unchanged from original) ─── */
+/* ─── BUDGET scorer (DB values) ─── */
+
+function scoreBudgetDB(budgetAmount: number | null, spentAmount: number, budgetDays: number | null): { score: number | null; signals: string[] } {
+  const signals: string[] = [];
+  if (budgetAmount == null || budgetAmount <= 0) {
+    // No monetary budget — check days overallocation only
+    if (budgetDays != null && budgetDays > 0 && spentAmount > 0) {
+      const pct = (spentAmount / budgetDays) * 100;
+      if      (pct > 130) { return { score: 30, signals: ["Severely over-allocated (days)"] }; }
+      else if (pct > 110) { return { score: 55, signals: ["Over-allocated (days)"] }; }
+    }
+    return { score: null, signals: ["No budget amount set"] };
+  }
+
+  const pct = (spentAmount / budgetAmount) * 100;
+  if (pct > 5) signals.push("Budget " + Math.round(pct) + "% utilised");
+
+  let score: number;
+  if      (pct <= 75)  score = 100;
+  else if (pct <= 90)  score = 100 - ((pct - 75)  / 15) * 15;
+  else if (pct <= 100) score = 85  - ((pct - 90)  / 10) * 25;
+  else if (pct <= 120) score = 60  - ((pct - 100) / 20) * 40;
+  else                 score = 10;
+
+  if (pct > 100) signals.push("Over budget by " + Math.round(pct - 100) + "%");
+  else if (pct > 90) signals.push("Approaching budget cap");
+
+  return { score: clamp(score), signals };
+}
+
+/* ─── FINANCIAL scorer (artifact content_json fallback) ─── */
 
 function scoreFinancial(j: any): { score: number; signals: string[] } {
   const signals: string[] = [];
@@ -384,29 +414,40 @@ async function getAssignedCount(supabase: any, projectId: string): Promise<numbe
 /* ─── governance data fetcher ─── */
 
 async function fetchGovernanceForProject(supabase: any, projectId: string, orgId: string) {
-  const CHARTER_TYPES    = new Set(["PROJECT_CHARTER", "CHARTER"]);
-  const FINANCIAL_TYPES  = new Set(["FINANCIAL_PLAN"]);
+  const CHARTER_TYPES     = new Set(["PROJECT_CHARTER", "CHARTER"]);
+  const FINANCIAL_TYPES   = new Set(["FINANCIAL_PLAN"]);
   const STAKEHOLDER_TYPES = new Set(["STAKEHOLDER_REGISTER", "STAKEHOLDERS"]);
   const APPROVED_STATUSES = new Set(["approved", "active", "current", "published", "signed_off", "signed off"]);
 
   const today = ymd();
   const in60  = ymd(new Date(Date.now() + 60 * 86400000));
 
-  const [projRes, artifactsRes, approvalsRes, changeReqsRes] = await Promise.allSettled([
-    supabase.from("projects").select("end_date, gate_1_completed_at, gate_1_status").eq("id", projectId).maybeSingle(),
+  const [projRes, artifactsRes, approvalsRes, changeReqsRes, gatesRes, gate5Res] = await Promise.allSettled([
+    supabase.from("projects").select("finish_date, lifecycle_status").eq("id", projectId).maybeSingle(),
     supabase.from("artifacts").select("artifact_type, type, status, is_current").eq("project_id", projectId).eq("is_current", true).limit(100),
     supabase.from("approvals").select("id").eq("project_id", projectId).eq("status", "pending").limit(100),
     supabase.from("change_requests").select("id, status").eq("project_id", projectId).limit(100),
+    supabase.from("project_gates").select("gate_number, status, passed_at").eq("project_id", projectId).limit(20),
+    supabase.from("project_gate5_checks").select("id, status").eq("project_id", projectId).limit(1),
   ]);
 
   const proj      = projRes.status      === "fulfilled" ? projRes.value.data      : null;
   const artifacts = artifactsRes.status === "fulfilled" ? artifactsRes.value.data ?? [] : [];
   const approvals = approvalsRes.status === "fulfilled" ? approvalsRes.value.data ?? [] : [];
   const changeReqs= changeReqsRes.status=== "fulfilled" ? changeReqsRes.value.data ?? [] : [];
+  const gates     = gatesRes.status     === "fulfilled" ? gatesRes.value.data     ?? [] : [];
+  const gate5Checks = gate5Res.status   === "fulfilled" ? gate5Res.value.data     ?? [] : [];
 
-  const endDate = proj?.end_date ? String(proj.end_date).slice(0, 10) : null;
+  // Gate 1: passed row in project_gates
+  const gate1Row     = (gates as any[]).find((g) => Number(g.gate_number) === 1);
+  const gate1Complete = !!(gate1Row?.passed_at || gate1Row?.status === "passed" || gate1Row?.status === "complete");
+
+  // Gate 5: applicable if finish_date within 60 days, ready if gate5 checks exist and passed
+  const endDate       = proj?.finish_date ? String(proj.finish_date).slice(0, 10) : null;
   const gate5Applicable = !!(endDate && endDate <= in60 && endDate >= today);
-  const gate1Complete   = !!(proj?.gate_1_completed_at || proj?.gate_1_status === "complete" || proj?.gate_1_status === "passed");
+  const gate5Row      = (gates as any[]).find((g) => Number(g.gate_number) === 5);
+  const gate5Ready    = !!(gate5Row?.passed_at || gate5Row?.status === "passed") ||
+                        (gate5Checks as any[]).some((c) => String(c.status || "").toLowerCase() === "passed");
 
   let charterApproved = false, budgetApproved = false, stakeholderRegisterPresent = false;
 
@@ -414,9 +455,11 @@ async function fetchGovernanceForProject(supabase: any, projectId: string, orgId
     const ct   = safeStr(a?.artifact_type || a?.type).trim().toUpperCase();
     const stat = String(a?.status || "").toLowerCase().replace(/\s+/g, "_");
     const isApproved = APPROVED_STATUSES.has(stat) || stat.includes("approv") || stat.includes("publish");
-    if (CHARTER_TYPES.has(ct)     && isApproved) charterApproved            = true;
-    if (FINANCIAL_TYPES.has(ct)   && isApproved) budgetApproved             = true;
-    if (STAKEHOLDER_TYPES.has(ct))               stakeholderRegisterPresent = true;
+
+    if (CHARTER_TYPES.has(ct)    && isApproved) charterApproved            = true;
+    if (FINANCIAL_TYPES.has(ct)  && isApproved) budgetApproved             = true;
+    // Stakeholder register counts as present even if draft — it just needs to exist
+    if (STAKEHOLDER_TYPES.has(ct))              stakeholderRegisterPresent  = true;
   }
 
   const openStatuses = new Set(["pending", "open", "submitted", "draft"]);
@@ -428,7 +471,7 @@ async function fetchGovernanceForProject(supabase: any, projectId: string, orgId
     stakeholderRegisterPresent,
     gate1Complete,
     gate5Applicable,
-    gate5Ready: false, // future: check gate5 artifact status
+    gate5Ready,
     pendingApprovalCount: (approvals as any[]).length,
     openChangeRequests:   openCRs,
   };
@@ -465,13 +508,15 @@ export async function GET(req: NextRequest) {
     const today     = ymd();
 
     // Fetch everything in parallel
-    const [artifactsRes, milestonesRes, wbsRes, raidDbRes, govData, assignedCount] = await Promise.all([
+    const [artifactsRes, milestonesRes, wbsRes, raidDbRes, govData, assignedCount, projectBudgetRes, spendRes] = await Promise.all([
       supabase.from("artifacts").select("id,project_id,type,artifact_type,status,updated_at,content_json,is_current").eq("project_id", projectId).eq("is_current", true).limit(300),
       supabase.from("schedule_milestones").select("id, status, end_date, baseline_end, critical_path_flag").eq("project_id", projectId).limit(500),
       supabase.from("wbs_items").select("id, status, delivery_status").eq("project_id", projectId).limit(5000),
       supabase.from("raid_items").select("id, status, due_date, probability, severity, type, item_type, category, severity_label, impact, priority, rag").eq("project_id", projectId).not("status", "in", '("Closed","Invalid")').limit(500),
       fetchGovernanceForProject(supabase, projectId, organisationId),
       getAssignedCount(supabase, projectId),
+      supabase.from("projects").select("budget_amount, budget_days").eq("id", projectId).maybeSingle(),
+      supabase.from("project_spend").select("amount").eq("project_id", projectId).is("deleted_at", null).limit(10000),
     ]);
 
     if (artifactsRes.error) throw artifactsRes.error;
@@ -480,6 +525,12 @@ export async function GET(req: NextRequest) {
     const milestones  = Array.isArray(milestonesRes.data) ? milestonesRes.data : [];
     const wbsItems    = Array.isArray(wbsRes.data) ? wbsRes.data : [];
     const raidDbItems = Array.isArray(raidDbRes.data) ? raidDbRes.data : [];
+
+    // Budget from DB (authoritative)
+    const budgetAmount  = projectBudgetRes.data?.budget_amount != null ? Number(projectBudgetRes.data.budget_amount) : null;
+    const budgetDays    = projectBudgetRes.data?.budget_days   != null ? Number(projectBudgetRes.data.budget_days)   : null;
+    const spendRows     = Array.isArray(spendRes.data) ? spendRes.data : [];
+    const spentAmount   = spendRows.reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
 
     const byType = (wanted: readonly string[]) =>
       list.filter((a: any) => wanted.includes(canonType(a))).sort((a: any, b: any) => new Date(b?.updated_at || 0).getTime() - new Date(a?.updated_at || 0).getTime());
@@ -502,7 +553,10 @@ export async function GET(req: NextRequest) {
     // Score all parts
     const schSc  = scoreSchedule(milestones, wbsItems, today);
     const raidSc = scoreRaid(raidDbItems, today);
-    const finSc  = scoreFinancial(fin?.content_json);
+    // Budget: use DB values (authoritative). null score when no budget set.
+    const finSc  = (budgetAmount != null && budgetAmount > 0) || spentAmount > 0
+      ? scoreBudgetDB(budgetAmount, spentAmount, budgetDays)
+      : { score: null as number | null, signals: ["No budget data set"] };
     const resSc  = scoreResource(res?.content_json, resourceCtx);
     const govSc  = scoreGovernance(govData);
 
@@ -512,7 +566,7 @@ export async function GET(req: NextRequest) {
     const parts = {
       schedule:  schSc.score,
       raid:      raidSc.score ?? neutral,
-      financial: fin ? finSc.score : neutral,
+      financial: finSc.score ?? neutral,  // null = no budget set, use neutral
       resource:  resourceIsHardFail ? resSc.score : res ? resSc.score : neutral,
     };
 
