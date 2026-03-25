@@ -1,4 +1,4 @@
-﻿// src/app/api/ai/project-health/route.ts
+// src/app/api/ai/project-health/route.ts
 // Per-project health scoring — aligned with server/project-health.ts logic
 // Schedule: schedule_milestones + wbs_items (DB)
 // RAID: type-aware (Issue > Risk > Dependency > Assumption)
