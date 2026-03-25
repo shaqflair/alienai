@@ -739,12 +739,12 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
               setBriefingData((prev: any) => {
                 if (!prev?.ok) return prev;
                 const sentiment = liveScore >= 85 ? "green" : liveScore >= 70 ? "amber" : "red";
-                const execSummary = liveScore >= 85
-                  ? `Portfolio health is strong at ${liveScore}%. ${patchRag.g} project${patchRag.g !== 1 ? "s" : ""} green, delivery signals on track.`
-                  : liveScore >= 70
-                  ? `Portfolio health is amber at ${liveScore}%. ${patchRag.a} project${patchRag.a !== 1 ? "s" : ""} need attention — monitor schedule and RAID signals.`
-                  : `Portfolio health is red at ${liveScore}%. ${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} require immediate review — schedule, RAID, and governance issues present.`;
-                const liveTalkingPoints = [
+               const execSummary = liveScore >= 85
+  ? `Portfolio health is strong at ${liveScore}%. ${patchRag.g} project${patchRag.g !== 1 ? "s" : ""} green — delivery signals on track.`
+  : liveScore >= 70
+  ? `Portfolio health is amber at ${liveScore}%. ${patchRag.a} project${patchRag.a !== 1 ? "s" : ""} need${patchRag.a === 1 ? "s" : ""} attention — monitor schedule and RAID signals.`
+  : `Portfolio health is red at ${liveScore}%. ${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} require${patchRag.r === 1 ? "s" : ""} immediate review — schedule, RAID, and governance issues present.`;         
+       const liveTalkingPoints = [
                   `Portfolio mix is ${patchRag.g} green / ${patchRag.a} amber / ${patchRag.r} red.`,
                   `Average health is ${liveScore}%.`,
                   ...(prev.talking_points ?? []).filter((tp: string) =>
@@ -759,10 +759,18 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                   ...prev,
                   executive_summary: execSummary,
                   talking_points: liveTalkingPoints,
-                  sections: (prev.sections ?? []).map((s: any) =>
-                    s.id !== "health" ? s : { ...s, sentiment, body: `Average portfolio health is ${liveScore}%. Current mix: ${patchRag.g} green, ${patchRag.a} amber, ${patchRag.r} red.` }
-                  ),
-                  signals_summary: { ...(prev.signals_summary ?? {}), avg_health: liveScore, rag: patchRag },
+                 sections: (prev.sections ?? []).map((s: any) => {
+  if (s.id === "health") {
+    return { ...s, sentiment, body: `Average portfolio health is ${liveScore}%. Current mix: ${patchRag.g} green, ${patchRag.a} amber, ${patchRag.r} red.` };
+  }
+  if (s.id === "delivery" && sentiment === "red") {
+    return { ...s, sentiment: "red", body: `${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} ha${patchRag.r === 1 ? "s" : "ve"} overdue milestones. Schedule delivery requires immediate attention.` };
+  }
+  if (s.id === "delivery" && sentiment === "amber") {
+    return { ...s, sentiment: "amber", body: `Delivery signals require monitoring — some milestones are approaching or past due dates.` };
+  }
+  return s;
+}),                  signals_summary: { ...(prev.signals_summary ?? {}), avg_health: liveScore, rag: patchRag },
                 };
               });
             } // closes if (liveScore > 0)
