@@ -1459,37 +1459,58 @@ export default function HomePage({
             const liveScore = Math.max(0, Math.min(100, Math.round(
               Number((nextPh as any).score ?? (nextPh as any).portfolio_health ?? 0)
             )));
-            if (liveScore > 0) {
-              const scores = (nextPh as any).projectScores ?? {};
-              const patchRag = { g: 0, a: 0, r: 0 };
-              for (const v of Object.values(scores) as any[]) {
-                if ((v as any)?.rag === "G") patchRag.g++;
-                else if ((v as any)?.rag === "A") patchRag.a++;
-                else if ((v as any)?.rag === "R") patchRag.r++;
-              }
-              setBriefingData((prev: any) => {
-                if (!prev?.ok) return prev;
-                const sentiment = liveScore >= 85 ? "green" : liveScore >= 70 ? "amber" : "red";
-                return {
-                  ...prev,
-                  sections: (prev.sections ?? []).map((s: any) =>
-                    s.id !== "health" ? s : {
-                      ...s,
-                      sentiment,
-                      body: `Average portfolio health is ${liveScore}%. Current mix: ${patchRag.g} green, ${patchRag.a} amber, ${patchRag.r} red.`,
-                    }
-                  ),
-                  signals_summary: {
-                    ...(prev.signals_summary ?? {}),
-                    avg_health: liveScore,
-                  },
-                };
-              });
-            }
-          }
+         if (liveScore > 0) {
+                const scores = (nextPh as any).projectScores ?? {};
+                const patchRag = { g: 0, a: 0, r: 0 };
+                for (const v of Object.values(scores) as any[]) {
+                  if ((v as any)?.rag === "G") patchRag.g++;
+                  else if ((v as any)?.rag === "A") patchRag.a++;
+                  else if ((v as any)?.rag === "R") patchRag.r++;
+                }
+                setBriefingData((prev: any) => {
+                  if (!prev?.ok) return prev;
+                  const sentiment = liveScore >= 85 ? "green" : liveScore >= 70 ? "amber" : "red";
 
+                  // Derive executive summary from live score so it never contradicts
+                  const execSummary = liveScore >= 85
+                    ? `Portfolio health is strong at ${liveScore}%. ${patchRag.g} project${patchRag.g !== 1 ? "s" : ""} green, delivery signals on track.`
+                    : liveScore >= 70
+                    ? `Portfolio health is amber at ${liveScore}%. ${patchRag.a} project${patchRag.a !== 1 ? "s" : ""} need attention — monitor schedule and RAID signals.`
+                    : `Portfolio health is red at ${liveScore}%. ${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} require immediate review — schedule, RAID, and governance issues present.`;
+
+                 // Regenerate talking points from live data so they never contradict
+                  const liveTalkingPoints = [
+                    `Portfolio mix is ${patchRag.g} green / ${patchRag.a} amber / ${patchRag.r} red.`,
+                    `Average health is ${liveScore}%.`,
+                    ...(prev.talking_points ?? []).filter((tp: string) =>
+                      !safeStr(tp).toLowerCase().includes("green") &&
+                      !safeStr(tp).toLowerCase().includes("amber") &&
+                      !safeStr(tp).toLowerCase().includes("red") &&
+                      !safeStr(tp).toLowerCase().includes("health is") &&
+                      !safeStr(tp).toLowerCase().includes("portfolio mix")
+                    ),
+                  ];
+
+                  return {
+                    ...prev,
+                    executive_summary: execSummary,
+                    talking_points: liveTalkingPoints,
+                    sections: (prev.sections ?? []).map((s: any) =>
+                      s.id !== "health" ? s : {
+                        ...s,
+                        sentiment,
+                        body: `Average portfolio health is ${liveScore}%. Current mix: ${patchRag.g} green, ${patchRag.a} amber, ${patchRag.r} red.`,
+                      }
+                    ),
+                    signals_summary: {
+                      ...(prev.signals_summary ?? {}),
+                      avg_health: liveScore,
+                      rag: patchRag,
+                    },
+                  };                });
+             }
         } catch {
-          if (!cancelled) {
+                  if (!cancelled) {
             setInsights([]);
             setResourceWeeks([]);
             setRecentWins([]);

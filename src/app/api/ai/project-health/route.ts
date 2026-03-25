@@ -158,7 +158,8 @@ function raidItemSev(r: any): "high" | "medium" | "low" {
   const composite = (r.probability != null && r.severity != null) ? Math.round((p * s) / 100) : 0;
   if (composite >= 70) return "high";
   if (composite >= 40) return "medium";
-  const label = String(r?.severity_label || r?.severity || r?.impact || r?.priority || r?.rag || "").toLowerCase();
+  // Only use TEXT fields — r?.severity is numeric (e.g. 60), String(60)="60" never matches "high"
+  const label = String(r?.severity_label || r?.priority || r?.impact || r?.rag || "").toLowerCase();
   if (["high", "critical", "severe", "red"].some((k) => label.includes(k))) return "high";
   if (["medium", "med", "amber"].some((k) => label.includes(k))) return "medium";
   return "low";

@@ -187,7 +187,9 @@ function raidSev(r: any): "high" | "medium" | "low" {
   if (composite >= 70) return "high";
   if (composite >= 40) return "medium";
 
-  const label = String(r?.severity_label || r?.severity || r?.impact || r?.priority || r?.rag || "").toLowerCase();
+  // Only use TEXT fields for label — r?.severity is a number (e.g. 60) and would
+  // short-circuit before priority is ever reached via String(60) = "60"
+  const label = String(r?.severity_label || r?.priority || r?.impact || r?.rag || "").toLowerCase();
   if (["high", "critical", "severe", "red"].some((k) => label.includes(k))) return "high";
   if (["medium", "med", "amber"].some((k) => label.includes(k))) return "medium";
   return "low";
