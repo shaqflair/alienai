@@ -256,7 +256,7 @@ export async function inviteToOrganisation(formData: FormData) {
     const admin = createAdminClient();
     const baseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || "https://aliena.co.uk";
     const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${baseUrl}/invite`,
+      redirectTo: `${baseUrl}/organisations/invite/accept`,
       data: {
         organisation_id: orgId,
         invited_by: invitedBy,
