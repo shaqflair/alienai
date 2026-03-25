@@ -337,12 +337,12 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid)
       .limit(100),
     // Include status + charter/stakeholder types for governance scoring
-    supabase
+   supabase
       .from("artifacts")
-      .select("id, type, status")
+      .select("id, type, status, content_json")
       .eq("project_id", projectUuid)
       .in("type", [
-        "SCHEDULE", "WBS", "FINANCIAL_PLAN", "WEEKLY_REPORT",
+              "SCHEDULE", "WBS", "FINANCIAL_PLAN", "WEEKLY_REPORT",
         "PROJECT_CHARTER", "CHARTER", "STAKEHOLDER_REGISTER", "STAKEHOLDERS",
       ])
       .order("created_at", { ascending: false })
@@ -394,10 +394,24 @@ export default async function ProjectPage({
   const rateCardRoles    = rateCardRolesResult.status === "fulfilled" ? (rateCardRolesResult.value as string[] ?? []) : [];
 
   const spendRows   = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
-  const spentAmount = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
-  const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
-  const budgetDays   = project?.budget_days   != null ? Number(project.budget_days)   : null;
-
+  const spentAmount = (() => {
+  // Primary: project_spend table
+  const dbSpend = (spendRows as any[]).reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
+  if (dbSpend > 0) return dbSpend;
+  // Fallback: financial plan artifact actual spend
+  const finArt = (keyArtifacts as any[]).find((a: any) =>
+    String(a.type || "").toUpperCase() === "FINANCIAL_PLAN"
+  );
+  const j = (finArt as any)?.content_json;
+  if (j) {
+    const v = j.total_spent ?? j.totalSpent ?? j?.summary?.total_spent ?? j?.summary?.totalSpent ?? j?.actual_spent ?? 0;
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+})();
+const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
+const budgetDays   = project?.budget_days   != null ? Number(project.budget_days)   : null;
   // ── Governance flags ───────────────────────────────────────────────────────
   const APPROVED_ART_STATUSES = new Set([
     "approved", "active", "current", "published", "signed_off", "signed off",
