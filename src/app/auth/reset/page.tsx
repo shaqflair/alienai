@@ -56,6 +56,8 @@ function HudClock() {
   return <>{time}</>;
 }
 
+const LOGO_SRC = "/aliena-eye.png";
+
 export default function ResetPasswordPage() {
   const router = useRouter();
   const [password, setPassword] = useState("");
@@ -66,6 +68,7 @@ export default function ResetPasswordPage() {
   const [sessionReady, setSessionReady] = useState(false);
   const [isInvite, setIsInvite] = useState(false);
 
+  // Handle hash-based tokens from Supabase invite/recovery emails
   useEffect(() => {
     const supabase = createClient();
     async function handleHashSession() {
@@ -125,43 +128,52 @@ export default function ResetPasswordPage() {
         @keyframes aneb1{from{transform:translate(0,0) scale(1)}to{transform:translate(70px,50px) scale(1.12)}}
         @keyframes aneb2{from{transform:translate(0,0)}to{transform:translate(-50px,-40px) scale(1.1)}}
         .rp-scan{position:fixed;inset:0;z-index:2;pointer-events:none;background:repeating-linear-gradient(to bottom,transparent 0px,transparent 2px,rgba(0,0,0,0.04) 2px,rgba(0,0,0,0.04) 4px)}
-        .rp-hud{position:fixed;z-index:6;pointer-events:none;font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:0.12em;color:rgba(135,230,255,0.82);line-height:1.75;text-shadow:0 0 8px rgba(0,184,219,0.45),0 0 18px rgba(0,140,220,0.18);background:rgba(0,8,24,0.38);border:1px solid rgba(0,184,219,0.10);backdrop-filter:blur(6px);padding:10px 12px;border-radius:4px}
-        .rp-hud-tl{top:14px;left:14px}.rp-hud-tr{top:14px;right:14px;text-align:right}
-        .rp-card{width:100%;max-width:420px;background:rgba(4,16,40,0.9);border:1px solid rgba(0,184,219,0.22);border-radius:3px;padding:40px 38px 32px;backdrop-filter:blur(30px);box-shadow:0 0 60px rgba(0,60,150,0.38),0 0 120px rgba(0,30,90,0.26),inset 0 1px 0 rgba(0,184,219,0.10);position:relative;overflow:hidden;animation:acardIn 0.9s 0.15s cubic-bezier(0.16,1,0.3,1) both}
+        .rp-hud{position:fixed;z-index:6;pointer-events:none;font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:0.12em;color:rgba(135,230,255,0.82);line-height:1.75;text-shadow:0 0 8px rgba(0,184,219,0.45),0 0 18px rgba(0,140,220,0.18);background:rgba(0,8,24,0.38);border:1px solid rgba(0,184,219,0.10);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:10px 12px;border-radius:4px}
+        .rp-hud-tl{top:14px;left:14px}.rp-hud-tr{top:14px;right:14px;text-align:right}.rp-hud-bl{bottom:40px;left:14px}
+        .rp-logo-wrap{position:relative;z-index:20;margin-bottom:8px;display:flex;flex-direction:column;align-items:center;animation:afloatIn 1s cubic-bezier(0.16,1,0.3,1) both}
+        .rp-logo-img{width:60px;height:60px;object-fit:contain;display:block;opacity:0.96;filter:drop-shadow(0 0 10px rgba(0,184,219,0.35)) drop-shadow(0 0 22px rgba(0,110,220,0.22));animation:afloat 4s ease-in-out infinite,apulse 3s ease-in-out infinite}
+        @keyframes afloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+        @keyframes apulse{0%,100%{filter:drop-shadow(0 0 8px rgba(0,184,219,0.30)) drop-shadow(0 0 18px rgba(0,110,220,0.16));opacity:0.90}50%{filter:drop-shadow(0 0 12px rgba(0,220,255,0.42)) drop-shadow(0 0 26px rgba(0,110,220,0.26));opacity:1}}
+        @keyframes afloatIn{from{opacity:0;transform:translateY(-20px) scale(0.9)}to{opacity:1;transform:translateY(0) scale(1)}}
+        .rp-card{width:100%;max-width:420px;background:rgba(4,16,40,0.9);border:1px solid rgba(0,184,219,0.22);border-radius:3px;padding:40px 38px 32px;backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);box-shadow:0 0 60px rgba(0,60,150,0.38),0 0 120px rgba(0,30,90,0.26),inset 0 1px 0 rgba(0,184,219,0.10);animation:acardIn 0.9s 0.15s cubic-bezier(0.16,1,0.3,1) both;position:relative;overflow:hidden}
         .rp-card::before{content:'';position:absolute;top:0;left:-100%;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(0,184,219,0.03),transparent);animation:ashimmer 7s ease-in-out infinite}
         @keyframes ashimmer{0%,100%{left:-100%}50%{left:150%}}
         @keyframes acardIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
         .rp-corner{position:absolute;width:14px;height:14px;border-color:rgba(0,184,219,0.8);border-style:solid;box-shadow:0 0 10px rgba(0,184,219,0.22)}
         .rp-c-tl{top:-1px;left:-1px;border-width:2px 0 0 2px}.rp-c-tr{top:-1px;right:-1px;border-width:2px 2px 0 0}.rp-c-bl{bottom:-1px;left:-1px;border-width:0 0 2px 2px}.rp-c-br{bottom:-1px;right:-1px;border-width:0 2px 2px 0}
-        .rp-brand{text-align:center;margin-bottom:24px}
+        .rp-brand{text-align:center;margin-bottom:24px;animation:afadeUp 0.8s 0.3s cubic-bezier(0.16,1,0.3,1) both}
         .rp-brand-name{font-family:'Orbitron',sans-serif;font-size:22px;font-weight:900;letter-spacing:0.3em;color:#f7fdff;text-shadow:0 0 20px rgba(0,184,219,0.9),0 0 40px rgba(0,184,219,0.32)}
         .rp-brand-sub{font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:0.24em;color:rgba(130,225,255,0.82);margin-top:6px;text-transform:uppercase;text-shadow:0 0 10px rgba(0,184,219,0.22)}
-        .rp-divider{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+        .rp-divider{display:flex;align-items:center;gap:10px;margin-bottom:20px;animation:afadeUp 0.8s 0.38s cubic-bezier(0.16,1,0.3,1) both}
         .rp-divider::before,.rp-divider::after{content:'';flex:1;height:1px;background:linear-gradient(to right,transparent,rgba(0,184,219,0.22),transparent)}
         .rp-divider span{font-family:'Share Tech Mono',monospace;font-size:8px;letter-spacing:0.18em;color:rgba(190,225,245,0.55);white-space:nowrap}
         .rp-field{margin-bottom:13px}
         .rp-label{display:block;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:0.14em;color:rgba(115,225,255,0.88);margin-bottom:7px;text-transform:uppercase;text-shadow:0 0 8px rgba(0,184,219,0.22)}
-        .rp-input{width:100%;background:rgba(0,18,48,0.84);border:1px solid rgba(0,184,219,0.18);border-radius:2px;padding:11px 14px;font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:600;color:#f5fbff;outline:none;letter-spacing:0.04em;transition:border-color 0.2s,box-shadow 0.2s;box-sizing:border-box}
+        .rp-input{width:100%;background:rgba(0,18,48,0.84);border:1px solid rgba(0,184,219,0.18);border-radius:2px;padding:11px 14px;font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:600;color:#f5fbff;outline:none;letter-spacing:0.04em;transition:border-color 0.2s,box-shadow 0.2s,background 0.2s;box-sizing:border-box}
         .rp-input::placeholder{color:rgba(175,220,240,0.4)}
         .rp-input:focus{border-color:rgba(0,184,219,0.5);background:rgba(0,25,65,0.88);box-shadow:0 0 0 3px rgba(0,184,219,0.08)}
-        .rp-btn{width:100%;margin-top:18px;padding:13px;background:linear-gradient(135deg,rgba(0,184,219,0.13),rgba(0,90,200,0.18));border:1px solid rgba(0,184,219,0.6);border-radius:2px;color:#fff;font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;letter-spacing:0.22em;cursor:pointer;text-transform:uppercase;transition:all 0.25s;display:flex;align-items:center;justify-content:center;gap:8px;text-shadow:0 0 10px rgba(0,184,219,0.15)}
-        .rp-btn:hover:not(:disabled){box-shadow:0 0 22px rgba(0,184,219,0.45),0 0 42px rgba(0,80,200,0.22);transform:translateY(-1px);border-color:rgba(0,220,255,0.74)}
-        .rp-btn:disabled{opacity:0.5;cursor:not-allowed;transform:none}
-        .rp-msg-err{padding:10px 12px;border-radius:2px;font-size:13px;font-family:'Rajdhani',sans-serif;font-weight:600;letter-spacing:0.03em;margin-bottom:12px;border:1px solid;background:rgba(180,20,20,0.12);border-color:rgba(220,50,50,0.34);color:#fecaca}
-        .rp-msg-ok{padding:10px 12px;border-radius:2px;font-size:13px;font-family:'Rajdhani',sans-serif;font-weight:600;letter-spacing:0.03em;margin-bottom:12px;border:1px solid;background:rgba(0,120,80,0.12);border-color:rgba(0,200,130,0.25);color:rgba(130,235,180,0.96)}
-        .rp-msg-info{padding:10px 12px;border-radius:2px;font-size:13px;font-family:'Rajdhani',sans-serif;font-weight:600;letter-spacing:0.03em;margin-bottom:12px;border:1px solid;background:rgba(0,80,180,0.12);border-color:rgba(0,184,219,0.28);color:rgba(185,235,255,0.96)}
+        .rp-msg{padding:10px 12px;border-radius:2px;font-size:13px;font-family:'Rajdhani',sans-serif;font-weight:600;letter-spacing:0.03em;margin-bottom:12px;border:1px solid}
+        .rp-msg-err{background:rgba(180,20,20,0.12);border-color:rgba(220,50,50,0.34);color:#fecaca}
+        .rp-msg-info{background:rgba(0,80,180,0.12);border-color:rgba(0,184,219,0.28);color:rgba(185,235,255,0.96)}
+        .rp-msg-ok{background:rgba(0,120,80,0.12);border-color:rgba(0,200,130,0.25);color:rgba(130,235,180,0.96)}
+        .rp-btn-primary{width:100%;margin-top:18px;padding:13px;background:linear-gradient(135deg,rgba(0,184,219,0.13),rgba(0,90,200,0.18));border:1px solid rgba(0,184,219,0.6);border-radius:2px;color:#fff;font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;letter-spacing:0.22em;cursor:pointer;text-transform:uppercase;position:relative;overflow:hidden;transition:all 0.25s;display:flex;align-items:center;justify-content:center;gap:8px;text-shadow:0 0 10px rgba(0,184,219,0.15)}
+        .rp-btn-primary:hover{box-shadow:0 0 22px rgba(0,184,219,0.45),0 0 42px rgba(0,80,200,0.22);transform:translateY(-1px);border-color:rgba(0,220,255,0.74)}
+        .rp-btn-primary:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+        .rp-btn-ghost{width:100%;padding:9px 12px;margin-top:8px;background:transparent;border:1px solid rgba(0,184,219,0.12);border-radius:2px;color:rgba(180,225,240,0.75);font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:0.14em;cursor:pointer;text-transform:uppercase;transition:all 0.2s;text-decoration:none;display:block;text-align:center}
+        .rp-btn-ghost:hover{border-color:rgba(0,184,219,0.34);color:rgba(220,246,255,0.92);background:rgba(0,184,219,0.05)}
         .rp-match{font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:0.1em;margin-top:5px}
-        .rp-back{margin-top:16px;text-align:center;font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.04em}
-        .rp-back a{color:rgba(120,230,255,0.85);text-decoration:none;transition:all 0.2s}
-        .rp-back a:hover{color:rgba(220,248,255,0.96);text-shadow:0 0 8px rgba(0,184,219,0.55)}
+        .rp-links{margin-top:16px;text-align:center;font-size:13px;color:rgba(180,210,225,0.48);font-family:'Rajdhani',sans-serif;letter-spacing:0.04em;font-weight:600}
+        .rp-links a{color:rgba(120,230,255,0.85);text-decoration:none;transition:all 0.2s}
+        .rp-links a:hover{color:rgba(220,248,255,0.96);text-shadow:0 0 8px rgba(0,184,219,0.55)}
         .rp-spin{display:inline-block;width:10px;height:10px;border:1.5px solid rgba(0,184,219,0.3);border-top-color:rgba(0,184,219,0.95);border-radius:50%;animation:aspin 0.7s linear infinite}
         @keyframes aspin{to{transform:rotate(360deg)}}
-        .rp-ticker{position:fixed;bottom:0;left:0;right:0;z-index:20;background:rgba(0,5,16,0.94);border-top:1px solid rgba(0,184,219,0.12);padding:7px 20px;display:flex;align-items:center;gap:10px;overflow:hidden;backdrop-filter:blur(8px)}
+        .rp-ticker{position:fixed;bottom:0;left:0;right:0;z-index:20;background:rgba(0,5,16,0.94);border-top:1px solid rgba(0,184,219,0.12);padding:7px 20px;display:flex;align-items:center;gap:10px;overflow:hidden;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
         .rp-tdot{width:6px;height:6px;border-radius:50%;background:rgba(0,184,219,0.9);box-shadow:0 0 8px rgba(0,184,219,0.7);flex-shrink:0;animation:atdblink 2s infinite}
         @keyframes atdblink{0%,100%{opacity:1}50%{opacity:0.25}}
         .rp-ttext{font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:0.13em;color:rgba(145,230,255,0.72);white-space:nowrap;animation:atscroll 38s linear infinite;text-shadow:0 0 10px rgba(0,184,219,0.16)}
         @keyframes atscroll{from{transform:translateX(100vw)}to{transform:translateX(-230%)}}
         @keyframes afadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+        @media(max-width:640px){.rp-hud{font-size:9px;padding:8px 10px;line-height:1.65}.rp-card{padding:32px 24px 26px}.rp-logo-img{width:52px;height:52px}.rp-brand-name{font-size:20px}.rp-ttext{font-size:9px}}
       `}</style>
 
       <CosmosCanvas />
@@ -176,8 +188,18 @@ export default function ResetPasswordPage() {
       <div className="rp-hud rp-hud-tr">
         NODE: EU-WEST-2<br />UPTIME: 99.97%<br />STATUS: NOMINAL
       </div>
+      <div className="rp-hud rp-hud-bl">
+        CONN: TLS 1.3 // AES-256<br />AUTH: MULTI-FACTOR READY
+      </div>
 
       <div className="rp-root">
+        <div className="rp-logo-wrap">
+          <div style={{ position:"relative", display:"inline-block" }}>
+            <div style={{ position:"absolute", inset:"-16px", borderRadius:"50%", background:"radial-gradient(ellipse,rgba(0,120,200,0.12) 0%,rgba(0,60,140,0.06) 50%,transparent 72%)" }} />
+            <img className="rp-logo-img" src={LOGO_SRC} alt="Aliena" />
+          </div>
+        </div>
+
         <div className="rp-card">
           <div className="rp-corner rp-c-tl" />
           <div className="rp-corner rp-c-tr" />
@@ -194,20 +216,22 @@ export default function ResetPasswordPage() {
           </div>
 
           {success ? (
-            <div className="rp-msg-ok">✓ Password set. Taking you in…</div>
+            <div className="rp-msg rp-msg-ok">✓ Password set. Taking you in…</div>
           ) : !sessionReady && !error ? (
-            <div className="rp-msg-info">
-              <span className="rp-spin" style={{ marginRight: 8 }} />
+            <div className="rp-msg rp-msg-info">
+              <span className="rp-spin" style={{ marginRight: 8, verticalAlign: "middle" }} />
               Verifying your link…
             </div>
           ) : error && !sessionReady ? (
-            <div>
-              <div className="rp-msg-err">{error}</div>
-              <a href="/forgot-password" style={{ display:"block", textAlign:"center", padding:"10px", borderRadius:2, fontSize:12, fontWeight:600, fontFamily:"'Share Tech Mono',monospace", letterSpacing:"0.12em", textTransform:"uppercase", background:"rgba(0,184,219,0.08)", border:"1px solid rgba(0,184,219,0.2)", color:"rgba(120,230,255,0.85)", textDecoration:"none", marginBottom:8 }}>
-                Request new reset link →
+            <>
+              <div className="rp-msg rp-msg-err">{error}</div>
+              <a href="/forgot-password" className="rp-btn-ghost">
+                Request New Reset Link →
               </a>
-              <div className="rp-back"><a href="/login">← Back to login</a></div>
-            </div>
+              <div className="rp-links" style={{ marginTop: 10 }}>
+                <a href="/login">← Back to login</a>
+              </div>
+            </>
           ) : (
             <form onSubmit={onSubmit}>
               <div className="rp-field">
@@ -235,13 +259,15 @@ export default function ResetPasswordPage() {
                 )}
               </div>
 
-              {error && <div className="rp-msg-err">{error}</div>}
+              {error && <div className="rp-msg rp-msg-err">{error}</div>}
 
-              <button className="rp-btn" type="submit" disabled={!canSubmit}>
-                {loading ? <><span className="rp-spin" /> PROCESSING</> : isInvite ? "Set Password & Enter" : "Update Password"}
+              <button className="rp-btn-primary" type="submit" disabled={!canSubmit}>
+                {loading
+                  ? <><span className="rp-spin" /> PROCESSING</>
+                  : isInvite ? "SET PASSWORD & ENTER" : "UPDATE PASSWORD"}
               </button>
 
-              <div className="rp-back" style={{ marginTop: 12 }}>
+              <div className="rp-links">
                 <a href="/login">← Back to login</a>
               </div>
             </form>
@@ -252,7 +278,7 @@ export default function ResetPasswordPage() {
       <div className="rp-ticker">
         <div className="rp-tdot" />
         <div className="rp-ttext">
-          &Lambda; L I &Xi; N &Lambda; &nbsp;INTELLIGENCE PLATFORM // SECURE CHANNEL ESTABLISHED // ALL SYSTEMS OPERATIONAL // ACCESS BY INVITATION ONLY // PROJECT MONITORING ACTIVE //&nbsp;&nbsp;
+          &Lambda; L I &Xi; N &Lambda; &nbsp;INTELLIGENCE PLATFORM // SECURE CHANNEL ESTABLISHED // ALL SYSTEMS OPERATIONAL // ACCESS BY INVITATION ONLY // PROJECT MONITORING ACTIVE // AI INFERENCE ENGINE ONLINE // PORTFOLIO ANALYTICS READY //&nbsp;&nbsp;
         </div>
       </div>
     </>

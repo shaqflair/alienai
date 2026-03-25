@@ -87,6 +87,21 @@ export default function AuthForm({ next }: { next?: string }) {
   const [info, setInfo] = useState<string | null>(null);
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
+  // ── Detect invite / recovery hash tokens and redirect immediately ──────────
+  // Supabase sends invite emails that land on /login#access_token=...&type=invite
+  // We intercept and redirect to /auth/reset before the user sees the login form
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (!hash || !hash.includes("access_token")) return;
+    const params = new URLSearchParams(hash.replace("#", ""));
+    const type = params.get("type");
+    if (type === "invite" || type === "recovery") {
+      // Preserve the full hash so /auth/reset can read the tokens
+      window.location.replace("/auth/reset" + hash);
+    }
+  }, []);
+
   const showResend = useMemo(() => {
     const e = (err ?? "").toLowerCase();
     return mode==="signin" && !!pendingEmail && (
@@ -128,11 +143,9 @@ export default function AuthForm({ next }: { next?: string }) {
         return;
       }
 
-      // Password sign-in
       const res = await supabase.auth.signInWithPassword({ email, password });
       if (res.error) {
         const msg = String(res.error.message ?? "").toLowerCase();
-        // Catch unconfirmed email — show resend button
         if (
           msg.includes("confirm") || msg.includes("verified") ||
           msg.includes("not confirmed") || msg.includes("email not confirmed")
@@ -152,9 +165,6 @@ export default function AuthForm({ next }: { next?: string }) {
     }
   }
 
-  // ── LABEL CHANGES ──────────────────────────────────────────────
-  // "Authorization Key" → "Password"
-  // "INITIATE SESSION"  → "SIGN IN"
   const submitLabel = mode === "signin" ? "SIGN IN" : "SEND MAGIC LINK";
 
   return (
@@ -280,7 +290,6 @@ export default function AuthForm({ next }: { next?: string }) {
 
           <form onSubmit={onSubmit}>
             <div className="auth-field">
-              {/* CHANGED: "Access Credential" → "Email" */}
               <label className="auth-label">Email</label>
               <input className="auth-input" type="email" placeholder="operator@domain.com"
                 autoComplete="email" required value={email}
@@ -289,7 +298,6 @@ export default function AuthForm({ next }: { next?: string }) {
 
             {mode === "signin" && (
               <div className="auth-field">
-                {/* CHANGED: "Authorization Key" → "Password" */}
                 <label className="auth-label">Password</label>
                 <input className="auth-input" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"
                   autoComplete="current-password" required value={password}
@@ -297,7 +305,6 @@ export default function AuthForm({ next }: { next?: string }) {
               </div>
             )}
 
-            {/* CHANGED: "INITIATE SESSION" → "SIGN IN" */}
             <button className="auth-btn-primary" type="submit" disabled={loading}>
               {loading ? <><span className="auth-spin" /> PROCESSING</> : submitLabel}
             </button>
