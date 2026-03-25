@@ -4,6 +4,7 @@
 import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { redirect } from "next/navigation";
 
 export type OrgRole = "owner" | "admin" | "member";
@@ -210,7 +211,10 @@ export async function renameOrganisation(formData: FormData) {
  * Invite a user to an organisation by email.
  * Form fields: org_id (string), email (string), role ("member" | "admin")
  *
- * Inserts into organisation_invites. Email sending can be wired separately.
+ * 1. Inserts into organisation_invites table
+ * 2. Sends Supabase auth invite email via admin client so the user gets a
+ *    magic link that lands them on /auth/reset to set their password.
+ *    This is non-fatal — if the user already exists in auth, it just logs a warning.
  */
 export async function inviteToOrganisation(formData: FormData) {
   const sb = await createClient();
@@ -225,16 +229,13 @@ export async function inviteToOrganisation(formData: FormData) {
 
   await requireOrgAdmin(orgId);
 
-  const {
-    data: { user },
-    error: authErr,
-  } = await sb.auth.getUser();
-
+  const { data: { user }, error: authErr } = await sb.auth.getUser();
   if (authErr) throw authErr;
   if (!user) throw new Error("Not authenticated");
 
   const invitedBy = safeStr(user.id).trim() || null;
 
+  // 1. Insert into organisation_invites
   const { error } = await sb
     .from("organisation_invites")
     .insert({
@@ -246,6 +247,29 @@ export async function inviteToOrganisation(formData: FormData) {
     });
 
   if (error) throw new Error(error.message);
+
+  // 2. Send Supabase auth invite email so user can set password on first login.
+  //    Uses admin client (service role) to call inviteUserByEmail.
+  //    The redirectTo lands them on /auth/reset (set-password page).
+  //    Non-fatal: if user already exists in Supabase auth, we just skip.
+  try {
+    const admin = createAdminClient();
+    const baseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || "https://aliena.co.uk";
+    const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${baseUrl}/auth/reset`,
+      data: {
+        organisation_id: orgId,
+        invited_by: invitedBy,
+        role,
+      },
+    });
+    if (inviteErr) {
+      // User may already exist — not a hard failure
+      console.warn("[inviteToOrganisation] Supabase invite email warning:", inviteErr.message);
+    }
+  } catch (inviteErr: any) {
+    console.warn("[inviteToOrganisation] Supabase invite email failed:", inviteErr?.message);
+  }
 
   redirect("/settings");
 }
