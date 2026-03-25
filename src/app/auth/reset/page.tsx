@@ -15,28 +15,15 @@ export default function ResetPasswordPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
-
-    if (password !== confirm) {
-      setError("Passwords do not match.");
-      return;
-    }
-
+    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
+    if (password !== confirm) { setError("Passwords do not match."); return; }
     setLoading(true);
     try {
       const supabase = createClient();
-
-      // Session is automatically established when user lands here from email link
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
-
       setSuccess(true);
-      router.replace("/projects");
-      router.refresh();
+      setTimeout(() => { router.replace("/projects"); router.refresh(); }, 1500);
     } catch (e: any) {
       setError(e?.message ?? "Failed to reset password");
     } finally {
@@ -45,52 +32,149 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <main className="mx-auto max-w-md p-6 space-y-4">
-      <h1 className="text-2xl font-semibold">Set a new password</h1>
-
-      {success ? (
-        <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm">
-          ? Password updated. Redirecting…
+    <>
+      <style>{`
+        html, body { margin: 0; padding: 0; background: #0a0e1a; }
+        .rp-input {
+          width: 100%;
+          padding: 10px 14px;
+          border-radius: 6px;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.15);
+          color: #ffffff;
+          font-size: 14px;
+          outline: none;
+          box-sizing: border-box;
+          transition: border-color 0.2s;
+        }
+        .rp-input:focus { border-color: rgba(56,189,248,0.5); }
+        .rp-input::placeholder { color: rgba(255,255,255,0.25); }
+        .rp-btn {
+          width: 100%;
+          padding: 11px;
+          border-radius: 6px;
+          font-size: 13px;
+          font-weight: 600;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          background: rgba(56,189,248,0.15);
+          border: 1px solid rgba(56,189,248,0.3);
+          color: #7dd3fc;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .rp-btn:hover:not(:disabled) {
+          background: rgba(56,189,248,0.25);
+          border-color: rgba(56,189,248,0.5);
+        }
+        .rp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      `}</style>
+      <main style={{
+        minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "16px",
+        background: "linear-gradient(135deg, #0a0e1a 0%, #0d1526 50%, #0a0e1a 100%)",
+      }}>
+        {/* Stars */}
+        <div style={{ position: "fixed", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 0 }}>
+          {[...Array(40)].map((_, i) => (
+            <div key={i} style={{
+              position: "absolute",
+              width: i % 5 === 0 ? 2 : 1,
+              height: i % 5 === 0 ? 2 : 1,
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.6)",
+              left: `${(i * 37 + 11) % 100}%`,
+              top: `${(i * 23 + 7) % 100}%`,
+              opacity: 0.3 + (i % 4) * 0.15,
+            }} />
+          ))}
         </div>
-      ) : (
-        <form onSubmit={onSubmit} className="space-y-3">
-          <label className="grid gap-2">
-            <span className="text-sm font-medium">New password</span>
-            <input
-              type="password"
-              required
-              className="rounded-md border px-3 py-2 text-sm"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
 
-          <label className="grid gap-2">
-            <span className="text-sm font-medium">Confirm password</span>
-            <input
-              type="password"
-              required
-              className="rounded-md border px-3 py-2 text-sm"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-            />
-          </label>
-
-          {error ? (
-            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm">
-              {error}
+        <div style={{
+          position: "relative", zIndex: 1,
+          width: "100%", maxWidth: 360,
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: 12,
+          padding: "36px 32px",
+          backdropFilter: "blur(12px)",
+        }}>
+          {/* Logo */}
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: "0.2em", color: "#ffffff", fontFamily: "monospace" }}>
+              ALIE<span style={{ color: "#38bdf8" }}>N</span>A
             </div>
-          ) : null}
+            <div style={{ fontSize: 10, letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginTop: 4 }}>
+              Project Intelligence Platform
+            </div>
+          </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-md border px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
-          >
-            {loading ? "Saving…" : "Update password"}
-          </button>
-        </form>
-      )}
-    </main>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 24 }} />
+
+          <div style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", textAlign: "center", marginBottom: 20 }}>
+            Set New Password
+          </div>
+
+          {success ? (
+            <div style={{
+              background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)",
+              borderRadius: 8, padding: "14px 16px", fontSize: 13,
+              color: "#4ade80", textAlign: "center", lineHeight: 1.6,
+            }}>
+              ✓ Password updated. Redirecting…
+            </div>
+          ) : (
+            <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: "rgba(255,255,255,0.45)", marginBottom: 6 }}>
+                  New Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  className="rp-input"
+                  placeholder="Min. 8 characters"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: "rgba(255,255,255,0.45)", marginBottom: 6 }}>
+                  Confirm Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  className="rp-input"
+                  placeholder="Re-enter password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                />
+                {/* Live match indicator */}
+                {confirm.length > 0 && (
+                  <div style={{ fontSize: 11, marginTop: 5, color: password === confirm ? "#4ade80" : "#f87171" }}>
+                    {password === confirm ? "✓ Passwords match" : "✗ Passwords do not match"}
+                  </div>
+                )}
+              </div>
+
+              {error && (
+                <div style={{
+                  background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)",
+                  borderRadius: 6, padding: "10px 12px", fontSize: 12, color: "#f87171",
+                }}>
+                  {error}
+                </div>
+              )}
+
+              <button type="submit" disabled={loading || password !== confirm || password.length < 8} className="rp-btn">
+                {loading ? "Updating…" : "Update password"}
+              </button>
+            </form>
+          )}
+        </div>
+      </main>
+    </>
   );
 }
