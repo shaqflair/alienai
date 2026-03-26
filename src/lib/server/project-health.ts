@@ -455,7 +455,7 @@ async function fetchPortfolioRaid(supabase: any, projectIds: string[]) {
   const adminClient = createServiceClient();
   const { data, error } = await adminClient
     .from("raid_items")
-    .select("project_id, status, due_date, probability, severity, type, category, severity_label, impact, priority, rag")
+    .select("project_id, status, due_date, probability, severity, type, severity_label, impact, priority, rag")
     .in("project_id", projectIds)
     .limit(20000);
 
