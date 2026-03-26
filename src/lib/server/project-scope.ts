@@ -148,7 +148,8 @@ export async function filterActiveProjectIds(
     const x = norm(s);
     return (
       x === "closed" || x === "done" || x === "completed" || x === "complete" ||
-      x === "cancelled" || x === "canceled" || x === "inactive" || x === "archived"
+      x === "cancelled" || x === "canceled" || x === "inactive" || x === "archived" ||
+      x === "pipeline"
     );
   };
 
