@@ -721,9 +721,18 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
           setDueUpdatedAt(safeStr(j.generated_at).trim() || new Date().toISOString());
 
           // Set briefing from API if returned
-          const executiveBriefingFromApi = (j as any).executiveBriefing || (j as any).aiBriefing?.executive_briefing || (j as any).aiBriefing?.briefing || null;
-          if (executiveBriefingFromApi) { setBriefingData(executiveBriefingFromApi); }
-
+        const executiveBriefingFromApi =
+            (j as any).executiveBriefing ||
+            (j as any).aiBriefing?.executive_briefing ||
+            (j as any).aiBriefing?.briefing ||
+            null;
+          if (executiveBriefingFromApi) {
+            setBriefingData(executiveBriefingFromApi);
+          } else {
+            // No briefing from API — will be patched by live score below
+            // Set ok:false so card shows "unavailable" rather than loading forever
+            setBriefingData({ ok: false, error: "Briefing will generate on next refresh." });
+          }
           // Patch briefing with live score so it never contradicts the KPI card
           if (nextPh?.ok) {
             const liveScore = Math.max(0, Math.min(100, Math.round(Number((nextPh as any).score ?? (nextPh as any).portfolio_health ?? 0))));
