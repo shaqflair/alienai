@@ -100,7 +100,7 @@ async function resolveActiveProjectIds(
     .from("projects")
     .select("id, status, resource_status, deleted_at")
     .in("id", candidateIds)
-    .is("deleted_at", null)
+    .is("deleted_at", null).neq("resource_status", "pipeline")
     .limit(20000);
 
   if (orgId) q = q.eq("organisation_id", orgId);
