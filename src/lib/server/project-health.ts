@@ -688,9 +688,8 @@ export async function computePortfolioHealth(
 
   const today = ymd(new Date());
 
-  const [milestonesRes, wbsRes, raidRes, budgetMap, govMap] = await Promise.all([
+  const [milestonesRes, raidRes, budgetMap, govMap] = await Promise.all([
     fetchPortfolioMilestones(supabase, activeIds),
-    fetchPortfolioWbs(supabase, activeIds),
     fetchPortfolioRaid(supabase, activeIds),
     fetchPortfolioBudget(supabase, activeIds),
     fetchPortfolioGovernance(supabase, activeIds),
@@ -698,18 +697,12 @@ export async function computePortfolioHealth(
 
   // Group by project
   const milestonesByProject = new Map<string, any[]>();
-  const wbsByProject        = new Map<string, any[]>();
   const raidByProject       = new Map<string, any[]>();
 
   for (const r of milestonesRes.rows) {
     const pid = String(r.project_id);
     if (!milestonesByProject.has(pid)) milestonesByProject.set(pid, []);
     milestonesByProject.get(pid)!.push(r);
-  }
-  for (const r of wbsRes.rows) {
-    const pid = String(r.project_id);
-    if (!wbsByProject.has(pid)) wbsByProject.set(pid, []);
-    wbsByProject.get(pid)!.push(r);
   }
   for (const r of raidRes.rows) {
     const pid = String(r.project_id);
