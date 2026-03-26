@@ -131,11 +131,12 @@ export const AGENT_TOOLS = [
     function: {
       name: "get_budget_summary",
       description:
-        "Get budget vs actual spend, forecast, and variance across the portfolio or a specific project. " +
-        "Always pass the quarter or date range the user mentions — never assume all-time totals. " +
-        "If the user says 'this quarter', infer the current quarter from today's date. " +
-        "Returns: total budget, total spent, monthly forecast vs actual from the financial plan, " +
-        "and per-project breakdown. Quarters differ per project based on their start/end dates.",
+        "Get budget vs forecast vs actual spend for the portfolio or a specific project. " +
+        "ALWAYS pass a quarter or date range — never return all-time totals when the user asks about a quarter. " +
+        "Returns per-month breakdown of: budget (baseline), forecast (current plan), actual (spent to date), " +
+        "and the variance (forecast - budget = exposure). " +
+        "Positive variance = cost overrun risk. Negative = headroom vs baseline. " +
+        "Use this for: financial exposure, quarterly burn, forecast vs budget, what has moved since baseline, what has been spent.",
       parameters: {
         type: "object",
         properties: {

@@ -297,110 +297,93 @@ export async function executeTool(
               : dbSpend > 0 ? dbSpend              // then project_spend rows
               : costLinesActual;                   // then cost_lines fallback
 
-            const totalBudget   = Number(p.budget_amount ?? 0);
-            const scopedBudget  = rangedBudget > 0 ? rangedBudget : totalBudget;
-            const variancePct   = scopedBudget > 0
-              ? Math.round(((spent - scopedBudget) / scopedBudget) * 100)
+            const totalBudget      = Number(p.budget_amount ?? 0);
+            const scopedBudget     = rangedBudget > 0 ? rangedBudget : totalBudget;
+            const forecast         = rangedForecast > 0 ? Math.round(rangedForecast) : null;
+            // Exposure = forecast vs budget delta (positive = overrun risk)
+            const exposureAmount   = forecast != null && scopedBudget > 0
+              ? Math.round(forecast - scopedBudget)
               : null;
+            const exposurePct      = forecast != null && scopedBudget > 0
+              ? Math.round(((forecast - scopedBudget) / scopedBudget) * 100)
+              : null;
+            // What has moved = forecast vs budget, month by month
+            const movedVsBaseline = Object.fromEntries(
+              rangeMonths
+                .filter((mk) => monthly[mk])
+                .map((mk) => {
+                  const b = Number(monthly[mk]?.budget   ?? 0);
+                  const f = Number(monthly[mk]?.forecast ?? 0);
+                  return [mk, {
+                    budget:   Math.round(b),
+                    forecast: Math.round(f),
+                    actual:   Math.round(Number(monthly[mk]?.actual ?? 0)),
+                    delta:    Math.round(f - b),  // positive = moved out / overrun
+                    delta_pct: b > 0 ? Math.round(((f - b) / b) * 100) : null,
+                  }];
+                })
+            );
 
             return {
-              id:             p.id,
-              title:          p.title,
-              code:           p.project_code,
-              start_date:     p.start_date,
-              finish_date:    p.finish_date,
-              total_budget:   totalBudget,
-              scoped_budget:  scopedBudget,
-              forecast:       rangedForecast > 0 ? Math.round(rangedForecast) : null,
-              spent:          Math.round(spent),
-              variance_pct:   variancePct,
-              monthly_breakdown: Object.fromEntries(
-                rangeMonths
-                  .filter((mk) => monthly[mk])
-                  .map((mk) => [mk, {
-                    budget:   Math.round(Number(monthly[mk]?.budget   ?? 0)),
-                    forecast: Math.round(Number(monthly[mk]?.forecast ?? 0)),
-                    actual:   Math.round(Number(monthly[mk]?.actual   ?? 0)),
-                  }])
-              ),
+              id:              p.id,
+              title:           p.title,
+              code:            p.project_code,
+              currency:        "GBP",
+              start_date:      p.start_date,
+              finish_date:     p.finish_date,
+              total_budget_gbp: totalBudget,
+              quarterly_budget_gbp: scopedBudget,
+              quarterly_forecast_gbp: forecast,
+              quarterly_actual_gbp: Math.round(spent),
+              exposure_gbp:    exposureAmount,
+              exposure_pct:    exposurePct,
+              interpretation:  exposureAmount == null
+                ? "No financial plan data for this quarter"
+                : exposureAmount > 0
+                  ? `£${exposureAmount.toLocaleString()} over budget — forecast exceeds baseline`
+                  : exposureAmount < 0
+                    ? `£${Math.abs(exposureAmount).toLocaleString()} headroom vs baseline`
+                    : "Forecast matches baseline exactly",
+              monthly_breakdown: movedVsBaseline,
             };
           });
 
-        const totalScopedBudget = summary.reduce((s: number, p: any) => s + (p.scoped_budget ?? 0), 0);
-        const totalSpent        = summary.reduce((s: number, p: any) => s + (p.spent ?? 0), 0);
-        const totalForecast     = summary.reduce((s: number, p: any) => s + (p.forecast ?? 0), 0);
-        const overallVariancePct = totalScopedBudget > 0
-          ? Math.round(((totalSpent - totalScopedBudget) / totalScopedBudget) * 100)
+        const totalBudget_q   = summary.reduce((s: number, p: any) => s + (p.quarterly_budget_gbp   ?? 0), 0);
+        const totalForecast_q = summary.reduce((s: number, p: any) => s + (p.quarterly_forecast_gbp ?? 0), 0);
+        const totalActual_q   = summary.reduce((s: number, p: any) => s + (p.quarterly_actual_gbp   ?? 0), 0);
+        const totalExposure   = totalForecast_q > 0 ? Math.round(totalForecast_q - totalBudget_q) : null;
+        const exposurePct     = totalBudget_q > 0 && totalForecast_q > 0
+          ? Math.round(((totalForecast_q - totalBudget_q) / totalBudget_q) * 100)
           : null;
 
         return {
           ok: true,
           data: {
-            quarter:        quarterLabel,
-            date_range:     { from: dateFrom, to: dateTo },
-            months_in_scope: rangeMonths,
-            projects:       summary,
-            total_budget:   totalScopedBudget,
-            total_spent:    totalSpent,
-            total_forecast: totalForecast > 0 ? totalForecast : null,
-            variance_pct:   overallVariancePct,
+            currency:                "GBP",
+            quarter:                 quarterLabel,
+            date_range:              { from: dateFrom, to: dateTo },
+            months_in_scope:         rangeMonths,
+            // Portfolio-level exposure summary
+            quarterly_budget_gbp:    totalBudget_q,
+            quarterly_forecast_gbp:  totalForecast_q > 0 ? totalForecast_q : null,
+            quarterly_actual_gbp:    totalActual_q,
+            exposure_gbp:            totalExposure,
+            exposure_pct:            exposurePct,
+            exposure_interpretation: totalExposure == null
+              ? "No financial plan data available for this quarter"
+              : totalExposure > 0
+                ? `£${totalExposure.toLocaleString()} at risk — forecast exceeds quarterly baseline by ${exposurePct}%`
+                : totalExposure < 0
+                  ? `£${Math.abs(totalExposure).toLocaleString()} headroom vs baseline (forecast is under budget)`
+                  : "Forecast matches quarterly baseline — no exposure",
+            what_has_been_spent:     `£${totalActual_q.toLocaleString()} actual spend recorded this quarter`,
+            what_has_moved:          totalForecast_q > 0 && totalBudget_q > 0
+              ? `Forecast of £${totalForecast_q.toLocaleString()} vs baseline of £${totalBudget_q.toLocaleString()} (delta: £${(totalForecast_q - totalBudget_q).toLocaleString()})`
+              : "No forecast data available",
+            projects: summary,
           },
         };
       }
-
-        const projectIds = args.project_id
-          ? [args.project_id]
-          : (projects ?? []).map((p: any) => p.id);
-
-        // Primary spend: project_spend table rows
-        const { data: spend } = await supabase
-          .from("project_spend")
-          .select("project_id, amount")
-          .in("project_id", projectIds)
-          .is("deleted_at", null)
-          .limit(100000);
-
-        // Fallback spend: cost_lines[].actual from FINANCIAL_PLAN artifact
-        const { data: finPlans } = await supabase
-          .from("artifacts")
-          .select("project_id, content_json")
-          .in("project_id", projectIds)
-          .eq("type", "FINANCIAL_PLAN")
-          .eq("is_current", true)
-          .limit(500);
-
-        const spendByProject = new Map<string, number>();
-        for (const row of spend ?? []) {
-          const pid = String(row.project_id);
-          spendByProject.set(pid, (spendByProject.get(pid) ?? 0) + Number(row.amount ?? 0));
-        }
-
-        // Build cost_lines fallback map
-        const artSpendByProject = new Map<string, number>();
-        for (const art of finPlans ?? []) {
-          const pid = String(art.project_id);
-          const lines = Array.isArray(art.content_json?.cost_lines) ? art.content_json.cost_lines : [];
-          const lineTotal = lines.reduce((sum: number, line: any) => {
-            const actual = Number(line?.actual ?? 0);
-            return sum + (Number.isFinite(actual) && actual > 0 ? actual : 0);
-          }, 0);
-          if (lineTotal > 0) artSpendByProject.set(pid, (artSpendByProject.get(pid) ?? 0) + lineTotal);
-        }
-
-        const summary = (projects ?? [])
-          .filter((p: any) => !args.project_id || p.id === args.project_id)
-          .map((p: any) => {
-            const dbSpend  = spendByProject.get(p.id) ?? 0;
-            const artSpend = artSpendByProject.get(p.id) ?? 0;
-            const spent    = dbSpend > 0 ? dbSpend : artSpend;
-            const budget   = Number(p.budget_amount ?? 0);
-            const pct      = budget > 0 ? Math.round((spent / budget) * 100) : null;
-            return {
-              id: p.id, title: p.title, code: p.project_code,
-              budget, spent, variance_pct: pct,
-              spend_source: dbSpend > 0 ? "project_spend" : artSpend > 0 ? "financial_plan_cost_lines" : "none",
-            };
-          });
 
       // ── get_governance_status ────────────────────────────────────────────
       case "get_governance_status": {
