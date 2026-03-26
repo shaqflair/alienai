@@ -1,11 +1,13 @@
 {
-  
   "crons": [
-    { "path": "/api/cron/exec-intel/generate",      "schedule": "0 6 * * *" },
-    { "path": "/api/cron/raid-intel/generate",      "schedule": "0 6 * * *" },
-    { "path": "/api/cron/schedule-intel/generate",  "schedule": "0 6 * * *" },
-    { "path": "/api/cron/decision-intel/generate",  "schedule": "0 6 * * *" },
-    { "path": "/api/cron/project-health/generate",  "schedule": "0 7 * * *" },
-    { "path": "/api/cron/raid-digest/generate",     "schedule": "0 7 * * 1" }
+    { "path": "/api/cron/exec-intel/generate",     "schedule": "0 6 * * *" },
+    { "path": "/api/cron/raid-intel/generate",     "schedule": "0 6 * * *" },
+    { "path": "/api/cron/schedule-intel/generate", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/decision-intel/generate", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/agent/digest",            "schedule": "0 6 * * *" },
+    { "path": "/api/cron/project-health/generate", "schedule": "0 7 * * *" },
+    { "path": "/api/cron/milestones/score",        "schedule": "0 2 * * *" },
+    { "path": "/api/cron/raid-digest/generate",    "schedule": "0 7 * * 1" },
+    { "path": "/api/cron/agent/monitor",           "schedule": "0 * * * *" }
   ]
 }
