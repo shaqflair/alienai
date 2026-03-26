@@ -473,31 +473,52 @@ async function fetchPortfolioBudget(
   supabase: any,
   projectIds: string[],
 ): Promise<Map<string, { budgetAmount: number | null; spentAmount: number }>> {
-  const [budgetResult, spendResult] = await Promise.allSettled([
-    supabase.from("projects").select("id, budget_amount").in("id", projectIds).limit(20000),
+  const [budgetResult, spendResult, artResult] = await Promise.allSettled([
+    supabase.from("projects").select("id, budget_amount, resource_status, status").in("id", projectIds).limit(20000),
     supabase.from("project_spend").select("project_id, amount").in("project_id", projectIds).is("deleted_at", null).limit(100000),
+    // Fetch financial plan cost_lines for fallback spend (covers licence fees etc.)
+    supabase.from("artifacts").select("project_id, content_json").in("project_id", projectIds).eq("type", "FINANCIAL_PLAN").eq("is_current", true).limit(1000),
   ]);
 
   const budgetRows: any[] = budgetResult.status === "fulfilled" ? budgetResult.value.data ?? [] : [];
   const spendRows:  any[] = spendResult.status  === "fulfilled" ? spendResult.value.data  ?? [] : [];
+  const artRows:    any[] = artResult.status     === "fulfilled" ? artResult.value.data    ?? [] : [];
 
+  // Primary spend: project_spend table
   const spentByProject = new Map<string, number>();
   for (const row of spendRows) {
     const pid = String(row.project_id);
     spentByProject.set(pid, (spentByProject.get(pid) ?? 0) + Number(row.amount ?? 0));
   }
 
+  // Fallback spend: sum cost_lines[].actual from financial plan artifact
+  const artSpentByProject = new Map<string, number>();
+  for (const art of artRows) {
+    const pid = String(art.project_id);
+    const lines = Array.isArray(art.content_json?.cost_lines) ? art.content_json.cost_lines : [];
+    const lineTotal = lines.reduce((sum: number, line: any) => {
+      const actual = Number(line?.actual ?? 0);
+      return sum + (Number.isFinite(actual) && actual > 0 ? actual : 0);
+    }, 0);
+    if (lineTotal > 0) artSpentByProject.set(pid, (artSpentByProject.get(pid) ?? 0) + lineTotal);
+  }
+
   const result = new Map<string, { budgetAmount: number | null; spentAmount: number }>();
   for (const p of budgetRows) {
     const pid = String(p.id);
+    const dbSpend = spentByProject.get(pid) ?? 0;
+    const artSpend = artSpentByProject.get(pid) ?? 0;
     result.set(pid, {
       budgetAmount: p.budget_amount != null ? Number(p.budget_amount) : null,
-      spentAmount:  spentByProject.get(pid) ?? 0,
+      spentAmount:  dbSpend > 0 ? dbSpend : artSpend,
     });
   }
   for (const pid of projectIds) {
-    if (!result.has(pid))
-      result.set(pid, { budgetAmount: null, spentAmount: spentByProject.get(pid) ?? 0 });
+    if (!result.has(pid)) {
+      const dbSpend = spentByProject.get(pid) ?? 0;
+      const artSpend = artSpentByProject.get(pid) ?? 0;
+      result.set(pid, { budgetAmount: null, spentAmount: dbSpend > 0 ? dbSpend : artSpend });
+    }
   }
   return result;
 }
@@ -527,7 +548,7 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
       .limit(50000),
     supabase
       .from("projects")
-      .select("id, finish_date, lifecycle_status")
+      .select("id, finish_date, lifecycle_status, budget_days")
       .in("id", projectIds)
       .limit(20000),
     supabase
@@ -558,6 +579,7 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
     gate5Ready:                 boolean;
     pendingApprovals:           number;
     openCRs:                    number;
+    budgetDays:                 number | null;
   }>();
 
   const today = ymd(new Date());
@@ -581,6 +603,7 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
       gate5Ready,
       pendingApprovals:           0,
       openCRs:                    0,
+      budgetDays:                 proj?.budget_days != null ? Number(proj.budget_days) : null,
     });
   }
 
@@ -640,13 +663,16 @@ export async function computePortfolioHealth(
   // Exclude pipeline projects from health scoring
   const { data: projectMeta } = await supabase
     .from("projects")
-    .select("id, resource_status")
+    .select("id, resource_status, status")
     .in("id", projectIds)
     .limit(20000);
 
   const activeIds = projectIds.filter((pid) => {
     const p = Array.isArray(projectMeta) ? projectMeta.find((r: any) => String(r.id) === pid) : null;
-    return String(p?.resource_status ?? "").toLowerCase() !== "pipeline";
+    // Exclude if resource_status OR status is "pipeline"
+    const resourceStatus = String(p?.resource_status ?? "").toLowerCase();
+    const status = String(p?.status ?? "").toLowerCase();
+    return resourceStatus !== "pipeline" && status !== "pipeline";
   });
 
   if (!activeIds.length) {
@@ -702,6 +728,7 @@ export async function computePortfolioHealth(
       raidItems:                  raidByProject.get(pid) ?? [],
       budgetAmount:               budget.budgetAmount,
       spentAmount:                budget.spentAmount,
+      budgetDays:                 gov?.budgetDays ?? null,
       pendingApprovalCount:       gov?.pendingApprovals ?? 0,
       openChangeRequests:         gov?.openCRs ?? 0,
       charterApproved:            gov?.charterApproved            ?? false,
