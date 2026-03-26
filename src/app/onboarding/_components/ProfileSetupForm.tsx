@@ -1,10 +1,10 @@
-// src/app/onboarding/_components/ProfileSetupForm.tsx
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
 import { saveOnboardingProfile } from "../actions";
 
 type EmploymentType = "full_time" | "part_time" | "contractor";
+
 type ManagerOption = {
   user_id: string;
   full_name: string;
@@ -100,51 +100,94 @@ function Btn({
   );
 }
 
-const DEPTS = [
-  "Technology",
-  "Product",
-  "Engineering",
-  "Design",
-  "Finance",
-  "Commercial",
-  "Operations",
-  "HR",
-  "Legal",
-  "Marketing",
-  "PMO",
-  "Other",
-];
-
 function ManagerSearch({
   value,
+  options,
   onChange,
 }: {
   value: { id: string; name: string };
+  options: ManagerOption[];
   onChange: (id: string, name: string) => void;
 }) {
   const [q, setQ] = useState(value.name);
-  const [opts, setOpts] = useState<ManagerOption[]>([]);
+  const [opts, setOpts] = useState<ManagerOption[]>(options);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  async function search(term: string) {
-    if (term.trim().length < 2) {
-      setOpts([]);
-      setOpen(false);
+  function filterLocal(term: string) {
+    const needle = term.trim().toLowerCase();
+    if (needle.length < 1) {
+      setOpts(options.slice(0, 8));
+      setOpen(options.length > 0 && !value.id);
       return;
     }
+
+    const next = options
+      .filter((o) => {
+        const hay = [
+          o.full_name,
+          o.job_title || "",
+          o.department || "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(needle);
+      })
+      .slice(0, 8);
+
+    setOpts(next);
+    setOpen(next.length > 0 && !value.id);
+  }
+
+  async function search(term: string) {
+    filterLocal(term);
+
+    if (term.trim().length < 2) return;
+
     setBusy(true);
     try {
       const res = await fetch(
-        "/api/line-manager?q=" + encodeURIComponent(term.trim()) + "&limit=8"
+        "/api/line-manager?q=" + encodeURIComponent(term.trim()) + "&limit=8",
+        { cache: "no-store" }
       );
       const j = await res.json().catch(() => ({ ok: false }));
       if (j?.ok && Array.isArray(j.users)) {
-        setOpts(j.users);
-        setOpen(true);
-      } else {
-        setOpts([]);
-        setOpen(false);
+        const merged = new Map<string, ManagerOption>();
+
+        for (const item of options) {
+          merged.set(item.user_id, item);
+        }
+
+        for (const item of j.users) {
+          const userId = String(item?.user_id || "").trim();
+          if (!userId) continue;
+          merged.set(userId, {
+            user_id: userId,
+            full_name: String(item?.full_name || "").trim() || "Unnamed user",
+            job_title:
+              typeof item?.job_title === "string" && item.job_title.trim()
+                ? item.job_title.trim()
+                : null,
+            department:
+              typeof item?.department === "string" && item.department.trim()
+                ? item.department.trim()
+                : null,
+          });
+        }
+
+        const mergedList = Array.from(merged.values());
+        const needle = term.trim().toLowerCase();
+        const filtered = mergedList
+          .filter((o) =>
+            [o.full_name, o.job_title || "", o.department || ""]
+              .join(" ")
+              .toLowerCase()
+              .includes(needle)
+          )
+          .slice(0, 8);
+
+        setOpts(filtered);
+        setOpen(filtered.length > 0 && !value.id);
       }
     } finally {
       setBusy(false);
@@ -159,10 +202,15 @@ function ManagerSearch({
           const next = e.target.value;
           setQ(next);
           if (!next) onChange("", "");
-          search(next);
+          void search(next);
         }}
         onFocus={() => {
-          if (opts.length > 0 && !value.id) setOpen(true);
+          if (value.id) return;
+          filterLocal(q);
+          if (!q.trim() && options.length > 0) {
+            setOpts(options.slice(0, 8));
+            setOpen(true);
+          }
         }}
         placeholder="Search by name..."
         style={inputStyle}
@@ -201,7 +249,7 @@ function ManagerSearch({
             onClick={() => {
               onChange("", "");
               setQ("");
-              setOpts([]);
+              setOpts(options.slice(0, 8));
               setOpen(false);
             }}
             style={{
@@ -236,6 +284,8 @@ function ManagerSearch({
               border: "1.5px solid #e2e8f0",
               boxShadow: "0 16px 40px rgba(15,23,42,0.14)",
               overflow: "hidden",
+              maxHeight: 260,
+              overflowY: "auto",
             }}
           >
             {opts.map((o) => (
@@ -274,7 +324,8 @@ function ManagerSearch({
                     marginTop: 2,
                   }}
                 >
-                  {[o.job_title, o.department].filter(Boolean).join(" · ")}
+                  {[o.job_title, o.department].filter(Boolean).join(" · ") ||
+                    "Organisation member"}
                 </div>
               </button>
             ))}
@@ -339,7 +390,10 @@ function WelcomeBanner({
         }}
       >
         {invitedRole
-          ? `Your organisation invite has already been accepted. Finish your profile to start as ${invitedRole.replaceAll("_", " ")}.`
+          ? `Your organisation invite has already been accepted. Finish your profile to start as ${invitedRole.replaceAll(
+              "_",
+              " "
+            )}.`
           : "Your organisation access is already connected. Finish your profile to get started."}
       </div>
     </div>
@@ -455,9 +509,11 @@ function StepDetails({
 function StepOrg({
   dept,
   setDept,
+  deptOptions,
   location,
   setLocation,
   manager,
+  managerOptions,
   setManager,
   onBack,
   onNext,
@@ -465,16 +521,16 @@ function StepOrg({
 }: {
   dept: string;
   setDept: (v: string) => void;
+  deptOptions: string[];
   location: string;
   setLocation: (v: string) => void;
   manager: { id: string; name: string };
+  managerOptions: ManagerOption[];
   setManager: (id: string, name: string) => void;
   onBack: () => void;
   onNext: () => void;
   invitedRole?: string;
 }) {
-  const canNext = dept.trim().length >= 1;
-
   return (
     <Section>
       <div>
@@ -490,30 +546,61 @@ function StepOrg({
         </h2>
         <p style={{ fontSize: "13px", color: "#64748b", margin: 0 }}>
           {invitedRole
-            ? `We’ll tailor your workspace as ${invitedRole.replaceAll("_", " ")}.`
+            ? `We’ll tailor your workspace as ${invitedRole.replaceAll(
+                "_",
+                " "
+              )}.`
             : "Helps route approvals and portfolio reporting correctly."}
         </p>
       </div>
 
       <div>
-        <Label>Department *</Label>
-        <select
+        <Label>Department</Label>
+        <input
           value={dept}
           onChange={(e) => setDept(e.target.value)}
-          style={{ ...inputStyle, cursor: "pointer" }}
-        >
-          <option value="">Select department</option>
-          {DEPTS.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
+          placeholder={
+            deptOptions.length
+              ? "Choose an existing department or type a new one"
+              : "e.g. PMO"
+          }
+          list="department-options"
+          style={inputStyle}
+        />
+        <datalist id="department-options">
+          {deptOptions.map((d) => (
+            <option key={d} value={d} />
           ))}
-        </select>
+        </datalist>
+        <div
+          style={{
+            marginTop: 6,
+            fontSize: 11,
+            color: "#94a3b8",
+            fontWeight: 600,
+          }}
+        >
+          Pick an existing department or leave it for later.
+        </div>
       </div>
 
       <div>
         <Label>Line manager</Label>
-        <ManagerSearch value={manager} onChange={setManager} />
+        <ManagerSearch
+          value={manager}
+          options={managerOptions}
+          onChange={setManager}
+        />
+        <div
+          style={{
+            marginTop: 6,
+            fontSize: 11,
+            color: "#94a3b8",
+            fontWeight: 600,
+          }}
+        >
+          Optional. You can set this later.
+        </div>
       </div>
 
       <div>
@@ -530,9 +617,7 @@ function StepOrg({
         <Btn secondary onClick={onBack}>
           Back
         </Btn>
-        <Btn disabled={!canNext} onClick={onNext}>
-          Continue
-        </Btn>
+        <Btn onClick={onNext}>Continue</Btn>
       </div>
     </Section>
   );
@@ -649,7 +734,7 @@ function StepFinish({
         {[
           ["Name", name],
           ["Job title", jobTitle],
-          ["Department", dept],
+          ["Department", dept || "Not set"],
           ["Employment", employmentType.replace("_", " ")],
           ["Location", location || "Not set"],
           ["Line manager", managerName || "Not set"],
@@ -718,22 +803,41 @@ function StepFinish({
 
 export default function ProfileSetupForm({
   initialName,
+  initialJobTitle,
+  initialDepartment,
+  initialEmploymentType,
+  initialLocation,
+  initialBio,
+  initialManager,
+  managerOptions,
+  departmentOptions,
   orgName,
   invitedRole,
 }: {
   initialName: string;
+  initialJobTitle?: string;
+  initialDepartment?: string;
+  initialEmploymentType?: EmploymentType;
+  initialLocation?: string;
+  initialBio?: string;
+  initialManager?: { id: string; name: string };
+  managerOptions?: ManagerOption[];
+  departmentOptions?: string[];
   orgName?: string;
   invitedRole?: string;
 }) {
   const [step, setStep] = useState(0);
   const [name, setName] = useState(initialName);
-  const [jobTitle, setJobTitle] = useState("");
-  const [dept, setDept] = useState("");
-  const [employmentType, setEmploymentType] =
-    useState<EmploymentType>("full_time");
-  const [location, setLocation] = useState("");
-  const [bio, setBio] = useState("");
-  const [manager, setManagerState] = useState({ id: "", name: "" });
+  const [jobTitle, setJobTitle] = useState(initialJobTitle ?? "");
+  const [dept, setDept] = useState(initialDepartment ?? "");
+  const [employmentType, setEmploymentType] = useState<EmploymentType>(
+    initialEmploymentType ?? "full_time"
+  );
+  const [location, setLocation] = useState(initialLocation ?? "");
+  const [bio, setBio] = useState(initialBio ?? "");
+  const [manager, setManagerState] = useState(
+    initialManager ?? { id: "", name: "" }
+  );
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -860,9 +964,11 @@ export default function ProfileSetupForm({
           <StepOrg
             dept={dept}
             setDept={setDept}
+            deptOptions={departmentOptions ?? []}
             location={location}
             setLocation={setLocation}
             manager={manager}
+            managerOptions={managerOptions ?? []}
             setManager={setManager}
             onBack={() => setStep(0)}
             onNext={() => setStep(2)}

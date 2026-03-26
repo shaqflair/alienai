@@ -1,5 +1,4 @@
-﻿// src/app/onboarding/actions.ts
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
@@ -11,7 +10,6 @@ function safeStr(x: any) {
 
 /* ==========================================================================
    createOrgAction
-   Creates org, makes user the owner, sets active_organisation_id on profile
 ========================================================================== */
 export async function createOrgAction(
   formData: FormData
@@ -21,20 +19,19 @@ export async function createOrgAction(
   if (authErr || !auth?.user) throw new Error("Not authenticated");
 
   const userId = auth.user.id;
-  const name     = safeStr(formData.get("name")).trim();
+  const name = safeStr(formData.get("name")).trim();
   const timezone = safeStr(formData.get("timezone")).trim() || "Europe/London";
 
   if (!name) throw new Error("Organisation name is required.");
 
-  // Create the organisation
   const { data: org, error: orgErr } = await supabase
     .from("organisations")
     .insert({
       name,
-      created_by:             userId,
+      created_by: userId,
       timesheet_cutoff_weeks: 2,
-      default_daily_hours:    8,
-      default_working_days:   5,
+      default_daily_hours: 8,
+      default_working_days: 5,
     })
     .select("id")
     .single();
@@ -43,37 +40,33 @@ export async function createOrgAction(
 
   const orgId = org.id as string;
 
-  // Add user as owner
-  const { error: memErr } = await supabase
-    .from("organisation_members")
-    .insert({
-      organisation_id: orgId,
-      user_id:         userId,
-      role:            "owner",
-      removed_at:      null,
-    });
+  const { error: memErr } = await supabase.from("organisation_members").insert({
+    organisation_id: orgId,
+    user_id: userId,
+    role: "owner",
+    removed_at: null,
+  });
 
   if (memErr) throw new Error(`Failed to create membership: ${memErr.message}`);
 
-  // Set active_organisation_id on profile (upsert safe)
-  await supabase
-    .from("profiles")
-    .upsert(
-      {
-        id:                     userId,
-        user_id:                userId,
-        email:                  auth.user.email ?? null,
-        active_organisation_id: orgId,
-        employment_type:        "full_time",
-        is_active:              true,
-        include_in_capacity:    true,
-        default_capacity_days:  5,
-        skills:                 [],
-        certifications:         [],
-        updated_at:             new Date().toISOString(),
-      },
-      { onConflict: "user_id" }
-    );
+  await supabase.from("profiles").upsert(
+    {
+      id: userId,
+      user_id: userId,
+      email: auth.user.email ?? null,
+      active_organisation_id: orgId,
+      employment_type: "full_time",
+      is_active: true,
+      include_in_capacity: true,
+      default_capacity_days: 5,
+      skills: [],
+      certifications: [],
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" }
+  );
+
+  void timezone;
 
   revalidatePath("/");
   return { ok: true, organisationId: orgId };
@@ -81,8 +74,6 @@ export async function createOrgAction(
 
 /* ==========================================================================
    savePersonaliseAction
-   Saves branding -- organisations table has no logo/colour columns so we
-   store what we can and silently skip unsupported fields.
 ========================================================================== */
 export async function savePersonaliseAction(
   formData: FormData
@@ -92,16 +83,14 @@ export async function savePersonaliseAction(
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) throw new Error("Not authenticated");
 
-    const orgId    = safeStr(formData.get("organisation_id")).trim();
-    const logoUrl  = safeStr(formData.get("logo_url")).trim() || null;
-    const website  = safeStr(formData.get("website")).trim() || null;
+    const orgId = safeStr(formData.get("organisation_id")).trim();
+    const logoUrl = safeStr(formData.get("logo_url")).trim() || null;
+    const website = safeStr(formData.get("website")).trim() || null;
 
-    if (!orgId) return { ok: true }; // skip gracefully
+    if (!orgId) return { ok: true };
 
-    // organisations table only supports name/capacity columns -- no logo/colour
-    // Store website in name metadata if needed; otherwise this is a no-op for now
-    // Just return ok so the wizard can proceed
-    void logoUrl; void website;
+    void logoUrl;
+    void website;
 
     return { ok: true };
   } catch (e: any) {
@@ -111,7 +100,6 @@ export async function savePersonaliseAction(
 
 /* ==========================================================================
    saveCapacityAction
-   Saves default daily hours + working days to organisations table
 ========================================================================== */
 export async function saveCapacityAction(
   formData: FormData
@@ -121,8 +109,8 @@ export async function saveCapacityAction(
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) throw new Error("Not authenticated");
 
-    const orgId       = safeStr(formData.get("organisation_id")).trim();
-    const dailyHours  = Number(formData.get("daily_hours"))  || 8;
+    const orgId = safeStr(formData.get("organisation_id")).trim();
+    const dailyHours = Number(formData.get("daily_hours")) || 8;
     const workingDays = Number(formData.get("working_days")) || 5;
 
     if (!orgId) return { ok: true };
@@ -130,7 +118,7 @@ export async function saveCapacityAction(
     const { error } = await supabase
       .from("organisations")
       .update({
-        default_daily_hours:  dailyHours,
+        default_daily_hours: dailyHours,
         default_working_days: workingDays,
       })
       .eq("id", orgId);
@@ -145,7 +133,6 @@ export async function saveCapacityAction(
 
 /* ==========================================================================
    createFirstProjectAction
-   Creates the first project for the org
 ========================================================================== */
 export async function createFirstProjectAction(
   formData: FormData
@@ -154,30 +141,30 @@ export async function createFirstProjectAction(
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) throw new Error("Not authenticated");
 
-  const userId     = auth.user.id;
-  const orgId      = safeStr(formData.get("organisation_id")).trim();
-  const title      = safeStr(formData.get("title")).trim();
+  const userId = auth.user.id;
+  const orgId = safeStr(formData.get("organisation_id")).trim();
+  const title = safeStr(formData.get("title")).trim();
   const projectCode = safeStr(formData.get("project_code")).trim() || null;
-  const status     = safeStr(formData.get("status")).trim() || "confirmed";
-  const startDate  = safeStr(formData.get("start_date")).trim() || null;
+  const status = safeStr(formData.get("status")).trim() || "confirmed";
+  const startDate = safeStr(formData.get("start_date")).trim() || null;
   const finishDate = safeStr(formData.get("finish_date")).trim() || null;
 
-  if (!orgId)  throw new Error("Missing organisation_id");
-  if (!title)  throw new Error("Project title is required.");
+  if (!orgId) throw new Error("Missing organisation_id");
+  if (!title) throw new Error("Project title is required.");
 
   const { data: project, error } = await supabase
     .from("projects")
     .insert({
       title,
-      user_id:          userId,
-      created_by:       userId,
-      organisation_id:  orgId,
+      user_id: userId,
+      created_by: userId,
+      organisation_id: orgId,
       status,
       lifecycle_status: "active",
-      project_code:     projectCode,
-      start_date:       startDate   || null,
-      finish_date:      finishDate  || null,
-      updated_at:       new Date().toISOString(),
+      project_code: projectCode,
+      start_date: startDate || null,
+      finish_date: finishDate || null,
+      updated_at: new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -190,7 +177,6 @@ export async function createFirstProjectAction(
 
 /* ==========================================================================
    inviteTeamAction
-   Sends Supabase auth invites to a list of email addresses
 ========================================================================== */
 export async function inviteTeamAction(
   formData: FormData
@@ -200,8 +186,8 @@ export async function inviteTeamAction(
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) throw new Error("Not authenticated");
 
-    const orgId      = safeStr(formData.get("organisation_id")).trim();
-    const emailsRaw  = safeStr(formData.get("emails")).trim();
+    const orgId = safeStr(formData.get("organisation_id")).trim();
+    const emailsRaw = safeStr(formData.get("emails")).trim();
 
     if (!emailsRaw) return { ok: true, sent: 0, errors: [] };
 
@@ -212,35 +198,37 @@ export async function inviteTeamAction(
 
     if (!emails.length) return { ok: true, sent: 0, errors: [] };
 
-    const admin  = createAdminClient();
+    const admin = createAdminClient();
     const errors: string[] = [];
-    let   sent   = 0;
+    let sent = 0;
 
     for (const email of emails) {
       try {
         const { error } = await admin.auth.admin.inviteUserByEmail(email, {
           data: { invited_to_org: orgId },
-          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "https://aliena.co.uk"}/onboarding`,
+          redirectTo: `${
+            process.env.NEXT_PUBLIC_SITE_URL ?? "https://aliena.co.uk"
+          }/onboarding`,
         });
+
         if (error) {
           errors.push(`${email}: ${error.message}`);
         } else {
           sent++;
-          // Pre-create a pending org membership so they land in the right org
           await admin
             .from("organisation_members")
             .upsert(
               {
                 organisation_id: orgId,
-                user_id:         email, // will be overwritten by trigger on signup
-                role:            "member",
-                removed_at:      null,
+                user_id: email,
+                role: "member",
+                removed_at: null,
               },
               { onConflict: "organisation_id,user_id", ignoreDuplicates: true }
             )
             .throwOnError()
             .then(() => {})
-            .catch(() => {}); // non-fatal
+            .catch(() => {});
         }
       } catch (e: any) {
         errors.push(`${email}: ${e?.message ?? "Unknown error"}`);
@@ -249,13 +237,18 @@ export async function inviteTeamAction(
 
     return { ok: true, sent, errors };
   } catch (e: any) {
-    return { ok: false, sent: 0, errors: [], error: e?.message ?? "Invite failed" };
+    return {
+      ok: false,
+      sent: 0,
+      errors: [],
+      error: e?.message ?? "Invite failed",
+    };
   }
 }
 
 /* ==========================================================================
    saveOnboardingProfile
-   Used by ProfileSetupForm (invited users who already have an org)
+   Saves to BOTH profiles and organisation_members
 ========================================================================== */
 export async function saveOnboardingProfile(
   formData: FormData
@@ -263,24 +256,25 @@ export async function saveOnboardingProfile(
   try {
     const supabase = await createClient();
     const { data: auth, error: authErr } = await supabase.auth.getUser();
+
     if (authErr) return { ok: false, error: authErr.message };
     if (!auth?.user) return { ok: false, error: "Not authenticated" };
 
     const userId = auth.user.id;
 
-    const fullName       = safeStr(formData.get("full_name")).trim();
-    const jobTitle       = safeStr(formData.get("job_title")).trim();
-    const department     = safeStr(formData.get("department")).trim();
-    const employmentType = safeStr(formData.get("employment_type")).trim() || "full_time";
-    const location       = safeStr(formData.get("location")).trim();
-    const bio            = safeStr(formData.get("bio")).trim();
-    const lineManagerId  = safeStr(formData.get("line_manager_id")).trim();
+    const fullName = safeStr(formData.get("full_name")).trim();
+    const jobTitle = safeStr(formData.get("job_title")).trim();
+    const department = safeStr(formData.get("department")).trim();
+    const employmentType =
+      safeStr(formData.get("employment_type")).trim() || "full_time";
+    const location = safeStr(formData.get("location")).trim();
+    const bio = safeStr(formData.get("bio")).trim();
+    const lineManagerId = safeStr(formData.get("line_manager_id")).trim();
 
     if (!fullName) return { ok: false, error: "Full name is required." };
     if (!jobTitle) return { ok: false, error: "Job title is required." };
 
-    // Resolve active org
-    const { data: memRow } = await supabase
+    const { data: memRow, error: membershipErr } = await supabase
       .from("organisation_members")
       .select("organisation_id")
       .eq("user_id", userId)
@@ -289,35 +283,58 @@ export async function saveOnboardingProfile(
       .limit(1)
       .maybeSingle();
 
+    if (membershipErr) {
+      return { ok: false, error: `Membership lookup failed: ${membershipErr.message}` };
+    }
+
     const activeOrgId = memRow?.organisation_id ?? null;
 
     const { error: upsertErr } = await supabase
       .from("profiles")
       .upsert(
         {
-          id:                     userId,
-          user_id:                userId,
-          full_name:              fullName,
-          email:                  auth.user.email ?? null,
-          job_title:              jobTitle || null,
-          department:             department || null,
-          employment_type:        employmentType,
-          location:               location || null,
-          bio:                    bio || null,
-          line_manager_id:        lineManagerId || null,
+          id: userId,
+          user_id: userId,
+          full_name: fullName,
+          email: auth.user.email ?? null,
+          job_title: jobTitle || null,
+          department: department || null,
+          employment_type: employmentType,
+          location: location || null,
+          bio: bio || null,
+          line_manager_id: lineManagerId || null,
           active_organisation_id: activeOrgId,
-          is_active:              true,
-          include_in_capacity:    true,
-          default_capacity_days:  5,
-          skills:                 [],
-          certifications:         [],
-          updated_at:             new Date().toISOString(),
+          is_active: true,
+          include_in_capacity: true,
+          default_capacity_days: 5,
+          skills: [],
+          certifications: [],
+          updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }
       );
 
     if (upsertErr) {
       return { ok: false, error: `Profile save failed: ${upsertErr.message}` };
+    }
+
+    if (activeOrgId) {
+      const { error: memberUpdateErr } = await supabase
+        .from("organisation_members")
+        .update({
+          job_title: jobTitle || null,
+          department: department || null,
+        })
+        .eq("organisation_id", activeOrgId)
+        .eq("user_id", userId)
+        .is("removed_at", null);
+
+      if (memberUpdateErr) {
+        return {
+          ok: false,
+          error: `Member details save failed: ${memberUpdateErr.message}`,
+        };
+      }
     }
 
     try {
