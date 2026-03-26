@@ -468,6 +468,7 @@ async function fetchPortfolioRaid(supabase: any, projectIds: string[]) {
       })
     : [];
 
+  console.log("[fetchPortfolioRaid] rows:", rows.length, "error:", error?.message ?? null);
   return { ok: !error, rows };
 }
 
