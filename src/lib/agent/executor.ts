@@ -1,4 +1,8 @@
-﻿import "server-only";
+﻿// src/lib/agent/executor.ts
+// Runs each tool call against Supabase and existing Aliena API routes.
+// Returns a structured result the agent can reason over.
+
+import "server-only";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { ToolName } from "./tools";
 
@@ -15,11 +19,6 @@ export type DraftAction = {
 // Accumulates any write-actions that need user confirmation
 export const pendingDrafts: DraftAction[] = [];
 
-/**
- * executeTool
- * Maps the LLM's chosen tool to a Supabase query or internal logic.
- * Ensures the agent only sees data within the specified organisationId.
- */
 export async function executeTool(
   name: ToolName,
   args: Record<string, any>,
@@ -196,6 +195,7 @@ export async function executeTool(
           ? [args.project_id]
           : (projects ?? []).map((p: any) => p.id);
 
+        // Primary spend: project_spend table rows
         const { data: spend } = await supabase
           .from("project_spend")
           .select("project_id, amount")
@@ -203,27 +203,62 @@ export async function executeTool(
           .is("deleted_at", null)
           .limit(100000);
 
+        // Fallback spend: cost_lines[].actual from FINANCIAL_PLAN artifact
+        const { data: finPlans } = await supabase
+          .from("artifacts")
+          .select("project_id, content_json")
+          .in("project_id", projectIds)
+          .eq("type", "FINANCIAL_PLAN")
+          .eq("is_current", true)
+          .limit(500);
+
         const spendByProject = new Map<string, number>();
         for (const row of spend ?? []) {
           const pid = String(row.project_id);
           spendByProject.set(pid, (spendByProject.get(pid) ?? 0) + Number(row.amount ?? 0));
         }
 
+        // Build cost_lines fallback map
+        const artSpendByProject = new Map<string, number>();
+        for (const art of finPlans ?? []) {
+          const pid = String(art.project_id);
+          const lines = Array.isArray(art.content_json?.cost_lines) ? art.content_json.cost_lines : [];
+          const lineTotal = lines.reduce((sum: number, line: any) => {
+            const actual = Number(line?.actual ?? 0);
+            return sum + (Number.isFinite(actual) && actual > 0 ? actual : 0);
+          }, 0);
+          if (lineTotal > 0) artSpendByProject.set(pid, (artSpendByProject.get(pid) ?? 0) + lineTotal);
+        }
+
         const summary = (projects ?? [])
           .filter((p: any) => !args.project_id || p.id === args.project_id)
           .map((p: any) => {
-            const spent = spendByProject.get(p.id) ?? 0;
-            const budget = Number(p.budget_amount ?? 0);
-            const pct = budget > 0 ? Math.round((spent / budget) * 100) : null;
-            return { id: p.id, title: p.title, code: p.project_code, budget, spent, variance_pct: pct };
+            const dbSpend  = spendByProject.get(p.id) ?? 0;
+            const artSpend = artSpendByProject.get(p.id) ?? 0;
+            const spent    = dbSpend > 0 ? dbSpend : artSpend;
+            const budget   = Number(p.budget_amount ?? 0);
+            const pct      = budget > 0 ? Math.round((spent / budget) * 100) : null;
+            return {
+              id: p.id, title: p.title, code: p.project_code,
+              budget, spent, variance_pct: pct,
+              spend_source: dbSpend > 0 ? "project_spend" : artSpend > 0 ? "financial_plan_cost_lines" : "none",
+            };
           });
 
         const totalBudget = summary.reduce((s: number, p: any) => s + p.budget, 0);
         const totalSpent  = summary.reduce((s: number, p: any) => s + p.spent, 0);
+        const variancePct = totalBudget > 0
+          ? Math.round(((totalSpent - totalBudget) / totalBudget) * 100)
+          : null;
 
         return {
           ok: true,
-          data: { projects: summary, total_budget: totalBudget, total_spent: totalSpent },
+          data: {
+            projects: summary,
+            total_budget: totalBudget,
+            total_spent: totalSpent,
+            variance_pct: variancePct,
+          },
         };
       }
 
@@ -294,17 +329,18 @@ export async function executeTool(
 
       // ── create_raid_draft ────────────────────────────────────────────────
       case "create_raid_draft": {
+        // Does NOT write to DB. Returns a draft for user confirmation.
         const draft: DraftAction = {
           type: "create_raid",
           payload: {
             project_id:   args.project_id,
-            type:          args.type,
-            title:         args.title,
+            type:         args.type,
+            title:        args.title,
             description:  args.description ?? "",
-            priority:      args.priority,
+            priority:     args.priority,
             owner_label:  args.owner_label ?? null,
-            due_date:      args.due_date ?? null,
-            status:        "Open",
+            due_date:     args.due_date ?? null,
+            status:       "Open",
           },
           preview:
             `${args.type} · ${args.priority} priority · "${args.title}"` +
@@ -327,11 +363,13 @@ export async function executeTool(
 
       // ── send_notification ────────────────────────────────────────────────
       case "send_notification": {
+        // Resolve recipients
         let recipientIds: string[] = [];
 
         if (args.recipient_user_id) {
           recipientIds = [args.recipient_user_id];
         } else {
+          // Notify all org admins
           const { data: members } = await supabase
             .from("organisation_members")
             .select("user_id, role")
@@ -342,6 +380,7 @@ export async function executeTool(
           recipientIds = (members ?? []).map((m: any) => m.user_id);
         }
 
+        // Write in-app notifications
         const notifications = recipientIds.map((uid) => ({
           user_id:       uid,
           type:          args.type ?? "info",
