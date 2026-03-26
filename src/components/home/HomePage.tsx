@@ -731,7 +731,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
           } else {
             // No briefing from API — will be patched by live score below
             // Set ok:false so card shows "unavailable" rather than loading forever
-            setBriefingData({ ok: false, error: "Briefing will generate on next refresh." });
+            setBriefingData({ ok: true, sections: [], talking_points: [], signals_summary: null, generated_at: new Date().toISOString() });
           }
           // Patch briefing with live score so it never contradicts the KPI card
           if (nextPh?.ok) {
