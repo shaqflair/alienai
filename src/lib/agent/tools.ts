@@ -131,21 +131,36 @@ export const AGENT_TOOLS = [
     function: {
       name: "get_budget_summary",
       description:
-        "Get budget vs actual spend, quarterly forecast breakdown, and variance across the portfolio or a specific project. " +
-        "Returns: total budget, total spent (from project_spend or financial plan cost_lines), " +
-        "current quarter forecast vs budget by month, forecast items moving in/out of quarter, " +
-        "and overall variance. Use when the user asks about budget health, overspend, " +
-        "financial exposure, quarterly forecast, or revenue/cost movements.",
+        "Get budget vs actual spend, forecast, and variance across the portfolio or a specific project. " +
+        "Always pass the quarter or date range the user mentions — never assume all-time totals. " +
+        "If the user says 'this quarter', infer the current quarter from today's date. " +
+        "Returns: total budget, total spent, monthly forecast vs actual from the financial plan, " +
+        "and per-project breakdown. Quarters differ per project based on their start/end dates.",
       parameters: {
         type: "object",
         properties: {
           project_id: {
             type: "string",
-            description: "Filter to a single project. Omit for portfolio view.",
+            description: "Filter to a single project UUID. Omit for portfolio view.",
           },
-          include_quarterly_breakdown: {
-            type: "boolean",
-            description: "If true, return month-by-month budget/forecast/actual for the current quarter.",
+          quarter: {
+            type: "string",
+            enum: ["Q1", "Q2", "Q3", "Q4"],
+            description:
+              "Calendar quarter: Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec. " +
+              "Filters spend and forecast to only months within that quarter.",
+          },
+          year: {
+            type: "number",
+            description: "Year for the quarter. Defaults to current year if quarter is set.",
+          },
+          date_from: {
+            type: "string",
+            description: "ISO date YYYY-MM-DD — custom range start. Overrides quarter.",
+          },
+          date_to: {
+            type: "string",
+            description: "ISO date YYYY-MM-DD — custom range end. Overrides quarter.",
           },
         },
         required: [],

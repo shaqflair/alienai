@@ -185,11 +185,168 @@ export async function executeTool(
       case "get_budget_summary": {
         const { data: projects } = await supabase
           .from("projects")
-          .select("id, title, project_code, budget_amount, budget_days")
+          .select("id, title, project_code, budget_amount, budget_days, start_date, finish_date")
           .eq("organisation_id", organisationId)
           .neq("resource_status", "pipeline")
           .is("deleted_at", null)
           .limit(200);
+
+        const projectIds = args.project_id
+          ? [args.project_id]
+          : (projects ?? []).map((p: any) => p.id);
+
+        // ── Resolve date range ─────────────────────────────────────────────
+        const now  = new Date();
+        const year = args.year ?? now.getFullYear();
+        let dateFrom: string | null = args.date_from ?? null;
+        let dateTo:   string | null = args.date_to   ?? null;
+        let quarterLabel: string | null = null;
+
+        if (!dateFrom && args.quarter) {
+          const qMap: Record<string, [string, string]> = {
+            Q1: [`${year}-01-01`, `${year}-03-31`],
+            Q2: [`${year}-04-01`, `${year}-06-30`],
+            Q3: [`${year}-07-01`, `${year}-09-30`],
+            Q4: [`${year}-10-01`, `${year}-12-31`],
+          };
+          [dateFrom, dateTo] = qMap[args.quarter] ?? [null, null];
+          quarterLabel = `${args.quarter} ${year}`;
+        } else if (!dateFrom) {
+          // Default to current quarter
+          const qStart = Math.floor(now.getMonth() / 3) * 3;
+          const qNum   = Math.floor(qStart / 3) + 1;
+          const qMonths: [number, number][] = [[0,2],[3,5],[6,8],[9,11]];
+          const [ms, me] = qMonths[qNum - 1];
+          dateFrom = `${now.getFullYear()}-${String(ms + 1).padStart(2, "0")}-01`;
+          dateTo   = `${now.getFullYear()}-${String(me + 1).padStart(2, "0")}-${me === 1 ? "28" : me % 3 === 2 ? "30" : "31"}`;
+          quarterLabel = `Q${qNum} ${now.getFullYear()}`;
+        }
+
+        // Month keys within the resolved range
+        function monthKeysInRange(from: string, to: string): string[] {
+          const keys: string[] = [];
+          const d   = new Date(from.slice(0, 7) + "-01");
+          const end = new Date(to.slice(0, 7) + "-01");
+          while (d <= end) {
+            keys.push(d.toISOString().slice(0, 7));
+            d.setMonth(d.getMonth() + 1);
+          }
+          return keys;
+        }
+        const rangeMonths = dateFrom && dateTo ? monthKeysInRange(dateFrom, dateTo) : [];
+
+        // ── Fetch spend (date-filtered) ────────────────────────────────────
+        let spendQuery = supabase
+          .from("project_spend")
+          .select("project_id, amount, spend_date")
+          .in("project_id", projectIds)
+          .is("deleted_at", null)
+          .limit(100000);
+        if (dateFrom) spendQuery = spendQuery.gte("spend_date", dateFrom);
+        if (dateTo)   spendQuery = spendQuery.lte("spend_date", dateTo);
+        const { data: spend } = await spendQuery;
+
+        // ── Fetch financial plans ──────────────────────────────────────────
+        const { data: finPlans } = await supabase
+          .from("artifacts")
+          .select("project_id, content_json")
+          .in("project_id", projectIds)
+          .eq("type", "FINANCIAL_PLAN")
+          .eq("is_current", true)
+          .limit(500);
+
+        const spendByProject = new Map<string, number>();
+        for (const row of spend ?? []) {
+          const pid = String(row.project_id);
+          spendByProject.set(pid, (spendByProject.get(pid) ?? 0) + Number(row.amount ?? 0));
+        }
+
+        const finByProject = new Map<string, any>();
+        for (const art of finPlans ?? []) {
+          finByProject.set(String(art.project_id), art.content_json);
+        }
+
+        // ── Per-project summary ────────────────────────────────────────────
+        const summary = (projects ?? [])
+          .filter((p: any) => !args.project_id || p.id === args.project_id)
+          .map((p: any) => {
+            const fin = finByProject.get(p.id);
+            const monthly = fin?.monthly_data ?? {};
+
+            // Sum monthly data within range (respects each project's own timeline)
+            let rangedBudget = 0, rangedForecast = 0, rangedActual = 0;
+            for (const mk of rangeMonths) {
+              const m = monthly[mk];
+              if (!m) continue;
+              rangedBudget   += Number(m.budget   ?? 0);
+              rangedForecast += Number(m.forecast ?? 0);
+              rangedActual   += Number(m.actual   ?? 0);
+            }
+
+            // Cost_lines fallback for actual spend
+            const costLinesActual = Array.isArray(fin?.cost_lines)
+              ? (fin.cost_lines as any[]).reduce((s: number, l: any) => {
+                  const a = Number(l?.actual ?? 0);
+                  return s + (Number.isFinite(a) && a > 0 ? a : 0);
+                }, 0)
+              : 0;
+
+            const dbSpend = spendByProject.get(p.id) ?? 0;
+            const spent   = rangedActual > 0
+              ? rangedActual                       // prefer monthly actual from fin plan
+              : dbSpend > 0 ? dbSpend              // then project_spend rows
+              : costLinesActual;                   // then cost_lines fallback
+
+            const totalBudget   = Number(p.budget_amount ?? 0);
+            const scopedBudget  = rangedBudget > 0 ? rangedBudget : totalBudget;
+            const variancePct   = scopedBudget > 0
+              ? Math.round(((spent - scopedBudget) / scopedBudget) * 100)
+              : null;
+
+            return {
+              id:             p.id,
+              title:          p.title,
+              code:           p.project_code,
+              start_date:     p.start_date,
+              finish_date:    p.finish_date,
+              total_budget:   totalBudget,
+              scoped_budget:  scopedBudget,
+              forecast:       rangedForecast > 0 ? Math.round(rangedForecast) : null,
+              spent:          Math.round(spent),
+              variance_pct:   variancePct,
+              monthly_breakdown: Object.fromEntries(
+                rangeMonths
+                  .filter((mk) => monthly[mk])
+                  .map((mk) => [mk, {
+                    budget:   Math.round(Number(monthly[mk]?.budget   ?? 0)),
+                    forecast: Math.round(Number(monthly[mk]?.forecast ?? 0)),
+                    actual:   Math.round(Number(monthly[mk]?.actual   ?? 0)),
+                  }])
+              ),
+            };
+          });
+
+        const totalScopedBudget = summary.reduce((s: number, p: any) => s + (p.scoped_budget ?? 0), 0);
+        const totalSpent        = summary.reduce((s: number, p: any) => s + (p.spent ?? 0), 0);
+        const totalForecast     = summary.reduce((s: number, p: any) => s + (p.forecast ?? 0), 0);
+        const overallVariancePct = totalScopedBudget > 0
+          ? Math.round(((totalSpent - totalScopedBudget) / totalScopedBudget) * 100)
+          : null;
+
+        return {
+          ok: true,
+          data: {
+            quarter:        quarterLabel,
+            date_range:     { from: dateFrom, to: dateTo },
+            months_in_scope: rangeMonths,
+            projects:       summary,
+            total_budget:   totalScopedBudget,
+            total_spent:    totalSpent,
+            total_forecast: totalForecast > 0 ? totalForecast : null,
+            variance_pct:   overallVariancePct,
+          },
+        };
+      }
 
         const projectIds = args.project_id
           ? [args.project_id]
@@ -244,96 +401,6 @@ export async function executeTool(
               spend_source: dbSpend > 0 ? "project_spend" : artSpend > 0 ? "financial_plan_cost_lines" : "none",
             };
           });
-
-        const totalBudget = summary.reduce((s: number, p: any) => s + p.budget, 0);
-        const totalSpent  = summary.reduce((s: number, p: any) => s + p.spent, 0);
-        const variancePct = totalBudget > 0
-          ? Math.round(((totalSpent - totalBudget) / totalBudget) * 100)
-          : null;
-
-        // ── Quarterly breakdown from financial plan monthly data ──────────
-        // Current quarter: determine Q start/end months
-        const now           = new Date();
-        const currentMonth  = now.getMonth(); // 0-indexed
-        const qStart        = Math.floor(currentMonth / 3) * 3;
-        const quarterMonths = [qStart, qStart + 1, qStart + 2].map((m) => {
-          const d = new Date(now.getFullYear(), m, 1);
-          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-        });
-        const prevQuarterMonths = [qStart - 3, qStart - 2, qStart - 1].map((m) => {
-          const d = new Date(now.getFullYear(), m, 1);
-          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-        });
-        const nextQuarterMonths = [qStart + 3, qStart + 4, qStart + 5].map((m) => {
-          const d = new Date(now.getFullYear(), m, 1);
-          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-        });
-
-        // Aggregate monthly breakdown across all financial plans in scope
-        const monthlyAgg: Record<string, { budget: number; forecast: number; actual: number }> = {};
-
-        for (const art of finPlans ?? []) {
-          const breakdown = art.content_json?.monthly_data ?? art.content_json?.monthlyBreakdown ?? {};
-          for (const [monthKey, vals] of Object.entries(breakdown as Record<string, any>)) {
-            if (!monthlyAgg[monthKey]) monthlyAgg[monthKey] = { budget: 0, forecast: 0, actual: 0 };
-            monthlyAgg[monthKey].budget   += Number(vals?.budget   ?? 0);
-            monthlyAgg[monthKey].forecast += Number(vals?.forecast ?? 0);
-            monthlyAgg[monthKey].actual   += Number(vals?.actual   ?? 0);
-          }
-        }
-
-        // Current quarter summary
-        const currentQuarter = quarterMonths.map((m) => ({
-          month:    m,
-          budget:   Math.round(monthlyAgg[m]?.budget   ?? 0),
-          forecast: Math.round(monthlyAgg[m]?.forecast ?? 0),
-          actual:   Math.round(monthlyAgg[m]?.actual   ?? 0),
-        }));
-
-        const qTotalBudget   = currentQuarter.reduce((s, r) => s + r.budget,   0);
-        const qTotalForecast = currentQuarter.reduce((s, r) => s + r.forecast, 0);
-        const qTotalActual   = currentQuarter.reduce((s, r) => s + r.actual,   0);
-        const qVariance      = qTotalForecast - qTotalBudget;
-
-        // Items moved OUT of this quarter (prev quarter months now have forecast > 0)
-        const movedOut = prevQuarterMonths
-          .filter((m) => (monthlyAgg[m]?.forecast ?? 0) > (monthlyAgg[m]?.budget ?? 0))
-          .map((m) => ({
-            month:    m,
-            slippage: Math.round((monthlyAgg[m]?.forecast ?? 0) - (monthlyAgg[m]?.budget ?? 0)),
-          }));
-
-        // Items moved INTO this quarter from next quarter (next quarter budget > 0 but forecast pulled earlier)
-        const pulledIn = nextQuarterMonths
-          .filter((m) => (monthlyAgg[m]?.budget ?? 0) > 0 && (monthlyAgg[m]?.forecast ?? 0) === 0)
-          .map((m) => ({
-            month:  m,
-            amount: Math.round(monthlyAgg[m]?.budget ?? 0),
-          }));
-
-        return {
-          ok: true,
-          data: {
-            projects:     summary,
-            total_budget: totalBudget,
-            total_spent:  totalSpent,
-            variance_pct: variancePct,
-            quarterly: {
-              quarter_label:    `Q${Math.floor(qStart / 3) + 1} ${now.getFullYear()}`,
-              months:           currentQuarter,
-              total_budget:     qTotalBudget,
-              total_forecast:   qTotalForecast,
-              total_actual:     qTotalActual,
-              forecast_variance: qVariance,
-              forecast_vs_budget_pct: qTotalBudget > 0
-                ? Math.round((qTotalForecast / qTotalBudget) * 100)
-                : null,
-              moved_out_of_quarter: movedOut,
-              pulled_into_quarter:  pulledIn,
-            },
-          },
-        };
-      }
 
       // ── get_governance_status ────────────────────────────────────────────
       case "get_governance_status": {
