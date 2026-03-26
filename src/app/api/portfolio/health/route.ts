@@ -84,7 +84,7 @@ function looksMissingColumn(err: any) {
 /* ─── active project resolver ─── */
 
 const CLOSED_STATUSES = new Set([
-  "closed", "cancelled", "canceled", "archived",
+  "closed", "cancelled", "canceled", "archived", "pipeline",
   "completed", "done", "inactive",
 ]);
 
