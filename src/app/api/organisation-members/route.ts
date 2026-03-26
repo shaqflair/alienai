@@ -1,4 +1,3 @@
-// FILE: src/app/api/organisation-members/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -7,8 +6,6 @@ import { createClient } from "@/utils/supabase/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-/* ---------------- response helpers ---------------- */
 
 function json(payload: any, status = 200) {
   const res = NextResponse.json(payload, { status });
@@ -55,12 +52,10 @@ function sbErrText(e: any) {
   }
 }
 
-/* ---------------- auth helpers ---------------- */
-
-async function getActiveMembership(sb: any, organisationId: string, userId: string) {
+async function getActiveMembershipByUserId(sb: any, organisationId: string, userId: string) {
   const { data, error } = await sb
     .from("organisation_members")
-    .select("organisation_id, user_id, role, removed_at")
+    .select("id, organisation_id, user_id, role, removed_at")
     .eq("organisation_id", organisationId)
     .eq("user_id", userId)
     .is("removed_at", null)
@@ -70,13 +65,44 @@ async function getActiveMembership(sb: any, organisationId: string, userId: stri
   return data ?? null;
 }
 
+async function getActiveMembershipByRowId(sb: any, organisationId: string, rowId: string) {
+  const { data, error } = await sb
+    .from("organisation_members")
+    .select("id, organisation_id, user_id, role, removed_at")
+    .eq("organisation_id", organisationId)
+    .eq("id", rowId)
+    .is("removed_at", null)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data ?? null;
+}
+
+async function getTargetMembership(
+  sb: any,
+  organisationId: string,
+  targetRef: string
+): Promise<null | { id: string; organisation_id: string; user_id: string; role: string; removed_at: string | null }> {
+  if (!isUuid(targetRef)) return null;
+
+  const byUserId = await getActiveMembershipByUserId(sb, organisationId, targetRef);
+  if (byUserId) return byUserId;
+
+  const byRowId = await getActiveMembershipByRowId(sb, organisationId, targetRef);
+  if (byRowId) return byRowId;
+
+  return null;
+}
+
+async function getActiveMembership(sb: any, organisationId: string, userId: string) {
+  return getActiveMembershipByUserId(sb, organisationId, userId);
+}
+
 async function requireAdmin(sb: any, organisationId: string, userId: string) {
   const data = await getActiveMembership(sb, organisationId, userId);
   const role = normalizeRole(data?.role);
   return role === "admin" || role === "owner";
 }
-
-/* ---------------- PATCH: update role ---------------- */
 
 export async function PATCH(req: Request) {
   try {
@@ -92,11 +118,11 @@ export async function PATCH(req: Request) {
     const body = await req.json().catch(() => ({}));
 
     const organisationId = safeStr((body as any)?.organisation_id).trim();
-    const targetUserId = safeStr((body as any)?.user_id).trim();
+    const targetRef = safeStr((body as any)?.user_id ?? (body as any)?.member_id ?? (body as any)?.id).trim();
     const nextRoleRaw = safeStr((body as any)?.role).trim().toLowerCase();
 
     if (!isUuid(organisationId)) return bad("Invalid organisation_id", 400);
-    if (!isUuid(targetUserId)) return bad("Invalid user_id", 400);
+    if (!isUuid(targetRef)) return bad("Invalid member reference", 400);
     if (nextRoleRaw !== "admin" && nextRoleRaw !== "member") {
       return bad("Invalid role", 400);
     }
@@ -104,8 +130,12 @@ export async function PATCH(req: Request) {
     const isAdmin = await requireAdmin(sb, organisationId, user.id);
     if (!isAdmin) return bad("Admin access required", 403);
 
-    const target = await getActiveMembership(sb, organisationId, targetUserId);
+    const target = await getTargetMembership(sb, organisationId, targetRef);
     if (!target) return bad("Target member not found", 404);
+
+    if (target.user_id === user.id) {
+      return bad("Cannot change your own role here.", 400);
+    }
 
     const targetRole = normalizeRole(target.role);
     if (targetRole === "owner") {
@@ -114,14 +144,21 @@ export async function PATCH(req: Request) {
 
     const nextRole = normalizeRole(nextRoleRaw);
     if (targetRole === nextRole) {
-      return ok({ updated: true, unchanged: true, role: nextRole });
+      return ok({
+        updated: true,
+        unchanged: true,
+        organisation_id: organisationId,
+        member_id: target.id,
+        user_id: target.user_id,
+        role: nextRole,
+      });
     }
 
     const { error } = await sb
       .from("organisation_members")
       .update({ role: nextRole })
+      .eq("id", target.id)
       .eq("organisation_id", organisationId)
-      .eq("user_id", targetUserId)
       .is("removed_at", null);
 
     if (error) return bad(sbErrText(error), 400);
@@ -129,15 +166,14 @@ export async function PATCH(req: Request) {
     return ok({
       updated: true,
       organisation_id: organisationId,
-      user_id: targetUserId,
+      member_id: target.id,
+      user_id: target.user_id,
       role: nextRole,
     });
   } catch (e: any) {
     return bad(e?.message || "Unknown error", 500);
   }
 }
-
-/* ---------------- DELETE: remove member ---------------- */
 
 export async function DELETE(req: Request) {
   try {
@@ -150,7 +186,6 @@ export async function DELETE(req: Request) {
     if (authErr) return bad(authErr.message, 401);
     if (!user) return bad("Not authenticated", 401);
 
-    // Support both querystring delete calls and JSON body delete calls.
     const url = new URL(req.url);
 
     let body: Record<string, any> = {};
@@ -161,25 +196,42 @@ export async function DELETE(req: Request) {
     }
 
     const organisationId = safeStr(
-      body.organisation_id ?? body.organisationId ?? url.searchParams.get("organisation_id") ?? url.searchParams.get("organisationId")
+      body.organisation_id ??
+        body.organisationId ??
+        url.searchParams.get("organisation_id") ??
+        url.searchParams.get("organisationId")
     ).trim();
 
-    const targetUserId = safeStr(
-      body.user_id ?? body.userId ?? url.searchParams.get("user_id") ?? url.searchParams.get("userId")
+    const targetRef = safeStr(
+      body.user_id ??
+        body.userId ??
+        body.member_id ??
+        body.memberId ??
+        body.id ??
+        url.searchParams.get("user_id") ??
+        url.searchParams.get("userId") ??
+        url.searchParams.get("member_id") ??
+        url.searchParams.get("memberId") ??
+        url.searchParams.get("id")
     ).trim();
 
     if (!isUuid(organisationId)) return bad("Invalid organisation_id", 400);
-    if (!isUuid(targetUserId)) return bad("Invalid user_id", 400);
-
-    if (targetUserId === user.id) {
-      return bad("Cannot remove yourself. Use leave organisation instead.", 400);
-    }
+    if (!isUuid(targetRef)) return bad("Invalid member reference", 400);
 
     const isAdmin = await requireAdmin(sb, organisationId, user.id);
     if (!isAdmin) return bad("Admin access required", 403);
 
-    const target = await getActiveMembership(sb, organisationId, targetUserId);
-    if (!target) return bad("Target member not found", 404);
+    const target = await getTargetMembership(sb, organisationId, targetRef);
+    if (!target) {
+      return bad("Target member not found", 404, {
+        organisation_id: organisationId,
+        member_ref: targetRef,
+      });
+    }
+
+    if (target.user_id === user.id) {
+      return bad("Cannot remove yourself. Use leave organisation instead.", 400);
+    }
 
     const targetRole = normalizeRole(target.role);
     if (targetRole === "owner") {
@@ -189,8 +241,8 @@ export async function DELETE(req: Request) {
     const { error } = await sb
       .from("organisation_members")
       .update({ removed_at: new Date().toISOString() })
+      .eq("id", target.id)
       .eq("organisation_id", organisationId)
-      .eq("user_id", targetUserId)
       .is("removed_at", null);
 
     if (error) return bad(sbErrText(error), 400);
@@ -198,7 +250,8 @@ export async function DELETE(req: Request) {
     return ok({
       removed: true,
       organisation_id: organisationId,
-      user_id: targetUserId,
+      member_id: target.id,
+      user_id: target.user_id,
     });
   } catch (e: any) {
     return bad(e?.message || "Unknown error", 500);

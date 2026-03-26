@@ -1,5 +1,4 @@
-﻿// src/app/settings/page.tsx
-import "server-only";
+﻿import "server-only";
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -34,45 +33,17 @@ function normalizeRole(x: any): Role {
   return "member";
 }
 
-/* Colour tokens that match the rest of the app */
-const ROLE_STYLES: Record<
-  Role,
-  { label: string; bg: string; color: string; border: string }
-> = {
-  owner: {
-    label: "Owner",
-    bg: "#faf5ff",
-    color: "#7c3aed",
-    border: "#e9d5ff",
-  },
-  admin: {
-    label: "Admin",
-    bg: "#eff6ff",
-    color: "#1d4ed8",
-    border: "#bfdbfe",
-  },
-  member: {
-    label: "Member",
-    bg: "#f8fafc",
-    color: "#64748b",
-    border: "#e2e8f0",
-  },
+const ROLE_STYLES: Record<Role, { label: string; bg: string; color: string; border: string }> = {
+  owner: { label: "Owner", bg: "#faf5ff", color: "#7c3aed", border: "#e9d5ff" },
+  admin: { label: "Admin", bg: "#eff6ff", color: "#1d4ed8", border: "#bfdbfe" },
+  member: { label: "Member", bg: "#f8fafc", color: "#64748b", border: "#e2e8f0" },
 };
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/* ── Org initial avatar colour (same palette as rest of the app) ── */
-const AVATAR_COLS = [
-  "#06b6d4",
-  "#3b82f6",
-  "#8b5cf6",
-  "#ec4899",
-  "#f59e0b",
-  "#10b981",
-  "#ef4444",
-];
+const AVATAR_COLS = ["#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#ef4444"];
 function avatarCol(name: string) {
   return AVATAR_COLS[(name?.charCodeAt(0) ?? 0) % AVATAR_COLS.length];
 }
@@ -126,7 +97,6 @@ export default async function SettingsPage() {
   const myRole = active?.role ?? null;
   const isAdmin = myRole === "admin" || myRole === "owner";
 
-  /* ── Inline styles (keeps the file self-contained, no Tailwind drift) ── */
   const page: React.CSSProperties = {
     minHeight: "100vh",
     background: "#f8fafc",
@@ -313,14 +283,7 @@ export default async function SettingsPage() {
                         {orgInitial(m.orgName)}
                       </div>
                       <div style={{ minWidth: 0 }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 7,
-                            flexWrap: "wrap",
-                          }}
-                        >
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>
                             {m.orgName}
                           </span>
@@ -350,32 +313,16 @@ export default async function SettingsPage() {
                           </button>
                         </form>
                       )}
-                      <Link
-                        href={`/organisations/${m.orgId}/members`}
-                        className="settings-action-btn"
-                        style={actionBtn}
-                      >
+                      <Link href={`/organisations/${m.orgId}/members`} className="settings-action-btn" style={actionBtn}>
                         Members
                       </Link>
-                      <Link
-                        href={`/organisations/${m.orgId}/settings?tab=settings`}
-                        className="settings-action-btn"
-                        style={actionBtn}
-                      >
+                      <Link href={`/organisations/${m.orgId}/settings?tab=settings`} className="settings-action-btn" style={actionBtn}>
                         Settings
                       </Link>
-                      <Link
-                        href={`/organisations/${m.orgId}/settings?tab=approvals`}
-                        className="settings-action-btn"
-                        style={actionBtn}
-                      >
+                      <Link href={`/organisations/${m.orgId}/settings?tab=approvals`} className="settings-action-btn" style={actionBtn}>
                         Approvals
                       </Link>
-                      <Link
-                        href={`/organisations/${m.orgId}/settings?tab=rate-cards`}
-                        className="settings-action-btn"
-                        style={actionBtn}
-                      >
+                      <Link href={`/organisations/${m.orgId}/settings?tab=rate-cards`} className="settings-action-btn" style={actionBtn}>
                         Rate Cards
                         {memberIsAdmin && <AdminChip />}
                       </Link>
@@ -436,69 +383,16 @@ export default async function SettingsPage() {
               </div>
 
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                <Link
-                  href={`/organisations/${active.orgId}/members`}
-                  className="settings-action-btn"
-                  style={actionBtn}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                    <circle cx="9" cy="7" r="4" stroke="#64748b" strokeWidth="1.8" />
-                    <path
-                      d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"
-                      stroke="#64748b"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                    />
-                    <path
-                      d="M16 3.13a4 4 0 0 1 0 7.75M21 21v-2a4 4 0 0 0-3-3.85"
-                      stroke="#64748b"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                    />
-                  </svg>
+                <Link href={`/organisations/${active.orgId}/members`} className="settings-action-btn" style={actionBtn}>
                   Members
                 </Link>
-                <Link
-                  href={`/organisations/${active.orgId}/settings?tab=settings`}
-                  className="settings-action-btn"
-                  style={actionBtn}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="3" stroke="#64748b" strokeWidth="1.8" />
-                    <path
-                      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
-                      stroke="#64748b"
-                      strokeWidth="1.8"
-                    />
-                  </svg>
+                <Link href={`/organisations/${active.orgId}/settings?tab=settings`} className="settings-action-btn" style={actionBtn}>
                   Organisation settings
                 </Link>
-                <Link
-                  href={`/organisations/${active.orgId}/settings?tab=approvals`}
-                  className="settings-action-btn"
-                  style={actionBtn}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                    <polyline
-                      points="20 6 9 17 4 12"
-                      stroke="#64748b"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+                <Link href={`/organisations/${active.orgId}/settings?tab=approvals`} className="settings-action-btn" style={actionBtn}>
                   Approvals
                 </Link>
-                <Link
-                  href={`/organisations/${active.orgId}/settings?tab=rate-cards`}
-                  className="settings-action-btn"
-                  style={actionBtn}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                    <rect x="2" y="6" width="20" height="13" rx="2" stroke="#64748b" strokeWidth="1.8" />
-                    <path d="M2 10h20" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round" />
-                    <path d="M6 15h2M10 15h2" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
+                <Link href={`/organisations/${active.orgId}/settings?tab=rate-cards`} className="settings-action-btn" style={actionBtn}>
                   Rate Cards
                   {isAdmin && <AdminChip />}
                 </Link>
@@ -523,22 +417,7 @@ export default async function SettingsPage() {
                 justifyContent: "center",
                 flexShrink: 0,
               }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
-                  stroke="#06b6d4"
-                  strokeWidth="1.8"
-                />
-                <polyline
-                  points="9 22 9 12 15 12 15 22"
-                  stroke="#06b6d4"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
+            />
             <div>
               <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>Create organisation</div>
               <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 1 }}>
@@ -568,17 +447,13 @@ export default async function SettingsPage() {
                 }}
               />
               <button type="submit" className="settings-create-btn" style={primaryBtn}>
-                <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                  <path d="M7 1v12M1 7h12" stroke="white" strokeWidth="2" strokeLinecap="round" />
-                </svg>
                 Create
               </button>
             </div>
           </form>
 
           <p style={{ fontSize: 11, color: "#94a3b8", margin: "10px 0 0" }}>
-            After creating, use the org&apos;s <strong style={{ color: "#64748b" }}>Settings</strong>{" "}
-            page for governance and membership management.
+            After creating, use the org&apos;s <strong style={{ color: "#64748b" }}>Settings</strong> page for governance and membership management.
           </p>
         </div>
       </div>

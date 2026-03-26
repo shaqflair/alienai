@@ -55,7 +55,6 @@ async function updateActiveOrganisation(sb: any, userId: string, orgId: string) 
   if (!first.error) return { ok: true as const, used: "user_id" as const };
 
   const firstMsg = sbErrText(first.error).toLowerCase();
-
   const looksLikeColumnIssue =
     firstMsg.includes("column") ||
     firstMsg.includes("user_id") ||
@@ -92,7 +91,7 @@ export async function POST(req: Request) {
     const form = await req.formData();
     const orgId = safeStr(form.get("org_id")).trim();
     const nextRaw = safeStr(form.get("next")).trim();
-    const next = isSafeNext(nextRaw) ? nextRaw : "/organisations";
+    const next = isSafeNext(nextRaw) ? nextRaw : "/settings";
 
     if (!orgId) return jsonErr("Missing org_id", 400);
     if (!isUuid(orgId)) return jsonErr("Invalid org_id", 400);
