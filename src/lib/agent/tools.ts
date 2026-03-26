@@ -1,4 +1,5 @@
-﻿// Tool definitions for the Aliena agent.
+﻿// src/lib/agent/tools.ts
+// Tool definitions for the Aliena agent.
 // Each tool maps directly to a Supabase query or existing API.
 // The LLM picks tools based on intent; the executor runs them.
 
@@ -9,6 +10,7 @@ export type ToolName =
   | "list_milestones_due"
   | "get_budget_summary"
   | "get_governance_status"
+  | "get_quarterly_forecast"
   | "create_raid_draft"
   | "send_notification";
 
@@ -129,14 +131,21 @@ export const AGENT_TOOLS = [
     function: {
       name: "get_budget_summary",
       description:
-        "Get budget vs actual spend and variance across the portfolio or a specific project. " +
-        "Use when the user asks about budget health, overspend, or financial status.",
+        "Get budget vs actual spend, quarterly forecast breakdown, and variance across the portfolio or a specific project. " +
+        "Returns: total budget, total spent (from project_spend or financial plan cost_lines), " +
+        "current quarter forecast vs budget by month, forecast items moving in/out of quarter, " +
+        "and overall variance. Use when the user asks about budget health, overspend, " +
+        "financial exposure, quarterly forecast, or revenue/cost movements.",
       parameters: {
         type: "object",
         properties: {
           project_id: {
             type: "string",
             description: "Filter to a single project. Omit for portfolio view.",
+          },
+          include_quarterly_breakdown: {
+            type: "boolean",
+            description: "If true, return month-by-month budget/forecast/actual for the current quarter.",
           },
         },
         required: [],
@@ -209,6 +218,32 @@ export const AGENT_TOOLS = [
           },
         },
         required: ["project_id", "type", "title", "priority"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_quarterly_forecast",
+      description:
+        "Get detailed quarterly financial intelligence from financial plan artifacts. " +
+        "Returns: current quarter forecast vs budget, actual spend to date, items moved out of the quarter, " +
+        "new spend added to the quarter, and month-by-month breakdown. " +
+        "Use when the user asks about quarterly forecast, pipeline changes, revenue, spend movement, or financial variance by quarter.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_id: {
+            type: "string",
+            description: "Filter to a single project UUID. Omit for portfolio-wide view.",
+          },
+          quarter: {
+            type: "string",
+            description:
+              "The quarter to analyse, e.g. 'Q1 2026', 'Q2 2026'. Defaults to the current quarter if omitted.",
+          },
+        },
+        required: [],
       },
     },
   },
