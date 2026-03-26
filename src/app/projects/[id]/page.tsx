@@ -531,7 +531,7 @@ export default async function ProjectPage({
     raidItems:                  raidItems as any[],
     budgetAmount,
     spentAmount,
-    allocatedDays:              resource?.budgetSummary?.allocatedDays ?? null,
+   allocatedDays:              null,
     budgetDays:                 budgetDays,
     pendingApprovalCount:       pendingApprovals.length,
     openChangeRequests:         (changeReqs as any[]).filter((c) =>
