@@ -7,7 +7,7 @@
 //   Budget     → spend vs budget AND resource over-allocation
 //   Governance → Gate 1, stakeholder register, charter approved,
 //                budget/financial plan approved, Gate 5 readiness
-
+import { createServiceClient } from "@/lib/supabase/service";
 /* ─── types ─── */
 
 export type HealthParts = {
@@ -210,7 +210,8 @@ export function scoreRaid(
     highRisks: 0, openDependencies: 0, openAssumptions: 0, overdue: 0,
   };
 
-  if (!raidItems.length) return { score: 100, detail };
+  // No RAID items = perfect score (nothing to penalise)
+if (!raidItems.length) return { score: 100, detail };
 
   detail.total = raidItems.length;
   let score = 100;
@@ -451,7 +452,8 @@ async function fetchPortfolioWbs(supabase: any, projectIds: string[]) {
 }
 
 async function fetchPortfolioRaid(supabase: any, projectIds: string[]) {
-  const { data, error } = await supabase
+  const adminClient = createServiceClient();
+  const { data, error } = await adminClient
     .from("raid_items")
     .select("project_id, status, due_date, probability, severity, type, item_type, category, severity_label, impact, priority, rag")
     .in("project_id", projectIds)
@@ -724,7 +726,7 @@ export async function computePortfolioHealth(
 
     perProject[pid] = computeHealthFromData({
       milestones:                 milestonesByProject.get(pid) ?? [],
-      
+      wbsItems:                   wbsByProject.get(pid) ?? [],
       raidItems:                  raidByProject.get(pid) ?? [],
       budgetAmount:               budget.budgetAmount,
       spentAmount:                budget.spentAmount,
