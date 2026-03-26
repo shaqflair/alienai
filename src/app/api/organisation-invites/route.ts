@@ -1,5 +1,3 @@
-// FILE: src/app/api/organisation-invites/route.ts
-
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -179,23 +177,131 @@ async function revokePendingInvitesForEmail(
   organisationId: string,
   email: string
 ) {
-  const { error } = await sb
+  const { data, error } = await sb
     .from("organisation_invites")
     .update({ status: "revoked" })
     .eq("organisation_id", organisationId)
     .eq("email", email)
-    .eq("status", "pending");
+    .eq("status", "pending")
+    .select("id, email, status");
 
   if (error) {
     throw new Error(sbErr(error));
   }
+
+  return data ?? [];
 }
 
-//
-// ───────────────────────────────────────────────────────────
-// GET: list invites
-// ───────────────────────────────────────────────────────────
-//
+async function removeMembershipForEmail(
+  sb: any,
+  organisationId: string,
+  email: string
+) {
+  const { data: profile, error: profileErr } = await sb
+    .from("profiles")
+    .select("user_id, active_organisation_id")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (profileErr) {
+    throw new Error(sbErr(profileErr));
+  }
+
+  const userId = safeStr(profile?.user_id).trim();
+  if (!userId) {
+    return {
+      removed: false,
+      user_id: null,
+      membership: null,
+      cleared_active_org: false,
+    };
+  }
+
+  const { data: membership, error: membershipErr } = await sb
+    .from("organisation_members")
+    .update({
+      removed_at: new Date().toISOString(),
+    })
+    .eq("organisation_id", organisationId)
+    .eq("user_id", userId)
+    .or("removed_at.is.null")
+    .select("id, organisation_id, user_id, role, removed_at")
+    .maybeSingle();
+
+  if (membershipErr) {
+    throw new Error(sbErr(membershipErr));
+  }
+
+  let clearedActiveOrg = false;
+
+  if (
+    membership &&
+    safeStr(profile?.active_organisation_id).trim() === organisationId
+  ) {
+    const { error: clearProfileErr } = await sb
+      .from("profiles")
+      .update({
+        active_organisation_id: null,
+        line_manager_id: null,
+      })
+      .eq("user_id", userId);
+
+    if (clearProfileErr) {
+      throw new Error(sbErr(clearProfileErr));
+    }
+
+    clearedActiveOrg = true;
+  }
+
+  return {
+    removed: Boolean(membership),
+    user_id: userId,
+    membership: membership ?? null,
+    cleared_active_org: clearedActiveOrg,
+  };
+}
+
+async function sendInviteOrLoginLink(
+  admin: any,
+  email: string,
+  redirectTo: string
+) {
+  const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
+    redirectTo,
+  });
+
+  if (!inviteErr) {
+    return { mode: "invite" as const };
+  }
+
+  const msg = safeStr(inviteErr.message).toLowerCase();
+
+  if (
+    msg.includes("already been registered") ||
+    msg.includes("already registered") ||
+    msg.includes("user already registered")
+  ) {
+    const { data: linkData, error: linkErr } =
+      await admin.auth.admin.generateLink({
+        type: "magiclink",
+        email,
+        options: { redirectTo },
+      });
+
+    if (linkErr) {
+      throw new Error(linkErr.message);
+    }
+
+    return {
+      mode: "magiclink" as const,
+      actionLink: linkData?.properties?.action_link ?? null,
+      emailOtp: linkData?.properties?.email_otp ?? null,
+      hashedToken: linkData?.properties?.hashed_token ?? null,
+    };
+  }
+
+  throw new Error(inviteErr.message);
+}
 
 export async function GET(req: Request) {
   const { sb, response } = await requireAuthedUser();
@@ -220,12 +326,6 @@ export async function GET(req: Request) {
   return ok({ items: data ?? [] });
 }
 
-//
-// ───────────────────────────────────────────────────────────
-// POST: create invite OR add/restore existing registered user
-// ───────────────────────────────────────────────────────────
-//
-
 export async function POST(req: Request) {
   const { sb, user, response } = await requireAuthedUser();
   if (response) return response;
@@ -243,6 +343,22 @@ export async function POST(req: Request) {
 
   if (!email || !email.includes("@")) {
     return bad("Valid email required", 400);
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+  if (!supabaseUrl || !serviceKey) {
+    return bad("Server misconfigured", 500);
+  }
+
+  const admin = createAdminClient(supabaseUrl, serviceKey);
+
+  let origin: string;
+  try {
+    origin = requireOrigin();
+  } catch (e: any) {
+    return bad(e.message, 500);
   }
 
   if (isResend) {
@@ -273,44 +389,27 @@ export async function POST(req: Request) {
 
     if (resendUpdateError) return bad(sbErr(resendUpdateError), 400);
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-    if (!supabaseUrl || !serviceKey) {
-      return bad("Server misconfigured", 500);
-    }
-
-    const admin = createAdminClient(supabaseUrl, serviceKey);
-
-    let origin: string;
-    try {
-      origin = requireOrigin();
-    } catch (e: any) {
-      return bad(e.message, 500);
-    }
-
     const inviteNext = `/organisations/invite/${encodeURIComponent(newToken)}`;
-    const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${origin}/auth/reset?next=${encodeURIComponent(inviteNext)}`,
-    });
+    const redirectTo = `${origin}/auth/reset?next=${encodeURIComponent(inviteNext)}`;
 
-    if (inviteErr) {
-      return bad(inviteErr.message, 400);
+    try {
+      const delivery = await sendInviteOrLoginLink(admin, email, redirectTo);
+
+      return ok({
+        invited: true,
+        resent: true,
+        email,
+        role,
+        delivery_mode: delivery.mode,
+      });
+    } catch (e: any) {
+      return bad(sbErr(e), 400);
     }
-
-    return ok({
-      invited: true,
-      resent: true,
-      email,
-      role,
-    });
   }
 
-  // 1) If this email belongs to an existing registered user,
-  //    add or restore membership directly instead of creating another invite.
   const { data: profile, error: profileLookupError } = await sb
     .from("profiles")
-    .select("id, email, full_name")
+    .select("id, user_id, email, full_name")
     .eq("email", email)
     .maybeSingle();
 
@@ -318,12 +417,15 @@ export async function POST(req: Request) {
     return bad(sbErr(profileLookupError), 400);
   }
 
-  if (profile?.id) {
+  const existingUserId =
+    safeStr(profile?.user_id).trim() || safeStr(profile?.id).trim();
+
+  if (existingUserId) {
     try {
       const membershipResult = await ensureActiveMembership(
         sb,
         organisation_id,
-        profile.id,
+        existingUserId,
         email,
         role
       );
@@ -352,27 +454,18 @@ export async function POST(req: Request) {
     }
   }
 
-  // 2) No registered profile: create or reuse pending invite.
-  const { data: existingPendingInvite, error: existingPendingInviteError } = await sb
-    .from("organisation_invites")
-    .select("id, token, expires_at, role, status")
-    .eq("organisation_id", organisation_id)
-    .eq("email", email)
-    .eq("status", "pending")
-    .maybeSingle();
+  const { data: existingPendingInvite, error: existingPendingInviteError } =
+    await sb
+      .from("organisation_invites")
+      .select("id, token, expires_at, role, status")
+      .eq("organisation_id", organisation_id)
+      .eq("email", email)
+      .eq("status", "pending")
+      .maybeSingle();
 
   if (existingPendingInviteError) {
     return bad(sbErr(existingPendingInviteError), 400);
   }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-  if (!supabaseUrl || !serviceKey) {
-    return bad("Server misconfigured", 500);
-  }
-
-  const admin = createAdminClient(supabaseUrl, serviceKey);
 
   let inviteToken = existingPendingInvite?.token || token64();
   const expiresAt = expiresAt7Days();
@@ -396,7 +489,7 @@ export async function POST(req: Request) {
       .update({ status: "revoked" })
       .eq("organisation_id", organisation_id)
       .eq("email", email)
-      .in("status", ["pending", "revoked"]);
+      .eq("status", "pending");
 
     if (revokeOldError) {
       return bad(sbErr(revokeOldError), 400);
@@ -422,35 +515,23 @@ export async function POST(req: Request) {
     }
   }
 
-  let origin: string;
-  try {
-    origin = requireOrigin();
-  } catch (e: any) {
-    return bad(e.message, 500);
-  }
-
   const inviteNext = `/organisations/invite/${encodeURIComponent(inviteToken)}`;
-  const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${origin}/auth/reset?next=${encodeURIComponent(inviteNext)}`,
-  });
+  const redirectTo = `${origin}/auth/reset?next=${encodeURIComponent(inviteNext)}`;
 
-  if (inviteErr) {
-    return bad(inviteErr.message, 400);
+  try {
+    const delivery = await sendInviteOrLoginLink(admin, email, redirectTo);
+
+    return ok({
+      invited: true,
+      email,
+      role,
+      reused_pending: Boolean(existingPendingInvite?.id),
+      delivery_mode: delivery.mode,
+    });
+  } catch (e: any) {
+    return bad(sbErr(e), 400);
   }
-
-  return ok({
-    invited: true,
-    email,
-    role,
-    reused_pending: Boolean(existingPendingInvite?.id),
-  });
 }
-
-//
-// ───────────────────────────────────────────────────────────
-// PATCH: revoke invite
-// ───────────────────────────────────────────────────────────
-//
 
 export async function PATCH(req: Request) {
   const { sb, response } = await requireAuthedUser();
@@ -460,20 +541,76 @@ export async function PATCH(req: Request) {
 
   const id = safeStr(body?.id).trim();
   const status = safeStr(body?.status).trim().toLowerCase();
+  const revokeAllForEmail = Boolean(body?.revoke_all_for_email);
+  const removeMember = Boolean(body?.remove_member);
 
   if (!id || !isUuid(id)) return bad("Invalid id", 400);
   if (status !== "revoked") return bad("Invalid status", 400);
 
-  const { data, error } = await sb
+  const { data: inviteRow, error: inviteLookupError } = await sb
     .from("organisation_invites")
-    .update({ status })
+    .select("id, organisation_id, email, status")
     .eq("id", id)
-    .eq("status", "pending")
-    .select("id, status")
     .maybeSingle();
 
-  if (error) return bad(sbErr(error), 400);
-  if (!data) return bad("Invite not found or not pending.", 404);
+  if (inviteLookupError) return bad(sbErr(inviteLookupError), 400);
+  if (!inviteRow) return bad("Invite not found.", 404);
 
-  return ok({ invite: data });
+  let revokedRows: any[] = [];
+  let removedMembership:
+    | {
+        removed: boolean;
+        user_id: string | null;
+        membership: any;
+        cleared_active_org: boolean;
+      }
+    | undefined;
+
+  try {
+    if (revokeAllForEmail) {
+      revokedRows = await revokePendingInvitesForEmail(
+        sb,
+        inviteRow.organisation_id,
+        normalizeEmail(inviteRow.email)
+      );
+    } else {
+      const { data, error } = await sb
+        .from("organisation_invites")
+        .update({ status: "revoked" })
+        .eq("id", id)
+        .eq("status", "pending")
+        .select("id, email, status");
+
+      if (error) return bad(sbErr(error), 400);
+      revokedRows = data ?? [];
+
+      if (!revokedRows.length && inviteRow.status !== "pending") {
+        return bad("Invite not found or not pending.", 404);
+      }
+    }
+
+    if (removeMember) {
+      removedMembership = await removeMembershipForEmail(
+        sb,
+        inviteRow.organisation_id,
+        normalizeEmail(inviteRow.email)
+      );
+    }
+  } catch (e: any) {
+    return bad(sbErr(e), 400);
+  }
+
+  return ok({
+    invite: {
+      id: inviteRow.id,
+      organisation_id: inviteRow.organisation_id,
+      email: inviteRow.email,
+      status: "revoked",
+    },
+    revoked_count: revokedRows.length,
+    revoked_invites: revokedRows,
+    membership_removed: removedMembership?.removed ?? false,
+    removed_membership: removedMembership?.membership ?? null,
+    cleared_active_org: removedMembership?.cleared_active_org ?? false,
+  });
 }
