@@ -210,7 +210,7 @@ export function scoreRaid(
     highRisks: 0, openDependencies: 0, openAssumptions: 0, overdue: 0,
   };
 
-  if (!raidItems.length) return { score: null, detail };
+  if (!raidItems.length) return { score: 100, detail };
 
   detail.total = raidItems.length;
   let score = 100;
