@@ -1,46 +1,115 @@
+// src/app/api/organisation-invites/preview/route.ts
+import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function json(payload: any, status = 200) {
+  const res = NextResponse.json(payload, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
+
+function ok(data: any, status = 200) {
+  return json({ ok: true, ...data }, status);
+}
+
+function bad(error: string, status = 400) {
+  return json({ ok: false, error }, status);
+}
+
+function safeStr(x: unknown): string {
+  return typeof x === "string" ? x : "";
+}
 
 export async function GET(req: NextRequest) {
   try {
-    const token = req.nextUrl.searchParams.get("token");
+    const token = safeStr(req.nextUrl.searchParams.get("token")).trim();
+
     if (!token) {
-      return NextResponse.json({ ok: false, error: "Token required" }, { status: 400 });
+      return bad("Token required", 400);
     }
 
     const sb = await createClient();
 
-    // Fetch invite + org name in one query
     const { data: invite, error } = await sb
       .from("organisation_invites")
-      .select("role, status, organisation_id, organisations(name)")
+      .select(
+        `
+          id,
+          email,
+          role,
+          status,
+          invited_by,
+          accepted_at,
+          expires_at,
+          organisation_id,
+          organisations(name)
+        `
+      )
       .eq("token", token)
       .maybeSingle();
 
-    if (error || !invite) {
-      return NextResponse.json({ ok: false, error: "Invite not found" }, { status: 404 });
+    if (error) {
+      return bad(error.message, 400);
     }
 
-    if (invite.status === "revoked") {
-      return NextResponse.json({ ok: false, error: "This invite has been revoked" }, { status: 410 });
+    if (!invite) {
+      return bad("Invite not found", 404);
     }
 
-    if (invite.status === "accepted") {
-      return NextResponse.json({ ok: false, error: "This invite has already been accepted" }, { status: 410 });
+    const status = safeStr(invite.status).trim().toLowerCase();
+    const expiresAt = safeStr((invite as any).expires_at).trim();
+    const nowIso = new Date().toISOString();
+
+    if (status === "revoked") {
+      return bad("This invite has been revoked.", 410);
     }
 
-    const org = invite.organisations as any;
+    if (status === "accepted") {
+      return bad("This invite has already been accepted.", 410);
+    }
 
-    return NextResponse.json({
-      ok:       true,
-      role:     invite.role      ?? "member",
-      org_name: org?.name        ?? "your organisation",
+    if (status !== "pending") {
+      return bad("This invite is no longer available.", 410);
+    }
+
+    if (expiresAt && expiresAt < nowIso) {
+      return bad("This invite has expired.", 410);
+    }
+
+    let invitedByName: string | undefined;
+
+    const invitedBy = safeStr((invite as any).invited_by).trim();
+    if (invitedBy) {
+      const { data: inviterProfile } = await sb
+        .from("profiles")
+        .select("full_name, email")
+        .eq("user_id", invitedBy)
+        .maybeSingle();
+
+      const fullName = safeStr(inviterProfile?.full_name).trim();
+      const email = safeStr(inviterProfile?.email).trim();
+
+      invitedByName = fullName || email || undefined;
+    }
+
+    const org = (invite as any).organisations as { name?: string } | null;
+
+    return ok({
+      role: safeStr(invite.role).trim() || "member",
+      org_name: safeStr(org?.name).trim() || "your organisation",
+      invited_by: invitedByName,
+      email: safeStr((invite as any).email).trim() || undefined,
+      expires_at: expiresAt || undefined,
     });
-
   } catch (err: unknown) {
     console.error("invite preview error:", err);
-    return NextResponse.json({ ok: false, error: "Server error" }, { status: 500 });
+    return bad("Server error", 500);
   }
 }
