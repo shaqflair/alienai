@@ -1,4 +1,5 @@
-﻿"use server";
+﻿// src/app/onboarding/actions.ts
+"use server";
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
@@ -274,7 +275,6 @@ export async function saveOnboardingProfile(
     if (!fullName) return { ok: false, error: "Full name is required." };
     if (!jobTitle) return { ok: false, error: "Job title is required." };
 
-    // 1) Resolve active org from profile first
     const { data: existingProfile, error: profileLookupErr } = await supabase
       .from("profiles")
       .select("active_organisation_id")
@@ -293,13 +293,12 @@ export async function saveOnboardingProfile(
         ? existingProfile.active_organisation_id
         : null;
 
-    // 2) Fallback to latest active membership only if profile has no active org
     if (!activeOrgId) {
       const { data: memRow, error: membershipErr } = await supabase
         .from("organisation_members")
         .select("organisation_id")
         .eq("user_id", userId)
-        .is("removed_at", null)
+        .or("removed_at.is.null")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -314,7 +313,6 @@ export async function saveOnboardingProfile(
       activeOrgId = memRow?.organisation_id ?? null;
     }
 
-    // 3) Save profile
     const { error: upsertErr } = await supabase
       .from("profiles")
       .upsert(
@@ -344,7 +342,6 @@ export async function saveOnboardingProfile(
       return { ok: false, error: `Profile save failed: ${upsertErr.message}` };
     }
 
-    // 4) Save org-specific fields to the active org membership
     if (activeOrgId) {
       const { data: updatedMembership, error: memberUpdateErr } = await supabase
         .from("organisation_members")
@@ -354,7 +351,7 @@ export async function saveOnboardingProfile(
         })
         .eq("organisation_id", activeOrgId)
         .eq("user_id", userId)
-        .is("removed_at", null)
+        .or("removed_at.is.null")
         .select("organisation_id, user_id, job_title, department")
         .maybeSingle();
 

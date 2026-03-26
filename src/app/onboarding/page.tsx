@@ -145,10 +145,9 @@ export default async function OnboardingPage({
     const initialManager =
       managerOptions.find((m) => m.user_id === initialLineManagerId) ?? null;
 
-    if (profile?.job_title) {
-      redirect("/");
-    }
-
+    if (profile?.job_title && (membership?.job_title || membership?.department)) {
+  redirect("/");
+}
     return (
       <ProfileSetupForm
         initialName={initialName}
