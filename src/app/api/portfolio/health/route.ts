@@ -98,7 +98,7 @@ async function resolveActiveProjectIds(
 
   let q = supabase
     .from("projects")
-    .select("id, status, deleted_at")
+    .select("id, status, resource_status, deleted_at")
     .in("id", candidateIds)
     .is("deleted_at", null)
     .limit(20000);
@@ -127,7 +127,7 @@ async function resolveActiveProjectIds(
 
   const rows = Array.isArray(data) ? data : [];
   const activeIds = rows
-    .filter((p: any) => !CLOSED_STATUSES.has(String(p?.status ?? "active").toLowerCase().trim()))
+    .filter((p: any) => !CLOSED_STATUSES.has(String(p?.status ?? "active").toLowerCase().trim()) && String(p?.resource_status ?? "").toLowerCase().trim() !== "pipeline")
     .map((p: any) => String(p.id));
 
   const excludedCount = candidateIds.length - activeIds.length;
