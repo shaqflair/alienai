@@ -47,7 +47,6 @@ function isSafeNext(next: string) {
 }
 
 async function updateActiveOrganisation(sb: any, userId: string, orgId: string) {
-  // Primary path: profiles.user_id
   const first = await sb
     .from("profiles")
     .update({ active_organisation_id: orgId })
@@ -57,7 +56,6 @@ async function updateActiveOrganisation(sb: any, userId: string, orgId: string) 
 
   const firstMsg = sbErrText(first.error).toLowerCase();
 
-  // Fallback only for schema-shape issues, not general permission/data errors.
   const looksLikeColumnIssue =
     firstMsg.includes("column") ||
     firstMsg.includes("user_id") ||
@@ -68,7 +66,6 @@ async function updateActiveOrganisation(sb: any, userId: string, orgId: string) 
     return { ok: false as const, error: first.error };
   }
 
-  // Fallback path: profiles.id
   const second = await sb
     .from("profiles")
     .update({ active_organisation_id: orgId })
@@ -128,6 +125,7 @@ export async function POST(req: Request) {
       sameSite: "lax",
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 24 * 30,
     });
 
     return res;

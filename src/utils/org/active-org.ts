@@ -1,6 +1,8 @@
-﻿import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+﻿import "server-only";
+
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { createClient } from "@/utils/supabase/server";
 
 const COOKIE_NAME = "active_org_id";
 
@@ -12,6 +14,25 @@ function isUuid(x: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(x || "").trim()
   );
+}
+
+type MembershipRow = {
+  organisation_id: string | null;
+  role: string | null;
+};
+
+function normalizeRole(x: unknown): "owner" | "admin" | "member" {
+  const v = safeStr(x).trim().toLowerCase();
+  if (v === "owner") return "owner";
+  if (v === "admin") return "admin";
+  return "member";
+}
+
+function rankRole(role: unknown): number {
+  const r = normalizeRole(role);
+  if (r === "owner") return 3;
+  if (r === "admin") return 2;
+  return 1;
 }
 
 async function setActiveOrgCookie(orgId: string) {
@@ -66,6 +87,44 @@ async function userHasMembership(
 
   if (error) throw new Error(error.message);
   return !!data;
+}
+
+async function getActiveMemberships(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<Array<{ organisation_id: string; role: "owner" | "admin" | "member" }>> {
+  const { data, error } = await supabase
+    .from("organisation_members")
+    .select("organisation_id, role")
+    .eq("user_id", userId)
+    .is("removed_at", null);
+
+  if (error) throw new Error(error.message);
+
+  const rows = ((data ?? []) as MembershipRow[])
+    .map((row) => ({
+      organisation_id: safeStr(row.organisation_id).trim(),
+      role: normalizeRole(row.role),
+    }))
+    .filter((row) => isUuid(row.organisation_id));
+
+  const deduped = new Map<string, { organisation_id: string; role: "owner" | "admin" | "member" }>();
+
+  for (const row of rows) {
+    const existing = deduped.get(row.organisation_id);
+    if (!existing || rankRole(row.role) > rankRole(existing.role)) {
+      deduped.set(row.organisation_id, row);
+    }
+  }
+
+  return Array.from(deduped.values()).sort((a, b) => rankRole(b.role) - rankRole(a.role));
+}
+
+function chooseBestOrg(
+  memberships: Array<{ organisation_id: string; role: "owner" | "admin" | "member" }>
+): string | null {
+  if (!memberships.length) return null;
+  return memberships[0]?.organisation_id ?? null;
 }
 
 async function getProfileActiveOrgId(
@@ -137,57 +196,83 @@ async function persistProfileActiveOrg(
   if (second.error) throw new Error(second.error.message);
 }
 
+async function clearProfileActiveOrg(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+) {
+  const first = await supabase
+    .from("profiles")
+    .update({ active_organisation_id: null })
+    .eq("user_id", userId);
+
+  if (!first.error) return;
+
+  const msg = String(first.error?.message ?? "").toLowerCase();
+  const looksLikeSchemaMismatch =
+    msg.includes("column") ||
+    msg.includes("user_id") ||
+    msg.includes("schema") ||
+    msg.includes("does not exist");
+
+  if (!looksLikeSchemaMismatch) {
+    throw new Error(first.error.message);
+  }
+
+  const second = await supabase
+    .from("profiles")
+    .update({ active_organisation_id: null })
+    .eq("id", userId);
+
+  if (second.error) throw new Error(second.error.message);
+}
+
 export async function getActiveOrgId(): Promise<string | null> {
   const cookieStore = await cookies();
   const cookieOrgId = safeStr(cookieStore.get(COOKIE_NAME)?.value).trim() || null;
 
   const { supabase, user } = await getUserFromSupabase();
+  const memberships = await getActiveMemberships(supabase, user.id);
 
-  // 1) Canonical source: profile active org
-  const profileOrgId = await getProfileActiveOrgId(supabase, user.id);
-
-  if (profileOrgId) {
-    const valid = await userHasMembership(supabase, user.id, profileOrgId);
-    if (valid) {
-      if (cookieOrgId !== profileOrgId) {
-        await setActiveOrgCookie(profileOrgId);
-      }
-      return profileOrgId;
-    }
+  if (!memberships.length) {
+    await clearActiveOrgCookie();
+    await clearProfileActiveOrg(supabase, user.id);
+    return null;
   }
 
-  // 2) Cookie fallback only if profile is empty/invalid
-  if (cookieOrgId) {
-    const valid = await userHasMembership(supabase, user.id, cookieOrgId);
-    if (valid) {
-      await persistProfileActiveOrg(supabase, user.id, cookieOrgId);
-      await setActiveOrgCookie(cookieOrgId);
-      return cookieOrgId;
+  const validOrgIds = new Set(memberships.map((m) => m.organisation_id));
+
+  const profileOrgId = await getProfileActiveOrgId(supabase, user.id);
+  if (profileOrgId && validOrgIds.has(profileOrgId)) {
+    if (cookieOrgId !== profileOrgId) {
+      await setActiveOrgCookie(profileOrgId);
     }
+    return profileOrgId;
+  }
+
+  if (profileOrgId && !validOrgIds.has(profileOrgId)) {
+    await clearProfileActiveOrg(supabase, user.id);
+  }
+
+  if (cookieOrgId && validOrgIds.has(cookieOrgId)) {
+    await persistProfileActiveOrg(supabase, user.id, cookieOrgId);
+    if (cookieOrgId !== profileOrgId) {
+      await setActiveOrgCookie(cookieOrgId);
+    }
+    return cookieOrgId;
+  }
+
+  if (cookieOrgId && !validOrgIds.has(cookieOrgId)) {
     await clearActiveOrgCookie();
   }
 
-  // 3) Single-membership auto-bind fallback
-  const { data: memberships, error: memErr } = await supabase
-    .from("organisation_members")
-    .select("organisation_id")
-    .eq("user_id", user.id)
-    .is("removed_at", null);
+  const fallbackOrgId = chooseBestOrg(memberships);
 
-  if (memErr) throw new Error(memErr.message);
-
-  const uniqueOrgIds = Array.from(
-    new Set((memberships ?? []).map((m) => m.organisation_id).filter(Boolean))
-  ).filter((x): x is string => isUuid(String(x)));
-
-  if (uniqueOrgIds.length === 1) {
-    const orgId = uniqueOrgIds[0];
-    await persistProfileActiveOrg(supabase, user.id, orgId);
-    await setActiveOrgCookie(orgId);
-    return orgId;
+  if (fallbackOrgId) {
+    await persistProfileActiveOrg(supabase, user.id, fallbackOrgId);
+    await setActiveOrgCookie(fallbackOrgId);
+    return fallbackOrgId;
   }
 
-  // 4) No org or multi-org without explicit selection
   return null;
 }
 
