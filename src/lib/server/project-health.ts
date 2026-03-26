@@ -724,7 +724,7 @@ export async function computePortfolioHealth(
 
     perProject[pid] = computeHealthFromData({
       milestones:                 milestonesByProject.get(pid) ?? [],
-      wbsItems:                   wbsByProject.get(pid) ?? [],
+      
       raidItems:                  raidByProject.get(pid) ?? [],
       budgetAmount:               budget.budgetAmount,
       spentAmount:                budget.spentAmount,
