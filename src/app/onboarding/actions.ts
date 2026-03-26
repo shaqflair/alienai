@@ -274,21 +274,47 @@ export async function saveOnboardingProfile(
     if (!fullName) return { ok: false, error: "Full name is required." };
     if (!jobTitle) return { ok: false, error: "Job title is required." };
 
-    const { data: memRow, error: membershipErr } = await supabase
-      .from("organisation_members")
-      .select("organisation_id")
+    // 1) Resolve active org from profile first
+    const { data: existingProfile, error: profileLookupErr } = await supabase
+      .from("profiles")
+      .select("active_organisation_id")
       .eq("user_id", userId)
-      .is("removed_at", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
       .maybeSingle();
 
-    if (membershipErr) {
-      return { ok: false, error: `Membership lookup failed: ${membershipErr.message}` };
+    if (profileLookupErr) {
+      return {
+        ok: false,
+        error: `Profile lookup failed: ${profileLookupErr.message}`,
+      };
     }
 
-    const activeOrgId = memRow?.organisation_id ?? null;
+    let activeOrgId =
+      typeof existingProfile?.active_organisation_id === "string"
+        ? existingProfile.active_organisation_id
+        : null;
 
+    // 2) Fallback to latest active membership only if profile has no active org
+    if (!activeOrgId) {
+      const { data: memRow, error: membershipErr } = await supabase
+        .from("organisation_members")
+        .select("organisation_id")
+        .eq("user_id", userId)
+        .is("removed_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (membershipErr) {
+        return {
+          ok: false,
+          error: `Membership lookup failed: ${membershipErr.message}`,
+        };
+      }
+
+      activeOrgId = memRow?.organisation_id ?? null;
+    }
+
+    // 3) Save profile
     const { error: upsertErr } = await supabase
       .from("profiles")
       .upsert(
@@ -318,8 +344,9 @@ export async function saveOnboardingProfile(
       return { ok: false, error: `Profile save failed: ${upsertErr.message}` };
     }
 
+    // 4) Save org-specific fields to the active org membership
     if (activeOrgId) {
-      const { error: memberUpdateErr } = await supabase
+      const { data: updatedMembership, error: memberUpdateErr } = await supabase
         .from("organisation_members")
         .update({
           job_title: jobTitle || null,
@@ -327,12 +354,22 @@ export async function saveOnboardingProfile(
         })
         .eq("organisation_id", activeOrgId)
         .eq("user_id", userId)
-        .is("removed_at", null);
+        .is("removed_at", null)
+        .select("organisation_id, user_id, job_title, department")
+        .maybeSingle();
 
       if (memberUpdateErr) {
         return {
           ok: false,
           error: `Member details save failed: ${memberUpdateErr.message}`,
+        };
+      }
+
+      if (!updatedMembership) {
+        return {
+          ok: false,
+          error:
+            "Profile saved, but no active organisation membership row was updated.",
         };
       }
     }
