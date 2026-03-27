@@ -542,7 +542,11 @@ async function loadFinanceSummary(args: {
 
     const { data, error } = await supabase
       .from("projects")
-      .select("id, title, project_code, budget_amount, budget_days")
+      .select(
+        "id, title, project_code, budget_amount, budget_days, " +
+        // actual spend — try every common column name; Supabase returns null for missing ones
+        "actual_spend, actual_cost, spent_amount, spend_to_date, total_actual, total_spent, actuals"
+      )
       .in("id", ids)
       .is("deleted_at", null)
       .limit(50);
@@ -551,34 +555,57 @@ async function loadFinanceSummary(args: {
 
     let totalBudget = 0;
     let totalBudgetDays = 0;
+    let totalSpent = 0;
     let projectsWithBudget = 0;
 
     for (const row of data) {
-      const amount = safeNum((row as any).budget_amount);
-      const days   = safeNum((row as any).budget_days);
+      const r = row as any;
+      const amount = safeNum(r.budget_amount);
+      const days   = safeNum(r.budget_days);
       if (amount != null && amount > 0) { totalBudget += amount; projectsWithBudget++; }
-      if (days != null && days > 0) totalBudgetDays += days;
+      if (days   != null && days   > 0)   totalBudgetDays += days;
+
+      // Pick the first non-null, non-zero spend column
+      const spend = safeNum(r.actual_spend)
+        ?? safeNum(r.actual_cost)
+        ?? safeNum(r.spent_amount)
+        ?? safeNum(r.spend_to_date)
+        ?? safeNum(r.total_actual)
+        ?? safeNum(r.total_spent)
+        ?? safeNum(r.actuals)
+        ?? null;
+      if (spend != null && spend > 0) totalSpent += spend;
     }
 
     if (projectsWithBudget === 0 && totalBudgetDays === 0) return noData;
 
     const budgetStr = totalBudget > 0 ? formatCurrency(totalBudget) : null;
+    const spentStr  = totalSpent  > 0 ? formatCurrency(totalSpent)  : null;
     const projectCount = data.length;
+
+    // Derive a simple variance sentiment when we have both figures
+    let sentiment: Sentiment = "neutral";
+    if (budgetStr && spentStr && totalBudget > 0) {
+      const variancePct = ((totalSpent - totalBudget) / totalBudget) * 100;
+      sentiment = variancePct > 10 ? "red" : variancePct > 0 ? "amber" : "green";
+    }
 
     let body = "";
     if (budgetStr) {
       body = `Total portfolio budget is ${budgetStr} across ${projectCount} project${projectCount !== 1 ? "s" : ""}.`;
     }
-    if (totalBudgetDays > 0) {
-      body += body
-        ? ` ${totalBudgetDays} budget days allocated.`
-        : `${totalBudgetDays} budget days allocated across ${projectCount} project${projectCount !== 1 ? "s" : ""}.`;
+    if (spentStr) {
+      body += ` ${spentStr} spent to date.`;
+    } else if (!spentStr && budgetStr) {
+      body += " No actuals recorded yet.";
+    }
+    if (totalBudgetDays > 0 && !budgetStr) {
+      body = `${totalBudgetDays} budget days allocated across ${projectCount} project${projectCount !== 1 ? "s" : ""}.`;
     }
     if (!body) return noData;
 
-    const sentiment: Sentiment = "neutral";
     const talkingPoint = budgetStr
-      ? `Portfolio budget is ${budgetStr}.${totalBudgetDays > 0 ? ` ${totalBudgetDays} days budgeted.` : ""}`
+      ? `Portfolio budget is ${budgetStr}.${spentStr ? ` ${spentStr} spent to date.` : ""}`
       : `${totalBudgetDays} budget days allocated across the portfolio.`;
 
     return { body, sentiment, talkingPoint, totalBudget, projectsWithBudget };
@@ -712,7 +739,30 @@ export async function loadExecutiveBriefing(args: {
       const cleanId = safeStr(projectId).trim();
       if (cleanId) derivedProjectIds.push(cleanId);
     }
-    const projectIds = uniqNonEmptyStrings([...(args.projectIds ?? []), ...derivedProjectIds]);
+    const rawProjectIds = uniqNonEmptyStrings([...(args.projectIds ?? []), ...derivedProjectIds]);
+
+    // ── Strip pipeline / closed / deleted projects from the ID list ──
+    // projectScores may include pipeline projects from the health engine.
+    // Always cross-reference against confirmed projects in the DB so the
+    // briefing only reflects the active portfolio.
+    let projectIds = rawProjectIds;
+    if (rawProjectIds.length && organisationId) {
+      try {
+        const { data: confirmedRows } = await supabase
+          .from("projects")
+          .select("id")
+          .in("id", rawProjectIds)
+          .is("deleted_at", null)
+          .neq("resource_status", "pipeline")
+          .neq("status", "closed")
+          .limit(2000);
+        const confirmedIds = (confirmedRows ?? []).map((r: any) => String(r.id)).filter(Boolean);
+        if (confirmedIds.length) projectIds = confirmedIds;
+      } catch {
+        // fail-open: use raw list if DB call fails
+      }
+    }
+
     const avgHealth  = Math.round(args.liveHealthScore);
     const projectCount = projectIds.length || scoreEntries.length;
 
