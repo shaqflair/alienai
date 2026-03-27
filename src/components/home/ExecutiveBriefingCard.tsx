@@ -19,6 +19,8 @@ import {
   Copy,
   Check,
   ClipboardList,
+  ArrowUpRight,
+  Target,
 } from "lucide-react";
 import type { BriefingData } from "@/lib/server/home/loadExecutiveBriefing";
 
@@ -76,6 +78,15 @@ type ExecutiveDecision = {
   primary_risk?: string;
   impact?: string;
   recommendation?: string;
+};
+
+type FocusProject = {
+  name?: string;
+  href?: string;
+  issue?: string;
+  consequence?: string;
+  action?: string;
+  sentiment?: Sentiment;
 };
 
 export type RagLiveCounts = { g: number; a: number; r: number };
@@ -191,6 +202,12 @@ function getBarWidth(sentiment: Sentiment): string {
   return "50%";
 }
 
+function normalizeSentiment(input: unknown): Sentiment {
+  const s = safeStr(input).trim().toLowerCase();
+  if (s === "green" || s === "amber" || s === "red" || s === "neutral") return s;
+  return "neutral";
+}
+
 const SectionIcon = React.memo(function SectionIcon({ id }: { id: SectionId }) {
   if (id === "health") return <Activity className="h-4 w-4" />;
   if (id === "risk") return <AlertTriangle className="h-4 w-4" />;
@@ -222,7 +239,7 @@ const MetricPills = React.memo(function MetricPills({
 
   return (
     <div className="flex flex-wrap gap-2">
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200/80 bg-white px-3 py-1 text-xs font-medium text-gray-700">
         <Activity className="h-3 w-3 text-gray-400" />
         {projectCount} projects
       </span>
@@ -240,7 +257,7 @@ const MetricPills = React.memo(function MetricPills({
       </span>
 
       {avgHealth != null && (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200/80 bg-white px-3 py-1 text-xs font-medium text-gray-600">
           Avg health {avgHealth}%
         </span>
       )}
@@ -278,7 +295,7 @@ const SectionsGrid = React.memo(function SectionsGrid({
         return (
           <div
             key={sec?.id ?? i}
-            className={`rounded-xl border p-4 ${st.bg} ${st.border}`}
+            className={`rounded-2xl border p-4 ${st.bg} ${st.border}`}
           >
             <div className="mb-2 flex items-center gap-2">
               <span className={st.text}>
@@ -295,6 +312,73 @@ const SectionsGrid = React.memo(function SectionsGrid({
           </div>
         );
       })}
+    </div>
+  );
+});
+
+const FocusProjectPanel = React.memo(function FocusProjectPanel({
+  focusProject,
+  onNavigate,
+}: {
+  focusProject: FocusProject | null;
+  onNavigate: (href: string) => void;
+}) {
+  if (!focusProject?.name && !focusProject?.issue && !focusProject?.consequence && !focusProject?.action) {
+    return null;
+  }
+
+  const sentiment = normalizeSentiment(focusProject?.sentiment || "amber");
+  const st = SENTIMENT_STYLES[sentiment];
+
+  return (
+    <div className={`rounded-2xl border p-4 ${st.bg} ${st.border}`}>
+      <div className="mb-3 flex items-center gap-2">
+        <Target className={`h-4 w-4 ${st.text}`} />
+        <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
+          Focus project
+        </span>
+        {focusProject?.name && (
+          <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${st.badge}`}>
+            {focusProject.name}
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        {focusProject?.issue && (
+          <div className="text-xs leading-relaxed text-gray-700">
+            <span className="font-semibold text-gray-900">Issue: </span>
+            {focusProject.issue}
+          </div>
+        )}
+
+        {focusProject?.consequence && (
+          <div className="text-xs leading-relaxed text-gray-700">
+            <span className="font-semibold text-gray-900">Impact: </span>
+            {focusProject.consequence}
+          </div>
+        )}
+
+        {focusProject?.action && (
+          <div className="text-xs leading-relaxed text-indigo-700">
+            <span className="font-semibold">Recommended action: </span>
+            {focusProject.action}
+          </div>
+        )}
+      </div>
+
+      {focusProject?.href && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => onNavigate(focusProject.href!)}
+            className="inline-flex items-center gap-1 rounded-lg border border-gray-200/80 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            View project
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 });
@@ -320,7 +404,7 @@ const GapsPanel = React.memo(function GapsPanel({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-gray-100"
+        className="flex w-full items-center justify-between rounded-2xl border border-gray-200/80 bg-gray-50/80 px-4 py-3 text-left transition-colors hover:bg-gray-100/80"
       >
         <div className="flex items-center gap-2.5">
           <Shield className="h-4 w-4 shrink-0 text-gray-500" />
@@ -352,7 +436,7 @@ const GapsPanel = React.memo(function GapsPanel({
             return (
               <div
                 key={i}
-                className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${gs.bg}`}
+                className={`flex items-start gap-3 rounded-2xl border px-4 py-3 ${gs.bg}`}
               >
                 <div className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${gs.dot}`} />
 
@@ -395,7 +479,7 @@ const TalkingPoints = React.memo(function TalkingPoints({
   if (!points.length) return null;
 
   return (
-    <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+    <div className="rounded-2xl border border-indigo-100/80 bg-indigo-50/40 p-4">
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ClipboardList className="h-4 w-4 shrink-0 text-indigo-500" />
@@ -426,7 +510,7 @@ const TalkingPoints = React.memo(function TalkingPoints({
       <ol className="space-y-2">
         {points.map((tp, i) => (
           <li key={i} className="flex items-start gap-2.5">
-            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-indigo-200 bg-indigo-100 text-[10px] font-bold text-indigo-600">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-bold text-indigo-700">
               {i + 1}
             </span>
             <span className="text-xs leading-relaxed text-gray-700">{safeStr(tp)}</span>
@@ -457,34 +541,42 @@ function BriefingInner({
   const copyTimeoutRef = useRef<number | null>(null);
 
   const loading = !data;
-  const fetchErr = data && !data.ok ? safeStr(data.error) || "Failed to load briefing" : null;
+  const fetchErr = data && !data.ok ? safeStr((data as any).error) || "Failed to load briefing" : null;
   const refreshed = data?.generated_at ?? "";
 
   const sections = useMemo<NarrativeSection[]>(
-    () => (Array.isArray(data?.sections) ? (data.sections as NarrativeSection[]) : []),
-    [data?.sections]
+    () => (Array.isArray((data as any)?.sections) ? ((data as any).sections as NarrativeSection[]) : []),
+    [data]
   );
 
   const gaps = useMemo<Gap[]>(
-    () => (Array.isArray(data?.gaps) ? (data.gaps as Gap[]) : []),
-    [data?.gaps]
+    () => (Array.isArray((data as any)?.gaps) ? ((data as any).gaps as Gap[]) : []),
+    [data]
   );
 
   const points = useMemo<string[]>(
     () =>
-      Array.isArray(data?.talking_points)
-        ? data.talking_points.map((x) => {
-            const t = safeStr(x).trim();
-            if (!t) return "";
-            return t.startsWith("•") ? t : `• ${t}`;
-          }).filter(Boolean)
+      Array.isArray((data as any)?.talking_points)
+        ? ((data as any).talking_points as unknown[])
+            .map((x) => safeStr(x).trim())
+            .filter(Boolean)
+            .map((t) => (t.startsWith("•") ? t : t))
         : [],
-    [data?.talking_points]
+    [data]
   );
 
-  const sig = data?.signals_summary ?? null;
-  const decision = ((data as BriefingData & { decision?: ExecutiveDecision | null })?.decision ??
-    null) as ExecutiveDecision | null;
+  const sig = ((data as any)?.signals_summary ?? null) as
+    | {
+        rag?: { g: number; a: number; r: number } | null;
+        project_count?: number | null;
+        avg_health?: number | null;
+        overdue_approvals?: number | null;
+        high_raid?: number | null;
+      }
+    | null;
+
+  const decision = (((data as any)?.decision ?? null) as ExecutiveDecision | null) ?? null;
+  const focusProject = (((data as any)?.focus_project ?? null) as FocusProject | null) ?? null;
 
   const displayRag = useMemo(() => {
     if (liveRagCounts && data?.ok) {
@@ -556,17 +648,17 @@ function BriefingInner({
 
   return (
     <div
-      className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white"
+      className="relative overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-sm"
       style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
     >
       <div
-        className="absolute inset-y-0 left-0 w-1"
+        className="absolute inset-y-0 left-0 w-[3px]"
         style={{ background: overallStyle.bar }}
         aria-hidden="true"
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-50 px-6 py-4">
+      <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100">
             <Sparkles className="h-4 w-4 text-indigo-600" />
@@ -644,7 +736,7 @@ function BriefingInner({
               <div className="h-4 w-5/6 rounded bg-gray-100" />
               <div className="mt-4 grid grid-cols-2 gap-3">
                 {[0, 1, 2, 3].map((n) => (
-                  <div key={n} className="h-24 rounded-xl bg-gray-50" />
+                  <div key={n} className="h-24 rounded-2xl bg-gray-50" />
                 ))}
               </div>
             </div>
@@ -653,7 +745,7 @@ function BriefingInner({
           {/* Error */}
           {fetchErr && !loading && (
             <div className="p-6">
-              <div className="flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4">
+              <div className="flex items-start gap-3 rounded-2xl border border-red-100 bg-red-50 p-4">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
                 <div>
                   <div className="text-sm font-semibold text-red-800">Briefing unavailable</div>
@@ -682,17 +774,17 @@ function BriefingInner({
               </div>
 
               {/* Summary */}
-              {safeStr(data.executive_summary) && (
-                <div className={`rounded-xl border p-4 ${overallStyle.bg} ${overallStyle.border}`}>
+              {safeStr((data as any).executive_summary) && (
+                <div className="rounded-2xl border border-gray-200/70 bg-gray-50/70 p-4">
                   <div className="space-y-3">
-                    <p className={`text-sm font-semibold leading-relaxed ${overallStyle.text}`}>
-                      {safeStr(data.executive_summary)}
+                    <p className="text-sm font-medium leading-6 text-gray-800">
+                      {safeStr((data as any).executive_summary)}
                     </p>
 
                     {(decision?.trend || decision?.confidence || decision?.primary_risk) && (
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                         {decision?.trend && (
-                          <div className="rounded-lg border border-gray-100 bg-white/60 px-3 py-2">
+                          <div className="rounded-xl border border-gray-200/70 bg-white px-3 py-2">
                             <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                               Trend
                             </div>
@@ -703,7 +795,7 @@ function BriefingInner({
                         )}
 
                         {decision?.confidence && (
-                          <div className="rounded-lg border border-gray-100 bg-white/60 px-3 py-2">
+                          <div className="rounded-xl border border-gray-200/70 bg-white px-3 py-2">
                             <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                               Confidence
                             </div>
@@ -714,7 +806,7 @@ function BriefingInner({
                         )}
 
                         {decision?.primary_risk && (
-                          <div className="rounded-lg border border-gray-100 bg-white/60 px-3 py-2">
+                          <div className="rounded-xl border border-gray-200/70 bg-white px-3 py-2">
                             <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                               Primary risk
                             </div>
@@ -761,6 +853,9 @@ function BriefingInner({
                 highRaid={sig?.high_raid ?? 0}
               />
 
+              {/* Focus project */}
+              <FocusProjectPanel focusProject={focusProject} onNavigate={onNavigate} />
+
               {/* Sections */}
               <SectionsGrid sections={sections} />
 
@@ -778,7 +873,9 @@ function BriefingInner({
               {/* Footer */}
               <div className="flex items-center justify-between pt-1">
                 <p className="text-[11px] text-gray-400">
-                  {data.generated_at ? `Generated ${new Date(data.generated_at).toLocaleString()}` : ""}
+                  {(data as any).generated_at
+                    ? `Generated ${new Date((data as any).generated_at).toLocaleString()}`
+                    : ""}
                   {" · AI-assisted -- verify before presenting"}
                 </p>
 
