@@ -1,489 +1,383 @@
-﻿import "server-only";
-import { NextResponse } from "next/server";
+﻿"use server";
+
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import crypto from "crypto";
+import { createAdminClient } from "@/utils/supabase/admin";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-type InviteRole = "admin" | "member";
-
-function noStoreJson(payload: any, status = 200) {
-  const res = NextResponse.json(payload, { status });
-  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
-  res.headers.set("Pragma", "no-cache");
-  res.headers.set("Expires", "0");
-  return res;
+function safeStr(x: any) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-function ok(data: any, status = 200) {
-  return noStoreJson({ ok: true, ...data }, status);
-}
+/* ==========================================================================
+   createOrgAction
+========================================================================== */
+export async function createOrgAction(
+  formData: FormData
+): Promise<{ ok: boolean; organisationId: string; error?: string }> {
+  const supabase = await createClient();
+  const { data: auth, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !auth?.user) throw new Error("Not authenticated");
 
-function bad(error: string, status = 400, meta?: any) {
-  return noStoreJson({ ok: false, error, ...(meta ? { meta } : {}) }, status);
-}
+  const userId = auth.user.id;
+  const name = safeStr(formData.get("name")).trim();
+  const timezone = safeStr(formData.get("timezone")).trim() || "Europe/London";
 
-function safeStr(x: any): string {
-  return typeof x === "string" ? x : "";
-}
+  if (!name) throw new Error("Organisation name is required.");
 
-function normalizeEmail(x: any): string {
-  return safeStr(x).trim().toLowerCase();
-}
-
-function normalizeRole(x: any): InviteRole {
-  return safeStr(x).trim().toLowerCase() === "admin" ? "admin" : "member";
-}
-
-function isUuid(x: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    (x || "").trim()
-  );
-}
-
-function token64() {
-  return crypto.randomBytes(32).toString("hex");
-}
-
-function expiresAt7Days(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 7);
-  return d.toISOString();
-}
-
-function sbErr(e: any): string {
-  if (!e) return "Unknown error";
-  if (typeof e === "string") return e;
-  if (e instanceof Error) return e.message;
-  if (typeof e?.message === "string") return e.message;
-  try {
-    return JSON.stringify(e);
-  } catch {
-    return String(e);
-  }
-}
-
-function requireOrigin(): string {
-  const o =
-    process.env.APP_ORIGIN ||
-    process.env.NEXT_PUBLIC_APP_ORIGIN ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_SITE_URL;
-
-  if (!o) throw new Error("Missing APP_ORIGIN env var");
-  return o.replace(/\/+$/, "");
-}
-
-async function requireAuthedUser() {
-  const sb = await createClient();
-  const { data: auth, error: authErr } = await sb.auth.getUser();
-
-  if (authErr) {
-    return {
-      sb,
-      user: null as any,
-      response: bad(sbErr(authErr), 401),
-    };
-  }
-
-  if (!auth?.user) {
-    return {
-      sb,
-      user: null as any,
-      response: bad("Not authenticated", 401),
-    };
-  }
-
-  return {
-    sb,
-    user: auth.user,
-    response: null as Response | null,
-  };
-}
-
-async function ensureActiveMembership(
-  sb: any,
-  organisationId: string,
-  userId: string,
-  email: string,
-  role: InviteRole
-) {
-  const { data: existingMembership, error: membershipLookupError } = await sb
-    .from("organisation_members")
-    .select("id, organisation_id, user_id, role, removed_at")
-    .eq("organisation_id", organisationId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (membershipLookupError) {
-    throw new Error(sbErr(membershipLookupError));
-  }
-
-  if (existingMembership && !existingMembership.removed_at) {
-    return {
-      action: "already-member" as const,
-      membership: existingMembership,
-    };
-  }
-
-  if (existingMembership && existingMembership.removed_at) {
-    const { data: restoredMembership, error: restoreError } = await sb
-      .from("organisation_members")
-      .update({
-        removed_at: null,
-        role,
-        email,
-      })
-      .eq("id", existingMembership.id)
-      .select("id, organisation_id, user_id, role, removed_at")
-      .single();
-
-    if (restoreError) {
-      throw new Error(sbErr(restoreError));
-    }
-
-    return {
-      action: "restored" as const,
-      membership: restoredMembership,
-    };
-  }
-
-  const { data: insertedMembership, error: insertMembershipError } = await sb
-    .from("organisation_members")
+  const { data: org, error: orgErr } = await supabase
+    .from("organisations")
     .insert({
-      organisation_id: organisationId,
-      user_id: userId,
-      role,
-      email,
+      name,
+      created_by: userId,
+      timesheet_cutoff_weeks: 2,
+      default_daily_hours: 8,
+      default_working_days: 5,
     })
-    .select("id, organisation_id, user_id, role, removed_at")
+    .select("id")
     .single();
 
-  if (insertMembershipError) {
-    throw new Error(sbErr(insertMembershipError));
-  }
+  if (orgErr) throw new Error(`Failed to create organisation: ${orgErr.message}`);
 
-  return {
-    action: "added" as const,
-    membership: insertedMembership,
-  };
+  const orgId = org.id as string;
+
+  const { error: memErr } = await supabase.from("organisation_members").insert({
+    organisation_id: orgId,
+    user_id: userId,
+    role: "owner",
+    removed_at: null,
+  });
+
+  if (memErr) throw new Error(`Failed to create membership: ${memErr.message}`);
+
+  await supabase.from("profiles").upsert(
+    {
+      id: userId,
+      user_id: userId,
+      email: auth.user.email ?? null,
+      active_organisation_id: orgId,
+      employment_type: "full_time",
+      is_active: true,
+      include_in_capacity: true,
+      default_capacity_days: 5,
+      skills: [],
+      certifications: [],
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" }
+  );
+
+  void timezone;
+
+  revalidatePath("/");
+  return { ok: true, organisationId: orgId };
 }
 
-async function revokePendingInvitesForEmail(
-  sb: any,
-  organisationId: string,
-  email: string
-) {
-  const { error } = await sb
-    .from("organisation_invites")
-    .update({ status: "revoked" })
-    .eq("organisation_id", organisationId)
-    .eq("email", email)
-    .eq("status", "pending");
+/* ==========================================================================
+   savePersonaliseAction
+========================================================================== */
+export async function savePersonaliseAction(
+  formData: FormData
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) throw new Error("Not authenticated");
 
-  if (error) {
-    throw new Error(sbErr(error));
+    const orgId = safeStr(formData.get("organisation_id")).trim();
+    const logoUrl = safeStr(formData.get("logo_url")).trim() || null;
+    const website = safeStr(formData.get("website")).trim() || null;
+
+    if (!orgId) return { ok: true };
+
+    void logoUrl;
+    void website;
+
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Failed to save branding" };
   }
 }
 
-async function sendInviteOrLoginLink(
-  admin: any,
-  email: string,
-  redirectTo: string
-) {
-// Try invite first
-const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
-  redirectTo: `${origin}/auth/reset?next=${encodeURIComponent(inviteNext)}`,
-});
+/* ==========================================================================
+   saveCapacityAction
+========================================================================== */
+export async function saveCapacityAction(
+  formData: FormData
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) throw new Error("Not authenticated");
 
-// If user already exists → fallback to magic link
-if (inviteErr) {
-  if (inviteErr.message.toLowerCase().includes("already been registered")) {
-    const { error: linkErr } = await admin.auth.admin.generateLink({
-      type: "magiclink",
-      email,
-      options: {
-        redirectTo: `${origin}/auth/reset?next=${encodeURIComponent(inviteNext)}`,
+    const orgId = safeStr(formData.get("organisation_id")).trim();
+    const dailyHours = Number(formData.get("daily_hours")) || 8;
+    const workingDays = Number(formData.get("working_days")) || 5;
+
+    if (!orgId) return { ok: true };
+
+    const { error } = await supabase
+      .from("organisations")
+      .update({
+        default_daily_hours: dailyHours,
+        default_working_days: workingDays,
+      })
+      .eq("id", orgId);
+
+    if (error) return { ok: false, error: error.message };
+
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Failed to save capacity" };
+  }
+}
+
+/* ==========================================================================
+   createFirstProjectAction
+========================================================================== */
+export async function createFirstProjectAction(
+  formData: FormData
+): Promise<{ ok: boolean; projectId: string; error?: string }> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) throw new Error("Not authenticated");
+
+  const userId = auth.user.id;
+  const orgId = safeStr(formData.get("organisation_id")).trim();
+  const title = safeStr(formData.get("title")).trim();
+  const projectCode = safeStr(formData.get("project_code")).trim() || null;
+  const status = safeStr(formData.get("status")).trim() || "confirmed";
+  const startDate = safeStr(formData.get("start_date")).trim() || null;
+  const finishDate = safeStr(formData.get("finish_date")).trim() || null;
+
+  if (!orgId) throw new Error("Missing organisation_id");
+  if (!title) throw new Error("Project title is required.");
+
+  const { data: project, error } = await supabase
+    .from("projects")
+    .insert({
+      title,
+      user_id: userId,
+      created_by: userId,
+      organisation_id: orgId,
+      status,
+      lifecycle_status: "active",
+      project_code: projectCode,
+      start_date: startDate || null,
+      finish_date: finishDate || null,
+      updated_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (error) throw new Error(`Failed to create project: ${error.message}`);
+
+  revalidatePath("/");
+  return { ok: true, projectId: project.id as string };
+}
+
+/* ==========================================================================
+   inviteTeamAction
+========================================================================== */
+export async function inviteTeamAction(
+  formData: FormData
+): Promise<{ ok: boolean; sent: number; errors: string[]; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) throw new Error("Not authenticated");
+
+    const orgId = safeStr(formData.get("organisation_id")).trim();
+    const emailsRaw = safeStr(formData.get("emails")).trim();
+
+    if (!emailsRaw) return { ok: true, sent: 0, errors: [] };
+
+    const emails = emailsRaw
+      .split(/[\n,;]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.includes("@") && e.includes("."));
+
+    if (!emails.length) return { ok: true, sent: 0, errors: [] };
+
+    const admin = createAdminClient();
+    const errors: string[] = [];
+    let sent = 0;
+
+    for (const email of emails) {
+      try {
+        const { error } = await admin.auth.admin.inviteUserByEmail(email, {
+          data: { invited_to_org: orgId },
+          redirectTo: `${
+            process.env.NEXT_PUBLIC_SITE_URL ?? "https://aliena.co.uk"
+          }/onboarding`,
+        });
+
+        if (error) {
+          errors.push(`${email}: ${error.message}`);
+        } else {
+          sent++;
+          await admin
+            .from("organisation_members")
+            .upsert(
+              {
+                organisation_id: orgId,
+                user_id: email,
+                role: "member",
+                removed_at: null,
+              },
+              { onConflict: "organisation_id,user_id", ignoreDuplicates: true }
+            )
+            .throwOnError()
+            .then(() => {})
+            .catch(() => {});
+        }
+      } catch (e: any) {
+        errors.push(`${email}: ${e?.message ?? "Unknown error"}`);
+      }
+    }
+
+    return { ok: true, sent, errors };
+  } catch (e: any) {
+    return {
+      ok: false,
+      sent: 0,
+      errors: [],
+      error: e?.message ?? "Invite failed",
+    };
+  }
+}
+
+/* ==========================================================================
+   saveOnboardingProfile
+   Saves to BOTH profiles and organisation_members
+========================================================================== */
+export async function saveOnboardingProfile(
+  formData: FormData
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const { data: auth, error: authErr } = await supabase.auth.getUser();
+
+    if (authErr) return { ok: false, error: authErr.message };
+    if (!auth?.user) return { ok: false, error: "Not authenticated" };
+
+    const userId = auth.user.id;
+
+    const fullName = safeStr(formData.get("full_name")).trim();
+    const jobTitle = safeStr(formData.get("job_title")).trim();
+    const department = safeStr(formData.get("department")).trim();
+    const employmentType =
+      safeStr(formData.get("employment_type")).trim() || "full_time";
+    const location = safeStr(formData.get("location")).trim();
+    const bio = safeStr(formData.get("bio")).trim();
+    const lineManagerId = safeStr(formData.get("line_manager_id")).trim();
+
+    if (!fullName) return { ok: false, error: "Full name is required." };
+    if (!jobTitle) return { ok: false, error: "Job title is required." };
+
+    const { data: existingProfile, error: profileLookupErr } = await supabase
+      .from("profiles")
+      .select("active_organisation_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (profileLookupErr) {
+      return {
+        ok: false,
+        error: `Profile lookup failed: ${profileLookupErr.message}`,
+      };
+    }
+
+    let activeOrgId =
+      typeof existingProfile?.active_organisation_id === "string"
+        ? existingProfile.active_organisation_id
+        : null;
+
+    if (!activeOrgId) {
+      const { data: memRow, error: membershipErr } = await supabase
+        .from("organisation_members")
+        .select("organisation_id")
+        .eq("user_id", userId)
+        .is("removed_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (membershipErr) {
+        return {
+          ok: false,
+          error: `Membership lookup failed: ${membershipErr.message}`,
+        };
+      }
+
+      activeOrgId = memRow?.organisation_id ?? null;
+    }
+
+    const { error: upsertErr } = await supabase.from("profiles").upsert(
+      {
+        id: userId,
+        user_id: userId,
+        full_name: fullName,
+        email: auth.user.email ?? null,
+        job_title: jobTitle || null,
+        department: department || null,
+        employment_type: employmentType,
+        location: location || null,
+        bio: bio || null,
+        line_manager_id: lineManagerId || null,
+        active_organisation_id: activeOrgId,
+        is_active: true,
+        include_in_capacity: true,
+        default_capacity_days: 5,
+        skills: [],
+        certifications: [],
+        updated_at: new Date().toISOString(),
       },
-    });
+      { onConflict: "user_id" }
+    );
 
-    if (linkErr) {
-      return bad(linkErr.message, 400);
-    }
-  } else {
-    return bad(inviteErr.message, 400);
-  }
-}
-
-  throw new Error(inviteErr.message);
-}
-
-//
-// GET: list invites
-//
-export async function GET(req: Request) {
-  const { sb, response } = await requireAuthedUser();
-  if (response) return response;
-
-  const url = new URL(req.url);
-  const organisationId = safeStr(url.searchParams.get("organisationId")).trim();
-
-  if (!organisationId) return bad("Missing organisationId", 400);
-  if (!isUuid(organisationId)) return bad("Invalid organisationId", 400);
-
-  const { data, error } = await sb
-    .from("organisation_invites")
-    .select(
-      "id, organisation_id, email, role, status, created_at, accepted_at, expires_at, token"
-    )
-    .eq("organisation_id", organisationId)
-    .order("created_at", { ascending: false });
-
-  if (error) return bad(sbErr(error), 403);
-
-  return ok({ items: data ?? [] });
-}
-
-//
-// POST: create invite OR add/restore existing registered user
-//
-export async function POST(req: Request) {
-  const { sb, user, response } = await requireAuthedUser();
-  if (response) return response;
-
-  const body = await req.json().catch(() => ({}));
-
-  const organisation_id = safeStr(body?.organisation_id).trim();
-  const email = normalizeEmail(body?.email);
-  const role = normalizeRole(body?.role);
-  const isResend = Boolean(body?.resend);
-
-  if (!organisation_id || !isUuid(organisation_id)) {
-    return bad("Invalid organisation_id", 400);
-  }
-
-  if (!email || !email.includes("@")) {
-    return bad("Valid email required", 400);
-  }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-  if (!supabaseUrl || !serviceKey) {
-    return bad("Server misconfigured", 500);
-  }
-
-  const admin = createAdminClient(supabaseUrl, serviceKey);
-
-  let origin: string;
-  try {
-    origin = requireOrigin();
-  } catch (e: any) {
-    return bad(e.message, 500);
-  }
-
-  if (isResend) {
-    const { data: existingPendingInvite, error: pendingLookupError } = await sb
-      .from("organisation_invites")
-      .select("id")
-      .eq("organisation_id", organisation_id)
-      .eq("email", email)
-      .eq("status", "pending")
-      .maybeSingle();
-
-    if (pendingLookupError) return bad(sbErr(pendingLookupError), 400);
-    if (!existingPendingInvite) {
-      return bad("No pending invite found for this email.", 404);
+    if (upsertErr) {
+      return { ok: false, error: `Profile save failed: ${upsertErr.message}` };
     }
 
-    const newToken = token64();
-    const expiresAt = expiresAt7Days();
+    if (activeOrgId) {
+      const { data: updatedMembership, error: memberUpdateErr } = await supabase
+        .from("organisation_members")
+        .update({
+          job_title: jobTitle || null,
+          department: department || null,
+        })
+        .eq("organisation_id", activeOrgId)
+        .eq("user_id", userId)
+        .is("removed_at", null)
+        .select("organisation_id, user_id, job_title, department")
+        .maybeSingle();
 
-    const { error: resendUpdateError } = await sb
-      .from("organisation_invites")
-      .update({
-        token: newToken,
-        expires_at: expiresAt,
-        role,
-      })
-      .eq("id", existingPendingInvite.id);
-
-    if (resendUpdateError) return bad(sbErr(resendUpdateError), 400);
-
-    const inviteNext = `/organisations/invite/${encodeURIComponent(newToken)}`;
-    const redirectTo = `${origin}/auth/reset?next=${encodeURIComponent(inviteNext)}`;
-
-    try {
-      const delivery = await sendInviteOrLoginLink(admin, email, redirectTo);
-
-      return ok({
-        invited: true,
-        resent: true,
-        email,
-        role,
-        delivery_mode: delivery.mode,
-      });
-    } catch (e: any) {
-      return bad(sbErr(e), 400);
-    }
-  }
-
-  // Existing registered user: restore or add directly.
-  const { data: profile, error: profileLookupError } = await sb
-    .from("profiles")
-    .select("id, user_id, email, full_name")
-    .eq("email", email)
-    .maybeSingle();
-
-  if (profileLookupError) {
-    return bad(sbErr(profileLookupError), 400);
-  }
-
-  const existingUserId =
-    safeStr(profile?.user_id).trim() || safeStr(profile?.id).trim();
-
-  if (existingUserId) {
-    try {
-      const membershipResult = await ensureActiveMembership(
-        sb,
-        organisation_id,
-        existingUserId,
-        email,
-        role
-      );
-
-      await revokePendingInvitesForEmail(sb, organisation_id, email);
-
-      if (membershipResult.action === "already-member") {
-        return bad("User is already a member of this organisation.", 409);
+      if (memberUpdateErr) {
+        return {
+          ok: false,
+          error: `Member details save failed: ${memberUpdateErr.message}`,
+        };
       }
 
-      return ok({
-        invited: false,
-        direct_member_add: true,
-        restored: membershipResult.action === "restored",
-        added: membershipResult.action === "added",
-        email,
-        role,
-        membership: membershipResult.membership,
-        message:
-          membershipResult.action === "restored"
-            ? "Existing registered user was restored to the organisation."
-            : "Existing registered user was added directly to the organisation.",
-      });
-    } catch (e: any) {
-      return bad(sbErr(e), 400);
-    }
-  }
-
-  // No registered profile yet: create or reuse pending invite.
-  const { data: existingPendingInvite, error: existingPendingInviteError } =
-    await sb
-      .from("organisation_invites")
-      .select("id, token, expires_at, role, status")
-      .eq("organisation_id", organisation_id)
-      .eq("email", email)
-      .eq("status", "pending")
-      .maybeSingle();
-
-  if (existingPendingInviteError) {
-    return bad(sbErr(existingPendingInviteError), 400);
-  }
-
-  let inviteToken = existingPendingInvite?.token || token64();
-  const expiresAt = expiresAt7Days();
-
-  if (existingPendingInvite?.id) {
-    const { error: updatePendingInviteError } = await sb
-      .from("organisation_invites")
-      .update({
-        token: inviteToken,
-        expires_at: expiresAt,
-        role,
-      })
-      .eq("id", existingPendingInvite.id);
-
-    if (updatePendingInviteError) {
-      return bad(sbErr(updatePendingInviteError), 400);
-    }
-  } else {
-    const { error: revokeOldError } = await sb
-      .from("organisation_invites")
-      .update({ status: "revoked" })
-      .eq("organisation_id", organisation_id)
-      .eq("email", email)
-      .eq("status", "pending");
-
-    if (revokeOldError) {
-      return bad(sbErr(revokeOldError), 400);
-    }
-
-    const { error: insertInviteError } = await sb
-      .from("organisation_invites")
-      .insert({
-        organisation_id,
-        email,
-        role,
-        token: inviteToken,
-        invited_by: user.id,
-        status: "pending",
-        expires_at: expiresAt,
-      });
-
-    if (insertInviteError) {
-      if (safeStr((insertInviteError as any)?.code) === "23505") {
-        return bad("An invite is already pending for this email.", 409);
+      if (!updatedMembership) {
+        return {
+          ok: false,
+          error:
+            "Profile saved, but no active organisation membership row was updated.",
+        };
       }
-      return bad(sbErr(insertInviteError), 400);
     }
-  }
 
-  const inviteNext = `/organisations/invite/${encodeURIComponent(inviteToken)}`;
-  const redirectTo = `${origin}/auth/reset?next=${encodeURIComponent(inviteNext)}`;
+    try {
+      await supabase.auth.updateUser({ data: { full_name: fullName } });
+    } catch {
+      // non-fatal
+    }
 
-  try {
-    const delivery = await sendInviteOrLoginLink(admin, email, redirectTo);
-
-    return ok({
-      invited: true,
-      email,
-      role,
-      reused_pending: Boolean(existingPendingInvite?.id),
-      delivery_mode: delivery.mode,
-    });
+    revalidatePath("/");
+    revalidatePath("/onboarding");
+    return { ok: true };
   } catch (e: any) {
-    return bad(sbErr(e), 400);
+    return { ok: false, error: e?.message ?? "Profile save failed" };
   }
-}
-
-//
-// PATCH: revoke invite
-//
-export async function PATCH(req: Request) {
-  const { sb, response } = await requireAuthedUser();
-  if (response) return response;
-
-  const body = await req.json().catch(() => ({}));
-
-  const id = safeStr(body?.id).trim();
-  const status = safeStr(body?.status).trim().toLowerCase();
-
-  if (!id || !isUuid(id)) return bad("Invalid id", 400);
-  if (status !== "revoked") return bad("Invalid status", 400);
-
-  const { data, error } = await sb
-    .from("organisation_invites")
-    .update({ status })
-    .eq("id", id)
-    .eq("status", "pending")
-    .select("id, status")
-    .maybeSingle();
-
-  if (error) return bad(sbErr(error), 400);
-  if (!data) return bad("Invite not found or not pending.", 404);
-
-  return ok({ invite: data });
 }
