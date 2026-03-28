@@ -702,7 +702,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const approvalStatusIsTerminal =
     approvalStatusLower === "approved" || approvalStatusLower === "rejected";
   const fpApprovalLocked = isFinancialPlan && isApprovalLockedStatus(approvalStatus);
-  const fpApprovalActive = isFinancialPlan && approvalStatusLower === "submitted";
+  const fpApprovalActive = isFinancialPlan && (approvalStatusLower === "submitted" || approvalStatusLower === "in_review" || approvalStatusLower === "submitted_for_approval" || approvalStatusLower === "pending_approval" || approvalStatusLower === "awaiting_approval");
 
 
   // For financial plan under approval: allow viewing/editing regardless of collab lock.
@@ -770,7 +770,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           isFinancialPlan={true}
         />
 
-        {fpApprovalActive && (
+        {isFinancialPlan && approvalLocked && (
           <ApprovalChainStatus artifactId={artifactId} />
         )}
 
