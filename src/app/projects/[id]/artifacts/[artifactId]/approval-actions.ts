@@ -1899,20 +1899,45 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   const project = await getProjectNotificationContext(supabase, projectId);
   const submittedByName = await getUserDisplayName(supabase, user.id);
 
-  try {
-    await notifyFirstStepApprovers(supabase, {
-      projectId,
-      artifactId,
-      artifactTitle: safeStr(a0.title).trim() || "Artifact",
-      artifactType: safeStr(a0.type).trim() || "artifact",
-      project: project ?? null,
-      projectFallbackRef: projectId,
-      submittedByName,
-    });
-  } catch (notifyErr) {
-    console.error("[submitArtifactForApproval] notification failed:", notifyErr);
-  }
+ try {
+      await notifyNextStepApprovers(supabase, {
+        artifactId,
+        artifactTitle: safeStr(a0.title).trim() || "Artifact",
+        artifactType: safeStr(a0.type).trim() || "artifact",
+        project: project ?? null,
+        projectFallbackRef: projectId,
+        approvedByName: actorDisplayName,
+      });
+    } catch (notifyErr) {
+      console.error("[approveStep] next-step notification failed:", notifyErr);
+    }
 
+    // Auto-add next step approvers as project viewers so they can access the artifact
+    try {
+      const adminDb = createAdminClient();
+      const nextStepApprovers = await getStepApproverRows(supabase, nextStepId);
+      for (const approver of nextStepApprovers) {
+        const uid = safeStr(approver.user_id).trim();
+        if (!uid) continue;
+        // Check if already a member
+        const { data: existing } = await adminDb
+          .from("project_members")
+          .select("user_id")
+          .eq("project_id", projectId)
+          .eq("user_id", uid)
+          .maybeSingle();
+        if (!existing) {
+          await adminDb.from("project_members").insert({
+            project_id: projectId,
+            user_id: uid,
+            role: "viewer",
+            created_at: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (memberErr) {
+      console.error("[approveStep] auto-add project member failed:", memberErr);
+    }
   if (st === "changes_requested") {
     await addApprovalCommentSafe(supabase, {
       organisationId: safeStr((a0 as any)?.organisation_id || organisationId) || null,
