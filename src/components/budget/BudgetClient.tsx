@@ -274,7 +274,9 @@ export default function BudgetClient() {
     load();
   }, [load]);
 
-  const projects = data?.projects ?? [];
+const projects = (data?.projects ?? []).filter(
+  (p) => String(p.status ?? "").toLowerCase() !== "pipeline"
+);
   const port = data?.portfolio;
 
   const totalVar =
