@@ -35,7 +35,7 @@ function rankRole(role: unknown): number {
   return 1;
 }
 
-async function setActiveOrgCookie(orgId: string) {
+async function setActiveOrgCookie(orgId: string) { try {
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, orgId, {
     path: "/",
@@ -46,7 +46,7 @@ async function setActiveOrgCookie(orgId: string) {
   });
 }
 
-async function clearActiveOrgCookie() {
+async function clearActiveOrgCookie() { try {
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, "", {
     path: "/",
@@ -234,7 +234,7 @@ export async function getActiveOrgId(): Promise<string | null> {
   const memberships = await getActiveMemberships(supabase, user.id);
 
   if (!memberships.length) {
-    await clearActiveOrgCookie();
+    try { await clearActiveOrgCookie(); } catch {}
     await clearProfileActiveOrg(supabase, user.id);
     return null;
   }
@@ -244,7 +244,7 @@ export async function getActiveOrgId(): Promise<string | null> {
   const profileOrgId = await getProfileActiveOrgId(supabase, user.id);
   if (profileOrgId && validOrgIds.has(profileOrgId)) {
     if (cookieOrgId !== profileOrgId) {
-      await setActiveOrgCookie(profileOrgId);
+      try { await setActiveOrgCookie(profileOrgId); } catch {}
     }
     return profileOrgId;
   }
@@ -256,20 +256,20 @@ export async function getActiveOrgId(): Promise<string | null> {
   if (cookieOrgId && validOrgIds.has(cookieOrgId)) {
     await persistProfileActiveOrg(supabase, user.id, cookieOrgId);
     if (cookieOrgId !== profileOrgId) {
-      await setActiveOrgCookie(cookieOrgId);
+      try { await setActiveOrgCookie(cookieOrgId); } catch {}
     }
     return cookieOrgId;
   }
 
   if (cookieOrgId && !validOrgIds.has(cookieOrgId)) {
-    await clearActiveOrgCookie();
+    try { await clearActiveOrgCookie(); } catch {}
   }
 
   const fallbackOrgId = chooseBestOrg(memberships);
 
   if (fallbackOrgId) {
     await persistProfileActiveOrg(supabase, user.id, fallbackOrgId);
-    await setActiveOrgCookie(fallbackOrgId);
+    try { await setActiveOrgCookie(fallbackOrgId); } catch {}
     return fallbackOrgId;
   }
 
