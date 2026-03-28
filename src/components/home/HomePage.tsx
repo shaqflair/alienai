@@ -631,6 +631,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
   const [recentWins, setRecentWins] = useState<RecentWin[]>([]);
   const [winsLoading, setWinsLoading] = useState(true);
   const [briefingData, setBriefingData] = useState<any | null>(executiveBriefing ?? null);
+
   const projectOptions = useMemo<ProjectOption[]>(() => (Array.isArray(projects) ? projects : []).map((p: any) => ({ id: String(p?.id || "").trim(), name: safeStr(p?.title || "Project").trim(), code: projectCodeLabel(p?.project_code) || null })).filter((p) => p.id).sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name)), [projects]);
   const pmOptions = useMemo(() => { const map = new Map<string, string>(); for (const p of (Array.isArray(projects) ? projects : []) as any[]) { const name = safeStr(p?.project_manager || p?.pm_name || p?.manager_name || p?.project_manager_name || p?.manager || p?.pm || p?.owner_name).trim(); const id = safeStr(p?.project_manager_id || p?.pm_user_id || p?.manager_id || p?.project_manager_user_id || p?.owner_id).trim(); if (!name) continue; map.set(id || name, name); } return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)); }, [projects]);
   const deptOptions = useMemo(() => { const set = new Set<string>(); for (const p of (Array.isArray(projects) ? projects : []) as any[]) { const d = safeStr(p?.department).trim(); if (d) set.add(d); } return Array.from(set).sort((a, b) => a.localeCompare(b)).map((d) => ({ value: d, label: d })); }, [projects]);
@@ -733,9 +734,9 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
             null;
           if (executiveBriefingFromApi) {
             setBriefingData(executiveBriefingFromApi);
-          } else {
-            setBriefingData({ ok: true, sections: [], talking_points: [], signals_summary: null, generated_at: new Date().toISOString() });
           }
+          // If API returns no briefing, keep the server-side prop data already in state.
+          // Do NOT overwrite with an empty object — that wipes out sections.
 
           // ── Patch briefing with live signals ──────────────────────────────
           if (nextPh?.ok) {
@@ -812,14 +813,12 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                 });
 
                 // FIX 3: Drop false "no health score" gaps for projects that ARE scored
-               const patchedGaps = (prev.gaps ?? []).filter((g: any) => {
-  const detail = safeStr(g?.detail || g?.type || "").toLowerCase();
-  const isHealthGap = detail.includes("health score") || detail.includes("no health") || g?.type === "health";
-  const isStaleGap  = detail.includes("not updated") || detail.includes("stale");
-  // Drop health/stale gaps entirely — our loader handles these correctly
-  if (isHealthGap || isStaleGap) return false;
-  return true;
-});
+                const patchedGaps = (prev.gaps ?? []).filter((g: any) => {
+                  if (g?.type !== "health") return true; // keep non-health gaps
+                  // Only keep health gap if we genuinely can't confirm the project is scored
+                  return scoredIds.size === 0;
+                });
+
                 return {
                   ...prev,
                   executive_summary: execSummary,
