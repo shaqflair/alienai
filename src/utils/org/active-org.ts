@@ -35,28 +35,6 @@ function rankRole(role: unknown): number {
   return 1;
 }
 
-async function setActiveOrgCookie(orgId: string) {
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_NAME, orgId, {
-    path: "/",
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 60 * 60 * 24 * 30,
-  });
-}
-
-async function clearActiveOrgCookie() {
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_NAME, "", {
-    path: "/",
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 0,
-  });
-}
-
 async function getUserFromSupabase() {
   const supabase = await createClient();
   const {
@@ -234,7 +212,6 @@ export async function getActiveOrgId(): Promise<string | null> {
   const memberships = await getActiveMemberships(supabase, user.id);
 
   if (!memberships.length) {
-    try { await clearActiveOrgCookie(); } catch {}
     await clearProfileActiveOrg(supabase, user.id);
     return null;
   }
@@ -243,9 +220,6 @@ export async function getActiveOrgId(): Promise<string | null> {
 
   const profileOrgId = await getProfileActiveOrgId(supabase, user.id);
   if (profileOrgId && validOrgIds.has(profileOrgId)) {
-    if (cookieOrgId !== profileOrgId) {
-      try { await setActiveOrgCookie(profileOrgId); } catch {}
-    }
     return profileOrgId;
   }
 
@@ -255,21 +229,13 @@ export async function getActiveOrgId(): Promise<string | null> {
 
   if (cookieOrgId && validOrgIds.has(cookieOrgId)) {
     await persistProfileActiveOrg(supabase, user.id, cookieOrgId);
-    if (cookieOrgId !== profileOrgId) {
-      try { await setActiveOrgCookie(cookieOrgId); } catch {}
-    }
     return cookieOrgId;
-  }
-
-  if (cookieOrgId && !validOrgIds.has(cookieOrgId)) {
-    try { await clearActiveOrgCookie(); } catch {}
   }
 
   const fallbackOrgId = chooseBestOrg(memberships);
 
   if (fallbackOrgId) {
     await persistProfileActiveOrg(supabase, user.id, fallbackOrgId);
-    try { await setActiveOrgCookie(fallbackOrgId); } catch {}
     return fallbackOrgId;
   }
 
