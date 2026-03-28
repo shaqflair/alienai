@@ -318,7 +318,10 @@ function extractBudgetFromContent(content: any): {
     totalActual += actual;
   }
 
-  if (costLines.length === 0) {
+  const costLinesHaveForecast = costLines.some(l => 
+    Number.isFinite(Number(l?.forecast ?? l?.forecasted ?? l?.projected))
+  );
+  if (costLines.length === 0 || !costLinesHaveForecast) {
     const monthlyData = content.monthly_data ?? content.monthlyData ?? {};
 
     try {
