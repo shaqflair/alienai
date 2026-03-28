@@ -81,7 +81,7 @@ async function resolveProject(
   if (looksLikeUuid(raw)) {
     const { data, error } = await supabase
       .from("projects")
-      .select("id,title,project_code,client_name,organisation_id,finish_date,end_date")
+      .select("id,title,project_code,client_name,organisation_id,finish_date")
       .eq("id", raw)
       .maybeSingle();
 
@@ -97,7 +97,7 @@ async function resolveProject(
   if (codeNum != null) {
     const { data, error } = await supabase
       .from("projects")
-      .select("id,title,project_code,client_name,organisation_id,finish_date,end_date")
+      .select("id,title,project_code,client_name,organisation_id,finish_date")
       .eq("project_code", codeNum)
       .maybeSingle();
 
@@ -119,7 +119,7 @@ async function resolveProject(
   for (const col of fallbacks) {
     const { data, error } = await supabase
       .from("projects")
-      .select("id,title,project_code,client_name,organisation_id,finish_date,end_date")
+      .select("id,title,project_code,client_name,organisation_id,finish_date")
       .eq(col, raw)
       .maybeSingle();
 

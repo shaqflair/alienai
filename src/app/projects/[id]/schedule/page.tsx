@@ -29,7 +29,7 @@ export default async function ProjectSchedulePage({
   // ---- Fetch project metadata (lightweight) ----
   const { data: project, error: projectErr } = await supabase
     .from("projects")
-    .select("id,name,project_code,start_date,finish_date")
+    .select("id,title,project_code,start_date,finish_date")
     .eq("id", projectId)
     .single();
 
