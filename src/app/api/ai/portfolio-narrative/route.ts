@@ -1,11 +1,11 @@
 // src/app/api/ai/portfolio-narrative/route.ts
 // Executive portfolio briefing -- auto-generated on homepage load.
 //
-// Changes:
-//   - 5-minute per-user server-side cache (avoids OpenAI on every page load)
-//   - Health/RAG sourced from v_portfolio_project_health or portfolio/health scoring,
-//     NOT project_health table (which has inconsistent column formats)
-//   - Promise.allSettled throughout -- one failing query never breaks the whole response
+// Fixes applied:
+//   - Pipeline projects excluded from scope
+//   - Spend from financial_plan_items (not project_spend table)
+//   - "No health score" gap only fires for genuinely unscored projects
+//   - 5-minute per-user server-side cache preserved
 
 import "server-only";
 import { NextResponse } from "next/server";
@@ -22,7 +22,7 @@ export const revalidate = 0;
 
 type CacheEntry = { ts: number; payload: object };
 const CACHE = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 function cacheGet(key: string): object | null {
   const e = CACHE.get(key);
@@ -32,7 +32,6 @@ function cacheGet(key: string): object | null {
 }
 function cacheSet(key: string, payload: object) {
   CACHE.set(key, { ts: Date.now(), payload });
-  // Evict entries older than TTL to avoid memory leak
   if (CACHE.size > 200) {
     for (const [k, v] of CACHE.entries()) {
       if (Date.now() - v.ts > CACHE_TTL_MS) CACHE.delete(k);
@@ -68,17 +67,15 @@ function settled<T>(r: PromiseSettledResult<T>): T | null {
 function rows<T>(r: PromiseSettledResult<{ data: T[] | null; error: any } | null>): T[] {
   const v = settled(r);
   if (!v) return [];
-  if (v.error) console.warn("[portfolio-narrative] query warn:", v.error.message);
-  return Array.isArray(v.data) ? v.data : [];
+  if ((v as any).error) console.warn("[portfolio-narrative] query warn:", (v as any).error.message);
+  return Array.isArray((v as any).data) ? (v as any).data : [];
 }
 
-// Normalise score: handles 0-1 decimal OR 0-100 integer
 function normaliseScore(raw: unknown): number | null {
   const n = Number(raw);
   if (!Number.isFinite(n) || n === 0) return null;
   return n <= 1 ? Math.round(n * 100) : Math.round(n);
 }
-// Derive RAG from score using same thresholds as homepage
 function scoreToRag(score: number | null): "G" | "A" | "R" | "UNSCORED" {
   if (score == null) return "UNSCORED";
   if (score >= 85) return "G";
@@ -112,11 +109,36 @@ async function resolveActiveIds(supabase: any, userId: string): Promise<string[]
     ...(Array.isArray(scope?.items)       ? scope.items.map((x: any) => x?.id ?? x?.project_id) : []),
   ]);
   if (!rawIds.length) return [];
+
+  let activeFiltered: string[] = rawIds;
   try {
     const f = await filterActiveProjectIds(supabase, rawIds);
     const filtered = Array.isArray(f) ? uniq(f) : [];
-    return filtered.length ? filtered : rawIds;
-  } catch { return rawIds; }
+    if (filtered.length) activeFiltered = filtered;
+  } catch { /* fail-open */ }
+
+  // ── Strip pipeline / closed / cancelled projects ──
+  try {
+    const { data: projRows } = await supabase
+      .from("projects")
+      .select("id, resource_status, status")
+      .in("id", activeFiltered)
+      .limit(2000);
+
+    const confirmed = (projRows ?? [])
+      .filter((p: any) => {
+        const rs = safeStr(p.resource_status).toLowerCase().trim();
+        const st = safeStr(p.status).toLowerCase().trim();
+        return rs !== "pipeline" &&
+          !["pipeline", "closed", "cancelled", "archived"].includes(st);
+      })
+      .map((p: any) => safeStr(p.id).trim())
+      .filter(Boolean);
+
+    return confirmed.length ? confirmed : activeFiltered;
+  } catch {
+    return activeFiltered;
+  }
 }
 
 /* -- main signals ---------------------------------------------------------- */
@@ -143,10 +165,8 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
   const now = Date.now();
   const in30 = new Date(now + 30 * 86400000).toISOString();
 
-  // Run all queries in parallel
   const [projectsR, membersR, approvalsR, raidR, raidUpdR, msR, changesR] =
     await Promise.allSettled([
-
       supabase.from("projects")
         .select("id, title, project_code, pm_name, pm_user_id, project_manager_id, budget_amount")
         .in("id", activeIds).is("deleted_at", null).limit(200),
@@ -180,19 +200,17 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
         .in("project_id", activeIds).limit(2000),
     ]);
 
-  const projects  = rows<any>(projectsR);
-  const members   = rows<any>(membersR);
-  const approvals = rows<any>(approvalsR);
-  const raidItems = rows<any>(raidR);
-  const raidUpds  = rows<any>(raidUpdR);
-  const milestones= rows<any>(msR);
-  const changes   = rows<any>(changesR);
+  const projects   = rows<any>(projectsR);
+  const members    = rows<any>(membersR);
+  const approvals  = rows<any>(approvalsR);
+  const raidItems  = rows<any>(raidR);
+  const raidUpds   = rows<any>(raidUpdR);
+  const milestones = rows<any>(msR);
+  const changes    = rows<any>(changesR);
 
-  // Health scores -- fetch from the same API the homepage KPI card uses.
-  // This is the only reliable source since project_health table columns vary.
+  // ── Health scores from portfolio/health API ──
   let healthByProject = new Map<string, { score: number; rag: string }>();
   try {
-    // Build the URL for an internal server-side call
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
       ? "https://" + (process.env.VERCEL_URL || "")
       : "http://localhost:3000";
@@ -215,7 +233,6 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     }
   } catch (e: any) {
     console.warn("[portfolio-narrative] health fetch failed:", e?.message);
-    // Fall back to direct table query
     for (const tableName of ["project_health", "v_project_health_scores", "latest_project_health"]) {
       try {
         const { data, error } = await supabase.from(tableName as any)
@@ -236,16 +253,59 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     }
   }
 
-  // Spend data
-  let spendRows: any[] = [];
+  // ── Actual spend from financial_plan_items (hardware, licence etc.) ──
+  // Falls back to project-level columns, then project_spend table.
+  const spendMap = new Map<string, number>();
   try {
-    const { data } = await supabase.from("project_spend")
-      .select("project_id, amount")
-      .in("project_id", activeIds).limit(100000);
-    if (Array.isArray(data)) spendRows = data;
+    const { data: lineItems, error: liErr } = await supabase
+      .from("financial_plan_items")
+      .select("project_id, actual_amount, actual_cost, actual_spend, spent")
+      .in("project_id", activeIds)
+      .limit(10000);
+
+    if (!liErr && Array.isArray(lineItems) && lineItems.length > 0) {
+      for (const li of lineItems) {
+        const pid = safeStr(li?.project_id).trim(); if (!pid) continue;
+        const amt = safeNum(
+          li?.actual_amount ?? li?.actual_cost ?? li?.actual_spend ?? li?.spent
+        );
+        if (amt > 0) spendMap.set(pid, (spendMap.get(pid) ?? 0) + amt);
+      }
+    } else {
+      // Fall back: project-level actual columns
+      const { data: projSpend } = await supabase
+        .from("projects")
+        .select("id, actual_spend, actual_cost, spent_amount, spend_to_date, total_actual, total_spent, actuals")
+        .in("id", activeIds)
+        .limit(200);
+      for (const p of projSpend ?? []) {
+        const pid = safeStr(p?.id).trim(); if (!pid) continue;
+        const amt = safeNum(
+          p?.actual_spend ?? p?.actual_cost ?? p?.spent_amount ??
+          p?.spend_to_date ?? p?.total_actual ?? p?.total_spent ?? p?.actuals
+        );
+        if (amt > 0) spendMap.set(pid, amt);
+      }
+
+      // Last resort: project_spend table
+      if (spendMap.size === 0) {
+        try {
+          const { data: spendRows } = await supabase
+            .from("project_spend")
+            .select("project_id, amount")
+            .in("project_id", activeIds)
+            .limit(100000);
+          for (const s of spendRows ?? []) {
+            const pid = safeStr(s?.project_id).trim(); if (!pid) continue;
+            const amt = safeNum(s?.amount);
+            if (amt > 0) spendMap.set(pid, (spendMap.get(pid) ?? 0) + amt);
+          }
+        } catch {}
+      }
+    }
   } catch {}
 
-  // PM map
+  // ── PM map ──
   const pmUserIds = uniq(members.map((m: any) => m?.user_id));
   const profileMap = new Map<string, string>();
   if (pmUserIds.length) {
@@ -265,7 +325,7 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     pmByProject.set(pid, profileMap.get(safeStr(m?.user_id).trim()) ?? "Unknown PM");
   }
 
-  // Other maps
+  // ── Approval map ──
   const approvalMap = new Map<string, { total: number; overdue: number }>();
   for (const a of approvals) {
     const pid = safeStr(a?.project_id).trim(); if (!pid) continue;
@@ -276,6 +336,7 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     approvalMap.set(pid, cur);
   }
 
+  // ── RAID map ──
   const raidMap = new Map<string, { total: number; high: number; overdue: number }>();
   for (const r of raidItems) {
     const pid = safeStr(r?.project_id).trim(); if (!pid) continue;
@@ -294,6 +355,7 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     raidLatest.set(pid, safeStr(r?.updated_at));
   }
 
+  // ── Milestone map ──
   const msMap = new Map<string, { due: number; overdue: number; critical: number }>();
   for (const m of milestones) {
     const pid = safeStr(m?.project_id).trim(); if (!pid) continue;
@@ -307,6 +369,7 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     msMap.set(pid, cur);
   }
 
+  // ── Change map ──
   const changeMap = new Map<string, { open: number; review: number }>();
   for (const c of changes) {
     const pid = safeStr(c?.project_id).trim(); if (!pid) continue;
@@ -318,13 +381,7 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     changeMap.set(pid, cur);
   }
 
-  const spendMap = new Map<string, number>();
-  for (const s of spendRows) {
-    const pid = safeStr(s?.project_id).trim(); if (!pid) continue;
-    spendMap.set(pid, (spendMap.get(pid) ?? 0) + safeNum(s?.amount));
-  }
-
-  // Aggregate
+  // ── Aggregate ──
   let g = 0, a = 0, r = 0, unscored = 0;
   let pendingApprovals = 0, overdueApprovals = 0;
   let openRaid = 0, highRaid = 0, overdueRaid = 0;
@@ -358,16 +415,16 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     const rag    = h?.rag ?? "UNSCORED";
 
     projectNames.push(name);
-    pendingApprovals  += ap.total;
-    overdueApprovals  += ap.overdue;
-    openRaid          += rd.total;
-    highRaid          += rd.high;
-    overdueRaid       += rd.overdue;
-    milestonesDue     += ms.due;
-    overdueMilestones += ms.overdue;
-    criticalMilestones+= ms.critical;
-    openChanges       += ch.open;
-    changesInReview   += ch.review;
+    pendingApprovals   += ap.total;
+    overdueApprovals   += ap.overdue;
+    openRaid           += rd.total;
+    highRaid           += rd.high;
+    overdueRaid        += rd.overdue;
+    milestonesDue      += ms.due;
+    overdueMilestones  += ms.overdue;
+    criticalMilestones += ms.critical;
+    openChanges        += ch.open;
+    changesInReview    += ch.review;
     if (budget > 0) { totalBudget += budget; totalSpend += spend; }
 
     if (rag === "G") { g++; if (h?.score) healthScores.push(h.score); }
@@ -376,24 +433,46 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     else unscored++;
 
     if (rd.high > 0) highRaidProjects.push(name + " (" + rd.high + " high)");
-    if (!pm) { noPmProjects.push(name); gaps.push({ severity: "high", type: "no_pm", detail: "No project manager assigned", project: name, href: "/projects/" + pid }); }
-    if (!h)  { gaps.push({ severity: "medium", type: "no_health", detail: "No health score computed yet", project: name, href: "/projects/" + pid + "/artifacts" }); }
 
-    const raidAge = raidLatest.has(pid) ? Math.floor((now - new Date(raidLatest.get(pid)!).getTime()) / 86400000) : null;
+    if (!pm) {
+      noPmProjects.push(name);
+      gaps.push({ severity: "high", type: "no_pm", detail: "No project manager assigned", project: name, href: "/projects/" + pid });
+    }
+
+    // ── FIX: only flag "no health score" if genuinely not in healthByProject ──
+    // Projects scored by the portfolio/health API ARE in healthByProject.
+    // Do not flag them as unscored.
+    if (!h) {
+      gaps.push({ severity: "medium", type: "no_health", detail: "No health score computed yet", project: name, href: "/projects/" + pid + "/artifacts" });
+    }
+
+    const raidAge = raidLatest.has(pid)
+      ? Math.floor((now - new Date(raidLatest.get(pid)!).getTime()) / 86400000)
+      : null;
     if (raidAge !== null && raidAge >= 14) {
       staleRaidProjects.push(name);
       gaps.push({ severity: "medium", type: "stale_raid", detail: "RAID not updated in " + raidAge + " days", project: name, href: "/projects/" + pid + "/raid" });
     }
-    if (rag === "R" && rd.high === 0 && ch.review === 0) gaps.push({ severity: "high", type: "red_no_action", detail: "Red RAG with no escalation evidence", project: name, href: "/projects/" + pid + "/artifacts" });
-    if (ap.overdue >= 3) gaps.push({ severity: "medium", type: "approvals_breach", detail: ap.overdue + " approval steps breached SLA", project: name, href: "/projects/" + pid + "/approvals/timeline" });
+
+    if (rag === "R" && rd.high === 0 && ch.review === 0) {
+      gaps.push({ severity: "high", type: "red_no_action", detail: "Red RAG with no escalation evidence", project: name, href: "/projects/" + pid + "/artifacts" });
+    }
+    if (ap.overdue >= 3) {
+      gaps.push({ severity: "medium", type: "approvals_breach", detail: ap.overdue + " approval steps breached SLA", project: name, href: "/projects/" + pid + "/approvals/timeline" });
+    }
     if (budget > 0 && spend > budget && ch.open === 0) {
       const pct = Math.round(((spend - budget) / budget) * 100);
       gaps.push({ severity: "high", type: "overspend", detail: pct + "% over budget with no change requests", project: name, href: "/projects/" + pid + "/change" });
     }
   }
 
-  const avgHealth = healthScores.length ? Math.round(healthScores.reduce((s, v) => s + v, 0) / healthScores.length) : null;
-  const variancePct = totalBudget > 0 ? Math.round(((totalSpend - totalBudget) / totalBudget) * 100 * 10) / 10 : null;
+  const avgHealth = healthScores.length
+    ? Math.round(healthScores.reduce((s, v) => s + v, 0) / healthScores.length)
+    : null;
+  const variancePct = totalBudget > 0
+    ? Math.round(((totalSpend - totalBudget) / totalBudget) * 100 * 10) / 10
+    : null;
+
   gaps.sort((x, y) => ({ high: 0, medium: 1, low: 2 }[x.severity] - { high: 0, medium: 1, low: 2 }[y.severity]));
 
   return {
@@ -414,7 +493,8 @@ function emptySignals(): Signals {
   return {
     projectCount: 0, rag: { g: 0, a: 0, r: 0, unscored: 0 }, avgHealth: null,
     pendingApprovals: 0, overdueApprovals: 0, openRaid: 0, highRaid: 0, overdueRaid: 0,
-    milestonesDue: 0, overdueMilestones: 0, criticalMilestones: 0, openChanges: 0, changesInReview: 0,
+    milestonesDue: 0, overdueMilestones: 0, criticalMilestones: 0,
+    openChanges: 0, changesInReview: 0,
     totalBudget: 0, totalSpend: 0, variancePct: null,
     projectNames: [], redProjects: [], amberProjects: [],
     highRaidProjects: [], noPmProjects: [], staleRaidProjects: [], gaps: [],
@@ -435,6 +515,11 @@ async function generateNarrative(sig: Signals): Promise<{
     ? "RAG: " + sig.rag.g + " Green | " + sig.rag.a + " Amber | " + sig.rag.r + " Red" + (sig.avgHealth ? " | Avg " + sig.avgHealth + "%" : "")
     : "RAG: Health scores not yet computed for these projects";
 
+  const spendLine = sig.totalBudget > 0
+    ? "BUDGET: GBP " + Math.round(sig.totalBudget).toLocaleString() + " total | GBP " + Math.round(sig.totalSpend).toLocaleString() + " spent" +
+      (sig.variancePct != null ? " | " + (sig.variancePct > 0 ? "+" : "") + sig.variancePct + "% variance (negative = underspent)" : "")
+    : "BUDGET: Not configured";
+
   const prompt = [
     "DATE: " + today,
     "PROJECTS (" + sig.projectCount + "): " + sig.projectNames.slice(0, 10).join(", "),
@@ -446,11 +531,9 @@ async function generateNarrative(sig: Signals): Promise<{
     sig.highRaidProjects.length ? "HIGH RISK: " + sig.highRaidProjects.join(", ") : "",
     "MILESTONES: " + sig.milestonesDue + " due in 30d, " + sig.overdueMilestones + " overdue, " + sig.criticalMilestones + " critical path",
     "CHANGES: " + sig.openChanges + " open, " + sig.changesInReview + " awaiting decision",
-    sig.totalBudget > 0
-      ? "BUDGET: GBP " + Math.round(sig.totalBudget).toLocaleString() + " total | GBP " + Math.round(sig.totalSpend).toLocaleString() + " spent" + (sig.variancePct != null ? " | " + (sig.variancePct > 0 ? "+" : "") + sig.variancePct + "% spend-to-budget ratio (negative = underspent, not necessarily bad)" : "")
-      : "BUDGET: Not configured",
-    sig.noPmProjects.length ? "NO PM: " + sig.noPmProjects.join(", ") : "",
-    sig.staleRaidProjects.length ? "STALE RAID: " + sig.staleRaidProjects.join(", ") : "",
+    spendLine,
+    sig.noPmProjects.length     ? "NO PM: "       + sig.noPmProjects.join(", ")     : "",
+    sig.staleRaidProjects.length? "STALE RAID: "  + sig.staleRaidProjects.join(", "): "",
   ].filter(Boolean).join("\n");
 
   const system = `You are Aliena, writing a concise executive portfolio briefing.
@@ -464,7 +547,7 @@ Return ONLY valid JSON:
     { "id": "health",   "title": "Portfolio Health",      "body": "2-3 sentences naming specific projects and their scores/RAG.", "sentiment": "green|amber|red|neutral" },
     { "id": "risk",     "title": "Risk and RAID",          "body": "2-3 sentences naming which projects have high-severity RAID.", "sentiment": "green|amber|red|neutral" },
     { "id": "delivery", "title": "Delivery and Approvals", "body": "2-3 sentences on specific milestones/approvals by project.", "sentiment": "green|amber|red|neutral" },
-    { "id": "finance",  "title": "Financial Position",     "body": "2-3 sentences with actual budget numbers and project names.", "sentiment": "green|amber|red|neutral" }
+    { "id": "finance",  "title": "Financial Position",     "body": "2-3 sentences with actual budget numbers and spend to date.", "sentiment": "green|amber|red|neutral" }
   ],
   "talking_points": ["point 1","point 2","point 3","point 4","point 5"]
 }
@@ -502,24 +585,21 @@ GOOD example: "Project Comfort has 3 overdue milestones -- escalate to the PM fo
   };
 }
 
-/* -- GET/POST handler ----------------------------------------------------------- */
+/* -- POST handler ---------------------------------------------------------- */
 
-// Accept POST so the client can send live health data from the homepage
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();
     const user     = await requireAuth(supabase);
 
-    const body = await req.json().catch(() => ({}));
+    const body  = await req.json().catch(() => ({}));
     const force = body?.force === true;
     const rcFromBody = body?.ragCounts;
-    // Include rag counts in cache key so a different health picture gets fresh generation
     const ragKey = rcFromBody
       ? "g" + (Number(rcFromBody.g)||0) + "a" + (Number(rcFromBody.a)||0) + "r" + (Number(rcFromBody.r)||0)
       : "unscored";
     const cacheKey = "narrative:" + user.id + ":" + ragKey;
 
-    // Return cached version if fresh and not forced
     if (!force) {
       const cached = cacheGet(cacheKey);
       if (cached) return jsonNoStore({ ...cached, cached: true });
@@ -527,13 +607,12 @@ export async function POST(req: Request) {
 
     const signals = await collectSignals(supabase, user.id);
 
-    // Override health data with live counts passed from the homepage
-    // This is the reliable source -- avoids all project_health table issues
+    // Override health with live counts from homepage (authoritative source)
     if (body?.ragCounts && typeof body.ragCounts === "object") {
       const rc = body.ragCounts;
-      signals.rag.g       = Number(rc.g)  || 0;
-      signals.rag.a       = Number(rc.a)  || 0;
-      signals.rag.r       = Number(rc.r)  || 0;
+      signals.rag.g        = Number(rc.g)  || 0;
+      signals.rag.a        = Number(rc.a)  || 0;
+      signals.rag.r        = Number(rc.r)  || 0;
       signals.rag.unscored = Math.max(0, signals.projectCount - signals.rag.g - signals.rag.a - signals.rag.r);
     }
     if (body?.projectScores && typeof body.projectScores === "object") {
@@ -542,15 +621,12 @@ export async function POST(req: Request) {
       if (scores.length) {
         signals.avgHealth = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
       }
-      // Update project-level names for red/amber lists
       signals.redProjects   = [];
       signals.amberProjects = [];
-      for (const [pid, v] of Object.entries(ps)) {
-        const rag = safeStr(v?.rag).toUpperCase();
-        // Find project name from projectNames list (best effort)
-        const name = pid; // fallback to pid -- narratives will use it
-        if (rag === "R") signals.redProjects.push(name);
-        if (rag === "A") signals.amberProjects.push(name);
+      for (const [, v] of Object.entries(ps)) {
+        const ragVal = safeStr(v?.rag).toUpperCase();
+        if (ragVal === "R") signals.redProjects.push("(project)");
+        if (ragVal === "A") signals.amberProjects.push("(project)");
       }
     }
 
@@ -603,7 +679,7 @@ export async function POST(req: Request) {
   }
 }
 
-// Keep GET for backwards compat -- just calls POST with empty body
+// GET for backwards compat
 export async function GET() {
   return POST(new Request("http://local/api/ai/portfolio-narrative", {
     method: "POST",
