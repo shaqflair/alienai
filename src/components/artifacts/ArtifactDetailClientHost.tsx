@@ -704,9 +704,6 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const fpApprovalLocked = isFinancialPlan && isApprovalLockedStatus(approvalStatus);
   const fpApprovalActive = isFinancialPlan && approvalStatusLower === "submitted";
 
-  // Use approvalStatus prop directly (server-authoritative) for financial plan
-  const fpApprovalLocked = isFinancialPlan && isApprovalLockedStatus(approvalStatus);
-  const fpApprovalActive = isFinancialPlan && approvalStatusLower === "submitted";
 
   // For financial plan under approval: allow viewing/editing regardless of collab lock.
   // The collab lock belongs to the submitter's session; approvers shouldn't be blocked.
