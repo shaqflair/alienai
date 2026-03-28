@@ -741,9 +741,22 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
             // Dashboard summary has no briefing — fetch portfolio-narrative separately
             // Pass live health data so it doesn't need internal HTTP calls
             const narrativeBody = {
-              ragCounts: { g: nextPh?.ok ? (nextPh as any).projectScores ? Object.values((nextPh as any).projectScores).filter((v: any) => v?.rag === "G").length : 0 : 0, a: 0, r: 0 },
+              ragCounts: { g: 0, a: 0, r: 0 },
               projectScores: (nextPh as any)?.projectScores ?? {},
               financialPlan: nextFp ?? null,
+              // Pass KPI-level budget figures so the narrative matches the KPI card exactly
+              totalBudget: nextFp?.ok ? (() => {
+                const fp = nextFp as any;
+                const p = fp?.portfolio ?? {};
+                return p.totalBudget ?? p.total_budget ?? p.approvedBudget ??
+                  fp.total_approved_budget ?? fp.approved_budget ?? null;
+              })() : null,
+              totalSpent: nextFp?.ok ? (() => {
+                const fp = nextFp as any;
+                const p = fp?.portfolio ?? {};
+                return p.totalActual ?? p.total_actual ?? p.totalSpent ??
+                  fp.total_spent ?? fp.actual_spent ?? null;
+              })() : null,
             };
             // Count RAG properly
             if (nextPh?.ok && (nextPh as any).projectScores) {

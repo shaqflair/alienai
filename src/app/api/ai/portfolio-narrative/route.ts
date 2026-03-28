@@ -674,6 +674,18 @@ export async function POST(req: Request) {
 
     const signals = await collectSignals(supabase, user.id, { seededHealth, seededSpend });
 
+    // Override budget/spend with values passed from homepage KPI card
+    // This ensures the narrative matches the Budget Health KPI exactly
+    if (body?.totalBudget != null && Number.isFinite(Number(body.totalBudget)) && Number(body.totalBudget) > 0) {
+      signals.totalBudget = Number(body.totalBudget);
+    }
+    if (body?.totalSpent != null && Number.isFinite(Number(body.totalSpent)) && Number(body.totalSpent) >= 0) {
+      signals.totalSpend = Number(body.totalSpent);
+      if (signals.totalBudget > 0) {
+        signals.variancePct = Math.round(((signals.totalSpend - signals.totalBudget) / signals.totalBudget) * 1000) / 10;
+      }
+    }
+
     // Override RAG counts with live values from homepage
     if (body?.ragCounts && typeof body.ragCounts === "object") {
       const rc = body.ragCounts;
