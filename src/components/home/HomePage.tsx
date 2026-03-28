@@ -301,6 +301,11 @@ function normalizeMilestonesDueCount(input: any): number | null {
   if (typeof input?.count === "number" && Number.isFinite(input.count)) return Math.max(0, input.count);
   return 0;
 }
+function formatMoney(n: number): string {
+  if (n >= 1_000_000) return `£${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `£${Math.round(n / 1_000)}k`;
+  return `£${Math.round(n)}`;
+}
 
 /* --- Notification Bell ---------------------------------------------------- */
 function NotificationBell() {
@@ -626,7 +631,8 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
   const [recentWins, setRecentWins] = useState<RecentWin[]>([]);
   const [winsLoading, setWinsLoading] = useState(true);
   const [briefingData, setBriefingData] = useState<any | null>(null);
-    const projectOptions = useMemo<ProjectOption[]>(() => (Array.isArray(projects) ? projects : []).map((p: any) => ({ id: String(p?.id || "").trim(), name: safeStr(p?.title || "Project").trim(), code: projectCodeLabel(p?.project_code) || null })).filter((p) => p.id).sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name)), [projects]);
+
+  const projectOptions = useMemo<ProjectOption[]>(() => (Array.isArray(projects) ? projects : []).map((p: any) => ({ id: String(p?.id || "").trim(), name: safeStr(p?.title || "Project").trim(), code: projectCodeLabel(p?.project_code) || null })).filter((p) => p.id).sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name)), [projects]);
   const pmOptions = useMemo(() => { const map = new Map<string, string>(); for (const p of (Array.isArray(projects) ? projects : []) as any[]) { const name = safeStr(p?.project_manager || p?.pm_name || p?.manager_name || p?.project_manager_name || p?.manager || p?.pm || p?.owner_name).trim(); const id = safeStr(p?.project_manager_id || p?.pm_user_id || p?.manager_id || p?.project_manager_user_id || p?.owner_id).trim(); if (!name) continue; map.set(id || name, name); } return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)); }, [projects]);
   const deptOptions = useMemo(() => { const set = new Set<string>(); for (const p of (Array.isArray(projects) ? projects : []) as any[]) { const d = safeStr(p?.department).trim(); if (d) set.add(d); } return Array.from(set).sort((a, b) => a.localeCompare(b)).map((d) => ({ value: d, label: d })); }, [projects]);
   const derivedApiFilters = useMemo(() => deriveApiFilters(urlFilters, projectOptions), [urlFilters, projectOptions]);
@@ -721,7 +727,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
           setDueUpdatedAt(safeStr(j.generated_at).trim() || new Date().toISOString());
 
           // Set briefing from API if returned
-        const executiveBriefingFromApi =
+          const executiveBriefingFromApi =
             (j as any).executiveBriefing ||
             (j as any).aiBriefing?.executive_briefing ||
             (j as any).aiBriefing?.briefing ||
@@ -729,30 +735,40 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
           if (executiveBriefingFromApi) {
             setBriefingData(executiveBriefingFromApi);
           } else {
-            // No briefing from API — will be patched by live score below
-            // Set ok:false so card shows "unavailable" rather than loading forever
             setBriefingData({ ok: true, sections: [], talking_points: [], signals_summary: null, generated_at: new Date().toISOString() });
           }
-          // Patch briefing with live score so it never contradicts the KPI card
+
+          // ── Patch briefing with live signals ──────────────────────────────
           if (nextPh?.ok) {
             const liveScore = Math.max(0, Math.min(100, Math.round(Number((nextPh as any).score ?? (nextPh as any).portfolio_health ?? 0))));
             if (liveScore > 0) {
               const scores = (nextPh as any).projectScores ?? {};
+
+              // FIX 1: Only count RAG for active (non-pipeline) projects
+              const activeProjectIdSet = new Set(activeProjects.map((p: any) => String(p?.id || "").trim()));
               const patchRag = { g: 0, a: 0, r: 0 };
-              for (const v of Object.values(scores) as any[]) {
-                if ((v as any)?.rag === "G") patchRag.g++;
-                else if ((v as any)?.rag === "A") patchRag.a++;
-                else if ((v as any)?.rag === "R") patchRag.r++;
+              for (const [pid, v] of Object.entries(scores) as [string, any][]) {
+                if (!activeProjectIdSet.has(pid)) continue;
+                if (v?.rag === "G") patchRag.g++;
+                else if (v?.rag === "A") patchRag.a++;
+                else if (v?.rag === "R") patchRag.r++;
               }
+
+              // FIX 3: Build governance gaps using scoredIds to avoid false "no health score" flags
+              const scoredIds = new Set(
+                Object.keys(scores).filter(pid => activeProjectIdSet.has(pid))
+              );
+
               setBriefingData((prev: any) => {
                 if (!prev?.ok) return prev;
                 const sentiment = liveScore >= 85 ? "green" : liveScore >= 70 ? "amber" : "red";
-               const execSummary = liveScore >= 85
-  ? `Portfolio health is strong at ${liveScore}%. ${patchRag.g} project${patchRag.g !== 1 ? "s" : ""} green — delivery signals on track.`
-  : liveScore >= 70
-  ? `Portfolio health is amber at ${liveScore}%. ${patchRag.a} project${patchRag.a !== 1 ? "s" : ""} need${patchRag.a === 1 ? "s" : ""} attention — monitor schedule and RAID signals.`
-  : `Portfolio health is red at ${liveScore}%. ${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} require${patchRag.r === 1 ? "s" : ""} immediate review — schedule, RAID, and governance issues present.`;         
-       const liveTalkingPoints = [
+                const execSummary = liveScore >= 85
+                  ? `Portfolio health is strong at ${liveScore}%. ${patchRag.g} project${patchRag.g !== 1 ? "s" : ""} green — delivery signals on track.`
+                  : liveScore >= 70
+                  ? `Portfolio health is amber at ${liveScore}%. ${patchRag.a} project${patchRag.a !== 1 ? "s" : ""} need${patchRag.a === 1 ? "s" : ""} attention — monitor schedule and RAID signals.`
+                  : `Portfolio health is red at ${liveScore}%. ${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} require${patchRag.r === 1 ? "s" : ""} immediate review — schedule, RAID, and governance issues present.`;
+
+                const liveTalkingPoints = [
                   `Portfolio mix is ${patchRag.g} green / ${patchRag.a} amber / ${patchRag.r} red.`,
                   `Average health is ${liveScore}%.`,
                   ...(prev.talking_points ?? []).filter((tp: string) =>
@@ -763,26 +779,57 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                     !safeStr(tp).toLowerCase().includes("portfolio mix")
                   ),
                 ];
+
+                // FIX 2: Patch finance section body with real budget/spend figures
+                const patchedSections = (prev.sections ?? []).map((s: any) => {
+                  if (s.id === "health") {
+                    return { ...s, sentiment, body: `Average portfolio health is ${liveScore}%. Current mix: ${patchRag.g} green, ${patchRag.a} amber, ${patchRag.r} red.` };
+                  }
+                  if (s.id === "delivery" && sentiment === "red") {
+                    return { ...s, sentiment: "red", body: `${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} ha${patchRag.r === 1 ? "s" : "ve"} overdue milestones. Schedule delivery requires immediate attention.` };
+                  }
+                  if (s.id === "delivery" && sentiment === "amber") {
+                    return { ...s, sentiment: "amber", body: `Delivery signals require monitoring — some milestones are approaching or past due dates.` };
+                  }
+                  if (s.id === "finance") {
+                    // Pull live budget/spend from fpSummary state captured in this closure
+                    const fpData = nextFp as any;
+                    const budget = fpData?.ok
+                      ? (fpData.portfolio?.totalBudget ?? fpData.portfolio?.total_budget ?? fpData.total_approved_budget ?? fpData.approved_budget ?? fpData.budget ?? null)
+                      : null;
+                    const spent = fpData?.ok
+                      ? (fpData.portfolio?.totalActual ?? fpData.portfolio?.total_actual ?? fpData.portfolio?.totalSpent ?? fpData.total_spent ?? fpData.actual_spent ?? fpData.spent ?? null)
+                      : null;
+                    const bNum = budget != null && Number.isFinite(Number(budget)) && Number(budget) > 0 ? Number(budget) : null;
+                    const sNum = spent != null && Number.isFinite(Number(spent)) && Number(spent) > 0 ? Number(spent) : null;
+                    const bStr = bNum != null ? formatMoney(bNum) : null;
+                    const sStr = sNum != null ? formatMoney(sNum) : null;
+                    const body = bStr
+                      ? `Total portfolio budget is ${bStr}.${sStr ? ` ${sStr} spent to date.` : " No actuals recorded yet."}`
+                      : s.body;
+                    return { ...s, body };
+                  }
+                  return s;
+                });
+
+                // FIX 3: Drop false "no health score" gaps for projects that ARE scored
+                const patchedGaps = (prev.gaps ?? []).filter((g: any) => {
+                  if (g?.type !== "health") return true; // keep non-health gaps
+                  // Only keep health gap if we genuinely can't confirm the project is scored
+                  return scoredIds.size === 0;
+                });
+
                 return {
                   ...prev,
                   executive_summary: execSummary,
                   talking_points: liveTalkingPoints,
-                 sections: (prev.sections ?? []).map((s: any) => {
-  if (s.id === "health") {
-    return { ...s, sentiment, body: `Average portfolio health is ${liveScore}%. Current mix: ${patchRag.g} green, ${patchRag.a} amber, ${patchRag.r} red.` };
-  }
-  if (s.id === "delivery" && sentiment === "red") {
-    return { ...s, sentiment: "red", body: `${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} ha${patchRag.r === 1 ? "s" : "ve"} overdue milestones. Schedule delivery requires immediate attention.` };
-  }
-  if (s.id === "delivery" && sentiment === "amber") {
-    return { ...s, sentiment: "amber", body: `Delivery signals require monitoring — some milestones are approaching or past due dates.` };
-  }
-  return s;
-}),                  signals_summary: { ...(prev.signals_summary ?? {}), avg_health: liveScore, rag: patchRag },
+                  sections: patchedSections,
+                  gaps: patchedGaps,
+                  signals_summary: { ...(prev.signals_summary ?? {}), avg_health: liveScore, rag: patchRag },
                 };
               });
-            } // closes if (liveScore > 0)
-          } // closes if (nextPh?.ok)
+            }
+          }
 
         } catch {
           if (!cancelled) { setInsights([]); setResourceWeeks([]); setRecentWins([]); setFpSummary(null); setDueItems([]); setRaidPanel(null); setMilestonesDueLive(0); }
