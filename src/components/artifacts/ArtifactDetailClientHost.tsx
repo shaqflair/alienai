@@ -535,7 +535,7 @@ function ApprovalChainStatus({ artifactId }: { artifactId: string }) {
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
-    fetch(`/api/approvals?artifactId=${encodeURIComponent(artifactId)}`, { cache: "no-store" })
+    fetch(`/api/artifacts/${encodeURIComponent(artifactId)}/approval-chain`, { cache: "no-store" })
       .then(r => r.json())
       .then(j => {
         if (j?.ok && Array.isArray(j.steps)) setSteps(j.steps);
