@@ -451,7 +451,7 @@ const projects = (data?.projects ?? []).filter(
               {!loading && port && (
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
                   <Mono size={10} color={T.ink4}>
-                    {port.projectCount} projects -- {port.withPlanCount} with plan
+                    {projects.length} projects -- {projects.filter(p => p.hasFinancialPlan).length} with plan
                   </Mono>
                   <div style={{ marginTop: 4 }}>
                     <Mono size={10} color={T.ink5}>
@@ -835,7 +835,7 @@ const projects = (data?.projects ?? []).filter(
               }}
             >
               <Mono size={10} color={T.ink5}>
-                Org scope -- active projects only -- {port?.projectCount} projects --{" "}
+                Org scope -- active projects only -- {projects.length} projects --{" "}
                 {filtered.length} shown
               </Mono>
               <Mono size={10} color={T.ink5}>
