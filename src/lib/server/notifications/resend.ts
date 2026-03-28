@@ -63,7 +63,7 @@ async function sendEmail(args: {
   html: string;
   text: string;
 }) {
-  const from = requiredEnv("APP_FROM_EMAIL");
+  const from = requiredEnv("RESEND_FROM");
   const { error } = await resend.emails.send({
     from,
     to: [args.to],
@@ -349,3 +349,4 @@ export async function sendChangeRejectedEmail(args: {
     rejectedByName: args.rejectedByName ?? null, reason: args.reason ?? null,
   });
 }
+
