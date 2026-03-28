@@ -247,20 +247,90 @@ async function collectSignals(
     }
   }
 
-  // ── Spend: use seeded data from caller (financial plan API result), fall back to DB ──
+  // ── Spend: use seeded data from caller first, then query artifacts directly ──
+  // Internal HTTP calls fail on Vercel — we query the artifacts table the same
+  // way the financial-plan-summary route does.
   const spendMap = new Map<string, number>();
+  const budgetFromPlanMap = new Map<string, number>(); // approved budget per project
+
   if (opts?.seededSpend) {
     for (const [pid, amt] of Object.entries(opts.seededSpend)) {
-      if (pid && amt > 0) spendMap.set(pid, amt);
+      if (pid && pid !== "__total__" && amt > 0) spendMap.set(pid, amt);
+    }
+    // __total__ fallback: spread across first active project
+    if (spendMap.size === 0 && opts.seededSpend["__total__"] && activeIds.length > 0) {
+      spendMap.set(activeIds[0], opts.seededSpend["__total__"]);
     }
   }
+
+  if (spendMap.size === 0) {
+    // Query artifacts table directly — same approach as financial-plan-summary route
+    const artTypes = ["FINANCIAL_PLAN", "financial_plan", "financial-plan", "financialPlan", "budget"];
+    for (const artType of artTypes) {
+      try {
+        const { data: artRows, error: artErr } = await supabase
+          .from("artifacts")
+          .select("id, project_id, content_json, content")
+          .in("project_id", activeIds)
+          .eq("type", artType)
+          .order("updated_at", { ascending: false })
+          .limit(500);
+
+        if (!artErr && Array.isArray(artRows) && artRows.length > 0) {
+          for (const art of artRows) {
+            const pid = safeStr(art?.project_id).trim();
+            if (!pid || spendMap.has(pid)) continue;
+            const raw = art?.content_json ?? art?.content;
+            let content: any = null;
+            try { content = typeof raw === "object" ? raw : JSON.parse(String(raw ?? "")); } catch {}
+            if (!content) continue;
+
+            // Extract actual spend from cost lines
+            let actual = 0;
+            const costLines: any[] = Array.isArray(content.cost_lines) ? content.cost_lines
+              : Array.isArray(content.costLines) ? content.costLines
+              : Array.isArray(content.lines) ? content.lines
+              : Array.isArray(content.items) ? content.items : [];
+
+            for (const line of costLines) {
+              actual += safeNum(line?.actual ?? line?.actuals ?? line?.spent);
+            }
+            // Monthly phasing fallback
+            if (actual === 0 && content.monthly_data) {
+              try {
+                for (const [, months] of Object.entries(content.monthly_data) as any) {
+                  for (const [, vals] of Object.entries(months as any)) {
+                    actual += safeNum((vals as any)?.actual);
+                  }
+                }
+              } catch {}
+            }
+            // Top-level fallback
+            if (actual === 0) {
+              actual = safeNum(content.actual ?? content.total_actual ?? content.totalActual);
+            }
+            if (actual > 0) spendMap.set(pid, actual);
+
+            // Also extract approved budget for the signals summary
+            const approvedBudget = safeNum(
+              content.total_approved_budget ?? content.totalApprovedBudget ??
+              content.approved_budget ?? content.approvedBudget ?? content.approved ?? 0
+            );
+            if (approvedBudget > 0) budgetFromPlanMap.set(pid, approvedBudget);
+          }
+          break; // Found matching artifact type
+        }
+      } catch {}
+    }
+  }
+
+  // Last resort: project-level columns
   if (spendMap.size === 0) {
     try {
       const { data: projSpend } = await supabase
         .from("projects")
         .select("id, actual_spend, actual_cost, spent_amount, spend_to_date, total_actual, total_spent, actuals")
-        .in("id", activeIds)
-        .limit(200);
+        .in("id", activeIds).limit(200);
       for (const p of projSpend ?? []) {
         const pid = safeStr(p?.id).trim(); if (!pid) continue;
         const amt = safeNum(
@@ -377,9 +447,8 @@ async function collectSignals(
     const rd     = raidMap.get(pid)     ?? { total: 0, high: 0, overdue: 0 };
     const ms     = msMap.get(pid)       ?? { due: 0, overdue: 0, critical: 0 };
     const ch     = changeMap.get(pid)   ?? { open: 0, review: 0 };
-    const budget = safeNum(p?.budget_amount);
-    // __total__ is a fallback key when per-project spend is not available
-    const spend  = spendMap.get(pid) ?? spendMap.get("__total__") ?? 0;
+    const budget = budgetFromPlanMap.get(pid) || safeNum(p?.budget_amount);
+    const spend  = spendMap.get(pid) ?? 0;
     const rag    = h?.rag ?? "UNSCORED";
 
     projectNames.push(name);
