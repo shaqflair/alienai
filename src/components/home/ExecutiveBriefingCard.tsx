@@ -575,7 +575,7 @@ function BriefingInner({
             </div>
             <p className="mt-0.5 text-xs text-slate-400">
               AI-generated portfolio narrative ·{" "}
-              {data?.generated_at ? `Updated ${timeAgo(data.generated_at)}` : (loading && !collapsed) ? "Loading…" : "Ready"}
+              {data?.generated_at ? `Updated ${timeAgo(data.generated_at)}` : collapsed ? "Ready" : loading ? "Loading…" : "Ready"}
             </p>
           </div>
         </div>

@@ -47,19 +47,23 @@ const ExecutiveBriefingCard = dynamic(
     ssr: false,
     loading: () => (
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-        <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100">
-            <Sparkles className="h-4 w-4 text-indigo-600" />
-          </div>
-          <div>
-            <div className="font-black text-slate-900">Executive Briefing</div>
-            <p className="mt-0.5 text-xs text-slate-400">AI-generated portfolio narrative · Ready</p>
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100">
+              <svg className="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
+            </div>
+            <div>
+              <div className="font-black text-slate-900" style={{ letterSpacing: "-0.01em" }}>Executive Briefing</div>
+              <div className="mt-0.5 text-xs text-slate-400">AI-generated portfolio narrative · Ready</div>
+            </div>
           </div>
         </div>
       </div>
     ),
   },
-);const ResourceActivityChart = dynamic(
+);
+
+const ResourceActivityChart = dynamic(
   () => import("@/components/home/ResourceActivityChart"),
   { ssr: false, loading: () => <div className="h-[280px] animate-pulse rounded-2xl bg-gray-50" /> },
 );
@@ -630,6 +634,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
   const [recentWins, setRecentWins] = useState<RecentWin[]>([]);
   const [winsLoading, setWinsLoading] = useState(true);
   const [briefingData, setBriefingData] = useState<any | null>(executiveBriefing ?? null);
+
   const projectOptions = useMemo<ProjectOption[]>(() => (Array.isArray(projects) ? projects : []).map((p: any) => ({ id: String(p?.id || "").trim(), name: safeStr(p?.title || "Project").trim(), code: projectCodeLabel(p?.project_code) || null })).filter((p) => p.id).sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name)), [projects]);
   const pmOptions = useMemo(() => { const map = new Map<string, string>(); for (const p of (Array.isArray(projects) ? projects : []) as any[]) { const name = safeStr(p?.project_manager || p?.pm_name || p?.manager_name || p?.project_manager_name || p?.manager || p?.pm || p?.owner_name).trim(); const id = safeStr(p?.project_manager_id || p?.pm_user_id || p?.manager_id || p?.project_manager_user_id || p?.owner_id).trim(); if (!name) continue; map.set(id || name, name); } return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)); }, [projects]);
   const deptOptions = useMemo(() => { const set = new Set<string>(); for (const p of (Array.isArray(projects) ? projects : []) as any[]) { const d = safeStr(p?.department).trim(); if (d) set.add(d); } return Array.from(set).sort((a, b) => a.localeCompare(b)).map((d) => ({ value: d, label: d })); }, [projects]);
@@ -732,9 +737,38 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
             null;
           if (executiveBriefingFromApi) {
             setBriefingData(executiveBriefingFromApi);
+          } else {
+            // Dashboard summary has no briefing — fetch portfolio-narrative separately
+            // Pass live health data so it doesn't need internal HTTP calls
+            const narrativeBody = {
+              ragCounts: { g: nextPh?.ok ? (nextPh as any).projectScores ? Object.values((nextPh as any).projectScores).filter((v: any) => v?.rag === "G").length : 0 : 0, a: 0, r: 0 },
+              projectScores: (nextPh as any)?.projectScores ?? {},
+              financialPlan: nextFp ?? null,
+            };
+            // Count RAG properly
+            if (nextPh?.ok && (nextPh as any).projectScores) {
+              const ps = (nextPh as any).projectScores as Record<string, { rag: string }>;
+              narrativeBody.ragCounts = { g: 0, a: 0, r: 0 };
+              for (const v of Object.values(ps)) {
+                if (v?.rag === "G") narrativeBody.ragCounts.g++;
+                else if (v?.rag === "A") narrativeBody.ragCounts.a++;
+                else if (v?.rag === "R") narrativeBody.ragCounts.r++;
+              }
+            }
+            fetch("/api/ai/portfolio-narrative", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(narrativeBody),
+              cache: "no-store",
+            })
+              .then(r => r.json())
+              .then(narrative => {
+                if (!cancelled && narrative?.ok) {
+                  setBriefingData(narrative);
+                }
+              })
+              .catch(() => {});
           }
-          // If API returns no briefing, keep the server-side prop data already in state.
-          // Do NOT overwrite with an empty object — that wipes out sections.
 
           // ── Patch briefing with live signals ──────────────────────────────
           if (nextPh?.ok) {
