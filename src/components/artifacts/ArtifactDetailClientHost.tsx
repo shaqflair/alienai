@@ -1,4 +1,4 @@
-// src/components/artifacts/ArtifactDetailClientHost.tsx
+﻿// src/components/artifacts/ArtifactDetailClientHost.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -626,8 +626,10 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const approvalStatusIsTerminal =
     approvalStatusLower === "approved" || approvalStatusLower === "rejected";
 
+  // For financial plan under approval: allow viewing/editing regardless of collab lock.
+  // The collab lock belongs to the submitter's session; approvers shouldn't be blocked.
   const effectiveReadOnly = isFinancialPlan
-    ? !isEditable || lockLayout || collaboration.isReadOnly || approvalStatusIsTerminal
+    ? !isEditable || lockLayout || approvalStatusIsTerminal
     : !isEditable || lockLayout || collaboration.isReadOnly || approvalLocked;
 
   const isApproverMode = isApprover && effectiveReadOnly && mode === "charter";
