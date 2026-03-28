@@ -702,6 +702,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const approvalStatusIsTerminal =
     approvalStatusLower === "approved" || approvalStatusLower === "rejected";
 
+  const fpApprovalLocked = isFinancialPlan && isApprovalLockedStatus(approvalStatus);
+  const fpApprovalActive = isFinancialPlan && approvalStatusLower === "submitted";
+
   // For financial plan under approval: allow viewing/editing regardless of collab lock.
   // The collab lock belongs to the submitter's session; approvers shouldn't be blocked.
   const effectiveReadOnly = isFinancialPlan
@@ -999,3 +1002,5 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     </div>
   );
 }
+
+
