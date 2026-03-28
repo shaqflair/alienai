@@ -771,7 +771,13 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         />
 
         {fpApprovalLocked && (
-          <ApprovalChainStatus artifactId={artifactId} />
+          <div>
+            <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm mb-2">
+              <span className="font-semibold text-blue-800">In approval</span>
+              <span className="text-blue-700"> — this financial plan has been submitted for approval. The approved budget field is locked.</span>
+            </div>
+            <ApprovalChainStatus artifactId={artifactId} />
+          </div>
         )}
 
         <div className="relative w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
