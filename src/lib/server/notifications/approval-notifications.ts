@@ -1,4 +1,4 @@
-// src/lib/server/notifications/approval-notifications.ts
+﻿// src/lib/server/notifications/approval-notifications.ts
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/utils/supabase/admin";
@@ -84,7 +84,7 @@ async function getFirstArtifactStepId(supabase: SupabaseClient, artifactId: stri
 async function getNextArtifactPendingStepId(supabase: SupabaseClient, artifactId: string): Promise<string | null> {
   const { data, error } = await supabase
     .from("artifact_approval_steps").select("id, step_order, status")
-    .eq("artifact_id", artifactId).eq("status", "pending")
+    .eq("artifact_id", artifactId).in("status", ["pending","active"])
     .order("step_order", { ascending: true }).limit(1).maybeSingle();
   if (error) throw new Error(`Next approval step lookup failed: ${error.message}`);
   return safeStr(data?.id).trim() || null;
