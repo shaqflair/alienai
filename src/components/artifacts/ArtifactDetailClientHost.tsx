@@ -770,7 +770,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           isFinancialPlan={true}
         />
 
-        {isFinancialPlan && approvalLocked && (
+        {fpApprovalLocked && (
           <ApprovalChainStatus artifactId={artifactId} />
         )}
 
