@@ -111,7 +111,6 @@ export type ArtifactDetailClientHostProps = {
   approvalStatus?: string | null;
   submitForApprovalAction?: any | null;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
-  // NEW: approver inline-comment review mode
   isApprover?: boolean;
   requestChangesWithCommentsAction?: ((formData: FormData) => Promise<void>) | null;
 };
@@ -217,29 +216,25 @@ function FinancialPlanEditorHost({
         let ok = false;
         let errorMsg = "";
 
-        // ── Path 1: use the server action (updateArtifactJsonSilent) ──
-        // This is the correct save path — it directly writes content_json to the artifact.
         if (updateArtifactJsonAction && projectId && artifactId) {
           const result = await updateArtifactJsonAction({
             projectId,
             artifactId,
             contentJson: updated,
           });
-          ok       = result?.ok ?? false;
+          ok = result?.ok ?? false;
           errorMsg = result?.error ?? "Save failed";
-        }
-        // ── Path 2: draft endpoint (when sessionId is available) ──
-        else if (sessionId && artifactId) {
+        } else if (sessionId && artifactId) {
           const res = await fetch(`/api/artifacts/${encodeURIComponent(artifactId)}/draft`, {
-            method:  "POST",
+            method: "POST",
             headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({
+            body: JSON.stringify({
               sessionId,
               clientDraftRev: draftRevRef.current,
-              title:          "Financial Plan",
-              content:        updated,
-              autosave:       false,
-              summary:        "Financial plan saved",
+              title: "Financial Plan",
+              content: updated,
+              autosave: false,
+              summary: "Financial plan saved",
             }),
           });
           const data = await res.json().catch(() => ({ ok: false }));
@@ -300,7 +295,6 @@ function FinancialPlanEditorHost({
     [queueSave]
   );
 
-  // Reload content from server after resource plan sync
   const handleRequestReload = useCallback(async () => {
     try {
       const res = await fetch(`/api/artifacts/${encodeURIComponent(artifactId)}?nocache=${Date.now()}`, {
@@ -326,26 +320,11 @@ function FinancialPlanEditorHost({
 
   return (
     <div className="w-full text-slate-900">
-      <div className="mb-3 flex items-center justify-between text-xs text-slate-500">
-        <div>{readOnly ? "Read-only" : "Autosave enabled"}</div>
+      <div className="mb-3 flex items-center justify-between text-xs text-slate-600">
+        <div className="font-medium">{readOnly ? "Read-only" : "Autosave enabled"}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {!readOnly && (
-            <button
-              type="button"
-              onClick={() => runSave(content)}
-              disabled={saveState === "saving"}
-              style={{
-                padding: "4px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600,
-                background: saveState === "saving" ? "#e2e8f0" : "#0d1117",
-                color: saveState === "saving" ? "#94a3b8" : "#fff",
-                border: "none", cursor: saveState === "saving" ? "not-allowed" : "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              {saveState === "saving" ? "Saving…" : "Save"}
-            </button>
-          )}
-          <span>
+         
+          <span className="font-medium text-slate-600">
             {saveState === "saved" ? `✓ ${saveMessage}` : saveState === "error" ? `⚠ ${saveMessage}` : null}
           </span>
         </div>
@@ -468,6 +447,68 @@ function PanelsCard({
   );
 }
 
+function EditorStatusBar({
+  effectiveReadOnly,
+  approvalLocked,
+  approvalStatus,
+  currentVersionNo,
+  currentDraftRev,
+}: {
+  effectiveReadOnly: boolean;
+  approvalLocked: boolean;
+  approvalStatus?: string | null;
+  currentVersionNo: number;
+  currentDraftRev: number;
+}) {
+  const status = String(approvalStatus ?? "").trim().toLowerCase();
+
+  let stateText = effectiveReadOnly ? "Read-only" : "Editing enabled";
+  let stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
+
+  if (approvalLocked) {
+    if (status === "approved") {
+      stateText = "Approved — locked";
+      stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
+    } else if (status === "rejected") {
+      stateText = "Rejected — locked";
+      stateTone = "text-rose-700 bg-rose-50 border-rose-200";
+    } else {
+      stateText = "In approval — locked";
+      stateTone = "text-amber-700 bg-amber-50 border-amber-200";
+    }
+  } else if (effectiveReadOnly) {
+    stateText = "Read-only";
+    stateTone = "text-slate-700 bg-slate-100 border-slate-200";
+  }
+
+  return (
+    <div className="mb-4 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span
+          className={cx(
+            "inline-flex items-center rounded-full border px-2.5 py-1 font-semibold",
+            stateTone
+          )}
+        >
+          {stateText}
+        </span>
+
+        <span className="text-slate-300">•</span>
+
+        <span className="text-slate-600">
+          Draft rev <span className="font-semibold text-slate-900">{currentDraftRev}</span>
+        </span>
+
+        <span className="text-slate-300">•</span>
+
+        <span className="text-slate-600">
+          Version <span className="font-semibold text-slate-900">{currentVersionNo}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- main component ---------------- */
 export default function ArtifactDetailClientHost(props: ArtifactDetailClientHostProps) {
   const {
@@ -574,9 +615,16 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     if (!requestChangesWithCommentsAction || !isApproverMode) return null;
     return async (comments: SectionComment[]) => {
       const fd = new FormData();
-      fd.set("comments_json", JSON.stringify(
-        comments.map((c) => ({ sectionKey: c.sectionKey, sectionTitle: c.sectionTitle, text: c.text }))
-      ));
+      fd.set(
+        "comments_json",
+        JSON.stringify(
+          comments.map((c) => ({
+            sectionKey: c.sectionKey,
+            sectionTitle: c.sectionTitle,
+            text: c.text,
+          }))
+        )
+      );
       await requestChangesWithCommentsAction(fd);
     };
   }, [requestChangesWithCommentsAction, isApproverMode]);
@@ -584,7 +632,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const contentHeader = hideContentExportsRow ? null : (
     <div className="flex items-center justify-between gap-3">
       <div className="text-sm font-semibold text-slate-900">Content</div>
-      <div className="text-xs text-slate-500">
+      <div className="text-xs font-medium text-slate-600">
         {effectiveReadOnly ? "Read-only" : "Editable"}
       </div>
     </div>
@@ -602,8 +650,11 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         ? "This artifact has been rejected — read only."
         : "This artifact is read-only while under approval."
     : lockLayout
-    ? "Layout is locked for this artifact."
-    : collaboration.state?.readOnlyReason || collaboration.lockError || "Locked by another editor.";
+      ? "Layout is locked for this artifact."
+      : collaboration.state?.readOnlyReason || collaboration.lockError || "Locked by another editor.";
+
+  const currentVersionNo = collaboration.state?.currentVersionNo ?? 0;
+  const currentDraftRev = collaboration.state?.currentDraftRev ?? collaboration.draftRev;
 
   if (isFinancialPlan) {
     return (
@@ -615,8 +666,16 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
             collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
           }
           expiresAt={collaboration.state?.activeLock?.expiresAt || null}
-          currentVersionNo={collaboration.state?.currentVersionNo ?? 0}
-          currentDraftRev={collaboration.state?.currentDraftRev ?? collaboration.draftRev}
+          currentVersionNo={currentVersionNo}
+          currentDraftRev={currentDraftRev}
+        />
+
+        <EditorStatusBar
+          effectiveReadOnly={effectiveReadOnly}
+          approvalLocked={approvalLocked}
+          approvalStatus={approvalStatus}
+          currentVersionNo={currentVersionNo}
+          currentDraftRev={currentDraftRev}
         />
 
         <div className="relative w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -629,7 +688,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               initialJson={typedInitialJson ?? rawContentJson ?? null}
               readOnly={effectiveReadOnly}
               sessionId={collaboration.sessionId}
-              clientDraftRev={collaboration.state?.currentDraftRev ?? collaboration.draftRev}
+              clientDraftRev={currentDraftRev}
               onDraftRevChange={collaboration.setDraftRev}
               updateArtifactJsonAction={updateArtifactJsonAction}
             />
@@ -654,8 +713,18 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
             collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
           }
           expiresAt={collaboration.state?.activeLock?.expiresAt || null}
-          currentVersionNo={collaboration.state?.currentVersionNo ?? 0}
-          currentDraftRev={collaboration.state?.currentDraftRev ?? collaboration.draftRev}
+          currentVersionNo={currentVersionNo}
+          currentDraftRev={currentDraftRev}
+        />
+      )}
+
+      {mode === "weekly_report" && (
+        <EditorStatusBar
+          effectiveReadOnly={effectiveReadOnly}
+          approvalLocked={approvalLocked}
+          approvalStatus={approvalStatus}
+          currentVersionNo={currentVersionNo}
+          currentDraftRev={currentDraftRev}
         />
       )}
 
@@ -780,6 +849,10 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                       initialJson={typedInitialJson ?? rawContentJson ?? null}
                       readOnly={effectiveReadOnly}
                       updateArtifactJsonAction={updateArtifactJsonAction}
+                    />
+                  ) : mode === "change_requests" ? (
+                    <ChangeManagementBoard
+                      projectId={projectId}
                     />
                   ) : (
                     <div className="grid gap-3">
