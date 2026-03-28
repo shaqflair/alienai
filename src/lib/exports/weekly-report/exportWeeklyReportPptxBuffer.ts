@@ -145,37 +145,24 @@ function getMilestoneRows(model: WeeklyReportV1, max = 6) {
 }
 
 function normalizeExecNarrative(narrativeRaw: string) {
-  const lines = normLines(narrativeRaw)
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const keepLast = lines.find((l) => /^next period focus items \(due soon\):/i.test(l)) || "";
-
-  const keep: string[] = [];
-  const period = lines.find((l) => /^period covered:/i.test(l)) || "";
-  const completed = lines.find((l) => /^completed:/i.test(l)) || "";
-  const overdue = lines.find((l) => /^overdue items:/i.test(l)) || "";
-  const blockers = lines.find((l) => /^operational blockers/i.test(l)) || "";
-
-  if (period) keep.push(period);
-  if (completed) keep.push(completed);
-  if (overdue) keep.push(overdue);
-  if (blockers) keep.push(blockers);
-  if (keepLast && !keep.includes(keepLast)) keep.push(keepLast);
-
-  if (!keep.length) return "—";
-
-  const dueIdx = keep.findIndex((l) => /^next period focus items \(due soon\):/i.test(l));
-  const dueLine = dueIdx >= 0 ? keep[dueIdx] : "";
-
-  let out = keep.filter((_, i) => i !== dueIdx).slice(0, 4);
-  if (dueLine) out.push(dueLine);
-
-  out = out.map((l) => clampText(l, 78));
-  return out.join("\n");
+  const raw = normLines(narrativeRaw).trim();
+  if (!raw) return "—";
+  const words = raw.split(/\s+/);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if ((cur + " " + w).trim().length > 90) {
+      if (cur) lines.push(cur.trim());
+      cur = w;
+    } else {
+      cur = (cur + " " + w).trim();
+    }
+  }
+  if (cur) lines.push(cur.trim());
+  const kept = lines.slice(0, 5);
+  if (lines.length > 5) kept.push("…");
+  return kept.join("\n");
 }
-
 /* ================================================================
    MAIN EXPORT
 ================================================================ */
@@ -560,7 +547,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
   // 1) Executive Summary
   const headline = clampText(safeStr(model.summary.headline), 110);
   const narrative = normalizeExecNarrative(safeStr(model.summary.narrative));
-  const execBodyStr = `Headline: ${headline}\n\nNarrative:\n${narrative}`;
+  const execBodyStr = headline ? `${headline}\n\n${narrative}` : narrative;
 
   addPanel("Executive Summary", "1", leftX, contentTop, leftW, execH, () => {
     s.addText(execBodyStr, {
