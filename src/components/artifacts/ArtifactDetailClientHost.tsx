@@ -767,7 +767,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           isFinancialPlan={true}
         />
 
-        {approvalLocked && !approvalStatusIsTerminal && (
+        {fpApprovalActive && (
           <ApprovalChainStatus artifactId={artifactId} />
         )}
 
@@ -779,7 +779,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
             isAdmin={isAdmin}
             initialJson={typedInitialJson ?? rawContentJson ?? null}
             readOnly={effectiveReadOnly}
-            budgetLocked={approvalLocked}
+            budgetLocked={fpApprovalLocked}
             sessionId={collaboration.sessionId}
             clientDraftRev={currentDraftRev}
             onDraftRevChange={collaboration.setDraftRev}
