@@ -1,6 +1,7 @@
 // src/lib/server/notifications/approval-notifications.ts
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/utils/supabase/admin";
 import {
   sendApprovalAssignedEmail,
   sendArtifactApprovedEmail,
@@ -18,10 +19,8 @@ function safeStr(x: unknown) {
 
 function toProjectRef(project: any, fallback: string) {
   const raw = safeStr(project?.project_code).trim();
-  if (!raw) return fallback;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return `P-${String(Math.floor(n)).padStart(5, "0")}`;
+  if (raw) return raw; // use project_code as-is (e.g. "PRJ-100")
+  return fallback;
 }
 
 async function getProfileMap(
@@ -110,9 +109,10 @@ async function getNextChangePendingStepId(supabase: SupabaseClient, changeId: st
 
 // ---------------------------------------------------------------------------
 // DB notification writer - inserts into notifications table
+// Uses admin client to bypass RLS (notifications are written for other users)
 // ---------------------------------------------------------------------------
 async function writeNotification(
-  supabase: SupabaseClient,
+  _supabase: SupabaseClient,
   row: {
     user_id: string;
     project_id?: string | null;
@@ -128,7 +128,8 @@ async function writeNotification(
   }
 ) {
   try {
-    await supabase.from("notifications").insert({
+    const adminDb = createAdminClient();
+    await adminDb.from("notifications").insert({
       ...row,
       is_read: false,
       created_at: new Date().toISOString(),
@@ -174,7 +175,6 @@ export async function notifyFirstStepApprovers(
     const to = safeStr(row?.email).trim() || profileMap.get(userId)?.email || "";
     if (!to && !userId) continue;
 
-    // DB notification
     if (userId) {
       void writeNotification(supabase, {
         user_id: userId,
@@ -193,7 +193,6 @@ export async function notifyFirstStepApprovers(
       });
     }
 
-    // Email
     if (to) {
       await sendApprovalAssignedEmail({
         to,
