@@ -1,4 +1,4 @@
-﻿// src/components/artifacts/ArtifactDetailClientHost.tsx
+// src/components/artifacts/ArtifactDetailClientHost.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -146,6 +146,8 @@ function isApprovalLockedStatus(status: string | null | undefined) {
 
 /* -----------------------------------------------------------------------
    FinancialPlanEditorHost
+   - readOnly: blocks all editing (collaboration lock, not-editable by role)
+   - budgetLocked: only locks the approved budget field (under approval)
 ------------------------------------------------------------------------ */
 function FinancialPlanEditorHost({
   projectId,
@@ -154,6 +156,7 @@ function FinancialPlanEditorHost({
   isAdmin = false,
   initialJson,
   readOnly,
+  budgetLocked = false,
   sessionId,
   clientDraftRev,
   onDraftRevChange,
@@ -165,6 +168,7 @@ function FinancialPlanEditorHost({
   isAdmin?: boolean;
   initialJson: any;
   readOnly: boolean;
+  budgetLocked?: boolean;
   sessionId?: string | null;
   clientDraftRev: number;
   onDraftRevChange?: (next: number) => void;
@@ -322,12 +326,9 @@ function FinancialPlanEditorHost({
     <div className="w-full text-slate-900">
       <div className="mb-3 flex items-center justify-between text-xs text-slate-600">
         <div className="font-medium">{readOnly ? "Read-only" : "Autosave enabled"}</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-         
-          <span className="font-medium text-slate-600">
-            {saveState === "saved" ? `✓ ${saveMessage}` : saveState === "error" ? `⚠ ${saveMessage}` : null}
-          </span>
-        </div>
+        <span className="font-medium text-slate-600">
+          {saveState === "saved" ? `✓ ${saveMessage}` : saveState === "error" ? `⚠ ${saveMessage}` : null}
+        </span>
       </div>
 
       <FinancialPlanEditor
@@ -338,6 +339,7 @@ function FinancialPlanEditorHost({
         artifactId={artifactId}
         isAdmin={isAdmin}
         readOnly={readOnly}
+        budgetLocked={budgetLocked}
         onRequestReload={handleRequestReload}
       />
     </div>
@@ -453,12 +455,14 @@ function EditorStatusBar({
   approvalStatus,
   currentVersionNo,
   currentDraftRev,
+  isFinancialPlan,
 }: {
   effectiveReadOnly: boolean;
   approvalLocked: boolean;
   approvalStatus?: string | null;
   currentVersionNo: number;
   currentDraftRev: number;
+  isFinancialPlan?: boolean;
 }) {
   const status = String(approvalStatus ?? "").trim().toLowerCase();
 
@@ -472,6 +476,10 @@ function EditorStatusBar({
     } else if (status === "rejected") {
       stateText = "Rejected — locked";
       stateTone = "text-rose-700 bg-rose-50 border-rose-200";
+    } else if (isFinancialPlan) {
+      // Financial plan: editing allowed, only approved budget is locked
+      stateText = "Editing enabled";
+      stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
     } else {
       stateText = "In approval — locked";
       stateTone = "text-amber-700 bg-amber-50 border-amber-200";
@@ -504,6 +512,15 @@ function EditorStatusBar({
         <span className="text-slate-600">
           Version <span className="font-semibold text-slate-900">{currentVersionNo}</span>
         </span>
+
+        {approvalLocked && isFinancialPlan && status === "submitted" && (
+          <>
+            <span className="text-slate-300">•</span>
+            <span className="text-amber-600 text-xs font-medium">
+              In approval — approved budget field is locked
+            </span>
+          </>
+        )}
       </div>
     </div>
   );
@@ -603,11 +620,15 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     (collaboration.state ? !collaboration.state.canEditByStatus : false) ||
     isApprovalLockedStatus(approvalStatus);
 
-  const effectiveReadOnly =
-    !isEditable ||
-    lockLayout ||
-    collaboration.isReadOnly ||
-    approvalLocked;
+  // For financial plan: only lock the whole editor if truly not editable
+  // (role-based lock, collaboration lock) — NOT for approval status.
+  // Approval status only locks the approved budget field via budgetLocked.
+  const approvalStatusIsTerminal =
+    approvalStatusLower === "approved" || approvalStatusLower === "rejected";
+
+  const effectiveReadOnly = isFinancialPlan
+    ? !isEditable || lockLayout || collaboration.isReadOnly || approvalStatusIsTerminal
+    : !isEditable || lockLayout || collaboration.isReadOnly || approvalLocked;
 
   const isApproverMode = isApprover && effectiveReadOnly && mode === "charter";
 
@@ -661,7 +682,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
       <div className="space-y-4 text-slate-900">
         <ArtifactCollaborationBanner
           readOnly={effectiveReadOnly}
-          approvalLocked={approvalLocked}
+          approvalLocked={false}
           lockOwnerName={
             collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
           }
@@ -676,28 +697,36 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           approvalStatus={approvalStatus}
           currentVersionNo={currentVersionNo}
           currentDraftRev={currentDraftRev}
+          isFinancialPlan={true}
         />
 
         <div className="relative w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className={effectiveReadOnly ? "pointer-events-none select-none opacity-80" : ""}>
-            <FinancialPlanEditorHost
-              projectId={projectId}
-              artifactId={artifactId}
-              organisationId={organisationId}
-              isAdmin={isAdmin}
-              initialJson={typedInitialJson ?? rawContentJson ?? null}
-              readOnly={effectiveReadOnly}
-              sessionId={collaboration.sessionId}
-              clientDraftRev={currentDraftRev}
-              onDraftRevChange={collaboration.setDraftRev}
-              updateArtifactJsonAction={updateArtifactJsonAction}
-            />
-          </div>
-
-          <ArtifactEditorReadOnlyOverlay
-            show={effectiveReadOnly}
-            message={overlayMessage}
+          <FinancialPlanEditorHost
+            projectId={projectId}
+            artifactId={artifactId}
+            organisationId={organisationId}
+            isAdmin={isAdmin}
+            initialJson={typedInitialJson ?? rawContentJson ?? null}
+            readOnly={effectiveReadOnly}
+            budgetLocked={approvalLocked}
+            sessionId={collaboration.sessionId}
+            clientDraftRev={currentDraftRev}
+            onDraftRevChange={collaboration.setDraftRev}
+            updateArtifactJsonAction={updateArtifactJsonAction}
           />
+
+          {effectiveReadOnly && (
+            <ArtifactEditorReadOnlyOverlay
+              show={true}
+              message={
+                approvalStatusIsTerminal
+                  ? approvalStatusLower === "approved"
+                    ? "This artifact is approved and baselined — read only."
+                    : "This artifact has been rejected — read only."
+                  : overlayMessage
+              }
+            />
+          )}
         </div>
       </div>
     );
