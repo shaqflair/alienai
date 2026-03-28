@@ -1,3 +1,4 @@
+// src/app/api/artifacts/[artifactId]/approval-chain/route.ts
 // GET /api/artifacts/:artifactId/approval-chain
 // Returns the active approval chain steps + approver slots for a given artifact.
 // Used by the financial plan page to show who approved and who is pending.
@@ -34,9 +35,8 @@ export async function GET(
     // Get the active approval chain for this artifact
     const { data: chain, error: chainErr } = await supabase
       .from("approval_chains")
-      .select("id, status, created_at")
+      .select("id, status, created_at, is_active")
       .eq("artifact_id", artifactId)
-      .eq("is_active", true)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
