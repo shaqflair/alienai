@@ -208,16 +208,18 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
   const milestones = rows<any>(msR);
   const changes    = rows<any>(changesR);
 
+  // ── Build base URL correctly ──
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? "https://" + process.env.VERCEL_URL : "http://localhost:3000");
+
+  const { cookies } = await import("next/headers");
+  const cookieHeader = (await cookies()).toString();
+
   // ── Health scores from portfolio/health API ──
   let healthByProject = new Map<string, { score: number; rag: string }>();
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
-      ? "https://" + (process.env.VERCEL_URL || "")
-      : "http://localhost:3000";
-    const healthUrl = baseUrl + "/api/portfolio/health?days=30";
-    const { cookies } = await import("next/headers");
-    const cookieHeader = (await cookies()).toString();
-    const healthRes = await fetch(healthUrl, {
+    const healthRes = await fetch(appUrl + "/api/portfolio/health?days=30", {
       headers: { Cookie: cookieHeader },
       cache: "no-store",
     });
@@ -233,6 +235,7 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     }
   } catch (e: any) {
     console.warn("[portfolio-narrative] health fetch failed:", e?.message);
+    // Fall back to direct table query
     for (const tableName of ["project_health", "v_project_health_scores", "latest_project_health"]) {
       try {
         const { data, error } = await supabase.from(tableName as any)
@@ -253,26 +256,53 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     }
   }
 
-  // ── Actual spend from financial_plan_items (hardware, licence etc.) ──
-  // Falls back to project-level columns, then project_spend table.
+  // ── Actual spend from financial plan summary API ──
+  // This is the authoritative source — it reads from approved timesheets
+  // and financial plan artifacts, giving us the correct totalActual figure.
   const spendMap = new Map<string, number>();
   try {
-    const { data: lineItems, error: liErr } = await supabase
-      .from("financial_plan_items")
-      .select("project_id, actual_amount, actual_cost, actual_spend, spent")
-      .in("project_id", activeIds)
-      .limit(10000);
-
-    if (!liErr && Array.isArray(lineItems) && lineItems.length > 0) {
-      for (const li of lineItems) {
-        const pid = safeStr(li?.project_id).trim(); if (!pid) continue;
-        const amt = safeNum(
-          li?.actual_amount ?? li?.actual_cost ?? li?.actual_spend ?? li?.spent
+    const fpRes = await fetch(appUrl + "/api/portfolio/financial-plan-summary?days=30", {
+      headers: { Cookie: cookieHeader },
+      cache: "no-store",
+    });
+    if (fpRes.ok) {
+      const fpJson = await fpRes.json().catch(() => null);
+      if (fpJson?.ok) {
+        // Portfolio-level total actual (most reliable)
+        const portfolioActual = safeNum(
+          fpJson?.portfolio?.totalActual ??
+          fpJson?.portfolio?.total_actual ??
+          fpJson?.total_spent ??
+          fpJson?.actual_spent ?? 0
         );
-        if (amt > 0) spendMap.set(pid, (spendMap.get(pid) ?? 0) + amt);
+        // Per-project actuals (preferred — maps spend to correct project)
+        const projects: any[] = Array.isArray(fpJson?.projects) ? fpJson.projects : [];
+        let mappedTotal = 0;
+        for (const proj of projects) {
+          const pid = safeStr(proj?.projectId ?? proj?.project_id).trim();
+          const actual = safeNum(
+            proj?.totals?.actual ??
+            proj?.totals?.actualSpent ??
+            proj?.actual ?? 0
+          );
+          if (pid && actual > 0) {
+            spendMap.set(pid, actual);
+            mappedTotal += actual;
+          }
+        }
+        // If no per-project breakdown mapped, use portfolio total against first project
+        if (mappedTotal === 0 && portfolioActual > 0 && activeIds.length > 0) {
+          spendMap.set(activeIds[0], portfolioActual);
+        }
       }
-    } else {
-      // Fall back: project-level actual columns
+    }
+  } catch (e: any) {
+    console.warn("[portfolio-narrative] financial plan fetch failed:", e?.message);
+  }
+
+  // ── Fall back to DB queries if financial plan API returned nothing ──
+  if (spendMap.size === 0) {
+    try {
       const { data: projSpend } = await supabase
         .from("projects")
         .select("id, actual_spend, actual_cost, spent_amount, spend_to_date, total_actual, total_spent, actuals")
@@ -286,24 +316,8 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
         );
         if (amt > 0) spendMap.set(pid, amt);
       }
-
-      // Last resort: project_spend table
-      if (spendMap.size === 0) {
-        try {
-          const { data: spendRows } = await supabase
-            .from("project_spend")
-            .select("project_id, amount")
-            .in("project_id", activeIds)
-            .limit(100000);
-          for (const s of spendRows ?? []) {
-            const pid = safeStr(s?.project_id).trim(); if (!pid) continue;
-            const amt = safeNum(s?.amount);
-            if (amt > 0) spendMap.set(pid, (spendMap.get(pid) ?? 0) + amt);
-          }
-        } catch {}
-      }
-    }
-  } catch {}
+    } catch {}
+  }
 
   // ── PM map ──
   const pmUserIds = uniq(members.map((m: any) => m?.user_id));
