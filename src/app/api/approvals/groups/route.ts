@@ -18,8 +18,7 @@ function err(msg: string, status = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
 
-const ALLOWED_ARTIFACT_TYPES = new Set(["project_charter", "change", "project_closure_report"]);
-
+const ALLOWED_ARTIFACT_TYPES = new Set(["project_charter", "change", "project_closure_report", "financial_plan"]);
 function normArtifactType(x: any) {
   const v = safeStr(x).trim().toLowerCase();
   if (!v) return "";
@@ -48,7 +47,7 @@ export async function GET(req: Request) {
 
     if (!validateArtifactTypeOrEmpty(artifactType)) {
       return err(
-        `Unsupported artifactType. Allowed: project_charter, change, project_closure_report`,
+       `Unsupported artifactType. Allowed: project_charter, change, project_closure_report, financial_plan`
         400
       );
     }

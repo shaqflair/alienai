@@ -32,6 +32,7 @@ const ALLOWED_RULE_ARTIFACT_TYPES = new Set<string>([
   "project_charter",
   "change",
   "project_closure_report",
+  "financial_plan",
 ]);
 
 function normalizeArtifactType(x: unknown) {
