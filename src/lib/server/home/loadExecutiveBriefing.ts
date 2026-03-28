@@ -515,6 +515,7 @@ async function loadFinanceSummary(args: {
   talkingPoint: string | null;
   totalBudget: number;
   projectsWithBudget: number;
+  totalSpent: number;
 }> {
   const { supabase, projectIds, organisationId } = args;
   const noData = {
@@ -523,6 +524,7 @@ async function loadFinanceSummary(args: {
     talkingPoint: null,
     totalBudget: 0,
     projectsWithBudget: 0,
+    totalSpent: 0,
   };
 
   try {
@@ -530,19 +532,25 @@ async function loadFinanceSummary(args: {
     if (!ids.length && organisationId) {
       const { data: projRows } = await supabase
         .from("projects")
-        .select("id")
+        .select("id, resource_status, status")
         .eq("organisation_id", organisationId)
         .is("deleted_at", null)
-        .neq("resource_status", "pipeline")
-        .neq("status", "closed")
         .limit(50);
-      ids = (projRows ?? []).map((r: any) => r.id).filter(Boolean);
+      ids = (projRows ?? []).filter((r: any) => {
+        const rs = safeStr(r.resource_status).toLowerCase().trim();
+        const st = safeStr(r.status).toLowerCase().trim();
+        return rs !== "pipeline" && !["pipeline", "closed", "cancelled", "archived"].includes(st);
+      }).map((r: any) => r.id).filter(Boolean);
     }
     if (!ids.length) return noData;
 
+    // ── Budget from projects table ──
     const { data, error } = await supabase
       .from("projects")
-      .select("id, title, project_code, budget_amount, budget_days")
+      .select(
+        "id, title, project_code, budget_amount, budget_days, " +
+        "actual_spend, actual_cost, spent_amount, spend_to_date, total_actual, total_spent, actuals"
+      )
       .in("id", ids)
       .is("deleted_at", null)
       .limit(50);
@@ -551,37 +559,99 @@ async function loadFinanceSummary(args: {
 
     let totalBudget = 0;
     let totalBudgetDays = 0;
+    let totalSpentFromProjects = 0;
     let projectsWithBudget = 0;
 
     for (const row of data) {
-      const amount = safeNum((row as any).budget_amount);
-      const days   = safeNum((row as any).budget_days);
+      const r = row as any;
+      const amount = safeNum(r.budget_amount);
+      const days   = safeNum(r.budget_days);
       if (amount != null && amount > 0) { totalBudget += amount; projectsWithBudget++; }
       if (days != null && days > 0) totalBudgetDays += days;
+
+      const spend = safeNum(r.actual_spend)
+        ?? safeNum(r.actual_cost)
+        ?? safeNum(r.spent_amount)
+        ?? safeNum(r.spend_to_date)
+        ?? safeNum(r.total_actual)
+        ?? safeNum(r.total_spent)
+        ?? safeNum(r.actuals)
+        ?? null;
+      if (spend != null && spend > 0) totalSpentFromProjects += spend;
     }
+
+    // ── Actuals from line items (hardware, licence, etc.) ──
+    // Try common table names for budget line items / financial plan items.
+    let totalSpentFromItems = 0;
+    const lineItemTables = [
+      "financial_plan_items",
+      "budget_line_items",
+      "project_financials",
+      "project_budget_items",
+      "budget_items",
+    ];
+
+    for (const tableName of lineItemTables) {
+      try {
+        const { data: lineItems, error: lineErr } = await supabase
+          .from(tableName)
+          .select("actual_amount, actual_cost, actual_spend, spent, amount_spent, cost_actual")
+          .in("project_id", ids)
+          .limit(500);
+
+        if (!lineErr && lineItems?.length) {
+          for (const li of lineItems) {
+            const r = li as any;
+            const amt = safeNum(r.actual_amount)
+              ?? safeNum(r.actual_cost)
+              ?? safeNum(r.actual_spend)
+              ?? safeNum(r.spent)
+              ?? safeNum(r.amount_spent)
+              ?? safeNum(r.cost_actual)
+              ?? null;
+            if (amt != null && amt > 0) totalSpentFromItems += amt;
+          }
+          break; // Found a working table — stop trying others
+        }
+      } catch {
+        // Table doesn't exist — try next
+      }
+    }
+
+    // Use whichever spend source has data — line items take precedence if found
+    const totalSpent = totalSpentFromItems > 0 ? totalSpentFromItems : totalSpentFromProjects;
 
     if (projectsWithBudget === 0 && totalBudgetDays === 0) return noData;
 
     const budgetStr = totalBudget > 0 ? formatCurrency(totalBudget) : null;
+    const spentStr  = totalSpent  > 0 ? formatCurrency(totalSpent)  : null;
     const projectCount = data.length;
+
+    let sentiment: Sentiment = "neutral";
+    if (totalBudget > 0 && totalSpent > 0) {
+      const variancePct = ((totalSpent - totalBudget) / totalBudget) * 100;
+      sentiment = variancePct > 10 ? "red" : variancePct > 0 ? "amber" : "green";
+    }
 
     let body = "";
     if (budgetStr) {
       body = `Total portfolio budget is ${budgetStr} across ${projectCount} project${projectCount !== 1 ? "s" : ""}.`;
     }
-    if (totalBudgetDays > 0) {
-      body += body
-        ? ` ${totalBudgetDays} budget days allocated.`
-        : `${totalBudgetDays} budget days allocated across ${projectCount} project${projectCount !== 1 ? "s" : ""}.`;
+    if (spentStr) {
+      body += ` ${spentStr} spent to date.`;
+    } else if (budgetStr) {
+      body += " No actuals recorded yet.";
+    }
+    if (totalBudgetDays > 0 && !budgetStr) {
+      body = `${totalBudgetDays} budget days allocated across ${projectCount} project${projectCount !== 1 ? "s" : ""}.`;
     }
     if (!body) return noData;
 
-    const sentiment: Sentiment = "neutral";
     const talkingPoint = budgetStr
-      ? `Portfolio budget is ${budgetStr}.${totalBudgetDays > 0 ? ` ${totalBudgetDays} days budgeted.` : ""}`
+      ? `Portfolio budget is ${budgetStr}.${spentStr ? ` ${spentStr} spent to date.` : ""}`
       : `${totalBudgetDays} budget days allocated across the portfolio.`;
 
-    return { body, sentiment, talkingPoint, totalBudget, projectsWithBudget };
+    return { body, sentiment, talkingPoint, totalBudget, projectsWithBudget, totalSpent };
   } catch {
     return noData;
   }
@@ -712,7 +782,36 @@ export async function loadExecutiveBriefing(args: {
       const cleanId = safeStr(projectId).trim();
       if (cleanId) derivedProjectIds.push(cleanId);
     }
-    const projectIds = uniqNonEmptyStrings([...(args.projectIds ?? []), ...derivedProjectIds]);
+    const rawProjectIds = uniqNonEmptyStrings([...(args.projectIds ?? []), ...derivedProjectIds]);
+
+    // ── Strip pipeline / closed / deleted projects from the ID list ──
+    // Some orgs use resource_status = 'pipeline', others use status = 'pipeline'.
+    // Filter both to be safe.
+    let projectIds = rawProjectIds;
+    if (rawProjectIds.length && organisationId) {
+      try {
+        const { data: confirmedRows } = await supabase
+          .from("projects")
+          .select("id, resource_status, status")
+          .in("id", rawProjectIds)
+          .is("deleted_at", null)
+          .limit(2000);
+
+        const confirmedIds = (confirmedRows ?? []).filter((r: any) => {
+          const rs = safeStr(r.resource_status).toLowerCase().trim();
+          const st = safeStr(r.status).toLowerCase().trim();
+          // Exclude if either field indicates pipeline or closed
+          if (rs === "pipeline") return false;
+          if (["pipeline", "closed", "cancelled", "archived"].includes(st)) return false;
+          return true;
+        }).map((r: any) => String(r.id)).filter(Boolean);
+
+        if (confirmedIds.length) projectIds = confirmedIds;
+      } catch {
+        // fail-open: use raw list if DB call fails
+      }
+    }
+
     const avgHealth  = Math.round(args.liveHealthScore);
     const projectCount = projectIds.length || scoreEntries.length;
 
@@ -862,6 +961,69 @@ export async function loadExecutiveBriefing(args: {
       ...(financeResult.talkingPoint ? [financeResult.talkingPoint] : []),
     ];
 
+    // ── Governance gaps — derived from live signals, not AI ──
+    // Only flag a project as missing a health score if it is NOT in projectScores.
+    // This prevents false "No health score" gaps for projects that are scored.
+    const scoredProjectIds = new Set(Object.keys(projectScores));
+    const gaps: BriefingData["gaps"] = [];
+
+    if (overdueApprovals > 0) {
+      gaps.push({
+        severity: "high",
+        type: "approvals",
+        detail: `${overdueApprovals} approval${overdueApprovals > 1 ? "s are" : " is"} overdue and blocking project progress.`,
+      });
+    }
+
+    if (highRaid > 0) {
+      for (const name of raidProjectNames) {
+        gaps.push({
+          severity: highRaid >= 5 ? "high" : "medium",
+          type: "raid",
+          detail: `High-severity RAID item open — requires mitigation owner and resolution plan.`,
+          project: name,
+        });
+      }
+      if (raidProjectNames.length === 0) {
+        gaps.push({
+          severity: "medium",
+          type: "raid",
+          detail: `${highRaid} high-severity RAID item${highRaid > 1 ? "s" : ""} open across the portfolio without named owners.`,
+        });
+      }
+    }
+
+    // Only flag unscored projects — i.e. those in projectIds but NOT in projectScores
+    const unscoredProjects = projectIds.filter(id => !scoredProjectIds.has(id));
+    if (unscoredProjects.length > 0 && unscoredProjects.length <= 5) {
+      // Try to get names for the unscored projects
+      try {
+        const { data: unscoredRows } = await supabase
+          .from("projects")
+          .select("id, title, project_code")
+          .in("id", unscoredProjects)
+          .limit(5);
+        for (const row of unscoredRows ?? []) {
+          const r = row as any;
+          const label = safeStr(r.project_code).trim() || safeStr(r.title).trim();
+          if (label) {
+            gaps.push({
+              severity: "low",
+              type: "health",
+              detail: "No health score computed yet — add schedule, RAID or activity data to enable scoring.",
+              project: label,
+            });
+          }
+        }
+      } catch { /* fail-open */ }
+    } else if (unscoredProjects.length > 5) {
+      gaps.push({
+        severity: "low",
+        type: "health",
+        detail: `${unscoredProjects.length} projects have no health score yet. Add schedule or RAID data to enable scoring.`,
+      });
+    }
+
     return {
       ok: true,
       executive_summary,
@@ -869,7 +1031,7 @@ export async function loadExecutiveBriefing(args: {
       risk_narrative,
       sections,
       talking_points,
-      gaps: [],
+      gaps,
       signals_summary: {
         project_count: projectCount,
         rag: {
