@@ -1,4 +1,4 @@
-// src/components/artifacts/ArtifactDetailClientHost.tsx
+ï»¿// src/components/artifacts/ArtifactDetailClientHost.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,47 +17,47 @@ import {
 /* ---------------- dynamic client components ---------------- */
 const StakeholderRegisterEditor = dynamic(() => import("@/components/editors/StakeholderRegisterEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-600">Loading Stakeholder editor…</div>,
+  loading: () => <div className="text-sm text-slate-600">Loading Stakeholder editorï¿½</div>,
 });
 
 const WBSEditor = dynamic(() => import("@/components/editors/WBSEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-600">Loading WBS editor…</div>,
+  loading: () => <div className="text-sm text-slate-600">Loading WBS editorï¿½</div>,
 });
 
 const ScheduleGanttEditor = dynamic(() => import("@/components/editors/ScheduleGanttEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-600">Loading Schedule editor…</div>,
+  loading: () => <div className="text-sm text-slate-600">Loading Schedule editorï¿½</div>,
 });
 
 const ProjectClosureReportEditor = dynamic(() => import("@/components/editors/ProjectClosureReportEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-600">Loading Closure Report editor…</div>,
+  loading: () => <div className="text-sm text-slate-600">Loading Closure Report editorï¿½</div>,
 });
 
 const ChangeManagementBoard = dynamic(() => import("@/components/change/ChangeManagementBoard"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-600">Loading Change Board…</div>,
+  loading: () => <div className="text-sm text-slate-600">Loading Change Boardï¿½</div>,
 });
 
 const WeeklyReportEditor = dynamic(() => import("@/components/editors/WeeklyReportEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-600">Loading Weekly Report editor…</div>,
+  loading: () => <div className="text-sm text-slate-600">Loading Weekly Report editorï¿½</div>,
 });
 
 const FinancialPlanEditor = dynamic(() => import("@/components/artifacts/FinancialPlanEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-600">Loading Financial Plan editor…</div>,
+  loading: () => <div className="text-sm text-slate-600">Loading Financial Plan editorï¿½</div>,
 });
 
 const AiSuggestionsPanel = dynamic(() => import("@/components/ai/AiSuggestionsPanel"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-600">Loading AI suggestions…</div>,
+  loading: () => <div className="text-sm text-slate-600">Loading AI suggestionsï¿½</div>,
 });
 
 const ArtifactTimeline = dynamic(() => import("@/components/artifacts/ArtifactTimeline"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-600">Loading timeline…</div>,
+  loading: () => <div className="text-sm text-slate-600">Loading timelineï¿½</div>,
 });
 
 /* ---------------- types ---------------- */
@@ -249,7 +249,7 @@ function FinancialPlanEditorHost({
           }
           errorMsg = data?.error ?? data?.message ?? "Save failed";
         } else {
-          errorMsg = !artifactId ? "Missing artifactId — cannot save" : "No save method available";
+          errorMsg = !artifactId ? "Missing artifactId ï¿½ cannot save" : "No save method available";
         }
 
         if (ok) {
@@ -442,7 +442,7 @@ function PanelsCard({
 
       {!openAI && !openTimeline ? (
         <div className="text-xs text-slate-500">
-          Tip: open panels only when you need them — keeps this page snappy.
+          Tip: open panels only when you need them ï¿½ keeps this page snappy.
         </div>
       ) : null}
     </section>
@@ -471,17 +471,17 @@ function EditorStatusBar({
 
   if (approvalLocked) {
     if (status === "approved") {
-      stateText = "Approved — locked";
+      stateText = "Approved ï¿½ locked";
       stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
     } else if (status === "rejected") {
-      stateText = "Rejected — locked";
+      stateText = "Rejected ï¿½ locked";
       stateTone = "text-rose-700 bg-rose-50 border-rose-200";
     } else if (isFinancialPlan) {
       // Financial plan: editing allowed, only approved budget is locked
       stateText = "Editing enabled";
       stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
     } else {
-      stateText = "In approval — locked";
+      stateText = "In approval ï¿½ locked";
       stateTone = "text-amber-700 bg-amber-50 border-amber-200";
     }
   } else if (effectiveReadOnly) {
@@ -501,13 +501,13 @@ function EditorStatusBar({
           {stateText}
         </span>
 
-        <span className="text-slate-300">•</span>
+        <span className="text-slate-300">ï¿½</span>
 
         <span className="text-slate-600">
           Draft rev <span className="font-semibold text-slate-900">{currentDraftRev}</span>
         </span>
 
-        <span className="text-slate-300">•</span>
+        <span className="text-slate-300">ï¿½</span>
 
         <span className="text-slate-600">
           Version <span className="font-semibold text-slate-900">{currentVersionNo}</span>
@@ -515,9 +515,9 @@ function EditorStatusBar({
 
         {approvalLocked && isFinancialPlan && status === "submitted" && (
           <>
-            <span className="text-slate-300">•</span>
+            <span className="text-slate-300">ï¿½</span>
             <span className="text-amber-600 text-xs font-medium">
-              In approval — approved budget field is locked
+              In approval ï¿½ approved budget field is locked
             </span>
           </>
         )}
@@ -528,7 +528,7 @@ function EditorStatusBar({
 
 
 /* -----------------------------------------------------------------------
-   ApprovalChainStatus — shows who approved and who is pending
+   ApprovalChainStatus ï¿½ shows who approved and who is pending
 ------------------------------------------------------------------------ */
 function ApprovalChainStatus({ artifactId }: { artifactId: string }) {
   const [steps, setSteps] = React.useState<any[]>([]);
@@ -567,7 +567,7 @@ function ApprovalChainStatus({ artifactId }: { artifactId: string }) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-slate-800">
-                    Step {step.step_order ?? i + 1}{step.approval_role ? ` — ${step.approval_role}` : ""}
+                    Step {step.step_order ?? i + 1}{step.approval_role ? ` ï¿½ ${step.approval_role}` : ""}
                   </span>
                   <span className={cx(
                     "rounded-full px-2 py-0.5 text-[10px] font-semibold",
@@ -697,7 +697,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     isApprovalLockedStatus(approvalStatus);
 
   // For financial plan: only lock the whole editor if truly not editable
-  // (role-based lock, collaboration lock) — NOT for approval status.
+  // (role-based lock, collaboration lock) ï¿½ NOT for approval status.
   // Approval status only locks the approved budget field via budgetLocked.
   const approvalStatusIsTerminal =
     approvalStatusLower === "approved" || approvalStatusLower === "rejected";
@@ -747,9 +747,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
 
   const overlayMessage = approvalLocked
     ? approvalStatusLower === "approved"
-      ? "This artifact is approved and baselined — read only."
+      ? "This artifact is approved and baselined ï¿½ read only."
       : approvalStatusLower === "rejected"
-        ? "This artifact has been rejected — read only."
+        ? "This artifact has been rejected ï¿½ read only."
         : "This artifact is read-only while under approval."
     : lockLayout
       ? "Layout is locked for this artifact."
@@ -795,8 +795,8 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               message={
                 approvalStatusIsTerminal
                   ? approvalStatusLower === "approved"
-                    ? "This artifact is approved and baselined — read only."
-                    : "This artifact has been rejected — read only."
+                    ? "This artifact is approved and baselined ï¿½ read only."
+                    : "This artifact has been rejected ï¿½ read only."
                   : overlayMessage
               }
             />
