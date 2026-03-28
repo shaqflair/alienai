@@ -45,7 +45,7 @@ const ExecutiveBriefingCard = dynamic(
   () => import("@/components/home/ExecutiveBriefingCard"),
   {
     ssr: false,
- loading: () => (
+    loading: () => (
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100">
@@ -58,7 +58,8 @@ const ExecutiveBriefingCard = dynamic(
         </div>
       </div>
     ),
-const ResourceActivityChart = dynamic(
+  },
+);const ResourceActivityChart = dynamic(
   () => import("@/components/home/ResourceActivityChart"),
   { ssr: false, loading: () => <div className="h-[280px] animate-pulse rounded-2xl bg-gray-50" /> },
 );
