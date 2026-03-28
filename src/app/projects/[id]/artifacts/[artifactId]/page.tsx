@@ -193,13 +193,20 @@ export default async function ArtifactDetailPage({
   const isCurrent = (artifact as any)?.is_current !== false;
 
   const effectiveLockLayout =
-    !!approvalEnabled && (isSubmitted || statusLower === "approved" || statusLower === "rejected");
-
+    !!approvalEnabled &&
+    // Financial plan: don't lock layout on submit — only lock approved budget field
+    (financialPlanMode
+      ? statusLower === "approved" || statusLower === "rejected"
+      : isSubmitted || statusLower === "approved" || statusLower === "rejected");
   const effectiveIsEditable =
-    approvalEnabled && (charterMode || closureMode || financialPlanMode)
-      ? canEditByRole && isDraftOrCR && !effectiveLockLayout && isCurrent
-      : !!loaderIsEditable;
-
+    // Financial plan: editable even when submitted (only approved budget field locks)
+    // Fully approved or rejected still locks everything via effectiveLockLayout
+    approvalEnabled && financialPlanMode
+      ? canEditByRole && isCurrent && !effectiveLockLayout &&
+        (isDraftOrCR || statusLower === "submitted")
+      : approvalEnabled && (charterMode || closureMode)
+        ? canEditByRole && isDraftOrCR && !effectiveLockLayout && isCurrent
+        : !!loaderIsEditable;
   const canSubmitFromServer =
     !!approvalEnabled &&
     !!(charterMode || closureMode || financialPlanMode) &&
