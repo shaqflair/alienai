@@ -61,7 +61,7 @@ const ARTIFACT_SELECT = [
 ].join(", ");
 
 const PROJECT_META_SELECT =
-  "id, project_code, title, name, client_name, start_date, finish_date, organisation_id";
+  "id, project_code, title, client_name, start_date, finish_date, organisation_id";
 
 const WBS_TYPES = ["wbs", "work_breakdown_structure"];
 

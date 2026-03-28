@@ -70,7 +70,7 @@ export const HUMAN_COL_CANDIDATES = [
 ] as const;
 
 export const PROJECT_META_SELECT =
-  "id, organisation_id, project_code, title, name, client_name, start_date, finish_date";
+  "id, organisation_id, project_code, title, client_name, start_date, finish_date";
 
 /* =========================================================
    Status & UI Helpers
