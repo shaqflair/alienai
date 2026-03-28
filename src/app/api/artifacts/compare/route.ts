@@ -1,8 +1,9 @@
+// src/app/api/artifacts/compare/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import type { ArtifactDiff } from "@/lib/artifacts/diff/types";
+import type { ArtifactDiff, ArtifactDiffItem, DiffOp } from "@/lib/artifacts/diff/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,93 +21,125 @@ function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-function stable(value: unknown): string {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
   try {
-    return JSON.stringify(value ?? null, Object.keys((value as any) ?? {}).sort());
+    return JSON.stringify(a) === JSON.stringify(b);
   } catch {
-    try {
-      return JSON.stringify(value ?? null);
-    } catch {
-      return String(value ?? "");
-    }
+    return a === b;
   }
 }
 
-function normalizeTextContent(row: any) {
-  return safeStr(row?.content).trim();
+function pushItem(
+  items: ArtifactDiffItem[],
+  path: string,
+  op: DiffOp,
+  before?: unknown,
+  after?: unknown,
+  note?: string
+) {
+  items.push({
+    path,
+    op,
+    ...(before !== undefined ? { before } : {}),
+    ...(after !== undefined ? { after } : {}),
+    ...(note ? { note } : {}),
+  });
 }
 
-function normalizeJsonContent(row: any) {
-  return row?.content_json ?? null;
+function diffValues(items: ArtifactDiffItem[], path: string, a: unknown, b: unknown) {
+  if (deepEqual(a, b)) return;
+
+  const aMissing = a === undefined || a === null;
+  const bMissing = b === undefined || b === null;
+
+  if (aMissing && !bMissing) {
+    pushItem(items, path, "add", undefined, b);
+    return;
+  }
+
+  if (!aMissing && bMissing) {
+    pushItem(items, path, "remove", a, undefined);
+    return;
+  }
+
+  if (Array.isArray(a) && Array.isArray(b)) {
+    const max = Math.max(a.length, b.length);
+    for (let i = 0; i < max; i += 1) {
+      const nextPath = `${path}[${i}]`;
+      if (i >= a.length) {
+        pushItem(items, nextPath, "add", undefined, b[i]);
+      } else if (i >= b.length) {
+        pushItem(items, nextPath, "remove", a[i], undefined);
+      } else {
+        diffValues(items, nextPath, a[i], b[i]);
+      }
+    }
+    return;
+  }
+
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keys = Array.from(new Set([...Object.keys(a), ...Object.keys(b)])).sort();
+    for (const key of keys) {
+      const nextPath = path ? `${path}.${key}` : key;
+      diffValues(items, nextPath, a[key], b[key]);
+    }
+    return;
+  }
+
+  pushItem(items, path, "replace", a, b);
 }
 
-function buildVerySimpleDiff(aRow: any, bRow: any): ArtifactDiff {
-  const aJson = normalizeJsonContent(aRow);
-  const bJson = normalizeJsonContent(bRow);
-  const aText = normalizeTextContent(aRow);
-  const bText = normalizeTextContent(bRow);
+function buildArtifactDiff(aRow: any, bRow: any): ArtifactDiff {
+  const items: ArtifactDiffItem[] = [];
 
-  const jsonChanged = stable(aJson) !== stable(bJson);
-  const textChanged = aText !== bText;
-  const titleChanged = safeStr(aRow?.title) !== safeStr(bRow?.title);
-  const statusChanged = safeStr(aRow?.approval_status) !== safeStr(bRow?.approval_status);
+  const aTitle = safeStr(aRow?.title).trim();
+  const bTitle = safeStr(bRow?.title).trim();
+  const aStatus = safeStr(aRow?.approval_status).trim();
+  const bStatus = safeStr(bRow?.approval_status).trim();
+  const aCurrent = !!aRow?.is_current;
+  const bCurrent = !!bRow?.is_current;
+  const aBaseline = !!aRow?.is_baseline;
+  const bBaseline = !!bRow?.is_baseline;
+  const artifactType = safeStr(bRow?.type || aRow?.type).trim() || undefined;
+
+  if (aTitle !== bTitle) {
+    pushItem(items, "title", "replace", aTitle, bTitle);
+  }
+
+  if (aStatus !== bStatus) {
+    pushItem(items, "approval_status", "replace", aStatus, bStatus);
+  }
+
+  if (aCurrent !== bCurrent) {
+    pushItem(items, "is_current", "replace", aCurrent, bCurrent);
+  }
+
+  if (aBaseline !== bBaseline) {
+    pushItem(items, "is_baseline", "replace", aBaseline, bBaseline);
+  }
+
+  const aJson = aRow?.content_json ?? null;
+  const bJson = bRow?.content_json ?? null;
+
+  if (aJson !== null || bJson !== null) {
+    diffValues(items, "content_json", aJson, bJson);
+  } else {
+    const aText = safeStr(aRow?.content);
+    const bText = safeStr(bRow?.content);
+    if (aText !== bText) {
+      pushItem(items, "content", "replace", aText, bText);
+    }
+  }
 
   return {
-    changed: jsonChanged || textChanged || titleChanged || statusChanged,
-    summary: {
-      totalChanges:
-        Number(titleChanged) +
-        Number(statusChanged) +
-        Number(jsonChanged) +
-        Number(textChanged),
-    },
-    sections: [
-      ...(titleChanged
-        ? [
-            {
-              key: "title",
-              label: "Title",
-              changed: true,
-              before: safeStr(aRow?.title),
-              after: safeStr(bRow?.title),
-            },
-          ]
-        : []),
-      ...(statusChanged
-        ? [
-            {
-              key: "approval_status",
-              label: "Approval status",
-              changed: true,
-              before: safeStr(aRow?.approval_status),
-              after: safeStr(bRow?.approval_status),
-            },
-          ]
-        : []),
-      ...(jsonChanged
-        ? [
-            {
-              key: "content_json",
-              label: "Structured content",
-              changed: true,
-              before: aJson,
-              after: bJson,
-            },
-          ]
-        : []),
-      ...(!jsonChanged && textChanged
-        ? [
-            {
-              key: "content",
-              label: "Content",
-              changed: true,
-              before: aText,
-              after: bText,
-            },
-          ]
-        : []),
-    ],
-  } as ArtifactDiff;
+    version: 1,
+    ...(artifactType ? { artifact_type: artifactType } : {}),
+    items,
+  };
 }
 
 export async function POST(req: Request) {
@@ -127,19 +160,6 @@ export async function POST(req: Request) {
         },
         400
       );
-    }
-
-    if (aId === bId) {
-      return noStoreJson({
-        ok: true,
-        diff: {
-          changed: false,
-          summary: { totalChanges: 0 },
-          sections: [],
-        },
-        auditHints: [],
-        approvalHints: [],
-      });
     }
 
     const supabase = await createClient();
@@ -173,6 +193,7 @@ export async function POST(req: Request) {
         [
           "id",
           "project_id",
+          "root_artifact_id",
           "title",
           "type",
           "content",
@@ -183,7 +204,6 @@ export async function POST(req: Request) {
           "version",
           "is_current",
           "is_baseline",
-          "root_artifact_id",
         ].join(", ")
       )
       .eq("project_id", projectId)
@@ -206,42 +226,36 @@ export async function POST(req: Request) {
       );
     }
 
-    const diff = buildVerySimpleDiff(aRow, bRow);
+    const diff = buildArtifactDiff(aRow, bRow);
 
-    const auditHints = [
-      ...(safeStr(aRow?.approval_status) !== safeStr(bRow?.approval_status)
-        ? [
-            {
-              level: "info",
-              title: "Approval status changed",
-              detail: `From "${safeStr(aRow?.approval_status) || "draft"}" to "${safeStr(
-                bRow?.approval_status
-              ) || "draft"}".`,
-            },
-          ]
-        : []),
-      ...(changeId
-        ? [
-            {
-              level: "info",
-              title: "Change request context attached",
-              detail: `Comparison was opened with change context ${changeId}.`,
-            },
-          ]
-        : []),
-    ];
+    const auditHints = [];
+    if (changeId) {
+      auditHints.push({
+        level: "info",
+        title: "Change context attached",
+        detail: `Comparison opened with change request context ${changeId}.`,
+      });
+    }
+    if (safeStr(aRow?.approval_status) !== safeStr(bRow?.approval_status)) {
+      auditHints.push({
+        level: "info",
+        title: "Approval status changed",
+        detail: `Status changed from "${safeStr(aRow?.approval_status) || "draft"}" to "${
+          safeStr(bRow?.approval_status) || "draft"
+        }".`,
+      });
+    }
 
-    const approvalHints = [
-      ...(diff?.changed
+    const approvalHints =
+      diff.items.length > 0
         ? [
             {
               level: "warning",
               title: "Review approval impact",
-              detail: "This version comparison shows changes that may require governance review.",
+              detail: "Detected changes between selected versions. Confirm whether governance re-approval is required.",
             },
           ]
-        : []),
-    ];
+        : [];
 
     return noStoreJson({
       ok: true,
