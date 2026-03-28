@@ -151,10 +151,30 @@ async function requireMemberRole(supabase: any, projectId: string, userId: strin
     .maybeSingle();
 
   if (error) throwDb(error, "project_members.select");
-  if (!mem) throw new Error("Not a project member.");
-  return String((mem as any)?.role ?? "viewer").toLowerCase();
-}
+  if (mem) return String((mem as any)?.role ?? "viewer").toLowerCase();
 
+  // Fall back to org membership — org admins/owners can approve without being project members
+  const { data: proj } = await supabase
+    .from("projects")
+    .select("organisation_id")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  const orgId = safeStr((proj as any)?.organisation_id).trim();
+  if (orgId) {
+    const { data: orgMem } = await supabase
+      .from("organisation_members")
+      .select("role")
+      .eq("organisation_id", orgId)
+      .eq("user_id", userId)
+      .is("removed_at", null)
+      .maybeSingle();
+
+    if (orgMem) return String((orgMem as any)?.role ?? "viewer").toLowerCase();
+  }
+
+  throw new Error("Not a project member.");
+}
 function canSubmitByRole(myRole: string, isAuthor: boolean) {
   return isAuthor || myRole === "owner" || myRole === "editor";
 }
