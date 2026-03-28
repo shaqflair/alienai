@@ -46,13 +46,16 @@ const ExecutiveBriefingCard = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="rounded-2xl border border-gray-100 bg-white p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-        <div className="animate-pulse space-y-4">
-          <div className="h-5 w-48 rounded bg-gray-100" />
-          <div className="h-4 w-3/4 rounded bg-gray-100" />
-          <div className="grid grid-cols-2 gap-3">
-            <div className="h-24 rounded-xl bg-gray-50" />
-            <div className="h-24 rounded-xl bg-gray-50" />
+      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100">
+              <svg className="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
+            </div>
+            <div>
+              <div className="font-black text-slate-900" style={{ letterSpacing: "-0.01em" }}>Executive Briefing</div>
+              <div className="mt-0.5 text-xs text-slate-400">AI-generated portfolio narrative · Ready</div>
+            </div>
           </div>
         </div>
       </div>

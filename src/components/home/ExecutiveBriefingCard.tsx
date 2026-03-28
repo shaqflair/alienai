@@ -567,7 +567,7 @@ function BriefingInner({
               <h3 className="font-black text-slate-900" style={{ letterSpacing: "-0.01em" }}>
                 Executive Briefing
               </h3>
-              {data?.ok && !loading && (
+              {data?.ok && !loading && overall !== "neutral" && (
                 <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${headerBadgeCls}`}>
                   {headerBadge}
                 </span>
@@ -575,7 +575,7 @@ function BriefingInner({
             </div>
             <p className="mt-0.5 text-xs text-slate-400">
               AI-generated portfolio narrative ·{" "}
-              {data?.generated_at ? `Updated ${timeAgo(data.generated_at)}` : loading ? "Loading…" : "Ready"}
+              {data?.generated_at ? `Updated ${timeAgo(data.generated_at)}` : (loading && !collapsed) ? "Loading…" : "Ready"}
             </p>
           </div>
         </div>
