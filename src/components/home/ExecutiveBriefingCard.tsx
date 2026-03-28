@@ -604,19 +604,9 @@ function BriefingInner({
         </div>
       </div>
 
-      {!collapsed && (
+      {!collapsed && data && (
         <div>
-          {/* Skeleton */}
-          {loading && (
-            <div className="animate-pulse space-y-4 p-6">
-              <div className="h-16 w-full rounded-xl bg-slate-100"/>
-              <div className="h-4 w-3/4 rounded bg-slate-100"/>
-              <div className="h-4 w-full rounded bg-slate-100"/>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                {[0,1,2,3].map(n => <div key={n} className="h-40 rounded-xl bg-slate-50"/>)}
-              </div>
-            </div>
-          )}
+          {/* No skeleton — card starts collapsed, data loads in background */}
 
           {/* Error */}
           {fetchErr && !loading && (
