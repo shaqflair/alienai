@@ -35,6 +35,7 @@ function normParam(v: any) {
   if (!s || s === "undefined" || s === "null") return "";
   return s;
 }
+
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
@@ -107,8 +108,6 @@ async function getProjectManagerNameBestEffort(supabase: any, projectId: string)
   return await readProfileName(fallbackUserId);
 }
 
-// -- Status pill config -------------------------------------------------------
-
 function statusConfig(status: string): { label: string; bg: string; color: string; dot: string } {
   const s = String(status || "").toLowerCase();
   if (s === "approved") {
@@ -124,76 +123,6 @@ function statusConfig(status: string): { label: string; bg: string; color: strin
     return { label: "Rejected", bg: "#fee2e2", color: "#b91c1c", dot: "#ef4444" };
   }
   return { label: "Draft", bg: "#f1f5f9", color: "#475569", dot: "#94a3b8" };
-}
-
-function PageReadabilityStyles() {
-  return (
-    <style jsx global>{`
-      .artifact-page-shell {
-        width: 100%;
-        min-height: 100vh;
-        background: #f6f8fa;
-        padding: 16px 16px 32px;
-      }
-
-      .artifact-page-shell .artifact-page-host {
-        position: relative;
-      }
-
-      /*
-        Weekly report / artifact editor readability guardrails.
-        The issue in the screenshot is typically caused by muted/light text
-        from the client host rendering against the light page background.
-        These overrides only darken tiny meta/status rows and keep the main UI intact.
-      */
-      .artifact-page-shell .artifact-page-host :is(.text-white\/40, .text-white\/50, .text-white\/60) {
-        color: #64748b !important;
-      }
-
-      .artifact-page-shell .artifact-page-host :is(.text-slate-300, .text-slate-400, .text-slate-500) {
-        color: #64748b !important;
-      }
-
-      .artifact-page-shell .artifact-page-host :is(.text-zinc-300, .text-zinc-400, .text-zinc-500) {
-        color: #64748b !important;
-      }
-
-      .artifact-page-shell .artifact-page-host :is(.text-neutral-300, .text-neutral-400, .text-neutral-500) {
-        color: #64748b !important;
-      }
-
-      .artifact-page-shell .artifact-page-host :is(.text-gray-300, .text-gray-400, .text-gray-500) {
-        color: #64748b !important;
-      }
-
-      .artifact-page-shell .artifact-page-host :is(.text-emerald-300, .text-emerald-400, .text-green-300, .text-green-400) {
-        color: #16a34a !important;
-      }
-
-      .artifact-page-shell .artifact-page-host :is(.border-white\/10, .border-white\/15, .border-white\/20) {
-        border-color: #e2e8f0 !important;
-      }
-
-      .artifact-page-shell .artifact-page-host :is(.bg-white\/5, .bg-white\/10) {
-        background: rgba(255, 255, 255, 0.92) !important;
-        backdrop-filter: blur(8px);
-      }
-
-      /*
-        Top micro-status row directly under project tabs.
-        Give it a readable lane on light pages without changing the rest of the editor.
-      */
-      .artifact-page-shell .artifact-page-host > div:first-child {
-        color: #475569;
-      }
-
-      @media (max-width: 768px) {
-        .artifact-page-shell {
-          padding: 12px 12px 24px;
-        }
-      }
-    `}</style>
-  );
 }
 
 export default async function ArtifactDetailPage({
@@ -256,8 +185,6 @@ export default async function ArtifactDetailPage({
 
   const roleLower = String(myRole || "").toLowerCase();
   const canEditByRole = roleLower === "owner" || roleLower === "editor";
-
-  // ── isAdmin: used to unlock resource plan sync in financial plan ──
   const isOrgAdmin = roleLower === "owner" || roleLower === "admin";
 
   const statusLower = String(status || "").toLowerCase();
@@ -303,7 +230,12 @@ export default async function ArtifactDetailPage({
     const supabase = await createClient();
 
     if (!projectTitleForSeed && projectUuid) {
-      const { data: proj } = await supabase.from("projects").select("title").eq("id", projectUuid).maybeSingle();
+      const { data: proj } = await supabase
+        .from("projects")
+        .select("title")
+        .eq("id", projectUuid)
+        .maybeSingle();
+
       const t = safeStr((proj as any)?.title).trim();
       if (t) projectTitleForSeed = t;
     }
@@ -315,8 +247,6 @@ export default async function ArtifactDetailPage({
     projectManagerName = projectManagerName ?? null;
     projectTitleForSeed = projectTitleForSeed || safeStr(projectTitle).trim();
   }
-
-  // -- Server actions --------------------------------------------------------
 
   const artifactPath = `/projects/${projectRefForPaths}/artifacts/${artifactId}`;
   const artifactsPath = `/projects/${projectRefForPaths}/artifacts`;
@@ -529,8 +459,6 @@ export default async function ArtifactDetailPage({
   }
 
   const jsonSaveAction = isFinancialPlan ? updateArtifactJsonSilent : updateArtifactJsonArgs;
-
-  // -- Shared header component -----------------------------------------------
 
   const sc = statusConfig(status);
   const artifactTitle = safeStr((artifact as any).title || displayType((artifact as any).type) || "Artifact");
@@ -1082,13 +1010,9 @@ export default async function ArtifactDetailPage({
     </>
   );
 
-  // -- Financial plan layout -------------------------------------------------
-
   if (isFinancialPlan) {
     return (
       <div className="artifact-page-shell">
-        <PageReadabilityStyles />
-
         {actionError && (
           <div
             style={{
@@ -1161,12 +1085,8 @@ export default async function ArtifactDetailPage({
     );
   }
 
-  // -- All other artifact types ----------------------------------------------
-
   return (
     <div className="artifact-page-shell">
-      <PageReadabilityStyles />
-
       {actionError && (
         <div
           style={{
