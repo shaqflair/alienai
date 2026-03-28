@@ -89,7 +89,7 @@ export async function POST(req: Request) {
     if (!artifactType) return err("Missing artifactType", 400);
     if (!ALLOWED_ARTIFACT_TYPES.has(artifactType)) {
       return err(
-        `Unsupported artifactType. Allowed: project_charter, change, project_closure_report`,
+        `Unsupported artifactType. Allowed: project_charter, change, project_closure_report, financial_plan`,
         400
       );
     }
