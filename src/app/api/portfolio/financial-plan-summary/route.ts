@@ -268,14 +268,54 @@ function extractBudgetFromContent(content: any): {
   let currency = "GBP";
 
   if (!content || typeof content !== "object") {
-    return {
-      totalApprovedBudget,
-      totalBudgeted,
-      totalForecast,
-      totalActual,
-      currency,
-    };
+    return { totalApprovedBudget, totalBudgeted, totalForecast, totalActual, currency };
   }
+
+  if (content.currency) currency = safeStr(content.currency);
+
+  const approvedRaw =
+    content.total_approved_budget ?? content.totalApprovedBudget ??
+    content.approved_budget ?? content.approvedBudget ??
+    content.total_approved ?? content.totalApproved ??
+    content.approved ?? content.budget_approved ?? content.budgetApproved;
+  totalApprovedBudget = num(approvedRaw, 0);
+
+  // ── Cost lines: budget + actual only ──
+  // Forecast intentionally excluded — monthly phasing is the authoritative source
+  const costLines: any[] = Array.isArray(content.cost_lines) ? content.cost_lines
+    : Array.isArray(content.costLines) ? content.costLines
+    : Array.isArray(content.lines) ? content.lines
+    : Array.isArray(content.items) ? content.items : [];
+
+  for (const line of costLines) {
+    totalBudgeted += num(line?.budgeted ?? line?.budget ?? line?.planned ?? line?.amount, 0);
+    totalActual   += num(line?.actual ?? line?.actuals ?? line?.spent, 0);
+  }
+
+  // ── Monthly phasing: always use for forecast (matches "FORECAST FROM MONTHLY" in UI) ──
+  const monthlyData = content.monthly_data ?? content.monthlyData ?? {};
+  try {
+    for (const [, months] of Object.entries(monthlyData) as any) {
+      for (const [, vals] of Object.entries(months as any)) {
+        const v = vals as any;
+        totalForecast += num(v?.forecast, 0);
+        if (costLines.length === 0) {
+          totalBudgeted += num(v?.budget ?? v?.budgeted, 0);
+          totalActual   += num(v?.actual, 0);
+        }
+      }
+    }
+  } catch {}
+
+  if (totalApprovedBudget === 0 && totalBudgeted === 0) {
+    totalApprovedBudget = num(content.total ?? content.total_amount ?? content.amount, 0);
+    totalBudgeted = num(content.budgeted ?? content.budget, 0);
+    totalForecast = num(content.forecast ?? content.total_forecast, totalForecast);
+    totalActual   = num(content.actual ?? content.total_actual, totalActual);
+  }
+
+  return { totalApprovedBudget, totalBudgeted, totalForecast, totalActual, currency };
+}
 
   if (content.currency) currency = safeStr(content.currency);
 
