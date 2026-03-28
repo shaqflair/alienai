@@ -701,6 +701,8 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   // Approval status only locks the approved budget field via budgetLocked.
   const approvalStatusIsTerminal =
     approvalStatusLower === "approved" || approvalStatusLower === "rejected";
+  const fpApprovalLocked = isFinancialPlan && isApprovalLockedStatus(approvalStatus);
+  const fpApprovalActive = isFinancialPlan && approvalStatusLower === "submitted";
 
   // Use approvalStatus prop directly (server-authoritative) for financial plan
   const fpApprovalLocked = isFinancialPlan && isApprovalLockedStatus(approvalStatus);
