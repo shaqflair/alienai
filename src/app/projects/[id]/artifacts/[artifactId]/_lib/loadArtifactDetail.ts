@@ -583,23 +583,21 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   const resolved = await resolveProjectUuidFast(supabase, projectIdentifier);
   let projectUuid: string | null = resolved.projectUuid;
 
+  let artifactProjectIdFromFallback: string | null = null;
   if (!projectUuid) {
-    const { data: a0 } = await supabase.from("artifacts").select("project_id").eq("id", artifactId).maybeSingle();
-    if (!a0?.project_id) notFound();
-    projectUuid = String(a0.project_id);
+    const { data: artifactProjectProbe, error: artifactProjectProbeErr } = await supabase
+      .from("artifacts")
+      .select("id, project_id")
+      .eq("id", artifactId)
+      .maybeSingle();
+
+    if (artifactProjectProbeErr || !artifactProjectProbe?.project_id) notFound();
+
+    artifactProjectIdFromFallback = safeStr(artifactProjectProbe.project_id).trim() || null;
+    projectUuid = artifactProjectIdFromFallback;
   }
 
-  const myRoleResolved = await resolveMyRole(supabase, projectUuid!, auth.user.id);
-  const organisationApproverAccess = await resolveOrganisationApproverAccess(supabase, {
-    projectUuid: projectUuid!,
-    artifactId,
-    userId: auth.user.id,
-  });
-
-  if (!myRoleResolved && !organisationApproverAccess.hasApproverAccess) notFound();
-
-  const myRole = myRoleResolved ?? ("viewer" as ProjectRole);
-  const canEditByRole = myRole === "owner" || myRole === "editor";
+  if (!projectUuid) notFound();
 
   const wbsPromise = supabase
     .from("artifacts")
@@ -613,7 +611,11 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
 
   const projectPromise = (async () => {
     if (resolved.project && String((resolved.project as any)?.id || "") === projectUuid) return resolved.project;
-    const { data: p } = await supabase.from("projects").select(PROJECT_META_SELECT).eq("id", projectUuid).maybeSingle();
+    const { data: p } = await supabase
+      .from("projects")
+      .select(PROJECT_META_SELECT)
+      .eq("id", projectUuid)
+      .maybeSingle();
     return p ?? resolved.project ?? null;
   })();
 
@@ -621,19 +623,39 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     .from("artifacts")
     .select(ARTIFACT_SELECT)
     .eq("id", artifactId)
-    .eq("project_id", projectUuid)
     .maybeSingle();
 
   const [project, artifactRes, wbsRes] = await Promise.all([projectPromise, artifactPromise, wbsPromise]);
 
   const { data: artifactRaw, error: artErr } = artifactRes as any;
   if (artErr || !artifactRaw) notFound();
+  if (!project?.id) notFound();
+
+  const artifactProjectId = safeStr((artifactRaw as any)?.project_id).trim();
+  const canonicalProjectUuid = safeStr((project as any)?.id).trim();
+  const canonicalProjectCode = safeStr((project as any)?.project_code).trim();
+
+  // If the path resolved to the wrong project or we recovered via artifact fallback,
+  // redirect to the artifact's actual canonical project path.
+  if (artifactProjectId && canonicalProjectUuid && artifactProjectId !== canonicalProjectUuid) {
+    const { data: actualProject } = await supabase
+      .from("projects")
+      .select(PROJECT_META_SELECT)
+      .eq("id", artifactProjectId)
+      .maybeSingle();
+
+    const actualProjectCode = safeStr((actualProject as any)?.project_code).trim();
+    redirect(`/projects/${actualProjectCode || artifactProjectId}/artifacts/${artifactId}`);
+  }
+
+  if (artifactProjectIdFromFallback && canonicalProjectCode && projectIdentifier !== canonicalProjectCode) {
+    redirect(`/projects/${canonicalProjectCode}/artifacts/${artifactId}`);
+  }
 
   if (isLegacyPidType(artifactRaw.type)) {
-    const canonicalCharter = await findCanonicalProjectCharterArtifact(supabase, projectUuid!, artifactRaw.id);
+    const canonicalCharter = await findCanonicalProjectCharterArtifact(supabase, projectUuid, artifactRaw.id);
     if (canonicalCharter?.id) {
-      const projectCode = safeStr((project as any)?.project_code).trim();
-      redirect(`/projects/${projectCode || projectUuid}/artifacts/${canonicalCharter.id}`);
+      redirect(`/projects/${canonicalProjectCode || projectUuid}/artifacts/${canonicalCharter.id}`);
     }
   }
 
@@ -642,14 +664,29 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     type: normalizeArtifactTypeForUi(artifactRaw.type),
   };
 
-  const canonicalProjectCode = safeStr((project as any)?.project_code).trim();
   if (canonicalProjectCode && projectIdentifier !== canonicalProjectCode) {
     redirect(`/projects/${canonicalProjectCode}/artifacts/${artifactId}`);
   }
 
+  const myRoleResolved = await resolveMyRole(supabase, projectUuid, auth.user.id);
+  const organisationApproverAccess = await resolveOrganisationApproverAccess(supabase, {
+    projectUuid,
+    artifactId,
+    userId: auth.user.id,
+  });
+
+  const hasAccess = !!myRoleResolved || organisationApproverAccess.hasApproverAccess;
+  if (!hasAccess) {
+    redirect(`/projects/${canonicalProjectCode || projectUuid}/artifacts?error=access_denied`);
+  }
+
+  const myRole = myRoleResolved ?? ("viewer" as ProjectRole);
+  const canEditByRole = myRole === "owner" || myRole === "editor";
+
   if (isRAIDType(artifact.type)) {
     redirect(`/projects/${canonicalProjectCode || projectUuid}/raid?fromArtifact=${artifactId}`);
   }
+
   if (isLessonsLearnedType(artifact.type)) {
     redirect(`/projects/${canonicalProjectCode || projectUuid}/lessons?fromArtifact=${artifactId}`);
   }
