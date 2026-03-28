@@ -709,24 +709,23 @@ export default async function ArtifactDetailPage({
             </div>
 
             <div className="af-title-row">
-              {canRenameTitle ? (
-                <form action={renameTitleAction} style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
-                  <input type="hidden" name="project_id" value={projectUuid!} />
-                  <input type="hidden" name="artifact_id" value={artifactId} />
-                  <input
-                    name="title"
-                    defaultValue={artifactTitle}
-                    className="af-title-input"
-                    placeholder="Artifact title..."
-                  />
-                  <button type="submit" className="af-btn af-btn-primary" style={{ flexShrink: 0 }}>
-                    Save
-                  </button>
-                </form>
-              ) : (
-                <h1 className="af-title">{artifactTitle}</h1>
-              )}
-              <span className="af-type-badge">{artifactType}</span>
+            {canRenameTitle && !isFinancialPlan ? (
+  <form action={renameTitleAction} style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
+    <input type="hidden" name="project_id" value={projectUuid!} />
+    <input type="hidden" name="artifact_id" value={artifactId} />
+    <input
+      name="title"
+      defaultValue={artifactTitle}
+      className="af-title-input"
+      placeholder="Artifact title..."
+    />
+    <button type="submit" className="af-btn af-btn-primary" style={{ flexShrink: 0 }}>
+      Save
+    </button>
+  </form>
+) : (
+  <h1 className="af-title">{artifactTitle}</h1>
+)}              <span className="af-type-badge">{artifactType}</span>
             </div>
 
             <div className="af-meta-row">
