@@ -122,7 +122,7 @@ async function resolveProject(
   if (codeNum != null) {
     const { data, error } = await supabase
       .from("projects")
-      .select("id,title,name,project_code,client_name,organisation_id,finish_date,end_date")
+      .select("id,title,project_code,client_name,organisation_id,finish_date")
       .eq("project_code", codeNum)
       .maybeSingle();
 
@@ -148,7 +148,7 @@ async function resolveProject(
   for (const col of fallbacks) {
     const { data, error } = await supabase
       .from("projects")
-      .select("id,title,name,project_code,client_name,organisation_id,finish_date,end_date")
+      .select("id,title,project_code,client_name,organisation_id,finish_date")
       .eq(col, raw)
       .maybeSingle();
 
@@ -426,7 +426,7 @@ export default async function ArtifactsPage({
   if (!project) {
     const { data: p, error: pErr } = await supabase
       .from("projects")
-      .select("id,title,name,project_code,client_name,organisation_id,finish_date,end_date")
+      .select("id,title,project_code,client_name,organisation_id,finish_date")
       .eq("id", projectUuid)
       .maybeSingle();
     if (!pErr && p?.id) project = p;
