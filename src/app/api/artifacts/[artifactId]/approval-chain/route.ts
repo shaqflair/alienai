@@ -31,7 +31,7 @@ export async function GET(
     // Query steps directly by artifact_id (no chain lookup needed)
     const { data: stepsRaw, error: stepsErr } = await supabase
       .from("artifact_approval_steps")
-      .select("id, step_order, status, approval_role, approved_at, approved_by, is_active, chain_id")
+      .select("id, step_order, status, name, approved_at, approved_by, is_active, chain_id, min_approvals")
       .eq("artifact_id", artifactId)
       .order("step_order", { ascending: true });
 
@@ -49,7 +49,7 @@ export async function GET(
 
       const { data: chainSteps } = await supabase
         .from("artifact_approval_steps")
-        .select("id, step_order, status, approval_role, approved_at, approved_by, is_active")
+        .select("id, step_order, status, name, approved_at, approved_by, is_active, min_approvals")
         .eq("chain_id", chain.id)
         .order("step_order", { ascending: true });
 
@@ -101,7 +101,7 @@ export async function GET(
       id: step.id,
       step_order: step.step_order,
       status: step.status,
-      approval_role: step.approval_role,
+      approval_role: step.name,
       approved_at: step.approved_at,
       is_active: step.is_active,
       approvers: approversByStep.get(safeStr(step.id)) ?? [],
