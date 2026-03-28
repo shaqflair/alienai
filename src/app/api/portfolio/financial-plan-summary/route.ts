@@ -254,7 +254,7 @@ async function applyProjectFilters(
   return { projectIds: outIds, meta, projectRows: rows };
 }
 
-ffunction extractBudgetFromContent(content: any): {
+function extractBudgetFromContent(content: any): {
   totalApprovedBudget: number;
   totalBudgeted: number;
   totalForecast: number;
