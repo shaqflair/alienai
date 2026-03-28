@@ -47,7 +47,7 @@ export async function GET(req: Request) {
 
     if (!validateArtifactTypeOrEmpty(artifactType)) {
       return err(
-       `Unsupported artifactType. Allowed: project_charter, change, project_closure_report, financial_plan`
+       `Unsupported artifactType. Allowed: project_charter, change, project_closure_report, financial_plan`,
         400
       );
     }
