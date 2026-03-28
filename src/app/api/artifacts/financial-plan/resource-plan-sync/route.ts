@@ -261,7 +261,7 @@ function toForecastAllocations(grouped: PersonAllocation[]): any[] {
   const out: any[] = [];
   for (const person of grouped) {
     for (const week of person.weeks) {
-      out.push({
+    out.push({
         id:                     `${person.person_id}::${week.week_start}`,
         person_id:              person.person_id,
         person_name:            person.name,
@@ -270,8 +270,8 @@ function toForecastAllocations(grouped: PersonAllocation[]): any[] {
         required_days_per_week: week.days,
         start_date:             week.week_start,
         end_date:               week.week_end,
-        // Use cost rate for forecast (what company pays)
         day_rate:               person.cost_day_rate,
+        charge_day_rate:        person.charge_day_rate,
         rate_source:            person.rate_source,
       });
     }
@@ -556,7 +556,7 @@ export async function POST(req: Request) {
 
     if (writeErr) throw new Error(writeErr.message);
 
-    const missingRates = grouped.filter(p => p.day_rate == null);
+  const missingRates = grouped.filter(p => p.cost_day_rate == null && p.charge_day_rate == null);
 
     return noStore({
       ok: true,
