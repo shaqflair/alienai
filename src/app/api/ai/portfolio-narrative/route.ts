@@ -158,7 +158,16 @@ type Signals = {
   gaps: Array<{ severity: "high" | "medium" | "low"; type: string; detail: string; project?: string; href?: string }>;
 };
 
-async function collectSignals(supabase: any, userId: string): Promise<Signals> {
+async function collectSignals(
+  supabase: any,
+  userId: string,
+  opts?: {
+    seededHealth?: Record<string, { score: number; rag: string }>;
+    seededSpend?:  Record<string, number>;
+    totalBudgetOverride?: number;
+    totalSpendOverride?:  number;
+  }
+): Promise<Signals> {
   const activeIds = await resolveActiveIds(supabase, userId);
   if (!activeIds.length) return emptySignals();
 
@@ -208,34 +217,16 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
   const milestones = rows<any>(msR);
   const changes    = rows<any>(changesR);
 
-  // ── Build base URL correctly ──
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? "https://" + process.env.VERCEL_URL : "http://localhost:3000");
-
-  const { cookies } = await import("next/headers");
-  const cookieHeader = (await cookies()).toString();
-
-  // ── Health scores from portfolio/health API ──
-  let healthByProject = new Map<string, { score: number; rag: string }>();
-  try {
-    const healthRes = await fetch(appUrl + "/api/portfolio/health?days=30", {
-      headers: { Cookie: cookieHeader },
-      cache: "no-store",
-    });
-    if (healthRes.ok) {
-      const healthJson = await healthRes.json().catch(() => null);
-      if (healthJson?.ok && healthJson?.projectScores) {
-        for (const [pid, v] of Object.entries<any>(healthJson.projectScores)) {
-          const score = normaliseScore(v?.score);
-          const rag   = normaliseRag(v?.rag, score);
-          healthByProject.set(pid, { score: score ?? 0, rag });
-        }
-      }
+  // ── Health scores: use seeded data from caller, fall back to DB ──
+  // Internal HTTP calls to our own API fail on Vercel — caller passes scores via body.
+  const healthByProject = new Map<string, { score: number; rag: string }>();
+  if (opts?.seededHealth) {
+    for (const [pid, v] of Object.entries(opts.seededHealth)) {
+      if (pid) healthByProject.set(pid, v);
     }
-  } catch (e: any) {
-    console.warn("[portfolio-narrative] health fetch failed:", e?.message);
-    // Fall back to direct table query
+  }
+  if (healthByProject.size === 0) {
+    // Fall back to direct table query when no seeded data
     for (const tableName of ["project_health", "v_project_health_scores", "latest_project_health"]) {
       try {
         const { data, error } = await supabase.from(tableName as any)
@@ -256,51 +247,13 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     }
   }
 
-  // ── Actual spend from financial plan summary API ──
-  // This is the authoritative source — it reads from approved timesheets
-  // and financial plan artifacts, giving us the correct totalActual figure.
+  // ── Spend: use seeded data from caller (financial plan API result), fall back to DB ──
   const spendMap = new Map<string, number>();
-  try {
-    const fpRes = await fetch(appUrl + "/api/portfolio/financial-plan-summary?days=30", {
-      headers: { Cookie: cookieHeader },
-      cache: "no-store",
-    });
-    if (fpRes.ok) {
-      const fpJson = await fpRes.json().catch(() => null);
-      if (fpJson?.ok) {
-        // Portfolio-level total actual (most reliable)
-        const portfolioActual = safeNum(
-          fpJson?.portfolio?.totalActual ??
-          fpJson?.portfolio?.total_actual ??
-          fpJson?.total_spent ??
-          fpJson?.actual_spent ?? 0
-        );
-        // Per-project actuals (preferred — maps spend to correct project)
-        const projects: any[] = Array.isArray(fpJson?.projects) ? fpJson.projects : [];
-        let mappedTotal = 0;
-        for (const proj of projects) {
-          const pid = safeStr(proj?.projectId ?? proj?.project_id).trim();
-          const actual = safeNum(
-            proj?.totals?.actual ??
-            proj?.totals?.actualSpent ??
-            proj?.actual ?? 0
-          );
-          if (pid && actual > 0) {
-            spendMap.set(pid, actual);
-            mappedTotal += actual;
-          }
-        }
-        // If no per-project breakdown mapped, use portfolio total against first project
-        if (mappedTotal === 0 && portfolioActual > 0 && activeIds.length > 0) {
-          spendMap.set(activeIds[0], portfolioActual);
-        }
-      }
+  if (opts?.seededSpend) {
+    for (const [pid, amt] of Object.entries(opts.seededSpend)) {
+      if (pid && amt > 0) spendMap.set(pid, amt);
     }
-  } catch (e: any) {
-    console.warn("[portfolio-narrative] financial plan fetch failed:", e?.message);
   }
-
-  // ── Fall back to DB queries if financial plan API returned nothing ──
   if (spendMap.size === 0) {
     try {
       const { data: projSpend } = await supabase
@@ -425,7 +378,8 @@ async function collectSignals(supabase: any, userId: string): Promise<Signals> {
     const ms     = msMap.get(pid)       ?? { due: 0, overdue: 0, critical: 0 };
     const ch     = changeMap.get(pid)   ?? { open: 0, review: 0 };
     const budget = safeNum(p?.budget_amount);
-    const spend  = spendMap.get(pid) ?? 0;
+    // __total__ is a fallback key when per-project spend is not available
+    const spend  = spendMap.get(pid) ?? spendMap.get("__total__") ?? 0;
     const rag    = h?.rag ?? "UNSCORED";
 
     projectNames.push(name);
@@ -619,9 +573,39 @@ export async function POST(req: Request) {
       if (cached) return jsonNoStore({ ...cached, cached: true });
     }
 
-    const signals = await collectSignals(supabase, user.id);
+    // ── Build seeded health and spend maps from body before collectSignals ──
+    // Internal HTTP calls fail on Vercel, so the caller passes live data via body.
+    const seededHealth: Record<string, { score: number; rag: string }> = {};
+    if (body?.projectScores && typeof body.projectScores === "object") {
+      for (const [pid, v] of Object.entries<any>(body.projectScores)) {
+        const score = Number(v?.score);
+        const rag   = safeStr(v?.rag).toUpperCase() as "G"|"A"|"R";
+        if (pid && Number.isFinite(score)) seededHealth[pid] = { score, rag };
+      }
+    }
 
-    // Override health with live counts from homepage (authoritative source)
+    const seededSpend: Record<string, number> = {};
+    if (body?.financialPlan && typeof body.financialPlan === "object") {
+      const fp = body.financialPlan as any;
+      const projects: any[] = Array.isArray(fp?.projects) ? fp.projects : [];
+      for (const proj of projects) {
+        const pid = safeStr(proj?.projectId ?? proj?.project_id).trim();
+        const actual = safeNum(proj?.totals?.actual ?? proj?.totals?.actualSpent ?? 0);
+        if (pid && actual > 0) seededSpend[pid] = actual;
+      }
+      // If no per-project data, use portfolio total against all active projects
+      if (Object.keys(seededSpend).length === 0) {
+        const portfolioActual = safeNum(fp?.portfolio?.totalActual ?? fp?.total_spent ?? 0);
+        if (portfolioActual > 0) {
+          // Spread evenly — we'll correct in aggregate
+          seededSpend["__total__"] = portfolioActual;
+        }
+      }
+    }
+
+    const signals = await collectSignals(supabase, user.id, { seededHealth, seededSpend });
+
+    // Override RAG counts with live values from homepage
     if (body?.ragCounts && typeof body.ragCounts === "object") {
       const rc = body.ragCounts;
       signals.rag.g        = Number(rc.g)  || 0;
@@ -629,19 +613,10 @@ export async function POST(req: Request) {
       signals.rag.r        = Number(rc.r)  || 0;
       signals.rag.unscored = Math.max(0, signals.projectCount - signals.rag.g - signals.rag.a - signals.rag.r);
     }
-    if (body?.projectScores && typeof body.projectScores === "object") {
-      const ps = body.projectScores as Record<string, { score: number; rag: string }>;
-      const scores = Object.values(ps).map((v) => Number(v?.score)).filter((n) => n > 0);
-      if (scores.length) {
-        signals.avgHealth = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-      }
-      signals.redProjects   = [];
-      signals.amberProjects = [];
-      for (const [, v] of Object.entries(ps)) {
-        const ragVal = safeStr(v?.rag).toUpperCase();
-        if (ragVal === "R") signals.redProjects.push("(project)");
-        if (ragVal === "A") signals.amberProjects.push("(project)");
-      }
+    // Recalculate avgHealth from seeded scores if available
+    if (Object.keys(seededHealth).length > 0) {
+      const scores = Object.values(seededHealth).map(v => v.score).filter(n => n > 0);
+      if (scores.length) signals.avgHealth = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
     }
 
     if (signals.projectCount === 0) {
