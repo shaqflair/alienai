@@ -1,8 +1,4 @@
 // src/app/api/artifacts/[artifactId]/approval-chain/route.ts
-// GET /api/artifacts/:artifactId/approval-chain
-// Returns the active approval chain steps + approver slots for a given artifact.
-// Used by the financial plan page to show who approved and who is pending.
-
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -32,67 +28,72 @@ export async function GET(
     const { data: auth, error: authErr } = await supabase.auth.getUser();
     if (authErr || !auth?.user) return noStore({ ok: false, error: "Unauthorized" }, 401);
 
-    // Get the active approval chain for this artifact
-    const { data: chain, error: chainErr } = await supabase
-      .from("approval_chains")
-      .select("id, status, created_at, is_active")
-      .eq("artifact_id", artifactId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (chainErr || !chain?.id) {
-      return noStore({ ok: true, steps: [], chain: null });
-    }
-
-    // Get all steps for this chain
+    // Query steps directly by artifact_id (no chain lookup needed)
     const { data: stepsRaw, error: stepsErr } = await supabase
       .from("artifact_approval_steps")
-      .select("id, step_order, status, approval_role, approved_at, approved_by, is_active")
-      .eq("chain_id", chain.id)
+      .select("id, step_order, status, approval_role, approved_at, approved_by, is_active, chain_id")
+      .eq("artifact_id", artifactId)
       .order("step_order", { ascending: true });
 
-    if (stepsErr) return noStore({ ok: false, error: stepsErr.message }, 500);
+    if (stepsErr) {
+      // Fallback: try via chain
+      const { data: chain } = await supabase
+        .from("approval_chains")
+        .select("id, status")
+        .eq("artifact_id", artifactId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!chain?.id) return noStore({ ok: true, steps: [], chain: null });
+
+      const { data: chainSteps } = await supabase
+        .from("artifact_approval_steps")
+        .select("id, step_order, status, approval_role, approved_at, approved_by, is_active")
+        .eq("chain_id", chain.id)
+        .order("step_order", { ascending: true });
+
+      return noStore({ ok: true, steps: chainSteps ?? [], chain });
+    }
 
     const steps = Array.isArray(stepsRaw) ? stepsRaw : [];
+    if (!steps.length) return noStore({ ok: true, steps: [], chain: null });
+
     const stepIds = steps.map((s: any) => safeStr(s.id)).filter(Boolean);
 
-    // Get all approver slots
-    let approversByStep = new Map<string, any[]>();
-    if (stepIds.length) {
-      const { data: slots } = await supabase
-        .from("approval_step_approvers")
-        .select("id, step_id, user_id, email, role, status, acted_at")
-        .in("step_id", stepIds);
+    // Get approver slots
+    const { data: slots } = await supabase
+      .from("approval_step_approvers")
+      .select("id, step_id, user_id, email, role, status, acted_at")
+      .in("step_id", stepIds);
 
-      for (const slot of slots ?? []) {
-        const sid = safeStr(slot.step_id);
-        if (!approversByStep.has(sid)) approversByStep.set(sid, []);
-        approversByStep.get(sid)!.push(slot);
+    const approversByStep = new Map<string, any[]>();
+    for (const slot of slots ?? []) {
+      const sid = safeStr(slot.step_id);
+      if (!approversByStep.has(sid)) approversByStep.set(sid, []);
+      approversByStep.get(sid)!.push(slot);
+    }
+
+    // Enrich with profile names
+    const userIds = [...new Set((slots ?? []).map((s: any) => safeStr(s.user_id)).filter(Boolean))];
+    if (userIds.length) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, id, full_name, email")
+        .or(`user_id.in.(${userIds.join(",")}),id.in.(${userIds.join(",")})`);
+
+      const nameMap = new Map<string, string>();
+      for (const p of profiles ?? []) {
+        const uid = safeStr(p.user_id || p.id).trim();
+        const name = safeStr(p.full_name).trim() || safeStr(p.email).trim();
+        if (uid && name) nameMap.set(uid, name);
       }
 
-      // Enrich with profile names
-      const userIds = [...new Set((slots ?? []).map((s: any) => safeStr(s.user_id)).filter(Boolean))];
-      if (userIds.length) {
-        const { data: profiles } = await supabase
-          .from("profiles")
-          .select("user_id, id, full_name, email")
-          .or(`user_id.in.(${userIds.join(",")}),id.in.(${userIds.join(",")})`);
-
-        const nameMap = new Map<string, string>();
-        for (const p of profiles ?? []) {
-          const uid = safeStr(p.user_id || p.id).trim();
-          const name = safeStr(p.full_name).trim() || safeStr(p.email).trim();
-          if (uid && name) nameMap.set(uid, name);
-        }
-
-        // Merge names into slots
-        for (const [sid, slotList] of approversByStep.entries()) {
-          approversByStep.set(sid, slotList.map((s: any) => ({
-            ...s,
-            name: nameMap.get(safeStr(s.user_id)) || safeStr(s.email) || "Approver",
-          })));
-        }
+      for (const [sid, slotList] of approversByStep.entries()) {
+        approversByStep.set(sid, slotList.map((s: any) => ({
+          ...s,
+          name: nameMap.get(safeStr(s.user_id)) || safeStr(s.email) || "Approver",
+        })));
       }
     }
 
@@ -106,7 +107,7 @@ export async function GET(
       approvers: approversByStep.get(safeStr(step.id)) ?? [],
     }));
 
-    return noStore({ ok: true, chain: { id: chain.id, status: chain.status }, steps: enrichedSteps });
+    return noStore({ ok: true, steps: enrichedSteps, chain: null });
   } catch (e: any) {
     return noStore({ ok: false, error: e?.message ?? "Server error" }, 500);
   }
