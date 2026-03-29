@@ -1,4 +1,4 @@
-// src/app/api/portfolio/recent-wins/route.ts � v7 (PORTFOLIO-SCOPE + shared scope + ACTIVE FILTER + project_code href)
+﻿// src/app/api/portfolio/recent-wins/route.ts � v7 (PORTFOLIO-SCOPE + shared scope + ACTIVE FILTER + project_code href)
 // Proxies /api/success-stories/summary and adds budget wins
 //
 // Fixes / Adds:
@@ -265,8 +265,7 @@ async function handle(req: NextRequest, days: number, limit: number) {
 
     for (const pm of pmRows ?? []) {
       const name = safeStr(
-        (pm as any)?.full_name || (pm as any)?.display_name || (pm as any)?.name,
-      ).trim();
+        (pm as any)?.full_name || (pm as any)      ).trim();
       const uid = safeStr((pm as any)?.user_id || (pm as any)?.id).trim();
       if (uid && name) pmById.set(uid, name);
     }

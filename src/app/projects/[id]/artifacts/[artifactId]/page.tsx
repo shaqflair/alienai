@@ -1,4 +1,4 @@
-// src/app/projects/[id]/artifacts/[artifactId]/page.tsx
+﻿// src/app/projects/[id]/artifacts/[artifactId]/page.tsx
 import "server-only";
 import React from "react";
 import Link from "next/link";
