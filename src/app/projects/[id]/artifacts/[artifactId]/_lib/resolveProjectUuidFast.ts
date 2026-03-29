@@ -53,6 +53,10 @@ function isInvalidInputSyntaxError(err: any) {
   return String(err?.code || "").trim() === "22P02";
 }
 
+function extractDigits(input: string): string | null {
+  const m = String(input).match(/(\d{3,})$/);
+  return m?.[1] ?? null;
+}
 function uniqueValues(values: string[]) {
   return Array.from(
     new Set(
@@ -83,7 +87,8 @@ export async function resolveProjectUuidFast(supabase: any, identifier: string) 
   }
 
   const normalized = normalizeProjectIdentifier(raw);
-  const candidateValues = uniqueValues([raw, normalized]);
+  const digits = extractDigits(raw);
+  const candidateValues = uniqueValues([raw, normalized, ...(digits ? [digits] : [])]);
 
   for (const col of HUMAN_COL_CANDIDATES) {
     for (const value of candidateValues) {
