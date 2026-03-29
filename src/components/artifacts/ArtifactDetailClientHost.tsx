@@ -694,7 +694,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   if (isFinancialPlan) {
     return (
       <div className="space-y-4 text-slate-900">
-        <ArtifactCollaborationBanner
+        {showCollaborationBanner && <ArtifactCollaborationBanner
           readOnly={effectiveReadOnly}
           approvalLocked={false}
           lockOwnerName={
@@ -703,7 +703,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           expiresAt={collaboration.state?.activeLock?.expiresAt || null}
           currentVersionNo={currentVersionNo}
           currentDraftRev={currentDraftRev}
-        />
+        />}
 
         <EditorStatusBar
           effectiveReadOnly={effectiveReadOnly}
@@ -747,7 +747,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
             updateArtifactJsonAction={updateArtifactJsonAction}
           />
 
-          {effectiveReadOnly && (
+          {effectiveReadOnly && !isFinancialPlan && (
             <ArtifactEditorReadOnlyOverlay
               show={true}
               message={
