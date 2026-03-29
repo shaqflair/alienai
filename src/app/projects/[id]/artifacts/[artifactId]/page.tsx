@@ -104,7 +104,7 @@ function getArtifactReadOnlyBanner(args: {
     };
   }
 
-  if (args.artifactLocked) {
+  if (args.artifactLocked && status !== "approved") {
     return {
       tone: "warning",
       title: "Read-only: artifact locked",
@@ -112,7 +112,7 @@ function getArtifactReadOnlyBanner(args: {
     };
   }
 
-  if (isLockedByAnotherUser) {
+  if (isLockedByAnotherUser && status !== "approved") {
     return {
       tone: "danger",
       title: "Read-only: locked by another user",
