@@ -99,7 +99,7 @@ async function resolveActorName(supabase: any, userId: string, fallbackEmail?: s
   try {
     const { data } = await supabase
       .from("profiles")
-      .select("full_name, display_name, name, email")
+      .select("full_name, name, email")
       .eq("id", userId)
       .maybeSingle();
 

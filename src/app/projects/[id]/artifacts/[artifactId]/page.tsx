@@ -1,4 +1,4 @@
-﻿// src/app/projects/[id]/artifacts/[artifactId]/page.tsx
+// src/app/projects/[id]/artifacts/[artifactId]/page.tsx
 import "server-only";
 import React from "react";
 import Link from "next/link";
@@ -150,15 +150,14 @@ async function getProjectManagerNameBestEffort(supabase: any, projectId: string)
 
     const { data: prof } = await supabase
       .from("profiles")
-      .select("full_name, display_name, name, email, user_id, id")
+      .select("full_name, name, email, user_id, id")
       .or(`user_id.eq.${uid},id.eq.${uid}`)
       .maybeSingle();
 
     const full = safeStr((prof as any)?.full_name).trim();
     if (full) return full;
 
-    const disp = safeStr((prof as any)?.display_name).trim();
-    if (disp) return disp;
+    const disp = safeStr(    if (disp) return disp;
 
     const nm = safeStr((prof as any)?.name).trim();
     if (nm) return nm;

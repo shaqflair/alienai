@@ -65,7 +65,7 @@ export async function GET(
     if (authorIds.length) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, user_id, full_name, display_name, name, email")
+        .select("id, user_id, full_name, name, email")
         .or(authorIds.map((id) => `id.eq.${id},user_id.eq.${id}`).join(","));
 
       for (const p of profiles ?? []) {

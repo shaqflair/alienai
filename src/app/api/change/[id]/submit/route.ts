@@ -1,4 +1,4 @@
-﻿// src/app/api/change/[id]/submit/route.ts
+// src/app/api/change/[id]/submit/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -216,7 +216,7 @@ async function resolveActorName(supabase: any, userId: string, fallbackEmail?: s
   try {
     const { data } = await supabase
       .from("profiles")
-      .select("full_name, display_name, name, email")
+      .select("full_name, name, email")
       .eq("id", userId)
       .maybeSingle();
 

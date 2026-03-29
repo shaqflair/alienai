@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -114,7 +114,7 @@ export async function loadGate5Status(projectId: string): Promise<Gate5Result | 
   if (completorIds.length) {
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("id, user_id, full_name, display_name, email")
+      .select("id, user_id, full_name, email")
       .or(completorIds.map((id) => `user_id.eq.${id}`).join(","));
     for (const p of Array.isArray(profiles) ? profiles : []) {
       const name =
