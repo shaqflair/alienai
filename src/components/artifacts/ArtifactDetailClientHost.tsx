@@ -471,7 +471,7 @@ function EditorStatusBar({
 
   if (approvalLocked) {
     if (status === "approved") {
-      stateText = "Approved — locked";
+      stateText = isFinancialPlan ? "Approved — budget locked (amend via CR)" : "Approved — locked";
       stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
     } else if (status === "rejected") {
       stateText = "Rejected — locked";
@@ -626,8 +626,22 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const approvalStatusIsTerminal =
     approvalStatusLower === "approved" || approvalStatusLower === "rejected";
 
+  const isInApprovalReviewState =
+    approvalStatusLower === "submitted" ||
+    approvalStatusLower === "submitted_for_approval" ||
+    approvalStatusLower === "pending_approval" ||
+    approvalStatusLower === "in_review" ||
+    approvalStatusLower === "awaiting_approval";
+
+  const isApproverReviewMode =
+    !!isApprover && !!approvalEnabled && isInApprovalReviewState && !approvalStatusIsTerminal;
+
+  const fpApprovalLocked = isFinancialPlan && isApprovalLockedStatus(approvalStatus);
+
   const effectiveReadOnly = isFinancialPlan
-    ? !isEditable || lockLayout || collaboration.isReadOnly || approvalStatusIsTerminal
+    ? (isInApprovalReviewState && !isApproverReviewMode) ||
+      approvalStatusLower === "rejected" ||
+      (!isEditable && !isApproverReviewMode)
     : !isEditable || lockLayout || collaboration.isReadOnly || approvalLocked;
 
   const isApproverMode = isApprover && effectiveReadOnly && mode === "charter";
@@ -698,8 +712,23 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           currentVersionNo={currentVersionNo}
           currentDraftRev={currentDraftRev}
           isFinancialPlan={true}
+          isApproverReviewMode={isApproverReviewMode}
         />
 
+        {approvalStatusLower === "approved" && isFinancialPlan && (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 shadow-sm">
+            <div className="font-semibold text-emerald-800">✓ Financial Plan approved</div>
+            <div className="mt-1 text-emerald-700">The plan is approved and baselined. Cost lines, resources, and monthly phasing remain editable. The <strong>Approved Budget</strong> field is locked — raise a Change Request to amend it.</div>
+          </div>
+        )}
+        {fpApprovalLocked && isInApprovalReviewState && (
+          <div>
+            <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm mb-2">
+              <span className="font-semibold text-blue-800">{isApproverReviewMode ? "In approval — review enabled" : "In approval"}</span>
+              <span className="text-blue-700"> — this financial plan has been submitted for approval.{isApproverReviewMode ? " Content is readable for review." : " The approved budget field is locked."}</span>
+            </div>
+          </div>
+        )}
         <div className="relative w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <FinancialPlanEditorHost
             projectId={projectId}
@@ -707,8 +736,11 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
             organisationId={organisationId}
             isAdmin={isAdmin}
             initialJson={typedInitialJson ?? rawContentJson ?? null}
-            readOnly={effectiveReadOnly}
-            budgetLocked={approvalLocked}
+            readOnly={effectiveReadOnly && !isApproverReviewMode}
+            budgetLocked={
+              (isInApprovalReviewState && !isApproverReviewMode) ||
+              approvalStatusLower === "approved"
+            }
             sessionId={collaboration.sessionId}
             clientDraftRev={currentDraftRev}
             onDraftRevChange={collaboration.setDraftRev}
