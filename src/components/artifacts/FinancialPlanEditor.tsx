@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useCallback, useEffect, useMemo, useTransition, useRef } from "react";
 import {
@@ -455,6 +455,11 @@ function FinancialPlanHeaderBar({
               }}
             />
           </div>
+          {budgetLocked && (
+            <div style={{ marginTop: 4, fontSize: 9, fontFamily: P.mono, color: P.green, opacity: 0.85 }}>
+              Locked — raise a Change Request to amend
+            </div>
+          )}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 140 }}>
@@ -1995,6 +2000,22 @@ export default function FinancialPlanEditor({
 
       {activeTab === "changes" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {(() => {
+            const unapplied = content.change_exposure.filter(
+              c => c.status === "approved" && Number(c.cost_impact) !== 0 && !String(c.notes || "").includes("Applied to budget")
+            );
+            if (!unapplied.length) return null;
+            return (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 14px", background: P.greenLt, border: "1px solid #A0D0B8", marginBottom: 8 }}>
+                <Check style={{ width: 13, height: 13, color: P.green, flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontFamily: P.mono, fontSize: 11, color: P.green }}>
+                  <strong>{unapplied.length} approved CR{unapplied.length !== 1 ? "s" : ""}</strong> ready to apply —
+                  click <strong>✓ Apply to budget</strong> on each approved row to update the approved budget ceiling.
+                  Total impact: <strong>{sym}{unapplied.reduce((s, c) => s + (Number(c.cost_impact) || 0), 0).toLocaleString()}</strong>
+                </div>
+              </div>
+            );
+          })()}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
             {[
               { label: "Approved Exposure", value: fmt(approvedExposure, sym), color: P.navy },
@@ -2031,6 +2052,21 @@ export default function FinancialPlanEditor({
                           style={{ fontSize: 10, fontFamily: P.mono, fontWeight: 700, padding: "3px 8px", border: "none", cursor: readOnly ? "default" : "pointer", outline: "none", background: c.status === "approved" ? P.greenLt : c.status === "pending" ? P.amberLt : "#F4F4F2", color: c.status === "approved" ? P.green : c.status === "pending" ? P.amber : P.textSm }}>
                           <option value="approved">Approved</option><option value="pending">Pending</option><option value="rejected">Rejected</option>
                         </select>
+                        {c.status === "approved" && c.cost_impact !== "" && Number(c.cost_impact) !== 0 && !readOnly && (
+                          <button
+                            type="button"
+                            title="Apply this approved CR cost impact to the Approved Budget"
+                            onClick={() => {
+                              const current = Number(content.total_approved_budget) || 0;
+                              const impact  = Number(c.cost_impact) || 0;
+                              updateField("total_approved_budget", current + impact);
+                              updateCE(c.id, { notes: (c.notes ? c.notes + " | " : "") + "Applied to budget: " + sym + Math.abs(impact).toLocaleString() + " on " + new Date().toLocaleDateString("en-GB") });
+                            }}
+                            style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, cursor: "pointer", background: P.greenLt, border: "1px solid #A0D0B8", color: P.green }}
+                          >
+                            ✓ Apply to budget
+                          </button>
+                        )}
                       </td>
                       <td style={{ ...cb, minWidth: 160 }}><input type="text" value={c.notes} onChange={e => updateCE(c.id, { notes: e.target.value })} readOnly={readOnly} placeholder="Notes..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.textMd, fontFamily: P.sans, outline: "none" }} /></td>
                       <td style={{ ...cb, padding: "4px 6px" }}>

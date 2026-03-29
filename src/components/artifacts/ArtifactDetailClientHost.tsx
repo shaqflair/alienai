@@ -742,7 +742,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const fpApprovalLocked = isFinancialPlan && isApprovalLockedStatus(approvalStatus);
 
   const effectiveReadOnly = isFinancialPlan
-    ? approvalStatusIsTerminal || (!isEditable && !isApproverReviewMode)
+    ? (isInApprovalReviewState && !isApproverReviewMode) ||
+      approvalStatusLower === "rejected" ||
+      (!isEditable && !isApproverReviewMode)
     : !isEditable || lockLayout || collaboration.isReadOnly || approvalLocked;
 
   const hasActiveOtherEditorLock =
@@ -881,7 +883,10 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
             isAdmin={isAdmin}
             initialJson={typedInitialJson ?? rawContentJson ?? null}
             readOnly={effectiveReadOnly && !isApproverReviewMode}
-            budgetLocked={fpApprovalLocked && !isApproverReviewMode}
+            budgetLocked={
+              (isInApprovalReviewState && !isApproverReviewMode) ||
+              approvalStatusLower === "approved"
+            }
             sessionId={collaboration.sessionId}
             clientDraftRev={currentDraftRev}
             onDraftRevChange={collaboration.setDraftRev}
