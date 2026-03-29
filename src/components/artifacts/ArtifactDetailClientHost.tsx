@@ -650,7 +650,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const effectiveReadOnly = isFinancialPlan
     ? (isInApprovalReviewState && !isApproverReviewMode) ||
       approvalStatusLower === "rejected" ||
-      (!isEditable && !isApproverReviewMode)
+      (!isEditable && !isApproverReviewMode && approvalStatusLower !== "approved")
     : !isEditable || lockLayout || collaboration.isReadOnly || approvalLocked;
 
   const isApproverMode = isApprover && effectiveReadOnly && mode === "charter";

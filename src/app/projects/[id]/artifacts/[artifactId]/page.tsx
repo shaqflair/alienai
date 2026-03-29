@@ -86,9 +86,7 @@ function getArtifactReadOnlyBanner(args: {
       "pending_approval",
       "in_review",
       "awaiting_approval",
-      "approved",
-      "rejected",
-    ].includes(status);
+      ].includes(status) && status !== "approved" && status !== "rejected";
 
   if (isViewer) {
     return {
