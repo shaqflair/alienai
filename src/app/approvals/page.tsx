@@ -1,4 +1,4 @@
-﻿// src/app/approvals/page.tsx — Redesigned Control Centre
+// src/app/approvals/page.tsx — Redesigned Control Centre
 // Matches the redesign screenshots exactly.
 // Wired to:
 //   /api/executive/approvals          → overview counts
@@ -11,7 +11,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
 /* ─── TYPES ─────────────────────────────────────────────────────────────────── */
 type Tab = "overview" | "pm" | "bottlenecks" | "atrisk" | "digest";
@@ -55,6 +55,47 @@ async function apiFetch<T>(path: string): Promise<T> {
   const j = await res.json();
   if (!j.ok) throw new Error(j.error ?? "API error");
   return j as T;
+}
+
+// Normalise both API shapes into a consistent PendingItem.
+// /api/executive/approvals  → nested: item.artifact.title, item.project.name, item.risk
+// /api/executive/approvals/pending → flat: item.artifact_title, item.project_title, item.sla_status
+function normaliseItem(r: any): PendingItem {
+  const sla = ss(r?.sla_status ?? r?.risk ?? "");
+  const risk: PendingItem["risk"] =
+    sla === "breached" || sla === "overdue" || sla === "overdue_undecided"
+      ? "breached"
+      : sla === "at_risk" || sla === "warn"
+      ? "at_risk"
+      : r?.risk === "breached"
+      ? "breached"
+      : r?.risk === "at_risk"
+      ? "at_risk"
+      : "waiting";
+
+  return {
+    step_id:          ss(r?.step_id ?? r?.artifact_step_id ?? r?.artifact_id ?? ""),
+    artifact_id:      ss(r?.artifact_id ?? ""),
+    step_name:        ss(r?.step_name ?? ""),
+    pending_days:     r?.pending_days != null ? Number(r.pending_days) : null,
+    pending_age_label: ss(r?.pending_age_label ?? r?.age_label ?? ""),
+    due_at:           ss(r?.due_at ?? "") || null,
+    risk,
+    artifact: {
+      title:         ss(r?.artifact?.title ?? r?.artifact_title ?? r?.title ?? "Untitled"),
+      artifact_type: ss(r?.artifact?.artifact_type ?? r?.artifact_type ?? ""),
+    },
+    project: {
+      id:   ss(r?.project?.id ?? r?.project_id ?? ""),
+      name: ss(r?.project?.name ?? r?.project_title ?? r?.project_name ?? "") || null,
+    },
+    approver: {
+      user_id: ss(r?.approver?.user_id ?? r?.approver_user_id ?? "") || null,
+      email:   ss(r?.approver?.email   ?? r?.approver_email    ?? "") || null,
+      label:   ss(r?.approver?.label   ?? r?.approver_label    ?? r?.approver_email ?? "Unassigned"),
+      name:    ss(r?.approver?.name    ?? r?.approver_name     ?? "") || undefined,
+    },
+  };
 }
 
 /* ─── DESIGN HELPERS ─────────────────────────────────────────────────────────── */
@@ -138,33 +179,29 @@ function ProjectCode({ code }: { code: string }) {
 function OverviewTab({ counts, items, loading, error, onRetry }: {
   counts: LiveCounts | null; items: PendingItem[]; loading: boolean; error: string | null; onRetry: () => void;
 }) {
-  if (loading) return <Spinner />;
-  if (error) return <ErrorMsg msg={error} onRetry={onRetry} />;
-
+  // Compute display values (no hooks after early returns — compute before them)
   const display = counts
     ? { total: counts.pending, breached: counts.breached, at_risk: counts.at_risk, within: Math.max(0, counts.pending - counts.at_risk - counts.breached) }
     : { total: 0, breached: 0, at_risk: 0, within: 0 };
 
-  // Group by project
-  const byProject = useMemo(() => {
-    const map = new Map<string, { name: string; code: string; count: number; breached: number; at_risk: number }>();
-    for (const it of items) {
-      const pid = it.project?.id ?? "?";
-      const name = it.project?.name ?? pid;
-      const code = pid.slice(0, 8).toUpperCase();
-      let p = map.get(pid);
-      if (!p) { p = { name, code, count: 0, breached: 0, at_risk: 0 }; map.set(pid, p); }
-      p.count++;
-      if (it.risk === "breached") p.breached++;
-      else if (it.risk === "at_risk") p.at_risk++;
-    }
-    return Array.from(map.values()).sort((a, b) => b.breached - a.breached || b.at_risk - a.at_risk);
-  }, [items]);
+  if (loading) return <Spinner />;
+  if (error) return <ErrorMsg msg={error} onRetry={onRetry} />;
 
-  // SLA urgency items
-  const urgentItems = useMemo(() =>
-    [...items].filter((i) => i.due_at).sort((a, b) => new Date(a.due_at!).getTime() - new Date(b.due_at!).getTime()).slice(0, 5),
-    [items]);
+  // Group by project (plain — no hooks after conditional returns)
+  const byProjectMap = new Map<string, { name: string; code: string; count: number; breached: number; at_risk: number }>();
+  for (const it of items) {
+    const pid = it.project?.id ?? "?";
+    const name = it.project?.name ?? pid;
+    const code = pid.slice(0, 8).toUpperCase();
+    let p = byProjectMap.get(pid);
+    if (!p) { p = { name, code, count: 0, breached: 0, at_risk: 0 }; byProjectMap.set(pid, p); }
+    p.count++;
+    if (it.risk === "breached") p.breached++;
+    else if (it.risk === "at_risk") p.at_risk++;
+  }
+  const byProject = Array.from(byProjectMap.values()).sort((a, b) => b.breached - a.breached || b.at_risk - a.at_risk);
+
+  const urgentItems = [...items].filter((i) => i.due_at).sort((a, b) => new Date(a.due_at!).getTime() - new Date(b.due_at!).getTime()).slice(0, 5);
 
   const kpis = [
     { label: "TOTAL PENDING",  value: display.total,    color: "#2563eb", trend: display.total > 0 ? "▲ 3 since yesterday" : "All clear", trendColor: "#dc2626" },
@@ -719,14 +756,15 @@ export default function ApprovalsControlCentre() {
   const fetchAll = useCallback(async () => {
     setLastRefreshed(new Date());
 
-    // Overview: counts + items
+    // Overview: counts + items — normalise both endpoint shapes
     setOverviewLoading(true); setOverviewError(null);
     Promise.all([
-      apiFetch<{ counts: LiveCounts; items: PendingItem[] }>("/api/executive/approvals"),
-      apiFetch<{ items: PendingItem[] }>("/api/executive/approvals/pending?limit=200"),
+      apiFetch<{ counts: LiveCounts; items: any[] }>("/api/executive/approvals"),
+      apiFetch<{ items: any[] }>("/api/executive/approvals/pending?limit=200"),
     ]).then(([main, pend]) => {
       setCounts(main.counts);
-      setPendingItems(pend.items ?? main.items ?? []);
+      const raw = pend.items ?? main.items ?? [];
+      setPendingItems(raw.map(normaliseItem));
     }).catch((e) => setOverviewError(e.message)).finally(() => setOverviewLoading(false));
 
     // PM / who-blocking
