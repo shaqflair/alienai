@@ -40,6 +40,95 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
+type BannerTone = "danger" | "warning" | "muted" | null;
+
+type BannerState = {
+  tone: BannerTone;
+  title: string;
+  message: string | null;
+};
+
+function getArtifactReadOnlyBanner(args: {
+  myRole: "owner" | "editor" | "viewer";
+  artifactLocked?: boolean | null;
+  approvalEnabled?: boolean;
+  status?: string | null;
+  collaboration?: {
+    activeLockSessionId?: string | null;
+    activeLockEditorName?: string | null;
+    activeLockExpiresAt?: string | null;
+    activeLockIsMine?: boolean;
+    activeLockExpired?: boolean;
+    canEditByStatus?: boolean;
+    readOnlyReason?: string | null;
+    isLockedByAnotherUser?: boolean;
+  } | null;
+}): BannerState {
+  const status = String(args.status || "").trim().toLowerCase();
+  const role = String(args.myRole || "viewer").trim().toLowerCase();
+  const collaboration = args.collaboration || null;
+
+  const isViewer = role === "viewer";
+  const isLockedByAnotherUser =
+    !!collaboration?.activeLockSessionId &&
+    !!collaboration?.isLockedByAnotherUser &&
+    !collaboration?.activeLockIsMine &&
+    !collaboration?.activeLockExpired;
+
+  const lockedEditor = collaboration?.activeLockEditorName?.trim() || "another editor";
+
+  const approvalReadOnly =
+    !!args.approvalEnabled &&
+    collaboration?.canEditByStatus === false &&
+    [
+      "submitted",
+      "submitted_for_approval",
+      "pending_approval",
+      "in_review",
+      "awaiting_approval",
+      "approved",
+      "rejected",
+    ].includes(status);
+
+  if (isViewer) {
+    return {
+      tone: "muted",
+      title: "Read-only access",
+      message: "You have view-only access to this artifact.",
+    };
+  }
+
+  if (approvalReadOnly) {
+    return {
+      tone: "warning",
+      title: "Read-only: approval in progress",
+      message: "This artifact cannot be edited in its current approval state.",
+    };
+  }
+
+  if (args.artifactLocked) {
+    return {
+      tone: "warning",
+      title: "Read-only: artifact locked",
+      message: "This artifact is currently locked from editing.",
+    };
+  }
+
+  if (isLockedByAnotherUser) {
+    return {
+      tone: "danger",
+      title: "Read-only: locked by another user",
+      message: `Another editor currently owns the edit lock (${lockedEditor}). You can take over automatically once the lock expires.`,
+    };
+  }
+
+  return {
+    tone: null,
+    title: "",
+    message: null,
+  };
+}
+
 async function getProjectManagerNameBestEffort(supabase: any, projectId: string): Promise<string | null> {
   if (!projectId) return null;
 
@@ -176,6 +265,7 @@ export default async function ArtifactDetailPage({
     financialPlanMode,
     legacyExports,
     weeklyMode,
+    collaboration,
   } = vm as any;
 
   const projectRefForPaths = normParam(projectHumanId) || projectParam || normParam(projectUuid);
@@ -194,19 +284,20 @@ export default async function ArtifactDetailPage({
 
   const effectiveLockLayout =
     !!approvalEnabled &&
-    // Financial plan: don't lock layout on submit — only lock approved budget field
     (financialPlanMode
       ? statusLower === "approved" || statusLower === "rejected"
       : isSubmitted || statusLower === "approved" || statusLower === "rejected");
+
   const effectiveIsEditable =
-    // Financial plan: editable even when submitted (only approved budget field locks)
-    // Fully approved or rejected still locks everything via effectiveLockLayout
     approvalEnabled && financialPlanMode
-      ? canEditByRole && isCurrent && !effectiveLockLayout &&
+      ? canEditByRole &&
+        isCurrent &&
+        !effectiveLockLayout &&
         (isDraftOrCR || statusLower === "submitted")
       : approvalEnabled && (charterMode || closureMode)
         ? canEditByRole && isDraftOrCR && !effectiveLockLayout && isCurrent
         : !!loaderIsEditable;
+
   const canSubmitFromServer =
     !!approvalEnabled &&
     !!(charterMode || closureMode || financialPlanMode) &&
@@ -229,6 +320,14 @@ export default async function ArtifactDetailPage({
     !!canDecide &&
     isSubmitted &&
     !!(charterMode || closureMode || financialPlanMode);
+
+  const banner = getArtifactReadOnlyBanner({
+    myRole: (myRole || "viewer") as "owner" | "editor" | "viewer",
+    artifactLocked: !!(artifact as any)?.is_locked,
+    approvalEnabled: !!approvalEnabled,
+    status,
+    collaboration,
+  });
 
   let projectManagerName: string | null = null;
   let projectTitleForSeed = safeStr(projectTitle).trim();
@@ -470,6 +569,48 @@ export default async function ArtifactDetailPage({
   const sc = statusConfig(status);
   const artifactTitle = safeStr((artifact as any).title || displayType((artifact as any).type) || "Artifact");
   const artifactType = displayType((artifact as any).type);
+
+  const ArtifactReadOnlyBanner = () => {
+    if (!banner.tone) return null;
+
+    const styles =
+      banner.tone === "danger"
+        ? {
+            border: "1px solid #fecaca",
+            background: "#fff5f5",
+            color: "#b91c1c",
+          }
+        : banner.tone === "warning"
+          ? {
+              border: "1px solid #fde68a",
+              background: "#fffbeb",
+              color: "#b45309",
+            }
+          : {
+              border: "1px solid #e2e8f0",
+              background: "#f8fafc",
+              color: "#475569",
+            };
+
+    return (
+      <div
+        style={{
+          margin: "0 0 16px",
+          padding: "14px 16px",
+          borderRadius: 12,
+          ...styles,
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 700 }}>{banner.title}</div>
+        {banner.message ? <div style={{ marginTop: 6, fontSize: 13 }}>{banner.message}</div> : null}
+        {artifact?.current_draft_rev != null || artifact?.current_version_no != null ? (
+          <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+            Draft rev {Number(artifact?.current_draft_rev ?? 0)} · Version {Number(artifact?.current_version_no ?? 0)}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   const ArtifactPageHeader = () => (
     <>
@@ -716,23 +857,24 @@ export default async function ArtifactDetailPage({
             </div>
 
             <div className="af-title-row">
-            {canRenameTitle && !isFinancialPlan ? (
-  <form action={renameTitleAction} style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
-    <input type="hidden" name="project_id" value={projectUuid!} />
-    <input type="hidden" name="artifact_id" value={artifactId} />
-    <input
-      name="title"
-      defaultValue={artifactTitle}
-      className="af-title-input"
-      placeholder="Artifact title..."
-    />
-    <button type="submit" className="af-btn af-btn-primary" style={{ flexShrink: 0 }}>
-      Save
-    </button>
-  </form>
-) : (
-  <h1 className="af-title">{artifactTitle}</h1>
-)}              <span className="af-type-badge">{artifactType}</span>
+              {canRenameTitle && !isFinancialPlan ? (
+                <form action={renameTitleAction} style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
+                  <input type="hidden" name="project_id" value={projectUuid!} />
+                  <input type="hidden" name="artifact_id" value={artifactId} />
+                  <input
+                    name="title"
+                    defaultValue={artifactTitle}
+                    className="af-title-input"
+                    placeholder="Artifact title..."
+                  />
+                  <button type="submit" className="af-btn af-btn-primary" style={{ flexShrink: 0 }}>
+                    Save
+                  </button>
+                </form>
+              ) : (
+                <h1 className="af-title">{artifactTitle}</h1>
+              )}
+              <span className="af-type-badge">{artifactType}</span>
             </div>
 
             <div className="af-meta-row">
@@ -1040,6 +1182,7 @@ export default async function ArtifactDetailPage({
         )}
 
         <ArtifactPageHeader />
+        <ArtifactReadOnlyBanner />
 
         <div className="artifact-page-host">
           <ArtifactDetailClientHost
@@ -1114,6 +1257,7 @@ export default async function ArtifactDetailPage({
       )}
 
       {!isWeeklyReport && <ArtifactPageHeader />}
+      <ArtifactReadOnlyBanner />
 
       <div className="artifact-page-host">
         <ArtifactDetailClientHost
