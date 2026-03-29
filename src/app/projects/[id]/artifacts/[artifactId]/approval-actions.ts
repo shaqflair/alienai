@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { resolveArtifactAccess } from "@/lib/server/access/resolveArtifactAccess";
 
 import { assertCharterReadyForSubmit } from "@/lib/charter/charter-validation";
 import { buildRuntimeApprovalChain } from "@/lib/server/approvals/runtime-chain-builder";
@@ -153,7 +154,6 @@ async function requireMemberRole(supabase: any, projectId: string, userId: strin
   if (error) throwDb(error, "project_members.select");
   if (mem) return String((mem as any)?.role ?? "viewer").toLowerCase();
 
-  // Fall back to org membership — org admins/owners can approve without being project members
   const { data: proj } = await supabase
     .from("projects")
     .select("organisation_id")
@@ -175,6 +175,7 @@ async function requireMemberRole(supabase: any, projectId: string, userId: strin
 
   throw new Error("Not a project member.");
 }
+
 function canSubmitByRole(myRole: string, isAuthor: boolean) {
   return isAuthor || myRole === "owner" || myRole === "editor";
 }
@@ -1289,83 +1290,6 @@ async function assertApprovalActionAllowed(
   };
 }
 
-async function progressApprovalChain(
-  supabase: any,
-  args: {
-    artifactId: string;
-    chain: any;
-    steps: any[];
-    currentStep: any;
-    currentPos: number;
-    actorId: string;
-    nowIso: string;
-    approverCount: number;
-  }
-) {
-  const threshold = getStepMinApprovals(args.currentStep, args.approverCount);
-
-  if (args.approverCount > 0) {
-    const counted = await countApprovedApproverSlotsForStep(supabase, args.currentStep.id);
-    if (counted.approvedCount < threshold) {
-      await keepArtifactOnCurrentApprovalStep(supabase, {
-        artifactId: args.artifactId,
-        currentStepIndex: getStepOrderValue(args.currentStep, 1),
-      });
-
-      return {
-        stepClosed: false,
-        chainCompleted: false,
-        nextStep: null,
-        approvalsCount: counted.approvedCount,
-        threshold,
-      };
-    }
-  }
-
-  await closeStepApproved(supabase, {
-    stepId: args.currentStep.id,
-    actorId: args.actorId,
-    nowIso: args.nowIso,
-  });
-
-  const nextStep = args.currentPos >= 0 ? args.steps[args.currentPos + 1] ?? null : null;
-
-  if (nextStep?.id) {
-    await activateStep(supabase, nextStep.id, args.nowIso);
-    await moveArtifactToNextApprovalStep(supabase, {
-      artifactId: args.artifactId,
-      nextStepIndex: getStepOrderValue(nextStep, getStepOrderValue(args.currentStep, 1) + 1),
-    });
-
-    return {
-      stepClosed: true,
-      chainCompleted: false,
-      nextStep,
-      approvalsCount: threshold,
-      threshold,
-    };
-  }
-
-  await finalizeArtifactApproval(supabase, {
-    artifactId: args.artifactId,
-    actorId: args.actorId,
-    nowIso: args.nowIso,
-  });
-  await closeApprovalChain(supabase, args.chain.id, {
-    status: "approved",
-    actorId: args.actorId,
-    nowIso: args.nowIso,
-  });
-
-  return {
-    stepClosed: true,
-    chainCompleted: true,
-    nextStep: null,
-    approvalsCount: threshold,
-    threshold,
-  };
-}
-
 async function approveStepAtomic(
   supabase: any,
   args: {
@@ -1899,45 +1823,20 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   const project = await getProjectNotificationContext(supabase, projectId);
   const submittedByName = await getUserDisplayName(supabase, user.id);
 
- try {
-      await notifyNextStepApprovers(supabase, {
-        artifactId,
-        artifactTitle: safeStr(a0.title).trim() || "Artifact",
-        artifactType: safeStr(a0.type).trim() || "artifact",
-        project: project ?? null,
-        projectFallbackRef: projectId,
-        approvedByName: actorDisplayName,
-      });
-    } catch (notifyErr) {
-      console.error("[approveStep] next-step notification failed:", notifyErr);
-    }
+  try {
+    await notifyFirstStepApprovers(supabase, {
+      artifactId,
+      artifactTitle: safeStr(a0.title).trim() || "Artifact",
+      artifactType: safeStr(a0.type).trim() || "artifact",
+      artifactAuthorUserId: safeStr(a0.user_id),
+      project: project ?? null,
+      projectFallbackRef: projectId,
+      submittedByName,
+    });
+  } catch (notifyErr) {
+    console.error("[submitArtifactForApproval] first-step notification failed:", notifyErr);
+  }
 
-    // Auto-add next step approvers as project viewers so they can access the artifact
-    try {
-      const adminDb = createAdminClient();
-      const nextStepApprovers = await getStepApproverRows(supabase, nextStepId);
-      for (const approver of nextStepApprovers) {
-        const uid = safeStr(approver.user_id).trim();
-        if (!uid) continue;
-        // Check if already a member
-        const { data: existing } = await adminDb
-          .from("project_members")
-          .select("user_id")
-          .eq("project_id", projectId)
-          .eq("user_id", uid)
-          .maybeSingle();
-        if (!existing) {
-          await adminDb.from("project_members").insert({
-            project_id: projectId,
-            user_id: uid,
-            role: "viewer",
-            created_at: new Date().toISOString(),
-          });
-        }
-      }
-    } catch (memberErr) {
-      console.error("[approveStep] auto-add project member failed:", memberErr);
-    }
   if (st === "changes_requested") {
     await addApprovalCommentSafe(supabase, {
       organisationId: safeStr((a0 as any)?.organisation_id || organisationId) || null,
@@ -2004,7 +1903,16 @@ export async function approveStep(projectId: string, artifactId: string, comment
   const { supabase, user } = await requireUser();
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
 
-  const myRole = await requireMemberRole(supabase, projectId, user.id);
+  const access = await resolveArtifactAccess({
+    supabase,
+    artifactId,
+    userId: user.id,
+  });
+
+  if (!access.canViewArtifact) {
+    throw new Error("You do not have access to this artifact.");
+  }
+
   const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
   if (!isApprovalEligibleArtifact(a0.type)) throw new Error("This artifact does not use approvals.");
@@ -2013,7 +1921,12 @@ export async function approveStep(projectId: string, artifactId: string, comment
   const st = lower(a0.approval_status);
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
+  if (!access.hasApprovalAccess && !access.hasCurrentStepApprovalAccess && !access.canApproveArtifact) {
+    throw new Error("You do not have approval access for this artifact.");
+  }
+
   const nowIso = new Date().toISOString();
+  const myRole = safeStr(access.projectRole || "viewer").toLowerCase();
 
   const { chain, steps, currentStep, approverInfo } = await assertApprovalActionAllowed(supabase, {
     projectId,
@@ -2214,7 +2127,16 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
   const { supabase, user } = await requireUser();
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
 
-  const myRole = await requireMemberRole(supabase, projectId, user.id);
+  const access = await resolveArtifactAccess({
+    supabase,
+    artifactId,
+    userId: user.id,
+  });
+
+  if (!access.canViewArtifact) {
+    throw new Error("You do not have access to this artifact.");
+  }
+
   const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
   if (!isApprovalEligibleArtifact(a0.type)) throw new Error("This artifact does not use approvals.");
@@ -2223,7 +2145,12 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
   const st = lower(a0.approval_status);
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
+  if (!access.hasApprovalAccess && !access.hasCurrentStepApprovalAccess && !access.canApproveArtifact) {
+    throw new Error("You do not have approval access for this artifact.");
+  }
+
   const nowIso = new Date().toISOString();
+  const myRole = safeStr(access.projectRole || "viewer").toLowerCase();
 
   const { chain, currentStep, approverInfo } = await assertApprovalActionAllowed(supabase, {
     projectId,
@@ -2308,7 +2235,16 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
   const { supabase, user } = await requireUser();
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
 
-  const myRole = await requireMemberRole(supabase, projectId, user.id);
+  const access = await resolveArtifactAccess({
+    supabase,
+    artifactId,
+    userId: user.id,
+  });
+
+  if (!access.canViewArtifact) {
+    throw new Error("You do not have access to this artifact.");
+  }
+
   const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
   if (!isApprovalEligibleArtifact(a0.type)) throw new Error("This artifact does not use approvals.");
@@ -2317,7 +2253,12 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
   const st = lower(a0.approval_status);
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
+  if (!access.hasApprovalAccess && !access.hasCurrentStepApprovalAccess && !access.canApproveArtifact) {
+    throw new Error("You do not have approval access for this artifact.");
+  }
+
   const nowIso = new Date().toISOString();
+  const myRole = safeStr(access.projectRole || "viewer").toLowerCase();
 
   const { chain, currentStep, approverInfo } = await assertApprovalActionAllowed(supabase, {
     projectId,
