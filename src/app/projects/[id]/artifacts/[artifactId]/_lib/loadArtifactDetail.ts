@@ -643,9 +643,7 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   };
 
   const canonicalProjectCode = safeStr((project as any)?.project_code).trim();
-  if (canonicalProjectCode && projectIdentifier !== canonicalProjectCode) {
-    redirect(`/projects/${canonicalProjectCode}/artifacts/${artifactId}`);
-  }
+  
 
   if (isRAIDType(artifact.type)) {
     redirect(`/projects/${canonicalProjectCode || projectUuid}/raid?fromArtifact=${artifactId}`);
