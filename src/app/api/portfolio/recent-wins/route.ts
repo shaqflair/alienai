@@ -1,4 +1,4 @@
-// src/app/api/portfolio/recent-wins/route.ts — v7 (PORTFOLIO-SCOPE + shared scope + ACTIVE FILTER + project_code href)
+// src/app/api/portfolio/recent-wins/route.ts ï¿½ v7 (PORTFOLIO-SCOPE + shared scope + ACTIVE FILTER + project_code href)
 // Proxies /api/success-stories/summary and adds budget wins
 //
 // Fixes / Adds:
@@ -156,7 +156,7 @@ async function getBudgetWins(
           id: `budget_${(f as any).id}`,
           category: "Commercial",
           title: "On Budget",
-          summary: `Project tracking £${Math.round(underspend).toLocaleString("en-GB")} under budget (${pct}% spent).`,
+          summary: `Project tracking ï¿½${Math.round(underspend).toLocaleString("en-GB")} under budget (${pct}% spent).`,
           happened_at:
             safeStr((f as any)?.updated_at || (f as any)?.period_end).trim() ||
             new Date().toISOString(),

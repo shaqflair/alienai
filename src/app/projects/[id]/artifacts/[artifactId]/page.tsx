@@ -157,8 +157,7 @@ async function getProjectManagerNameBestEffort(supabase: any, projectId: string)
     const full = safeStr((prof as any)?.full_name).trim();
     if (full) return full;
 
-    const disp = safeStr(    if (disp) return disp;
-
+    
     const nm = safeStr((prof as any)?.name).trim();
     if (nm) return nm;
 
