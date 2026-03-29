@@ -454,6 +454,7 @@ function EditorStatusBar({
   currentVersionNo,
   currentDraftRev,
   isFinancialPlan,
+  isApproverReviewMode = false,
 }: {
   effectiveReadOnly: boolean;
   approvalLocked: boolean;
@@ -461,13 +462,17 @@ function EditorStatusBar({
   currentVersionNo: number;
   currentDraftRev: number;
   isFinancialPlan?: boolean;
+  isApproverReviewMode?: boolean;
 }) {
   const status = String(approvalStatus ?? "").trim().toLowerCase();
 
   let stateText = effectiveReadOnly ? "Read-only" : "Editing enabled";
   let stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
 
-  if (approvalLocked) {
+  if (isApproverReviewMode) {
+    stateText = "Review access";
+    stateTone = "text-blue-700 bg-blue-50 border-blue-200";
+  } else if (approvalLocked) {
     if (status === "approved") {
       stateText = "Approved — locked";
       stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
@@ -740,16 +745,12 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     ? approvalStatusIsTerminal || (!isEditable && !isApproverReviewMode)
     : !isEditable || lockLayout || collaboration.isReadOnly || approvalLocked;
 
-  const shouldBlurContent = isFinancialPlan ? false : effectiveReadOnly && !isApproverReviewMode;
-
-  const isApproverMode = isApprover && mode === "charter" && isInApprovalReviewState;
-
   const hasActiveOtherEditorLock =
     !!collaboration.state?.activeLock &&
     !collaboration.state?.activeLock?.isMine;
 
   const showCollaborationBanner =
-    !isApproverMode &&
+    !isApproverReviewMode &&
     !approvalLocked &&
     hasActiveOtherEditorLock;
 
@@ -757,7 +758,10 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     isApproverReviewMode && !hasActiveOtherEditorLock && !approvalStatusIsTerminal;
 
   const handleRequestChangesWithComments = useMemo(() => {
-    if (!requestChangesWithCommentsAction || !isApproverMode) return null;
+    if (!requestChangesWithCommentsAction || !(isApprover && mode === "charter" && isInApprovalReviewState)) {
+      return null;
+    }
+
     return async (comments: SectionComment[]) => {
       const fd = new FormData();
       fd.set(
@@ -772,7 +776,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
       );
       await requestChangesWithCommentsAction(fd);
     };
-  }, [requestChangesWithCommentsAction, isApproverMode]);
+  }, [requestChangesWithCommentsAction, isApprover, mode, isInApprovalReviewState]);
 
   const contentHeader = hideContentExportsRow ? null : (
     <div className="flex items-center justify-between gap-3">
@@ -793,17 +797,13 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
       ? "This artifact is approved and baselined — read only."
       : approvalStatusLower === "rejected"
         ? "This artifact has been rejected — read only."
-        : isApproverReviewMode
-          ? "Review access enabled."
-          : "This artifact is read-only while under approval."
+        : "This artifact is read-only while under approval."
     : lockLayout
       ? "Layout is locked for this artifact."
       : hasActiveOtherEditorLock
         ? collaboration.state?.readOnlyReason || collaboration.lockError || "Locked by another editor."
         : !isEditable
-          ? isApproverReviewMode
-            ? "Review access enabled."
-            : "You have view-only access to this artifact."
+          ? "You have view-only access to this artifact."
           : collaboration.lockError
             ? "Editing is temporarily unavailable."
             : "This artifact is read-only.";
@@ -811,14 +811,31 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const currentVersionNo = collaboration.state?.currentVersionNo ?? 0;
   const currentDraftRev = collaboration.state?.currentDraftRev ?? collaboration.draftRev;
 
+  const showOverlay = hasActiveOtherEditorLock;
+
   if (isFinancialPlan) {
     return (
       <div className="space-y-4 text-slate-900">
+        {showCollaborationBanner && (
+          <ArtifactCollaborationBanner
+            readOnly={true}
+            approvalLocked={false}
+            lockOwnerName={
+              collaboration.state?.activeLock?.isMine
+                ? null
+                : collaboration.state?.activeLock?.editorName || null
+            }
+            expiresAt={collaboration.state?.activeLock?.expiresAt || null}
+            currentVersionNo={currentVersionNo}
+            currentDraftRev={currentDraftRev}
+          />
+        )}
+
         {showReviewAccessBanner && (
           <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
             <div className="font-semibold text-blue-800">Approver review access</div>
             <div className="mt-1 text-blue-700">
-              You can review this financial plan and make an approval decision. Content remains readable during approval.
+              You can review this financial plan and make an approval decision. Content remains fully readable during approval.
             </div>
             <div className="mt-2 text-blue-700">
               Draft rev <span className="font-semibold text-blue-900">{currentDraftRev}</span>
@@ -835,6 +852,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           currentVersionNo={currentVersionNo}
           currentDraftRev={currentDraftRev}
           isFinancialPlan={true}
+          isApproverReviewMode={isApproverReviewMode}
         />
 
         {fpApprovalLocked && (
@@ -870,18 +888,10 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
             updateArtifactJsonAction={updateArtifactJsonAction}
           />
 
-          {effectiveReadOnly && !isApproverReviewMode && (
-            <ArtifactEditorReadOnlyOverlay
-              show={true}
-              message={
-                approvalStatusIsTerminal
-                  ? approvalStatusLower === "approved"
-                    ? "This artifact is approved and baselined — read only."
-                    : "This artifact has been rejected — read only."
-                  : overlayMessage
-              }
-            />
-          )}
+          <ArtifactEditorReadOnlyOverlay
+            show={showOverlay}
+            message={overlayMessage}
+          />
         </div>
       </div>
     );
@@ -908,7 +918,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
           <div className="font-semibold text-blue-800">Approver review access</div>
           <div className="mt-1 text-blue-700">
-            You can review this artifact and make an approval decision. Content remains readable during approval.
+            You can review this artifact and make an approval decision. Content remains fully readable during approval.
           </div>
           <div className="mt-2 text-blue-700">
             Draft rev <span className="font-semibold text-blue-900">{currentDraftRev}</span>
@@ -925,6 +935,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           approvalStatus={approvalStatus}
           currentVersionNo={currentVersionNo}
           currentDraftRev={currentDraftRev}
+          isApproverReviewMode={isApproverReviewMode}
         />
       )}
 
@@ -973,7 +984,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           <section className={sectionClassName}>
             {contentHeader}
 
-            {isApproverMode ? (
+            {isApprover && mode === "charter" && isInApprovalReviewState ? (
               <ProjectCharterEditorFormLazy
                 projectId={projectId}
                 artifactId={artifactId}
@@ -993,7 +1004,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               />
             ) : (
               <div className="relative">
-                <div className={shouldBlurContent ? "pointer-events-none select-none opacity-80" : ""}>
+                <div>
                   {mode === "charter" ? (
                     <ProjectCharterEditorFormLazy
                       projectId={projectId}
@@ -1069,7 +1080,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 </div>
 
                 <ArtifactEditorReadOnlyOverlay
-                  show={shouldBlurContent}
+                  show={showOverlay}
                   message={overlayMessage}
                 />
               </div>
