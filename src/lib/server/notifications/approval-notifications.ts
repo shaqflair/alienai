@@ -1,4 +1,4 @@
-﻿// src/lib/server/notifications/approval-notifications.ts
+// src/lib/server/notifications/approval-notifications.ts
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/utils/supabase/admin";
@@ -32,7 +32,7 @@ async function getProfileMap(
   if (!ids.length) return map;
   const { data: profiles, error } = await supabase
     .from("profiles")
-    .select("id, user_id, full_name, display_name, name, email")
+    .select("id, user_id, full_name, name, email")
     .or(ids.map((id) => `id.eq.${id},user_id.eq.${id}`).join(","));
   if (error || !profiles) return map;
   for (const p of profiles) {
@@ -40,8 +40,7 @@ async function getProfileMap(
     const key2 = safeStr((p as any)?.user_id).trim();
     const name =
       safeStr((p as any)?.full_name).trim() ||
-      safeStr((p as any)?.display_name).trim() ||
-      safeStr((p as any)?.name).trim() || null;
+            safeStr((p as any)?.name).trim() || null;
     const email = safeStr((p as any)?.email).trim() || null;
     if (key1) map.set(key1, { name, email });
     if (key2) map.set(key2, { name, email });

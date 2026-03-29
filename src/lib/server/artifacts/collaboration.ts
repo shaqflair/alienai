@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import crypto from "node:crypto";
 import { createClient } from "@/utils/supabase/server";
@@ -152,13 +152,12 @@ async function getCurrentUserDisplayName(userId: string) {
   const admin = createAdminClient();
   const { data } = await admin
     .from("profiles")
-    .select("full_name, display_name, email")
+    .select("full_name, email")
     .eq("id", userId)
     .maybeSingle();
 
   return (
     data?.full_name ||
-    data?.display_name ||
     data?.email ||
     "Another editor"
   );

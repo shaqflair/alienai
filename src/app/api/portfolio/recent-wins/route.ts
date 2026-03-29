@@ -1,14 +1,14 @@
-﻿// src/app/api/portfolio/recent-wins/route.ts — v7 (PORTFOLIO-SCOPE + shared scope + ACTIVE FILTER + project_code href)
+// src/app/api/portfolio/recent-wins/route.ts � v7 (PORTFOLIO-SCOPE + shared scope + ACTIVE FILTER + project_code href)
 // Proxies /api/success-stories/summary and adds budget wins
 //
 // Fixes / Adds:
-//   ✅ RW-F1: ORG-wide scope via shared resolvePortfolioScope()
-//   ✅ RW-F2: Active-only project filtering via filterActiveProjectIds (normalized + FAIL-OPEN)
-//   ✅ RW-F3: All responses no-store
-//   ✅ RW-F4: Links prefer project_code (human id) else UUID fallback
-//   ✅ RW-F5: Better PID extraction + enrichment safety
-//   ✅ RW-F6: Removes duplicated org-scope resolution logic from route body
-//   ✅ RW-F7: resolvePortfolioScope signature fixed (supabase, user.id)
+//   ? RW-F1: ORG-wide scope via shared resolvePortfolioScope()
+//   ? RW-F2: Active-only project filtering via filterActiveProjectIds (normalized + FAIL-OPEN)
+//   ? RW-F3: All responses no-store
+//   ? RW-F4: Links prefer project_code (human id) else UUID fallback
+//   ? RW-F5: Better PID extraction + enrichment safety
+//   ? RW-F6: Removes duplicated org-scope resolution logic from route body
+//   ? RW-F7: resolvePortfolioScope signature fixed (supabase, user.id)
 
 import "server-only";
 
@@ -156,7 +156,7 @@ async function getBudgetWins(
           id: `budget_${(f as any).id}`,
           category: "Commercial",
           title: "On Budget",
-          summary: `Project tracking £${Math.round(underspend).toLocaleString("en-GB")} under budget (${pct}% spent).`,
+          summary: `Project tracking �${Math.round(underspend).toLocaleString("en-GB")} under budget (${pct}% spent).`,
           happened_at:
             safeStr((f as any)?.updated_at || (f as any)?.period_end).trim() ||
             new Date().toISOString(),
@@ -259,7 +259,7 @@ async function handle(req: NextRequest, days: number, limit: number) {
   if (pmIds.length) {
     const { data: pmRows } = await supabase
       .from("profiles")
-      .select("user_id, id, full_name, name, display_name")
+      .select("user_id, id, full_name, name")
       .in("user_id", pmIds)
       .limit(2000);
 
