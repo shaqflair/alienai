@@ -1,4 +1,4 @@
-﻿// src/components/artifacts/ArtifactDetailClientHost.tsx
+// src/components/artifacts/ArtifactDetailClientHost.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -146,6 +146,8 @@ function isApprovalLockedStatus(status: string | null | undefined) {
 
 /* -----------------------------------------------------------------------
    FinancialPlanEditorHost
+   - readOnly: blocks all editing (collaboration lock, not-editable by role)
+   - budgetLocked: only locks the approved budget field (under approval)
 ------------------------------------------------------------------------ */
 function FinancialPlanEditorHost({
   projectId,
@@ -454,7 +456,6 @@ function EditorStatusBar({
   currentVersionNo,
   currentDraftRev,
   isFinancialPlan,
-  isApproverReviewMode = false,
 }: {
   effectiveReadOnly: boolean;
   approvalLocked: boolean;
@@ -462,17 +463,13 @@ function EditorStatusBar({
   currentVersionNo: number;
   currentDraftRev: number;
   isFinancialPlan?: boolean;
-  isApproverReviewMode?: boolean;
 }) {
   const status = String(approvalStatus ?? "").trim().toLowerCase();
 
   let stateText = effectiveReadOnly ? "Read-only" : "Editing enabled";
   let stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
 
-  if (isApproverReviewMode) {
-    stateText = "Review access";
-    stateTone = "text-blue-700 bg-blue-50 border-blue-200";
-  } else if (approvalLocked) {
+  if (approvalLocked) {
     if (status === "approved") {
       stateText = "Approved — locked";
       stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
@@ -480,10 +477,11 @@ function EditorStatusBar({
       stateText = "Rejected — locked";
       stateTone = "text-rose-700 bg-rose-50 border-rose-200";
     } else if (isFinancialPlan) {
-      stateText = "Review mode";
-      stateTone = "text-blue-700 bg-blue-50 border-blue-200";
+      // Financial plan: editing allowed, only approved budget is locked
+      stateText = "Editing enabled";
+      stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
     } else {
-      stateText = "In approval";
+      stateText = "In approval — locked";
       stateTone = "text-amber-700 bg-amber-50 border-amber-200";
     }
   } else if (effectiveReadOnly) {
@@ -518,112 +516,11 @@ function EditorStatusBar({
         {approvalLocked && isFinancialPlan && status === "submitted" && (
           <>
             <span className="text-slate-300">•</span>
-            <span className="text-blue-600 text-xs font-medium">
-              In approval — review enabled
+            <span className="text-amber-600 text-xs font-medium">
+              In approval — approved budget field is locked
             </span>
           </>
         )}
-      </div>
-    </div>
-  );
-}
-
-/* -----------------------------------------------------------------------
-   ApprovalChainStatus
------------------------------------------------------------------------- */
-function ApprovalChainStatus({ artifactId }: { artifactId: string }) {
-  const [steps, setSteps] = React.useState<any[]>([]);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    fetch(`/api/artifacts/${encodeURIComponent(artifactId)}/approval-chain`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => {
-        if (j?.ok && Array.isArray(j.steps)) setSteps(j.steps);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [artifactId]);
-
-  if (loading) return <div className="text-xs text-slate-400 px-1">Loading approval chain...</div>;
-  if (!steps.length) {
-    return (
-      <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-2 text-sm text-amber-700">
-        Awaiting approval — no step details available yet.
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Approval Progress</div>
-      <div className="space-y-2">
-        {steps.map((step: any, i: number) => {
-          const status = String(step.status ?? "").toLowerCase();
-          const isApproved = status === "approved";
-          const isPending = status === "pending" || status === "active";
-          const approvers: any[] = Array.isArray(step.approvers) ? step.approvers : [];
-          return (
-            <div key={step.id ?? i} className="flex items-start gap-3">
-              <div
-                className={cx(
-                  "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
-                  isApproved
-                    ? "bg-green-100 text-green-700"
-                    : isPending
-                      ? "bg-amber-100 text-amber-700"
-                      : "bg-slate-100 text-slate-500"
-                )}
-              >
-                {isApproved ? "✓" : i + 1}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-slate-800">
-                    Step {step.step_order ?? i + 1}
-                    {step.approval_role ? ` — ${step.approval_role}` : ""}
-                  </span>
-                  <span
-                    className={cx(
-                      "rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                      isApproved
-                        ? "bg-green-100 text-green-700"
-                        : isPending
-                          ? "bg-amber-100 text-amber-700"
-                          : "bg-slate-100 text-slate-500"
-                    )}
-                  >
-                    {isApproved ? "Approved" : isPending ? "Pending" : status}
-                  </span>
-                </div>
-                {approvers.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {approvers.map((a: any, ai: number) => {
-                      const aStatus = String(a.status ?? "").toLowerCase();
-                      const aApproved = aStatus === "approved";
-                      return (
-                        <span
-                          key={a.id ?? ai}
-                          className={cx(
-                            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]",
-                            aApproved ? "bg-green-50 text-green-700" : "bg-slate-50 text-slate-600"
-                          )}
-                        >
-                          {aApproved ? "✓" : "○"} {a.email || a.name || "Approver"}
-                          {a.acted_at && (
-                            <span className="text-[10px] opacity-60 ml-1">
-                              {new Date(a.acted_at).toLocaleDateString("en-GB")}
-                            </span>
-                          )}
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
       </div>
     </div>
   );
@@ -723,47 +620,20 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     (collaboration.state ? !collaboration.state.canEditByStatus : false) ||
     isApprovalLockedStatus(approvalStatus);
 
+  // For financial plan: only lock the whole editor if truly not editable
+  // (role-based lock, collaboration lock) — NOT for approval status.
+  // Approval status only locks the approved budget field via budgetLocked.
   const approvalStatusIsTerminal =
     approvalStatusLower === "approved" || approvalStatusLower === "rejected";
 
-  const isInApprovalReviewState =
-    approvalStatusLower === "submitted" ||
-    approvalStatusLower === "submitted_for_approval" ||
-    approvalStatusLower === "pending_approval" ||
-    approvalStatusLower === "in_review" ||
-    approvalStatusLower === "awaiting_approval";
-
-  const isApproverReviewMode =
-    !!isApprover &&
-    !!approvalEnabled &&
-    isInApprovalReviewState &&
-    !approvalStatusIsTerminal;
-
-  const fpApprovalLocked = isFinancialPlan && isApprovalLockedStatus(approvalStatus);
-
   const effectiveReadOnly = isFinancialPlan
-    ? (isInApprovalReviewState && !isApproverReviewMode) ||
-      approvalStatusLower === "rejected" ||
-      (!isEditable && !isApproverReviewMode)
+    ? !isEditable || lockLayout || collaboration.isReadOnly || approvalStatusIsTerminal
     : !isEditable || lockLayout || collaboration.isReadOnly || approvalLocked;
 
-  const hasActiveOtherEditorLock =
-    !!collaboration.state?.activeLock &&
-    !collaboration.state?.activeLock?.isMine;
-
-  const showCollaborationBanner =
-    !isApproverReviewMode &&
-    !approvalLocked &&
-    hasActiveOtherEditorLock;
-
-  const showReviewAccessBanner =
-    isApproverReviewMode && !hasActiveOtherEditorLock && !approvalStatusIsTerminal;
+  const isApproverMode = isApprover && effectiveReadOnly && mode === "charter";
 
   const handleRequestChangesWithComments = useMemo(() => {
-    if (!requestChangesWithCommentsAction || !(isApprover && mode === "charter" && isInApprovalReviewState)) {
-      return null;
-    }
-
+    if (!requestChangesWithCommentsAction || !isApproverMode) return null;
     return async (comments: SectionComment[]) => {
       const fd = new FormData();
       fd.set(
@@ -778,13 +648,13 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
       );
       await requestChangesWithCommentsAction(fd);
     };
-  }, [requestChangesWithCommentsAction, isApprover, mode, isInApprovalReviewState]);
+  }, [requestChangesWithCommentsAction, isApproverMode]);
 
   const contentHeader = hideContentExportsRow ? null : (
     <div className="flex items-center justify-between gap-3">
       <div className="text-sm font-semibold text-slate-900">Content</div>
       <div className="text-xs font-medium text-slate-600">
-        {isApproverReviewMode ? "Review access" : effectiveReadOnly ? "Read-only" : "Editable"}
+        {effectiveReadOnly ? "Read-only" : "Editable"}
       </div>
     </div>
   );
@@ -802,78 +672,33 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         : "This artifact is read-only while under approval."
     : lockLayout
       ? "Layout is locked for this artifact."
-      : hasActiveOtherEditorLock
-        ? collaboration.state?.readOnlyReason || collaboration.lockError || "Locked by another editor."
-        : !isEditable
-          ? "You have view-only access to this artifact."
-          : collaboration.lockError
-            ? "Editing is temporarily unavailable."
-            : "This artifact is read-only.";
+      : collaboration.state?.readOnlyReason || collaboration.lockError || "Locked by another editor.";
 
   const currentVersionNo = collaboration.state?.currentVersionNo ?? 0;
   const currentDraftRev = collaboration.state?.currentDraftRev ?? collaboration.draftRev;
 
-  const showOverlay = hasActiveOtherEditorLock;
-
   if (isFinancialPlan) {
     return (
       <div className="space-y-4 text-slate-900">
-        {showCollaborationBanner && (
-          <ArtifactCollaborationBanner
-            readOnly={true}
-            approvalLocked={false}
-            lockOwnerName={
-              collaboration.state?.activeLock?.isMine
-                ? null
-                : collaboration.state?.activeLock?.editorName || null
-            }
-            expiresAt={collaboration.state?.activeLock?.expiresAt || null}
-            currentVersionNo={currentVersionNo}
-            currentDraftRev={currentDraftRev}
-          />
-        )}
-
-        {showReviewAccessBanner && (
-          <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
-            <div className="font-semibold text-blue-800">Approver review access</div>
-            <div className="mt-1 text-blue-700">
-              You can review this financial plan and make an approval decision. Content remains fully readable during approval.
-            </div>
-            <div className="mt-2 text-blue-700">
-              Draft rev <span className="font-semibold text-blue-900">{currentDraftRev}</span>
-              <span className="mx-2 text-blue-300">•</span>
-              Version <span className="font-semibold text-blue-900">{currentVersionNo}</span>
-            </div>
-          </div>
-        )}
+        <ArtifactCollaborationBanner
+          readOnly={effectiveReadOnly}
+          approvalLocked={false}
+          lockOwnerName={
+            collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
+          }
+          expiresAt={collaboration.state?.activeLock?.expiresAt || null}
+          currentVersionNo={currentVersionNo}
+          currentDraftRev={currentDraftRev}
+        />
 
         <EditorStatusBar
-          effectiveReadOnly={effectiveReadOnly && !isApproverReviewMode}
+          effectiveReadOnly={effectiveReadOnly}
           approvalLocked={approvalLocked}
           approvalStatus={approvalStatus}
           currentVersionNo={currentVersionNo}
           currentDraftRev={currentDraftRev}
           isFinancialPlan={true}
-          isApproverReviewMode={isApproverReviewMode}
         />
-
-        {fpApprovalLocked && (
-          <div>
-            <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm mb-2">
-              <span className="font-semibold text-blue-800">
-                {isApproverReviewMode ? "In approval — review enabled" : "In approval"}
-              </span>
-              <span className="text-blue-700">
-                {" "}
-                — this financial plan has been submitted for approval.
-                {isApproverReviewMode
-                  ? " Content is readable for review."
-                  : " The approved budget field is locked."}
-              </span>
-            </div>
-            <ApprovalChainStatus artifactId={artifactId} />
-          </div>
-        )}
 
         <div className="relative w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <FinancialPlanEditorHost
@@ -882,21 +707,26 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
             organisationId={organisationId}
             isAdmin={isAdmin}
             initialJson={typedInitialJson ?? rawContentJson ?? null}
-            readOnly={effectiveReadOnly && !isApproverReviewMode}
-            budgetLocked={
-              (isInApprovalReviewState && !isApproverReviewMode) ||
-              approvalStatusLower === "approved"
-            }
+            readOnly={effectiveReadOnly}
+            budgetLocked={approvalLocked}
             sessionId={collaboration.sessionId}
             clientDraftRev={currentDraftRev}
             onDraftRevChange={collaboration.setDraftRev}
             updateArtifactJsonAction={updateArtifactJsonAction}
           />
 
-          <ArtifactEditorReadOnlyOverlay
-            show={showOverlay}
-            message={overlayMessage}
-          />
+          {effectiveReadOnly && (
+            <ArtifactEditorReadOnlyOverlay
+              show={true}
+              message={
+                approvalStatusIsTerminal
+                  ? approvalStatusLower === "approved"
+                    ? "This artifact is approved and baselined — read only."
+                    : "This artifact has been rejected — read only."
+                  : overlayMessage
+              }
+            />
+          )}
         </div>
       </div>
     );
@@ -904,14 +734,12 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
 
   return (
     <div className="space-y-6 text-slate-900">
-      {showCollaborationBanner && (
+      {!isApproverMode && !approvalLocked && (
         <ArtifactCollaborationBanner
-          readOnly={true}
-          approvalLocked={false}
+          readOnly={effectiveReadOnly}
+          approvalLocked={approvalLocked}
           lockOwnerName={
-            collaboration.state?.activeLock?.isMine
-              ? null
-              : collaboration.state?.activeLock?.editorName || null
+            collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
           }
           expiresAt={collaboration.state?.activeLock?.expiresAt || null}
           currentVersionNo={currentVersionNo}
@@ -919,28 +747,13 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         />
       )}
 
-      {showReviewAccessBanner && !isFinancialPlan && (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
-          <div className="font-semibold text-blue-800">Approver review access</div>
-          <div className="mt-1 text-blue-700">
-            You can review this artifact and make an approval decision. Content remains fully readable during approval.
-          </div>
-          <div className="mt-2 text-blue-700">
-            Draft rev <span className="font-semibold text-blue-900">{currentDraftRev}</span>
-            <span className="mx-2 text-blue-300">•</span>
-            Version <span className="font-semibold text-blue-900">{currentVersionNo}</span>
-          </div>
-        </div>
-      )}
-
       {mode === "weekly_report" && (
         <EditorStatusBar
-          effectiveReadOnly={effectiveReadOnly && !isApproverReviewMode}
+          effectiveReadOnly={effectiveReadOnly}
           approvalLocked={approvalLocked}
           approvalStatus={approvalStatus}
           currentVersionNo={currentVersionNo}
           currentDraftRev={currentDraftRev}
-          isApproverReviewMode={isApproverReviewMode}
         />
       )}
 
@@ -989,7 +802,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           <section className={sectionClassName}>
             {contentHeader}
 
-            {isApprover && mode === "charter" && isInApprovalReviewState ? (
+            {isApproverMode ? (
               <ProjectCharterEditorFormLazy
                 projectId={projectId}
                 artifactId={artifactId}
@@ -1009,13 +822,13 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               />
             ) : (
               <div className="relative">
-                <div>
+                <div className={effectiveReadOnly ? "pointer-events-none select-none opacity-80" : ""}>
                   {mode === "charter" ? (
                     <ProjectCharterEditorFormLazy
                       projectId={projectId}
                       artifactId={artifactId}
                       initialJson={charterInitial}
-                      readOnly={effectiveReadOnly && !isApproverReviewMode}
+                      readOnly={effectiveReadOnly}
                       artifactVersion={artifactVersion}
                       projectTitle={projectTitle}
                       projectManagerName={projectManagerName ?? undefined}
@@ -1030,21 +843,21 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                       projectId={projectId}
                       artifactId={artifactId}
                       initialJson={rawContentJson ?? null}
-                      readOnly={effectiveReadOnly && !isApproverReviewMode}
+                      readOnly={effectiveReadOnly}
                     />
                   ) : mode === "wbs" ? (
                     <WBSEditor
                       projectId={projectId}
                       artifactId={artifactId}
                       initialJson={rawContentJson ?? null}
-                      readOnly={effectiveReadOnly && !isApproverReviewMode}
+                      readOnly={effectiveReadOnly}
                     />
                   ) : mode === "schedule" ? (
                     <ScheduleGanttEditor
                       projectId={projectId}
                       artifactId={artifactId}
                       initialJson={typedInitialJson ?? null}
-                      readOnly={effectiveReadOnly && !isApproverReviewMode}
+                      readOnly={effectiveReadOnly}
                       projectTitle={projectTitle || ""}
                       projectStartDate={projectStartDate ?? null}
                       projectFinishDate={projectFinishDate ?? null}
@@ -1056,18 +869,20 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                       projectId={projectId}
                       artifactId={artifactId}
                       initialJson={typedInitialJson ?? null}
-                      readOnly={effectiveReadOnly && !isApproverReviewMode}
+                      readOnly={effectiveReadOnly}
                     />
                   ) : mode === "weekly_report" ? (
                     <WeeklyReportEditor
                       projectId={projectId}
                       artifactId={artifactId}
                       initialJson={typedInitialJson ?? rawContentJson ?? null}
-                      readOnly={effectiveReadOnly && !isApproverReviewMode}
+                      readOnly={effectiveReadOnly}
                       updateArtifactJsonAction={updateArtifactJsonAction}
                     />
                   ) : mode === "change_requests" ? (
-                    <ChangeManagementBoard projectId={projectId} />
+                    <ChangeManagementBoard
+                      projectId={projectId}
+                    />
                   ) : (
                     <div className="grid gap-3">
                       {String(rawContentText ?? "").trim().length === 0 ? (
@@ -1085,7 +900,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 </div>
 
                 <ArtifactEditorReadOnlyOverlay
-                  show={showOverlay}
+                  show={effectiveReadOnly}
                   message={overlayMessage}
                 />
               </div>

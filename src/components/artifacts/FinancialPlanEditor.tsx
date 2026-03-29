@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useState, useCallback, useEffect, useMemo, useTransition, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle,
   Calendar, Users, Link2, Link2Off, Zap, ChevronRight,
@@ -1470,8 +1471,24 @@ export default function FinancialPlanEditor({
   organisationId, artifactId, projectId, isAdmin = false,
   onRequestReload, timesheetEntries = [], raidItems, approvalDelays,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<FinancialPlanTab>("overview");
+  const searchParams = useSearchParams();
+  const urlTab  = searchParams?.get("tab")  as FinancialPlanTab | null;
+  const urlCrId = searchParams?.get("crId") ?? null;
+  const validTabs: FinancialPlanTab[] = ["overview","budget","resources","monthly","changes","narrative","billing"];
+  const [activeTab, setActiveTab] = useState<FinancialPlanTab>(
+    () => (urlTab && validTabs.includes(urlTab)) ? urlTab : "overview"
+  );
+  const [highlightedCrId, setHighlightedCrId] = useState<string | null>(urlCrId);
+  const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
   const [signals, setSignals]     = useState<Signal[]>([]);
+  useEffect(() => {
+    if (!highlightedCrId || activeTab !== "changes") return;
+    const t = setTimeout(() => {
+      highlightedRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [highlightedCrId, activeTab]);
+
   const [heatmapPeopleCount, setHeatmapPeopleCount] = useState<number | null>(null);
   const [heatmapTotals, setHeatmapTotals] = useState<{ totalCost: number; totalCharge: number; hasBothRates: boolean } | null>(null);
 
@@ -2016,7 +2033,20 @@ export default function FinancialPlanEditor({
               </div>
             );
           })()}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                    {(() => {
+            const unapplied = content.change_exposure.filter(c => c.status === "approved" && Number(c.cost_impact) !== 0 && !String(c.notes || "").includes("Applied to budget"));
+            if (!unapplied.length) return null;
+            const total = unapplied.reduce((s, c) => s + (Number(c.cost_impact) || 0), 0);
+            return (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 14px", background: P.greenLt, border: "1px solid #A0D0B8", marginBottom: 8, borderRadius: 4 }}>
+                <Check style={{ width: 13, height: 13, color: P.green, flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontFamily: P.mono, fontSize: 11, color: P.green }}>
+                  <strong>{unapplied.length} approved CR{unapplied.length !== 1 ? "s" : ""}</strong> ready — click <strong>✓ Apply to budget</strong>. Total: <strong>{sym}{Math.abs(total).toLocaleString()}</strong>
+                </div>
+              </div>
+            );
+          })()}
+<div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
             {[
               { label: "Approved Exposure", value: fmt(approvedExposure, sym), color: P.navy },
               { label: "Pending Exposure",  value: fmt(pendingExposure, sym),  color: pendingExposure > 0 ? P.amber : P.textSm },
@@ -2043,7 +2073,20 @@ export default function FinancialPlanEditor({
                   const rowBg = idx % 2 === 0 ? P.surface : "#FAFAF8";
                   const cb: React.CSSProperties = { borderBottom: `1px solid ${P.border}`, background: rowBg };
                   return (
-                    <tr key={c.id} style={{ background: rowBg }}>
+                    <tr
+                    key={c.id}
+                    ref={
+                      (c.id === highlightedCrId || c.change_ref === highlightedCrId)
+                        ? (el) => { highlightedRowRef.current = el; }
+                        : undefined
+                    }
+                    onClick={() => setHighlightedCrId(null)}
+                    style={{
+                      background: (c.id === highlightedCrId || c.change_ref === highlightedCrId) ? "#f0fdf4" : rowBg,
+                      outline: (c.id === highlightedCrId || c.change_ref === highlightedCrId) ? "2px solid #A0D0B8" : "none",
+                      outlineOffset: -2,
+                    }}
+                  >
                       <td style={cb}><input type="text" value={c.change_ref} onChange={e => updateCE(c.id, { change_ref: e.target.value })} readOnly={readOnly} placeholder="CR-001" style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 11, fontFamily: P.mono, color: P.textMd, outline: "none" }} /></td>
                       <td style={{ ...cb, minWidth: 180 }}><input type="text" value={c.title} onChange={e => updateCE(c.id, { title: e.target.value })} readOnly={readOnly} placeholder="Change title..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }} /></td>
                       <td style={cb}><MoneyCell value={c.cost_impact} onChange={v => updateCE(c.id, { cost_impact: v })} symbol={sym} readOnly={readOnly} /></td>
@@ -2052,6 +2095,21 @@ export default function FinancialPlanEditor({
                           style={{ fontSize: 10, fontFamily: P.mono, fontWeight: 700, padding: "3px 8px", border: "none", cursor: readOnly ? "default" : "pointer", outline: "none", background: c.status === "approved" ? P.greenLt : c.status === "pending" ? P.amberLt : "#F4F4F2", color: c.status === "approved" ? P.green : c.status === "pending" ? P.amber : P.textSm }}>
                           <option value="approved">Approved</option><option value="pending">Pending</option><option value="rejected">Rejected</option>
                         </select>
+                        {c.status === "approved" && c.cost_impact !== "" && Number(c.cost_impact) !== 0 && !readOnly && (
+                          <button
+                            type="button"
+                            title="Apply this approved CR cost impact to the Approved Budget"
+                            onClick={() => {
+                              const current = Number(content.total_approved_budget) || 0;
+                              const impact  = Number(c.cost_impact) || 0;
+                              updateField("total_approved_budget", current + impact);
+                              updateCE(c.id, { notes: (c.notes ? c.notes + " | " : "") + "Applied to budget: " + sym + Math.abs(impact).toLocaleString("en-GB") + " on " + new Date().toLocaleDateString("en-GB") });
+                            }}
+                            style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, cursor: "pointer", background: P.greenLt, border: "1px solid #A0D0B8", color: P.green }}
+                          >
+                            ✓ Apply to budget
+                          </button>
+                        )}
                         {c.status === "approved" && c.cost_impact !== "" && Number(c.cost_impact) !== 0 && !readOnly && (
                           <button
                             type="button"
