@@ -638,6 +638,15 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
 
   const fpApprovalLocked = isFinancialPlan && isApprovalLockedStatus(approvalStatus);
 
+  const hasActiveOtherEditorLock =
+    !!collaboration.state?.activeLock && !collaboration.state?.activeLock?.isMine;
+
+  const showCollaborationBanner =
+    !isApproverReviewMode && !approvalLocked && hasActiveOtherEditorLock;
+
+  const showReviewAccessBanner =
+    isApproverReviewMode && !hasActiveOtherEditorLock && !approvalStatusIsTerminal;
+
   const effectiveReadOnly = isFinancialPlan
     ? (isInApprovalReviewState && !isApproverReviewMode) ||
       approvalStatusLower === "rejected" ||
