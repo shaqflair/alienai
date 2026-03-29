@@ -1,4 +1,4 @@
-// src/app/approvals/page.tsx — Redesigned Control Centre
+﻿// src/app/approvals/page.tsx — Redesigned Control Centre
 // Matches the redesign screenshots exactly.
 // Wired to:
 //   /api/executive/approvals          → overview counts
@@ -192,7 +192,7 @@ function OverviewTab({ counts, items, loading, error, onRetry }: {
   for (const it of items) {
     const pid = it.project?.id ?? "?";
     const name = it.project?.name ?? pid;
-    const code = pid.slice(0, 8).toUpperCase();
+    const code = (it as any).project?.code ?? pid.slice(0, 8).toUpperCase();
     let p = byProjectMap.get(pid);
     if (!p) { p = { name, code, count: 0, breached: 0, at_risk: 0 }; byProjectMap.set(pid, p); }
     p.count++;
@@ -762,7 +762,7 @@ export default function ApprovalsControlCentre() {
       apiFetch<{ counts: LiveCounts; items: any[] }>("/api/executive/approvals"),
       apiFetch<{ items: any[] }>("/api/executive/approvals/pending?limit=200"),
     ]).then(([main, pend]) => {
-      setCounts(main.counts);
+      const apiCounts = (main as any).counts as LiveCounts | null; if (apiCounts && apiCounts.pending > 0) { setCounts(apiCounts); } else { const b = normalised.filter((i:any) => i.risk === "breached").length; const a = normalised.filter((i:any) => i.risk === "at_risk").length; setCounts({ pending: normalised.length, waiting: normalised.length, at_risk: a, breached: b }); }
       const raw = pend.items ?? main.items ?? [];
       setPendingItems(raw.map(normaliseItem));
     }).catch((e) => setOverviewError(e.message)).finally(() => setOverviewLoading(false));
