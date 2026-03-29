@@ -759,12 +759,22 @@ export default function ApprovalsControlCentre() {
     // Overview: counts + items — normalise both endpoint shapes
     setOverviewLoading(true); setOverviewError(null);
     Promise.all([
-      apiFetch<{ counts: LiveCounts; items: any[] }>("/api/executive/approvals"),
-      apiFetch<{ items: any[] }>("/api/executive/approvals/pending?limit=200"),
+      apiFetch<{ counts: LiveCounts; items: any[] }>("/api/executive/approvals").catch(() => ({ counts: null, items: [] as any[] })),
+      apiFetch<{ items: any[] }>("/api/executive/approvals/pending?limit=200").catch(() => ({ items: [] as any[] })),
     ]).then(([main, pend]) => {
-      const apiCounts = (main as any).counts as LiveCounts | null; if (apiCounts && apiCounts.pending > 0) { setCounts(apiCounts); } else { const b = normalised.filter((i:any) => i.risk === "breached").length; const a = normalised.filter((i:any) => i.risk === "at_risk").length; setCounts({ pending: normalised.length, waiting: normalised.length, at_risk: a, breached: b }); }
-      const raw = pend.items ?? main.items ?? [];
-      setPendingItems(raw.map(normaliseItem));
+      const raw = (pend.items?.length ? pend.items : (main as any).items) ?? [];
+      const normalised = raw.map(normaliseItem);
+      setPendingItems(normalised);
+      const apiC = (main as any).counts as LiveCounts | null;
+      if (apiC && apiC.pending > 0) {
+        setCounts(apiC);
+      } else {
+        const breached = normalised.filter((i) => i.risk === "breached").length;
+        const at_risk  = normalised.filter((i) => i.risk === "at_risk").length;
+        setCounts({ pending: normalised.length, waiting: normalised.length, at_risk, breached });
+      }
+    }).catch((e) => setOverviewError(e.message)).finally(() => setOverviewLoading(false));setCounts({ pending: normalised.length, waiting: normalised.length, at_risk, breached });
+      }
     }).catch((e) => setOverviewError(e.message)).finally(() => setOverviewLoading(false));
 
     // PM / who-blocking
