@@ -3,6 +3,7 @@ import "server-only";
 
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
+import { resolveArtifactAccess } from "@/lib/server/access/resolveArtifactAccess";
 
 import {
   derivedStatus,
@@ -144,57 +145,6 @@ function isApprovalReadOnlyStatus(status: string | null | undefined) {
   );
 }
 
-async function resolveMyRole(supabase: any, projectUuid: string, userId: string) {
-  const { data: pm } = await supabase
-    .from("project_members")
-    .select("role, is_active")
-    .eq("project_id", projectUuid)
-    .eq("user_id", userId)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (pm?.role) {
-    const r = safeLower(pm.role);
-    const mapped = r === "admin" ? "owner" : r === "member" ? "editor" : r;
-    const role =
-      mapped === "owner" || mapped === "editor" || mapped === "viewer" ? mapped : "viewer";
-    return role as ProjectRole;
-  }
-
-  const { data: proj } = await supabase
-    .from("projects")
-    .select("organisation_id")
-    .eq("id", projectUuid)
-    .maybeSingle();
-
-  const orgId = safeStr(proj?.organisation_id).trim();
-  if (!orgId) return null;
-
-  const { data: om } = await supabase
-    .from("organisation_members")
-    .select("role, removed_at")
-    .eq("organisation_id", orgId)
-    .eq("user_id", userId)
-    .is("removed_at", null)
-    .maybeSingle();
-
-  if (!om) return null;
-
-  const orgRole = safeLower(om.role || "member");
-  const effective =
-    orgRole === "admin"
-      ? "owner"
-      : orgRole === "owner"
-        ? "owner"
-        : orgRole === "editor"
-          ? "editor"
-          : orgRole === "member"
-            ? "editor"
-            : "viewer";
-
-  return effective as ProjectRole;
-}
-
 async function findCanonicalProjectCharterArtifact(
   supabase: any,
   projectUuid: string,
@@ -251,121 +201,6 @@ function getCurrentStep(rows: any[]) {
     }) ??
     null
   );
-}
-
-async function resolveOrganisationApproverAccess(
-  supabase: any,
-  args: { projectUuid: string; artifactId: string; userId: string }
-) {
-  const { data: projectOrg, error: projectOrgErr } = await supabase
-    .from("projects")
-    .select("organisation_id")
-    .eq("id", args.projectUuid)
-    .maybeSingle();
-
-  if (projectOrgErr) {
-    return {
-      hasOrgAccess: false,
-      hasApproverAccess: false,
-      chainId: null as string | null,
-      stepId: null as string | null,
-    };
-  }
-
-  const organisationId = safeStr((projectOrg as any)?.organisation_id).trim();
-  if (!organisationId) {
-    return {
-      hasOrgAccess: false,
-      hasApproverAccess: false,
-      chainId: null,
-      stepId: null,
-    };
-  }
-
-  const { data: orgMember, error: orgErr } = await supabase
-    .from("organisation_members")
-    .select("user_id, removed_at")
-    .eq("organisation_id", organisationId)
-    .eq("user_id", args.userId)
-    .is("removed_at", null)
-    .maybeSingle();
-
-  const hasOrgAccess = !orgErr && !!orgMember;
-  if (!hasOrgAccess) {
-    return {
-      hasOrgAccess: false,
-      hasApproverAccess: false,
-      chainId: null,
-      stepId: null,
-    };
-  }
-
-  const { data: activeChain, error: chainErr } = await supabase
-    .from("approval_chains")
-    .select("id")
-    .eq("artifact_id", args.artifactId)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (chainErr || !activeChain?.id) {
-    return {
-      hasOrgAccess: true,
-      hasApproverAccess: false,
-      chainId: null,
-      stepId: null,
-    };
-  }
-
-  const { data: stepRows, error: stepsErr } = await supabase
-    .from("artifact_approval_steps")
-    .select("*")
-    .eq("chain_id", activeChain.id);
-
-  if (stepsErr || !Array.isArray(stepRows) || stepRows.length === 0) {
-    return {
-      hasOrgAccess: true,
-      hasApproverAccess: false,
-      chainId: safeStr(activeChain.id) || null,
-      stepId: null,
-    };
-  }
-
-  const currentStep = getCurrentStep(stepRows);
-  if (!currentStep?.id) {
-    return {
-      hasOrgAccess: true,
-      hasApproverAccess: false,
-      chainId: safeStr(activeChain.id) || null,
-      stepId: null,
-    };
-  }
-
-  const { data: approverRows, error: approversErr } = await supabase
-    .from("approval_step_approvers")
-    .select("*")
-    .eq("step_id", currentStep.id);
-
-  if (approversErr || !Array.isArray(approverRows)) {
-    return {
-      hasOrgAccess: true,
-      hasApproverAccess: false,
-      chainId: safeStr(activeChain.id) || null,
-      stepId: safeStr(currentStep.id) || null,
-    };
-  }
-
-  const matched =
-    approverRows.find((r: any) => safeStr(r?.user_id).trim() === args.userId) ??
-    approverRows.find((r: any) => safeStr(r?.approver_user_id).trim() === args.userId) ??
-    approverRows.find((r: any) => safeStr(r?.delegate_user_id).trim() === args.userId) ??
-    null;
-
-  return {
-    hasOrgAccess: true,
-    hasApproverAccess: !!matched,
-    chainId: safeStr(activeChain.id) || null,
-    stepId: safeStr(currentStep.id) || null,
-  };
 }
 
 async function resolveApprovalDecisionState(
@@ -544,9 +379,7 @@ async function resolveCollaborationState(
 
   const { data: activeLocks, error } = await supabase
     .from("artifact_edit_sessions")
-    .select(
-      "id, user_id, editor_name, acquired_at, last_heartbeat_at, expires_at, released_at"
-    )
+    .select("id, user_id, editor_name, acquired_at, last_heartbeat_at, expires_at, released_at")
     .eq("artifact_id", args.artifactId)
     .is("released_at", null)
     .gt("expires_at", nowIso)
@@ -642,7 +475,6 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   if (!looksLikeUuid(artifactId)) notFound();
 
   const projectIdentifier = String(projectIdentifierRaw).trim();
-
   const resolved = await resolveProjectUuidFast(supabase, projectIdentifier);
 
   const artifactByIdRes = await supabase
@@ -666,23 +498,23 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
       .eq("id", artifactProjectUuid)
       .maybeSingle();
 
-    const canonicalProjectHumanId = safeStr((routeProject as any)?.project_code).trim() || artifactProjectUuid;
+    const canonicalProjectHumanId =
+      safeStr((routeProject as any)?.project_code).trim() || artifactProjectUuid;
     redirect(`/projects/${canonicalProjectHumanId}/artifacts/${artifactId}`);
   }
 
   const projectUuid = artifactProjectUuid;
 
-  const myRoleResolved = await resolveMyRole(supabase, projectUuid, auth.user.id);
-  const organisationApproverAccess = await resolveOrganisationApproverAccess(supabase, {
-    projectUuid,
+  const access = await resolveArtifactAccess({
+    supabase,
     artifactId,
     userId: auth.user.id,
   });
 
-  if (!myRoleResolved && !organisationApproverAccess.hasApproverAccess) notFound();
+  if (!access.canViewArtifact) notFound();
 
-  const myRole = myRoleResolved ?? ("viewer" as ProjectRole);
-  const canEditByRole = myRole === "owner" || myRole === "editor";
+  const myRole = access.projectRole ?? ("viewer" as ProjectRole);
+  const canEditByRole = access.canEditArtifact;
 
   const wbsPromise = supabase
     .from("artifacts")
@@ -707,7 +539,11 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   const [project, wbsRes] = await Promise.all([projectPromise, wbsPromise]);
 
   if (isLegacyPidType(artifactRawById.type)) {
-    const canonicalCharter = await findCanonicalProjectCharterArtifact(supabase, projectUuid, artifactRawById.id);
+    const canonicalCharter = await findCanonicalProjectCharterArtifact(
+      supabase,
+      projectUuid,
+      artifactRawById.id
+    );
     if (canonicalCharter?.id) {
       const projectCode = safeStr((project as any)?.project_code).trim();
       redirect(`/projects/${projectCode || projectUuid}/artifacts/${canonicalCharter.id}`);
@@ -781,9 +617,7 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
       !artifact.is_locked &&
       (status === "draft" || status === "changes_requested") &&
       isCurrent
-    : weeklyMode
-      ? canEditByRole
-      : canEditByRole;
+    : canEditByRole;
 
   const isLockedByAnotherUser =
     !!collaboration.activeLockSessionId &&
@@ -862,6 +696,10 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     clientName,
 
     myRole,
+    accessMode: access.accessMode,
+    canViewArtifact: access.canViewArtifact,
+    hasApprovalAccess: access.hasApprovalAccess,
+    hasCurrentStepApprovalAccess: access.hasCurrentStepApprovalAccess,
 
     artifactId: String(artifact.id),
     artifact: {
@@ -884,9 +722,9 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     canRenameTitle,
     canCreateRevision,
 
-    activeApprovalChainId: approvalDecisionState.activeChainId ?? organisationApproverAccess.chainId,
-    currentApprovalStepId: approvalDecisionState.currentStepId ?? organisationApproverAccess.stepId,
-    currentApprovalStepStatus: approvalDecisionState.currentStepStatus,
+    activeApprovalChainId: approvalDecisionState.activeChainId ?? access.activeChainId,
+    currentApprovalStepId: approvalDecisionState.currentStepId ?? access.currentStepId,
+    currentApprovalStepStatus: approvalDecisionState.currentStepStatus ?? access.currentStepStatus,
 
     collaboration: {
       activeLockSessionId: collaboration.activeLockSessionId,
