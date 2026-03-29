@@ -156,7 +156,8 @@ async function resolveMyRole(supabase: any, projectUuid: string, userId: string)
   if (pm?.role) {
     const r = safeLower(pm.role);
     const mapped = r === "admin" ? "owner" : r === "member" ? "editor" : r;
-    const role = mapped === "owner" || mapped === "editor" || mapped === "viewer" ? mapped : "viewer";
+    const role =
+      mapped === "owner" || mapped === "editor" || mapped === "viewer" ? mapped : "viewer";
     return role as ProjectRole;
   }
 
@@ -503,27 +504,15 @@ async function resolveCollaborationState(
     userId: string;
     approvalEnabled: boolean;
     derivedArtifactStatus: string;
+    canEditByRole: boolean;
   }
 ): Promise<CollaborationState> {
   const nowIso = new Date().toISOString();
 
   const canEditByStatus =
-    !args.approvalEnabled ||
-    !isApprovalReadOnlyStatus(args.derivedArtifactStatus);
+    !args.approvalEnabled || !isApprovalReadOnlyStatus(args.derivedArtifactStatus);
 
-  const { data: activeLock, error } = await supabase
-    .from("artifact_edit_sessions")
-    .select(
-      "id, user_id, editor_name, acquired_at, last_heartbeat_at, expires_at, released_at"
-    )
-    .eq("artifact_id", args.artifactId)
-    .is("released_at", null)
-    .gt("expires_at", nowIso)
-    .order("last_heartbeat_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !activeLock?.id) {
+  if (!args.canEditByRole) {
     return {
       activeLockSessionId: null,
       activeLockUserId: null,
@@ -534,31 +523,105 @@ async function resolveCollaborationState(
       activeLockIsMine: false,
       activeLockExpired: false,
       canEditByStatus,
-      readOnlyReason: canEditByStatus ? null : "This artifact is locked by approval status.",
+      readOnlyReason: "You have view-only access to this artifact.",
     };
   }
 
-  const lockUserId = safeStr((activeLock as any)?.user_id).trim() || null;
-  const expiresAt = safeStr((activeLock as any)?.expires_at).trim() || null;
-  const isMine = !!lockUserId && lockUserId === args.userId;
-  const isExpired = !!expiresAt && new Date(expiresAt).getTime() <= Date.now();
+  if (!canEditByStatus) {
+    return {
+      activeLockSessionId: null,
+      activeLockUserId: null,
+      activeLockEditorName: null,
+      activeLockAcquiredAt: null,
+      activeLockHeartbeatAt: null,
+      activeLockExpiresAt: null,
+      activeLockIsMine: false,
+      activeLockExpired: false,
+      canEditByStatus,
+      readOnlyReason: "This artifact is locked by approval status.",
+    };
+  }
+
+  const { data: activeLocks, error } = await supabase
+    .from("artifact_edit_sessions")
+    .select(
+      "id, user_id, editor_name, acquired_at, last_heartbeat_at, expires_at, released_at"
+    )
+    .eq("artifact_id", args.artifactId)
+    .is("released_at", null)
+    .gt("expires_at", nowIso)
+    .order("last_heartbeat_at", { ascending: false })
+    .limit(5);
+
+  if (error || !Array.isArray(activeLocks) || activeLocks.length === 0) {
+    return {
+      activeLockSessionId: null,
+      activeLockUserId: null,
+      activeLockEditorName: null,
+      activeLockAcquiredAt: null,
+      activeLockHeartbeatAt: null,
+      activeLockExpiresAt: null,
+      activeLockIsMine: false,
+      activeLockExpired: false,
+      canEditByStatus,
+      readOnlyReason: null,
+    };
+  }
+
+  const normalizedLocks = activeLocks
+    .map((row: any) => {
+      const lockUserId = safeStr(row?.user_id).trim() || null;
+      const expiresAt = safeStr(row?.expires_at).trim() || null;
+      const heartbeatAt = safeStr(row?.last_heartbeat_at).trim() || null;
+      const acquiredAt = safeStr(row?.acquired_at).trim() || null;
+      const isMine = !!lockUserId && lockUserId === args.userId;
+      const isExpired = !!expiresAt && new Date(expiresAt).getTime() <= Date.now();
+      return {
+        id: safeStr(row?.id).trim() || null,
+        userId: lockUserId,
+        editorName: safeStr(row?.editor_name).trim() || null,
+        acquiredAt,
+        heartbeatAt,
+        expiresAt,
+        isMine,
+        isExpired,
+      };
+    })
+    .filter((row) => !!row.id && !row.isExpired);
+
+  if (normalizedLocks.length === 0) {
+    return {
+      activeLockSessionId: null,
+      activeLockUserId: null,
+      activeLockEditorName: null,
+      activeLockAcquiredAt: null,
+      activeLockHeartbeatAt: null,
+      activeLockExpiresAt: null,
+      activeLockIsMine: false,
+      activeLockExpired: false,
+      canEditByStatus,
+      readOnlyReason: null,
+    };
+  }
+
+  const lockOwnedByMe = normalizedLocks.find((row) => row.isMine) ?? null;
+  const lockOwnedByOther = normalizedLocks.find((row) => !row.isMine) ?? null;
+  const chosenLock = lockOwnedByOther ?? lockOwnedByMe ?? normalizedLocks[0];
 
   let readOnlyReason: string | null = null;
-  if (!canEditByStatus) {
-    readOnlyReason = "This artifact is locked by approval status.";
-  } else if (!isMine) {
-    readOnlyReason = `Locked by ${safeStr((activeLock as any)?.editor_name).trim() || "another editor"}.`;
+  if (chosenLock && !chosenLock.isMine) {
+    readOnlyReason = `Locked by ${chosenLock.editorName || "another editor"}.`;
   }
 
   return {
-    activeLockSessionId: safeStr((activeLock as any)?.id).trim() || null,
-    activeLockUserId: lockUserId,
-    activeLockEditorName: safeStr((activeLock as any)?.editor_name).trim() || null,
-    activeLockAcquiredAt: safeStr((activeLock as any)?.acquired_at).trim() || null,
-    activeLockHeartbeatAt: safeStr((activeLock as any)?.last_heartbeat_at).trim() || null,
-    activeLockExpiresAt: expiresAt,
-    activeLockIsMine: isMine,
-    activeLockExpired: isExpired,
+    activeLockSessionId: chosenLock?.id ?? null,
+    activeLockUserId: chosenLock?.userId ?? null,
+    activeLockEditorName: chosenLock?.editorName ?? null,
+    activeLockAcquiredAt: chosenLock?.acquiredAt ?? null,
+    activeLockHeartbeatAt: chosenLock?.heartbeatAt ?? null,
+    activeLockExpiresAt: chosenLock?.expiresAt ?? null,
+    activeLockIsMine: !!chosenLock?.isMine,
+    activeLockExpired: !!chosenLock?.isExpired,
     canEditByStatus,
     readOnlyReason,
   };
@@ -581,17 +644,37 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   const projectIdentifier = String(projectIdentifierRaw).trim();
 
   const resolved = await resolveProjectUuidFast(supabase, projectIdentifier);
-  let projectUuid: string | null = resolved.projectUuid;
 
-  if (!projectUuid) {
-    const { data: a0 } = await supabase.from("artifacts").select("project_id").eq("id", artifactId).maybeSingle();
-    if (!a0?.project_id) notFound();
-    projectUuid = String(a0.project_id);
+  const artifactByIdRes = await supabase
+    .from("artifacts")
+    .select(ARTIFACT_SELECT)
+    .eq("id", artifactId)
+    .maybeSingle();
+
+  const { data: artifactRawById, error: artifactByIdErr } = artifactByIdRes as any;
+  if (artifactByIdErr || !artifactRawById) notFound();
+
+  const artifactProjectUuid = safeStr(artifactRawById?.project_id).trim();
+  if (!artifactProjectUuid) notFound();
+
+  const resolvedProjectUuid = safeStr(resolved.projectUuid).trim() || null;
+
+  if (resolvedProjectUuid && resolvedProjectUuid !== artifactProjectUuid) {
+    const { data: routeProject } = await supabase
+      .from("projects")
+      .select("project_code")
+      .eq("id", artifactProjectUuid)
+      .maybeSingle();
+
+    const canonicalProjectHumanId = safeStr((routeProject as any)?.project_code).trim() || artifactProjectUuid;
+    redirect(`/projects/${canonicalProjectHumanId}/artifacts/${artifactId}`);
   }
 
-  const myRoleResolved = await resolveMyRole(supabase, projectUuid!, auth.user.id);
+  const projectUuid = artifactProjectUuid;
+
+  const myRoleResolved = await resolveMyRole(supabase, projectUuid, auth.user.id);
   const organisationApproverAccess = await resolveOrganisationApproverAccess(supabase, {
-    projectUuid: projectUuid!,
+    projectUuid,
     artifactId,
     userId: auth.user.id,
   });
@@ -613,24 +696,18 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
 
   const projectPromise = (async () => {
     if (resolved.project && String((resolved.project as any)?.id || "") === projectUuid) return resolved.project;
-    const { data: p } = await supabase.from("projects").select(PROJECT_META_SELECT).eq("id", projectUuid).maybeSingle();
+    const { data: p } = await supabase
+      .from("projects")
+      .select(PROJECT_META_SELECT)
+      .eq("id", projectUuid)
+      .maybeSingle();
     return p ?? resolved.project ?? null;
   })();
 
-  const artifactPromise = supabase
-    .from("artifacts")
-    .select(ARTIFACT_SELECT)
-    .eq("id", artifactId)
-    .eq("project_id", projectUuid)
-    .maybeSingle();
+  const [project, wbsRes] = await Promise.all([projectPromise, wbsPromise]);
 
-  const [project, artifactRes, wbsRes] = await Promise.all([projectPromise, artifactPromise, wbsPromise]);
-
-  const { data: artifactRaw, error: artErr } = artifactRes as any;
-  if (artErr || !artifactRaw) notFound();
-
-  if (isLegacyPidType(artifactRaw.type)) {
-    const canonicalCharter = await findCanonicalProjectCharterArtifact(supabase, projectUuid!, artifactRaw.id);
+  if (isLegacyPidType(artifactRawById.type)) {
+    const canonicalCharter = await findCanonicalProjectCharterArtifact(supabase, projectUuid, artifactRawById.id);
     if (canonicalCharter?.id) {
       const projectCode = safeStr((project as any)?.project_code).trim();
       redirect(`/projects/${projectCode || projectUuid}/artifacts/${canonicalCharter.id}`);
@@ -638,12 +715,11 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   }
 
   const artifact = {
-    ...artifactRaw,
-    type: normalizeArtifactTypeForUi(artifactRaw.type),
+    ...artifactRawById,
+    type: normalizeArtifactTypeForUi(artifactRawById.type),
   };
 
   const canonicalProjectCode = safeStr((project as any)?.project_code).trim();
-  
 
   if (isRAIDType(artifact.type)) {
     redirect(`/projects/${canonicalProjectCode || projectUuid}/raid?fromArtifact=${artifactId}`);
@@ -697,16 +773,25 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     userId: auth.user.id,
     approvalEnabled,
     derivedArtifactStatus: status,
+    canEditByRole,
   });
 
   const isEditableBase = approvalEnabled
-    ? canEditByRole && !artifact.is_locked && (status === "draft" || status === "changes_requested") && isCurrent
+    ? canEditByRole &&
+      !artifact.is_locked &&
+      (status === "draft" || status === "changes_requested") &&
+      isCurrent
     : weeklyMode
       ? canEditByRole
       : canEditByRole;
 
-  const isLockedByAnotherUser = !!collaboration.activeLockSessionId && !collaboration.activeLockIsMine;
+  const isLockedByAnotherUser =
+    !!collaboration.activeLockSessionId &&
+    !collaboration.activeLockIsMine &&
+    !collaboration.activeLockExpired;
+
   const isEditable = isEditableBase && !isLockedByAnotherUser;
+
   const lockLayout =
     approvalEnabled && (status === "submitted" || status === "approved" || status === "rejected");
 
@@ -754,11 +839,13 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
           current_version_no:
             Number((artifact as any)?.current_version_no ?? (typedInitialJson as any)?.current_version_no ?? 0) || 0,
           lastSavedVersionId:
-            safeStr((artifact as any)?.last_saved_version_id ?? (typedInitialJson as any)?.lastSavedVersionId).trim() ||
-            null,
+            safeStr(
+              (artifact as any)?.last_saved_version_id ?? (typedInitialJson as any)?.lastSavedVersionId
+            ).trim() || null,
           last_saved_version_id:
-            safeStr((artifact as any)?.last_saved_version_id ?? (typedInitialJson as any)?.last_saved_version_id).trim() ||
-            null,
+            safeStr(
+              (artifact as any)?.last_saved_version_id ?? (typedInitialJson as any)?.last_saved_version_id
+            ).trim() || null,
         }
       : typedInitialJson;
 
