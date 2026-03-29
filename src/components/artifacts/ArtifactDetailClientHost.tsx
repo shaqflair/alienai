@@ -146,8 +146,6 @@ function isApprovalLockedStatus(status: string | null | undefined) {
 
 /* -----------------------------------------------------------------------
    FinancialPlanEditorHost
-   - readOnly: blocks all editing (collaboration lock, not-editable by role)
-   - budgetLocked: only locks the approved budget field (under approval)
 ------------------------------------------------------------------------ */
 function FinancialPlanEditorHost({
   projectId,
@@ -477,7 +475,6 @@ function EditorStatusBar({
       stateText = "Rejected — locked";
       stateTone = "text-rose-700 bg-rose-50 border-rose-200";
     } else if (isFinancialPlan) {
-      // Financial plan: editing allowed, only approved budget is locked
       stateText = "Editing enabled";
       stateTone = "text-emerald-700 bg-emerald-50 border-emerald-200";
     } else {
@@ -526,9 +523,8 @@ function EditorStatusBar({
   );
 }
 
-
 /* -----------------------------------------------------------------------
-   ApprovalChainStatus — shows who approved and who is pending
+   ApprovalChainStatus
 ------------------------------------------------------------------------ */
 function ApprovalChainStatus({ artifactId }: { artifactId: string }) {
   const [steps, setSteps] = React.useState<any[]>([]);
@@ -696,22 +692,25 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     (collaboration.state ? !collaboration.state.canEditByStatus : false) ||
     isApprovalLockedStatus(approvalStatus);
 
-  // For financial plan: only lock the whole editor if truly not editable
-  // (role-based lock, collaboration lock) — NOT for approval status.
-  // Approval status only locks the approved budget field via budgetLocked.
   const approvalStatusIsTerminal =
     approvalStatusLower === "approved" || approvalStatusLower === "rejected";
+
   const fpApprovalLocked = isFinancialPlan && isApprovalLockedStatus(approvalStatus);
-  const fpApprovalActive = isFinancialPlan && (approvalStatusLower === "submitted" || approvalStatusLower === "in_review" || approvalStatusLower === "submitted_for_approval" || approvalStatusLower === "pending_approval" || approvalStatusLower === "awaiting_approval");
 
-
-  // For financial plan under approval: allow viewing/editing regardless of collab lock.
-  // The collab lock belongs to the submitter's session; approvers shouldn't be blocked.
   const effectiveReadOnly = isFinancialPlan
     ? !isEditable || lockLayout || approvalStatusIsTerminal
     : !isEditable || lockLayout || collaboration.isReadOnly || approvalLocked;
 
   const isApproverMode = isApprover && effectiveReadOnly && mode === "charter";
+
+  const hasActiveOtherEditorLock =
+    !!collaboration.state?.activeLock &&
+    !collaboration.state?.activeLock?.isMine;
+
+  const showCollaborationBanner =
+    !isApproverMode &&
+    !approvalLocked &&
+    hasActiveOtherEditorLock;
 
   const handleRequestChangesWithComments = useMemo(() => {
     if (!requestChangesWithCommentsAction || !isApproverMode) return null;
@@ -753,7 +752,13 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         : "This artifact is read-only while under approval."
     : lockLayout
       ? "Layout is locked for this artifact."
-      : collaboration.state?.readOnlyReason || collaboration.lockError || "Locked by another editor.";
+      : hasActiveOtherEditorLock
+        ? collaboration.state?.readOnlyReason || collaboration.lockError || "Locked by another editor."
+        : !isEditable
+          ? "You have view-only access to this artifact."
+          : collaboration.lockError
+            ? "Editing is temporarily unavailable."
+            : "This artifact is read-only.";
 
   const currentVersionNo = collaboration.state?.currentVersionNo ?? 0;
   const currentDraftRev = collaboration.state?.currentDraftRev ?? collaboration.draftRev;
@@ -814,12 +819,14 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
 
   return (
     <div className="space-y-6 text-slate-900">
-      {!isApproverMode && !approvalLocked && (
+      {showCollaborationBanner && (
         <ArtifactCollaborationBanner
-          readOnly={effectiveReadOnly}
-          approvalLocked={approvalLocked}
+          readOnly={true}
+          approvalLocked={false}
           lockOwnerName={
-            collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
+            collaboration.state?.activeLock?.isMine
+              ? null
+              : collaboration.state?.activeLock?.editorName || null
           }
           expiresAt={collaboration.state?.activeLock?.expiresAt || null}
           currentVersionNo={currentVersionNo}
