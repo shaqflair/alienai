@@ -7,9 +7,14 @@ import {
   isInvalidInputSyntaxError as _isInvalidInputSyntaxError,
   isMissingColumnError as _isMissingColumnError,
   looksLikeUuid as _looksLikeUuid,
+  normalizeProjectIdentifier as _normalizeProjectIdentifier,
   safeStr as _safeStr,
 } from "./artifact-detail-utils";
 
+/**
+ * Local fallbacks to prevent "is not a function" runtime issues if the imported module
+ * gets out of sync / cached / duplicated by bundler.
+ */
 function safeStr(x: unknown) {
   if (typeof _safeStr === "function") return _safeStr(x);
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -22,18 +27,19 @@ function looksLikeUuid(s: string) {
   );
 }
 
-/**
- * IMPORTANT:
- * Do NOT delegate to imported normalizeProjectIdentifier here.
- * Some older normalizers strip prefixes like PRJ-100 -> 100,
- * which breaks project_code-based routing.
- */
 function normalizeProjectIdentifier(input: string) {
+  if (typeof _normalizeProjectIdentifier === "function") return _normalizeProjectIdentifier(input);
+
   let v = safeStr(input).trim();
   try {
     v = decodeURIComponent(v);
   } catch {}
-  return v.trim();
+  v = v.trim();
+
+  const m = v.match(/(\d{3,})$/);
+  if (m?.[1]) return m[1];
+
+  return v;
 }
 
 function isMissingColumnError(errMsg: string, col: string) {
@@ -53,94 +59,61 @@ function isInvalidInputSyntaxError(err: any) {
   return String(err?.code || "").trim() === "22P02";
 }
 
-function extractDigits(input: string): string | null {
-  const m = String(input).match(/(\d{3,})$/);
-  return m?.[1] ?? null;
-}
-function uniqueValues(values: string[]) {
-  return Array.from(
-    new Set(
-      values
-        .map((v) => safeStr(v).trim())
-        .filter(Boolean)
-    )
-  );
-}
-
+/**
+ * resolveProjectUuidFast
+ * Efficiently resolves a project's primary UUID from various possible identifiers.
+ * Strategy:
+ * 1) If identifier is a UUID, return it immediately.
+ * 2) Otherwise check common human-readable columns.
+ * 3) Gracefully handle schema variations where columns might not exist.
+ */
 export async function resolveProjectUuidFast(supabase: any, identifier: string) {
   const raw = safeStr(identifier).trim();
 
   if (!raw) {
-    return {
-      projectUuid: null as string | null,
-      project: null as any,
-      humanCol: null as string | null,
-    };
+    return { projectUuid: null as string | null, project: null as any, humanCol: null as string | null };
   }
 
+  // ✅ If it's a UUID, no lookup needed.
   if (looksLikeUuid(raw)) {
-    return {
-      projectUuid: raw,
-      project: null as any,
-      humanCol: null as string | null,
-    };
+    return { projectUuid: raw, project: null as any, humanCol: null as string | null };
   }
 
   const normalized = normalizeProjectIdentifier(raw);
-  const digits = extractDigits(raw);
-  const candidateValues = uniqueValues([raw, normalized, ...(digits ? [digits] : [])]);
 
+  // Phase 1: normalized search across candidate columns
   for (const col of HUMAN_COL_CANDIDATES) {
-    for (const value of candidateValues) {
-      const { data, error } = await supabase
-        .from("projects")
-        .select(PROJECT_META_SELECT)
-        .eq(col as any, value)
-        .maybeSingle();
+    const { data, error } = await supabase
+      .from("projects")
+      .select(PROJECT_META_SELECT)
+      .eq(col as any, normalized)
+      .maybeSingle();
 
-      if (error) {
-        if (isMissingColumnError(error.message, col as any)) break;
-        if (isInvalidInputSyntaxError(error)) continue;
-        throw error;
-      }
-
-      if (data?.id) {
-        return {
-          projectUuid: String(data.id),
-          project: data,
-          humanCol: col as string,
-        };
-      }
+    if (error) {
+      if (isMissingColumnError(error.message, col as any)) continue;
+      if (isInvalidInputSyntaxError(error)) continue;
+      throw error;
     }
+
+    if (data?.id) return { projectUuid: String(data.id), project: data, humanCol: col as string };
   }
 
-  for (const col of ["slug", "reference", "ref", "code", "project_code"] as const) {
-    for (const value of candidateValues) {
-      const { data, error } = await supabase
-        .from("projects")
-        .select(PROJECT_META_SELECT)
-        .eq(col as any, value)
-        .maybeSingle();
+  // Phase 2: raw search for slug-ish columns
+  for (const col of ["slug", "reference", "ref", "code"] as const) {
+    const { data, error } = await supabase
+      .from("projects")
+      .select(PROJECT_META_SELECT)
+      .eq(col as any, raw)
+      .maybeSingle();
 
-      if (error) {
-        if (isMissingColumnError(error.message, col)) break;
-        if (isInvalidInputSyntaxError(error)) continue;
-        throw error;
-      }
-
-      if (data?.id) {
-        return {
-          projectUuid: String(data.id),
-          project: data,
-          humanCol: col as string,
-        };
-      }
+    if (error) {
+      if (isMissingColumnError(error.message, col)) continue;
+      if (isInvalidInputSyntaxError(error)) continue;
+      throw error;
     }
+
+    if (data?.id) return { projectUuid: String(data.id), project: data, humanCol: col as string };
   }
 
-  return {
-    projectUuid: null as string | null,
-    project: null as any,
-    humanCol: null as string | null,
-  };
+  return { projectUuid: null as string | null, project: null as any, humanCol: null as string | null };
 }

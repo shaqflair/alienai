@@ -50,7 +50,13 @@ export function normalizeProjectIdentifier(input: string) {
   try {
     v = decodeURIComponent(v);
   } catch {}
-  return v.trim();
+  v = v.trim();
+
+  // allow "P-100011" → "100011"
+  const m = v.match(/(\d{3,})$/);
+  if (m?.[1]) return m[1];
+
+  return v;
 }
 
 export const HUMAN_COL_CANDIDATES = [
@@ -172,6 +178,9 @@ export function isProjectClosureReportType(type: any) {
   ].includes(t);
 }
 
+/**
+ * ✅ Weekly Report
+ */
 export function isWeeklyReportType(type: any) {
   const t = normType(type);
   return [
@@ -189,6 +198,9 @@ export function isWeeklyReportType(type: any) {
   ].includes(t);
 }
 
+/**
+ * ✅ Financial Plan
+ */
 export function isFinancialPlanType(type: any) {
   const t = normType(type);
   return [
@@ -205,8 +217,10 @@ export function isFinancialPlanType(type: any) {
 export function displayType(type: any) {
   const t = normType(type);
 
+  // legacy aliases -> canonical keys
   if (t === "status_dashboard" || t === "status dashboard") return "project_closure_report";
 
+  // weekly aliases -> canonical key
   if (
     t === "weekly" ||
     t === "weekly status" ||
@@ -221,6 +235,7 @@ export function displayType(type: any) {
     return "weekly_report";
   }
 
+  // financial plan aliases -> canonical key
   if (
     t === "financialplan" ||
     t === "finance_plan" ||
@@ -329,6 +344,7 @@ export function getTypedInitialJson(artifact: any) {
     }
   }
 
+  // If it's tiptap doc stored as string or object, accept it too
   const tiptap = safeJsonDoc(cj);
   if (tiptap) return tiptap;
 
