@@ -8,6 +8,7 @@ import { computePortfolioHealth } from "@/lib/server/project-health";
 type Rag = "G" | "A" | "R";
 
 export type PortfolioHealthFilters = {
+  projectId?: string[];
   projectName?: string[];
   projectCode?: string[];
   projectManagerId?: string[];
@@ -179,6 +180,12 @@ async function resolveActiveProjectIds(
 export function parsePortfolioHealthFiltersFromUrl(
   url: URL,
 ): PortfolioHealthFilters {
+  const ids = uniqStrings(
+    url.searchParams
+      .getAll("projectId")
+      .flatMap((x) => x.split(","))
+      .map((s) => s.trim()),
+  );
   const name = uniqStrings(
     url.searchParams
       .getAll("name")
@@ -205,6 +212,7 @@ export function parsePortfolioHealthFiltersFromUrl(
   );
 
   const out: PortfolioHealthFilters = {};
+  if (ids.length) out.projectId = ids;
   if (name.length) out.projectName = name;
   if (code.length) out.projectCode = code;
   if (pm.length) out.projectManagerId = pm;
@@ -218,6 +226,7 @@ export function parsePortfolioHealthFiltersFromBody(
   const f = body?.filters ?? body?.filter ?? body?.where ?? null;
   const out: PortfolioHealthFilters = {};
 
+  const ids = uniqStrings(f?.projectId ?? f?.projectIds ?? f?.id);
   const names = uniqStrings(
     f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name,
   );
@@ -232,6 +241,7 @@ export function parsePortfolioHealthFiltersFromBody(
   );
   const depts = uniqStrings(f?.department ?? f?.departments ?? f?.dept);
 
+  if (ids.length) out.projectId = ids;
   if (names.length) out.projectName = names;
   if (codes.length) out.projectCode = codes;
   if (pms.length) out.projectManagerId = pms;
@@ -242,6 +252,7 @@ export function parsePortfolioHealthFiltersFromBody(
 
 function hasAnyFilters(f: PortfolioHealthFilters) {
   return (
+    (f.projectId && f.projectId.length) ||
     (f.projectName && f.projectName.length) ||
     (f.projectCode && f.projectCode.length) ||
     (f.projectManagerId && f.projectManagerId.length) ||
@@ -260,6 +271,24 @@ async function applyProjectFilters(
   }
   if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
 
+  let workingIds = scopedProjectIds;
+
+  if (filters.projectId?.length) {
+    const wanted = new Set(filters.projectId.map((v) => safeStr(v).trim()).filter(Boolean));
+    workingIds = scopedProjectIds.filter((id) => wanted.has(String(id)));
+    meta.notes.push(`Applied explicit projectId scope (${workingIds.length}).`);
+    if (
+      !filters.projectName?.length &&
+      !filters.projectCode?.length &&
+      !filters.projectManagerId?.length &&
+      !filters.department?.length
+    ) {
+      meta.applied = true;
+      meta.counts = { before: scopedProjectIds.length, after: workingIds.length };
+      return { projectIds: workingIds, meta };
+    }
+  }
+
   const selectSets = [
     "id, title, project_code, project_manager_id, department",
     "id, title, project_code, project_manager_id",
@@ -274,7 +303,7 @@ async function applyProjectFilters(
     const { data, error } = await supabase
       .from("projects")
       .select(sel)
-      .in("id", scopedProjectIds)
+      .in("id", workingIds)
       .limit(20000);
 
     if (!error && Array.isArray(data)) {
@@ -289,9 +318,9 @@ async function applyProjectFilters(
 
   if (!rows.length) {
     meta.applied = true;
-    meta.notes.push("Could not read projects for filtering; falling back to unfiltered scope.");
+    meta.notes.push("Could not read projects for filtering; falling back to current scope.");
     if (lastErr?.message) meta.notes.push(lastErr.message);
-    return { projectIds: scopedProjectIds, meta };
+    return { projectIds: workingIds, meta };
   }
 
   const nameNeedles = (filters.projectName ?? []).map((s) => s.toLowerCase());
@@ -348,13 +377,19 @@ export async function loadPortfolioHealth(input: {
   const scope = await resolvePortfolioScope(supabase, input.userId);
   const scopeMeta = scope.meta ?? {};
   const orgId = scope.organisationId ?? null;
-  const scopedIdsRaw = uniqStrings(
+
+  const explicitProjectIds = uniqStrings(filters.projectId);
+  const scopedIdsFromScope = uniqStrings(
     Array.isArray(scope.rawProjectIds)
       ? scope.rawProjectIds
       : Array.isArray(scope.projectIds)
         ? scope.projectIds
         : [],
   );
+
+  const scopedIdsRaw = explicitProjectIds.length
+    ? explicitProjectIds
+    : scopedIdsFromScope;
 
   const emptyResponse: PortfolioHealthPayload = {
     ok: true,
@@ -380,7 +415,7 @@ export async function loadPortfolioHealth(input: {
     },
   };
 
-  if (!orgId) {
+  if (!orgId && !explicitProjectIds.length) {
     return {
       ...emptyResponse,
       meta: {
@@ -393,12 +428,9 @@ export async function loadPortfolioHealth(input: {
   }
 
   const activeNotes: string[] = [];
-  const activeIds = await resolveActiveProjectIds(
-    supabase,
-    scopedIdsRaw,
-    orgId,
-    activeNotes,
-  );
+  const activeIds = explicitProjectIds.length
+    ? explicitProjectIds
+    : await resolveActiveProjectIds(supabase, scopedIdsRaw, orgId, activeNotes);
 
   const filtered = await applyProjectFilters(supabase, activeIds, filters);
   const finalProjectIds = filtered.projectIds;
@@ -417,7 +449,12 @@ export async function loadPortfolioHealth(input: {
           notes: activeNotes,
         },
         filters: filtered.meta,
-        scope: { ...scopeMeta, scopedIdsRaw, scopedIdsActive: activeIds },
+        scope: {
+          ...scopeMeta,
+          scopedIdsRaw,
+          scopedIdsActive: activeIds,
+          explicitProjectIds,
+        },
         notes: ["No active projects in scope after filtering."],
       },
     };
@@ -466,7 +503,10 @@ export async function loadPortfolioHealth(input: {
         ...scopeMeta,
         scopedIdsRaw,
         scopedIdsActive: activeIds,
-        source: scopeMeta?.source ?? "unknown",
+        explicitProjectIds,
+        source: explicitProjectIds.length
+          ? "explicit-project-filter"
+          : (scopeMeta?.source ?? "unknown"),
       },
       notes: [],
     },
