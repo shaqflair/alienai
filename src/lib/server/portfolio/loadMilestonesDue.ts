@@ -5,6 +5,7 @@ import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export type PortfolioMilestonesFilters = {
+  projectId?: string[];
   projectName?: string[];
   projectCode?: string[];
   projectManagerId?: string[];
@@ -116,6 +117,7 @@ async function normalizeActiveIds(supabase: any, rawIds: string[]) {
 
 function hasAnyFilters(f: PortfolioMilestonesFilters) {
   return (
+    (f.projectId && f.projectId.length) ||
     (f.projectName && f.projectName.length) ||
     (f.projectCode && f.projectCode.length) ||
     (f.projectManagerId && f.projectManagerId.length) ||
@@ -124,6 +126,9 @@ function hasAnyFilters(f: PortfolioMilestonesFilters) {
 }
 
 export function parseMilestonesDueFiltersFromUrl(url: URL): PortfolioMilestonesFilters {
+  const ids = uniqStrings(
+    url.searchParams.getAll("projectId").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
   const name = uniqStrings(
     url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()),
   );
@@ -138,6 +143,7 @@ export function parseMilestonesDueFiltersFromUrl(url: URL): PortfolioMilestonesF
   );
 
   const out: PortfolioMilestonesFilters = {};
+  if (ids.length) out.projectId = ids;
   if (name.length) out.projectName = name;
   if (code.length) out.projectCode = code;
   if (pm.length) out.projectManagerId = pm;
@@ -149,6 +155,7 @@ export function parseMilestonesDueFiltersFromBody(body: any): PortfolioMilestone
   const f = body?.filters ?? body?.filter ?? body?.where ?? null;
   const out: PortfolioMilestonesFilters = {};
 
+  const ids = uniqStrings(f?.projectId ?? f?.projectIds ?? f?.id);
   const names = uniqStrings(
     f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name,
   );
@@ -162,6 +169,7 @@ export function parseMilestonesDueFiltersFromBody(body: any): PortfolioMilestone
     f?.department ?? f?.departments ?? f?.dept,
   );
 
+  if (ids.length) out.projectId = ids;
   if (names.length) out.projectName = names;
   if (codes.length) out.projectCode = codes;
   if (pms.length) out.projectManagerId = pms;
@@ -178,6 +186,24 @@ async function applyProjectFilters(
   if (!scopedProjectIds.length) return { projectIds: [], meta: { ...meta, applied: true } };
   if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
 
+  let workingIds = scopedProjectIds;
+
+  if (filters.projectId?.length) {
+    const wanted = new Set(filters.projectId.map((v) => safeStr(v).trim()).filter(Boolean));
+    workingIds = scopedProjectIds.filter((id) => wanted.has(String(id)));
+    meta.notes.push(`Applied explicit projectId scope (${workingIds.length}).`);
+    if (
+      !filters.projectName?.length &&
+      !filters.projectCode?.length &&
+      !filters.projectManagerId?.length &&
+      !filters.department?.length
+    ) {
+      meta.applied = true;
+      meta.counts = { before: scopedProjectIds.length, after: workingIds.length };
+      return { projectIds: workingIds, meta };
+    }
+  }
+
   const selectSets = [
     "id, title, project_code, project_manager_id, department",
     "id, title, project_code, project_manager_id",
@@ -192,7 +218,7 @@ async function applyProjectFilters(
     const { data, error } = await supabase
       .from("projects")
       .select(sel)
-      .in("id", scopedProjectIds)
+      .in("id", workingIds)
       .limit(10000);
 
     if (!error && Array.isArray(data)) {
@@ -206,9 +232,9 @@ async function applyProjectFilters(
 
   if (!rows.length) {
     meta.applied = true;
-    meta.notes.push("Could not read projects for filtering; falling back to unfiltered scope.");
+    meta.notes.push("Could not read projects for filtering; falling back to current scope.");
     if (lastErr?.message) meta.notes.push(lastErr.message);
-    return { projectIds: scopedProjectIds, meta };
+    return { projectIds: workingIds, meta };
   }
 
   const nameNeedles = (filters.projectName ?? []).map((s) => s.toLowerCase());
@@ -275,7 +301,9 @@ export async function loadMilestonesDue(input: {
   const scope = await resolvePortfolioScope(supabase, input.userId);
   const scopeMeta = scope.meta ?? {};
   const organisationId = scope.organisationId ?? null;
-  const scopedProjectIdsRaw = uniqStrings(
+
+  const explicitProjectIds = uniqStrings(filters.projectId);
+  const scopedProjectIdsFromScope = uniqStrings(
     Array.isArray(scope.rawProjectIds)
       ? scope.rawProjectIds
       : Array.isArray(scope.projectIds)
@@ -283,7 +311,14 @@ export async function loadMilestonesDue(input: {
         : [],
   );
 
-  const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
+  const scopedProjectIdsRaw = explicitProjectIds.length
+    ? explicitProjectIds
+    : scopedProjectIdsFromScope;
+
+  const active = explicitProjectIds.length
+    ? { ids: explicitProjectIds, ok: true, error: null as string | null }
+    : await normalizeActiveIds(supabase, scopedProjectIdsRaw);
+
   const scopedProjectIds = active.ids;
 
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, filters);
@@ -302,6 +337,10 @@ export async function loadMilestonesDue(input: {
           scopedIdsActive: scopedProjectIds.length,
           active_filter_ok: active.ok,
           active_filter_error: active.error,
+          explicitProjectIds,
+          source: explicitProjectIds.length
+            ? "explicit-project-filter"
+            : (scopeMeta?.source ?? "unknown"),
         },
         filters: filtered.meta,
       },
@@ -325,6 +364,10 @@ export async function loadMilestonesDue(input: {
         scopedIdsActive: scopedProjectIds.length,
         active_filter_ok: active.ok,
         active_filter_error: active.error,
+        explicitProjectIds,
+        source: explicitProjectIds.length
+          ? "explicit-project-filter"
+          : (scopeMeta?.source ?? "unknown"),
       },
       filters: filtered.meta,
       projectCount: projectIds.length,
