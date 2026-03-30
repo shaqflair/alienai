@@ -431,3 +431,33 @@ export async function loadMilestonesDue(input: {
     },
   };
 }
+// ✅ loadScheduleIntelligence — rich schedule payload for dashboard
+export async function loadScheduleIntelligence(input: {
+  userId: string;
+  days?: unknown;
+  filters?: PortfolioMilestonesFilters;
+  supabase?: Awaited<ReturnType<typeof createClient>>;
+}) {
+  const supabase = input.supabase ?? (await createClient());
+  const days = clampDays(input.days == null ? null : String(input.days), 30);
+  const scope = await resolvePortfolioScope(supabase, input.userId);
+  const visibleIds = uniqStrings(Array.isArray(scope.projectIds) ? scope.projectIds : []);
+  const active = await normalizeActiveIds(supabase, visibleIds);
+  const projectIds = active.ids;
+  if (!projectIds.length) {
+    return { ok: true, windowDays: days, dueSoon: [], nextMilestone: null, totalMilestones: 0, hasAny: false, signals: { hasOverdue: false, overdueCount: 0, atRiskCount: 0 }, insight: { summary: 'No active projects in scope.', tone: 'neutral' }, count: 0, meta: { projectCount: 0, completeness: 'empty', reason: 'NO_ACTIVE_PROJECTS' } };
+  }
+  const today = new Date(); today.setUTCHours(0,0,0,0);
+  const windowEnd = new Date(today); windowEnd.setUTCDate(windowEnd.getUTCDate() + days);
+  const { data: rows } = await supabase.from('schedule_milestones').select('id,milestone_name,end_date,start_date,status,project_id').in('project_id', projectIds).limit(5000);
+  const all = (rows ?? []).map((m: any) => { const dateStr = safeStr(m.end_date || m.start_date).trim(); const d = new Date(dateStr); return { id: String(m.id), title: safeStr(m.milestone_name).trim() || 'Milestone', date: dateStr, status: safeStr(m.status).trim() || null, project_id: safeStr(m.project_id).trim(), project_title: null, project_code: null, _d: d }; }).filter((m: any) => m.date && !isNaN(m._d.getTime()));
+  const dueSoon = all.filter((m: any) => m._d >= today && m._d <= windowEnd).sort((a: any, b: any) => a._d - b._d).map(({ _d, ...m }: any) => m);
+  const future = all.filter((m: any) => m._d > windowEnd).sort((a: any, b: any) => a._d - b._d);
+  const overdueCount = all.filter((m: any) => m._d < today && !['done','completed','closed'].includes((m.status ?? '').toLowerCase())).length;
+  const nextMilestone = dueSoon[0] ?? (future.length > 0 ? (({ _d, ...m }) => m)(future[0]) : null);
+  const hasAny = all.length > 0;
+  const totalCount = dueSoon.length + overdueCount;
+  const summary = !hasAny ? 'No milestones defined — schedule visibility limited.' : overdueCount > 0 ? overdueCount + ' milestone(s) overdue — schedule risk detected.' : dueSoon.length > 0 ? dueSoon.length + ' milestone(s) due in the next ' + days + ' days.' : nextMilestone ? 'No milestones due in the next ' + days + ' days — next milestone scheduled ahead.' : 'No milestones due in the next ' + days + ' days — schedule on track.';
+  const tone = overdueCount > 0 ? 'warning' : dueSoon.length > 0 ? 'neutral' : 'positive';
+  return { ok: true, windowDays: days, dueSoon, nextMilestone, totalMilestones: all.length, hasAny, signals: { hasOverdue: overdueCount > 0, overdueCount, atRiskCount: 0 }, insight: { summary, tone }, count: totalCount, meta: { projectCount: projectIds.length, completeness: hasAny ? 'full' : 'empty', reason: hasAny ? null : 'NO_MILESTONES_DEFINED' } };
+}

@@ -5,7 +5,7 @@ import { createClient } from "@/utils/supabase/server";
 import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 import { loadPortfolioHealth } from "@/lib/server/portfolio/loadPortfolioHealth";
-import { loadMilestonesDue as loadScheduleIntelligence } from "@/lib/server/portfolio/loadMilestonesDue";
+import { loadScheduleIntelligence } from "@/lib/server/portfolio/loadMilestonesDue";
 import { loadRaidPanel } from "@/lib/server/portfolio/loadRaidPanel";
 import { loadFinancialPlanSummary } from "@/lib/server/portfolio/loadFinancialPlanSummary";
 import { loadRecentWins } from "@/lib/server/portfolio/loadRecentWins";
