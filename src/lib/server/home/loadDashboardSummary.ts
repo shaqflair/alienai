@@ -170,29 +170,25 @@ export function normalizeStatusParts(row: any): string[] {
 export function isProjectActive(row: any): boolean {
   if (!row) return false;
 
-  // Hard excludes only (safe)
-  if (safeStr(row?.resource_status).toLowerCase() === "pipeline") return false;
+  if (safeStr(row?.resource_status).trim().toLowerCase() === "pipeline") return false;
   if (row?.deleted_at) return false;
+  if (isTruthyFlag(row?.is_deleted)) return false;
   if (row?.archived_at) return false;
+  if (isTruthyFlag(row?.is_archived) || isTruthyFlag(row?.archived)) return false;
   if (row?.closed_at) return false;
   if (row?.cancelled_at) return false;
 
-  // Explicit flags override everything
   if (row?.is_active === true || row?.active === true) return true;
   if (row?.is_active === false || row?.active === false) return false;
 
-  // ✅ RELAXED LOGIC
   const statuses = normalizeStatusParts(row);
-
   if (!statuses.length) return true;
 
-  // Only block *true terminal states*
   const blockedTerms = ["closed", "cancelled", "archived", "deleted"];
 
-  return !statuses.some((s) =>
-    blockedTerms.some((term) => s.includes(term))
-  );
+  return !statuses.some((s) => blockedTerms.some((term) => s.includes(term)));
 }
+
 export async function getScopedProjects(
   supabase: Awaited<ReturnType<typeof createClient>>,
   filters: PortfolioFilters,
@@ -438,6 +434,14 @@ export async function loadDashboardSummaryData(
     projectId: activeProjectIds,
   };
 
+  const scopedFilters: PortfolioFilters = {
+    projectId: activeProjectIds,
+    projectName: confirmedFilters.projectName,
+    projectCode: confirmedFilters.projectCode,
+    projectManagerId: confirmedFilters.projectManagerId,
+    department: confirmedFilters.department,
+  };
+
   let portfolioHealth: any = null;
   let milestonesDue: any = null;
   let raidPanel: any = null;
@@ -452,6 +456,7 @@ export async function loadDashboardSummaryData(
       userId: input.userId,
       days,
       filters: {
+        projectId: scopedProjectIds,
         projectName: filters.projectName,
         projectCode: filters.projectCode,
         projectManagerId: filters.projectManagerId,
@@ -486,44 +491,24 @@ export async function loadDashboardSummaryData(
       loadPortfolioHealth({
         userId: input.userId,
         days,
-        filters: {
-          projectName: confirmedFilters.projectName,
-          projectCode: confirmedFilters.projectCode,
-          projectManagerId: confirmedFilters.projectManagerId,
-          department: confirmedFilters.department,
-        },
+        filters: scopedFilters,
         supabase,
       }),
       loadMilestonesDue({
         userId: input.userId,
         days,
-        filters: {
-          projectName: confirmedFilters.projectName,
-          projectCode: confirmedFilters.projectCode,
-          projectManagerId: confirmedFilters.projectManagerId,
-          department: confirmedFilters.department,
-        },
+        filters: scopedFilters,
         supabase,
       }),
       loadRaidPanel({
         userId: input.userId,
         days,
-        filters: {
-          projectName: confirmedFilters.projectName,
-          projectCode: confirmedFilters.projectCode,
-          projectManagerId: confirmedFilters.projectManagerId,
-          department: confirmedFilters.department,
-        },
+        filters: scopedFilters,
         supabase,
       }),
       loadFinancialPlanSummary({
         userId: input.userId,
-        filters: {
-          projectName: confirmedFilters.projectName,
-          projectCode: confirmedFilters.projectCode,
-          projectManagerId: confirmedFilters.projectManagerId,
-          department: confirmedFilters.department,
-        },
+        filters: scopedFilters,
         supabase,
       }),
       loadRecentWins(_req, {
@@ -535,12 +520,7 @@ export async function loadDashboardSummaryData(
       loadResourceActivity({
         userId: input.userId,
         days,
-        filters: {
-          projectName: filters.projectName,
-          projectCode: filters.projectCode,
-          projectManagerId: filters.projectManagerId,
-          department: filters.department,
-        },
+        filters: scopedFilters,
         supabase,
       }),
       loadAiBriefing({
@@ -548,10 +528,10 @@ export async function loadDashboardSummaryData(
         days,
         filters: {
           q: filters.q,
-          projectId: confirmedFilters.projectId,
-          projectCode: confirmedFilters.projectCode,
-          pm: confirmedFilters.projectManagerId,
-          dept: confirmedFilters.department,
+          projectId: scopedFilters.projectId,
+          projectCode: scopedFilters.projectCode,
+          pm: scopedFilters.projectManagerId,
+          dept: scopedFilters.department,
         },
         supabase,
       }),
