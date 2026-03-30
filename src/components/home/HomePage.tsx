@@ -1398,12 +1398,10 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                     Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 animate-pulse rounded-xl bg-gray-50" />)
                   ) : scheduleDueSoon.length > 0 ? (
                     <>
-                      {scheduleInsightSummary && (
-                        <div className={["rounded-xl border px-4 py-3 text-sm font-medium", scheduleCardToneClasses].join(" ")}>
-                          {scheduleInsightSummary}
-                        </div>
-                      )}
-                      {allDueItems.map((it, i) => (
+                    {scheduleInsightSummary && (
+  <div className={["rounded-xl border px-4 py-3 text-sm font-medium text-gray-700", scheduleCardToneClasses].join(" ")}>
+  {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days — next milestone scheduled ahead.`}
+</div>)}                      {allDueItems.map((it, i) => (
                         <MilestoneCard key={`${it.title}-${i}`} item={it} onClick={() => { const href = safeStr(it?.link).trim(); if (href && !href.includes("/raid") && !href.includes("/risks")) router.push(href); else router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters)); }} />
                       ))}
                     </>
