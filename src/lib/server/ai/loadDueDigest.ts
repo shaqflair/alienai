@@ -441,13 +441,11 @@ async function loadScopedPortfolioProjects(
     activeProjectIds = scopedProjectIds;
   }
 
-  const { data, error } = await supabase
-    .from("projects")
-    .select("id,title,project_code,created_at,deleted_at")
-    .in("id", activeProjectIds)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
-
+const { data, error } = await supabase
+  .from("projects")
+  .select("id,title,project_code,created_at")
+  .in("id", activeProjectIds)
+  .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
 
   const rows = (Array.isArray(data) ? data : []) as any[];
