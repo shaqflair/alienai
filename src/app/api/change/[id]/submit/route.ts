@@ -1,4 +1,4 @@
-// src/app/api/change/[id]/submit/route.ts
+﻿// src/app/api/change/[id]/submit/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -187,6 +187,7 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
   const projectId = safeStr(cr?.project_id).trim();
   if (!projectId) return null;
 
+  // 1. Try to find an existing artifact for this project
   const { data, error } = await supabase
     .from("artifacts")
     .select("id, type, artifact_type, is_current, created_at")
@@ -196,11 +197,47 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
     .order("created_at", { ascending: false })
     .limit(1);
 
-  if (error) return null;
+  let resolved = !error && Array.isArray(data) && data[0]?.id ? String(data[0].id) : null;
 
-  const resolved = Array.isArray(data) && data[0]?.id ? String(data[0].id) : null;
+  // 2. Auto-create if none exists
+  if (!resolved) {
+    try {
+      // Get the project owner / creator to satisfy user_id NOT NULL
+      const { data: projData } = await supabase
+        .from("projects")
+        .select("created_by, owner_id, user_id")
+        .eq("id", projectId)
+        .maybeSingle();
+
+      const userId =
+        safeStr((projData as any)?.created_by).trim() ||
+        safeStr((projData as any)?.owner_id).trim() ||
+        safeStr((projData as any)?.user_id).trim() ||
+        null;
+
+      if (!userId) return null;
+
+      const { data: inserted, error: insErr } = await supabase
+        .from("artifacts")
+        .insert({
+          project_id: projectId,
+          type: "change_requests",
+          title: "Change Requests",
+          status: "draft",
+          user_id: userId,
+        })
+        .select("id")
+        .single();
+
+      if (!insErr && inserted?.id) {
+        resolved = String(inserted.id);
+      }
+    } catch {}
+  }
+
   if (!resolved) return null;
 
+  // 3. Back-link the artifact_id onto the change request
   try {
     await supabase.from("change_requests").update({ artifact_id: resolved }).eq("id", cr.id);
   } catch {}
