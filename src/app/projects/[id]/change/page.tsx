@@ -282,7 +282,7 @@ export default async function ChangeLogPage({
       />
 
       {/* ✅ ALWAYS Kanban */}
-      <ChangeManagementBoard />
+<ChangeManagementBoard projectId={projectUuid} />
     </main>
   );
 }

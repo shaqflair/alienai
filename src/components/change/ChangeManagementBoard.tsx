@@ -166,13 +166,11 @@ function normalizePublicId(x: string) {
 
 /* ─────────────────────── Board Shell ─────────────────────── */
 
-export default function ChangeBoard() {
+export default function ChangeBoard({ projectId }: { projectId?: string }) {
   const params = useParams() as any;
   const searchParams = useSearchParams();
 
-  const routeProjectParam = safeStr(params?.id || params?.projectId).trim();
-  const artifactId = safeStr(params?.artifactId).trim() || null;
-
+  const routeProjectParam = safeStr(projectId || params?.id || params?.projectId).trim();
   // ✅ deep link support:
   // /projects/:id/change?cr=<uuid>
   // /projects/:id/change?publicId=cr-123
