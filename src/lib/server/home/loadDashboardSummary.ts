@@ -1,11 +1,11 @@
-ï»¿import "server-only";
+import "server-only";
 
 import { NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 import { loadPortfolioHealth } from "@/lib/server/portfolio/loadPortfolioHealth";
-import { loadScheduleIntelligence } from "@/lib/server/portfolio/loadScheduleIntelligence";
+import { loadMilestonesDue as loadScheduleIntelligence } from "@/lib/server/portfolio/loadMilestonesDue";
 import { loadRaidPanel } from "@/lib/server/portfolio/loadRaidPanel";
 import { loadFinancialPlanSummary } from "@/lib/server/portfolio/loadFinancialPlanSummary";
 import { loadRecentWins } from "@/lib/server/portfolio/loadRecentWins";
@@ -563,7 +563,7 @@ export function zeroScheduleIntelligence(days: 7 | 14 | 30 | 60): ScheduleIntell
       atRiskCount: 0,
     },
     insight: {
-      summary: "No active projects in scope â€” schedule visibility unavailable.",
+      summary: "No active projects in scope — schedule visibility unavailable.",
       tone: "neutral",
     },
     meta: {
@@ -738,13 +738,13 @@ function normalizeScheduleIntelligencePayload(
   let summary = safeStr(src?.insight?.summary).trim();
   if (!summary) {
     if (!hasAny) {
-      summary = "No milestones defined â€” schedule visibility limited.";
+      summary = "No milestones defined — schedule visibility limited.";
     } else if (overdueCount > 0) {
-      summary = `${overdueCount} milestone(s) overdue â€” schedule risk detected.`;
+      summary = `${overdueCount} milestone(s) overdue — schedule risk detected.`;
     } else if (dueSoon.length === 0 && nextMilestone) {
-      summary = `No milestones due in the next ${windowDays} days â€” next milestone scheduled ahead.`;
+      summary = `No milestones due in the next ${windowDays} days — next milestone scheduled ahead.`;
     } else if (dueSoon.length === 0) {
-      summary = `No milestones due in the next ${windowDays} days â€” schedule on track.`;
+      summary = `No milestones due in the next ${windowDays} days — schedule on track.`;
     } else {
       summary = `${dueSoon.length} milestone(s) due in the next ${windowDays} days.`;
     }
