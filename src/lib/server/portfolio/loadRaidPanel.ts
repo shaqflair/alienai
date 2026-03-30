@@ -5,6 +5,7 @@ import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export type PortfolioRaidFilters = {
+  projectId?: string[];
   projectName?: string[];
   projectCode?: string[];
   projectManagerId?: string[];
@@ -191,6 +192,7 @@ async function normalizeActiveIds(supabase: any, rawIds: string[]) {
 
 function hasAnyFilters(f: PortfolioRaidFilters) {
   return (
+    (f.projectId && f.projectId.length) ||
     (f.projectName && f.projectName.length) ||
     (f.projectCode && f.projectCode.length) ||
     (f.projectManagerId && f.projectManagerId.length) ||
@@ -199,6 +201,9 @@ function hasAnyFilters(f: PortfolioRaidFilters) {
 }
 
 export function parseRaidPanelFiltersFromUrl(url: URL): PortfolioRaidFilters {
+  const ids = uniqStrings(
+    url.searchParams.getAll("projectId").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
   const name = uniqStrings(
     url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()),
   );
@@ -213,6 +218,7 @@ export function parseRaidPanelFiltersFromUrl(url: URL): PortfolioRaidFilters {
   );
 
   const out: PortfolioRaidFilters = {};
+  if (ids.length) out.projectId = ids;
   if (name.length) out.projectName = name;
   if (code.length) out.projectCode = code;
   if (pm.length) out.projectManagerId = pm;
@@ -223,6 +229,8 @@ export function parseRaidPanelFiltersFromUrl(url: URL): PortfolioRaidFilters {
 export function parseRaidPanelFiltersFromBody(body: any): PortfolioRaidFilters {
   const f = body?.filters ?? body?.filter ?? body?.where ?? null;
   const out: PortfolioRaidFilters = {};
+
+  const ids = uniqStrings(f?.projectId ?? f?.projectIds ?? f?.id);
   const names = uniqStrings(
     f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name,
   );
@@ -236,6 +244,7 @@ export function parseRaidPanelFiltersFromBody(body: any): PortfolioRaidFilters {
     f?.department ?? f?.departments ?? f?.dept,
   );
 
+  if (ids.length) out.projectId = ids;
   if (names.length) out.projectName = names;
   if (codes.length) out.projectCode = codes;
   if (pms.length) out.projectManagerId = pms;
@@ -252,6 +261,24 @@ async function applyProjectFilters(
   if (!scopedProjectIds.length) return { projectIds: [], meta: { ...meta, applied: true } };
   if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
 
+  let workingIds = scopedProjectIds;
+
+  if (filters.projectId?.length) {
+    const wanted = new Set(filters.projectId.map((v) => safeStr(v).trim()).filter(Boolean));
+    workingIds = scopedProjectIds.filter((id) => wanted.has(String(id)));
+    meta.notes.push(`Applied explicit projectId scope (${workingIds.length}).`);
+    if (
+      !filters.projectName?.length &&
+      !filters.projectCode?.length &&
+      !filters.projectManagerId?.length &&
+      !filters.department?.length
+    ) {
+      meta.applied = true;
+      meta.counts = { before: scopedProjectIds.length, after: workingIds.length };
+      return { projectIds: workingIds, meta };
+    }
+  }
+
   const selectSets = [
     "id, title, project_code, project_manager_id, department",
     "id, title, project_code, project_manager_id",
@@ -266,7 +293,7 @@ async function applyProjectFilters(
     const { data, error } = await supabase
       .from("projects")
       .select(sel)
-      .in("id", scopedProjectIds)
+      .in("id", workingIds)
       .limit(10000);
 
     if (!error && Array.isArray(data)) {
@@ -280,9 +307,9 @@ async function applyProjectFilters(
 
   if (!rows.length) {
     meta.applied = true;
-    meta.notes.push("Could not read projects for filtering; falling back to unfiltered scope.");
+    meta.notes.push("Could not read projects for filtering; falling back to current scope.");
     if (lastErr?.message) meta.notes.push(lastErr.message);
-    return { projectIds: scopedProjectIds, meta };
+    return { projectIds: workingIds, meta };
   }
 
   const nameNeedles = (filters.projectName ?? []).map((s) => s.toLowerCase());
@@ -395,13 +422,22 @@ export async function loadRaidPanel(input: {
   const sharedScope = await resolvePortfolioScope(supabase, input.userId);
   const organisationId = sharedScope.organisationId ?? null;
   const scopeMeta = sharedScope.meta ?? {};
-  const scopedIdsRaw: string[] = Array.isArray(sharedScope.rawProjectIds)
+
+  const explicitProjectIds = uniqStrings(filters.projectId);
+  const scopedIdsFromScope: string[] = Array.isArray(sharedScope.rawProjectIds)
     ? sharedScope.rawProjectIds
     : Array.isArray(sharedScope.projectIds)
       ? sharedScope.projectIds
       : [];
 
-  const active = await normalizeActiveIds(supabase, scopedIdsRaw);
+  const scopedIdsRaw = explicitProjectIds.length
+    ? explicitProjectIds
+    : scopedIdsFromScope;
+
+  const active = explicitProjectIds.length
+    ? { ids: explicitProjectIds, ok: true, error: null as string | null }
+    : await normalizeActiveIds(supabase, scopedIdsRaw);
+
   const scopedIdsActive = active.ids;
   const active_filter_ok = active.ok;
   const active_filter_error = active.error;
@@ -423,6 +459,10 @@ export async function loadRaidPanel(input: {
           scopedIdsActive: scopedIdsActive.length,
           active_filter_ok,
           active_filter_error,
+          explicitProjectIds,
+          source: explicitProjectIds.length
+            ? "explicit-project-filter"
+            : (scopeMeta?.source ?? "unknown"),
         },
         filters: filtered.meta,
       },
@@ -486,6 +526,10 @@ export async function loadRaidPanel(input: {
           scopedIdsActive: scopedIdsActive.length,
           active_filter_ok,
           active_filter_error,
+          explicitProjectIds,
+          source: explicitProjectIds.length
+            ? "explicit-project-filter"
+            : (scopeMeta?.source ?? "unknown"),
         },
         filters: filtered.meta,
       },
@@ -536,6 +580,10 @@ export async function loadRaidPanel(input: {
         scopedIdsActive: scopedIdsActive.length,
         active_filter_ok,
         active_filter_error,
+        explicitProjectIds,
+        source: explicitProjectIds.length
+          ? "explicit-project-filter"
+          : (scopeMeta?.source ?? "unknown"),
       },
       filters: filtered.meta,
     },

@@ -366,8 +366,13 @@ export async function loadFinancialPlanSummary(input: {
         : [],
   );
 
-  const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
-  const scopedProjectIds = active.ids;
+const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
+
+// 🚨 FAIL-OPEN FIX (THIS IS WHAT SAVES YOUR DASHBOARD)
+const scopedProjectIds =
+  active.ids && active.ids.length > 0
+    ? active.ids
+    : scopedProjectIdsRaw;
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, filters);
   const projectIds = filtered.projectIds;
 
