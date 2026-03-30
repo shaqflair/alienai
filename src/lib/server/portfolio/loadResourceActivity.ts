@@ -240,14 +240,9 @@ async function normalizeActiveIds(supabase: any, rawIds: string[]) {
     error: reason,
   });
 
-  try {
-   // ✅ Resource activity intentionally includes pipeline projects —
-// pipeline capacity planning is a valid use case for this chart.
-return { ids: rawIds.filter(Boolean), ok: true, error: null as string | null };
-    };
-  } catch (e: any) {
-    return failOpen(safeStr(e?.message || e || "active filter failed"));
-  }
+ // ✅ Resource activity intentionally includes pipeline projects —
+  // pipeline capacity planning is a valid use case for this chart.
+  return { ids: rawIds.filter(Boolean), ok: true, error: null as string | null };
 }
 
 export async function loadResourceActivity(input: {
