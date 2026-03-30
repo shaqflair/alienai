@@ -2,6 +2,7 @@
 
 import { NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 import { loadPortfolioHealth } from "@/lib/server/portfolio/loadPortfolioHealth";
 import { loadMilestonesDue } from "@/lib/server/portfolio/loadMilestonesDue";
 import { loadRaidPanel } from "@/lib/server/portfolio/loadRaidPanel";
@@ -33,6 +34,14 @@ export type DashboardSummaryPayload = {
     activeProjectIds: string[];
     windowDays: 7 | 14 | 30 | 60;
     dueWindowDays: 7 | 14 | 30 | 60;
+    completeness?: "full" | "partial" | "empty";
+    mode?: string | null;
+    reason?: string | null;
+    rawProjectCount?: number;
+    visibleProjectCount?: number;
+    filteredVisibleProjectCount?: number;
+    filteredActiveProjectCount?: number;
+    usedFallback?: boolean;
   };
   activeProjects: Array<{
     id: string;
@@ -157,167 +166,223 @@ export function canonicalizeFilters(filters: PortfolioFilters): PortfolioFilters
   return out;
 }
 
-export function isTruthyFlag(v: unknown) {
-  return v === true || v === "true" || v === 1 || v === "1";
-}
-
-export function normalizeStatusParts(row: any): string[] {
-  return [row?.status, row?.lifecycle_state, row?.state, row?.phase]
-    .map((v) => safeStr(v).trim().toLowerCase())
-    .filter(Boolean);
-}
-
-export function isProjectActive(row: any): boolean {
-  if (!row) return false;
-
-  // Hard excludes only (true removals)
-  if (row?.deleted_at) return false;
-  if (isTruthyFlag(row?.is_deleted)) return false;
-
-  if (row?.archived_at) return false;
-  if (isTruthyFlag(row?.is_archived) || isTruthyFlag(row?.archived)) return false;
-
-  // Pipeline is not active delivery
-  if (safeStr(row?.resource_status).trim().toLowerCase() === "pipeline") return false;
-
-  // ✅ TRUST explicit flags FIRST
-  if (row?.is_active === true || row?.active === true) return true;
-  if (row?.is_active === false || row?.active === false) return false;
-
-  // ❗ DO NOT blindly trust closed_at / cancelled_at
-  // These are often stale in real data
-
-  // Soft classification based on status text
-  const statuses = normalizeStatusParts(row);
-
-  if (!statuses.length) return true;
-
-  const terminalStates = ["closed", "cancelled", "archived", "deleted"];
-
-  const isTerminal = statuses.some((s) =>
-    terminalStates.some((term) => s.includes(term))
-  );
-
-  // Only exclude if clearly terminal
-  return !isTerminal;
-}
-
-// ONLY showing the FIXED function (everything else remains same)
-
-export async function getScopedProjects(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  filters: PortfolioFilters,
-): Promise<any[]> {
-  try {
-    let query = supabase
-      .from("projects")
-      .select(`
-        id,
-        title,
-        client_name,
-        project_code,
-        status,
-        lifecycle_state,
-        state,
-        phase,
-        is_active,
-        active,
-        deleted_at,
-        is_deleted,
-        is_archived,
-        archived,
-        archived_at,
-        cancelled_at,
-        closed_at,
-        department,
-        project_manager,
-        project_manager_id,
-        pm_name,
-        pm_user_id,
-        resource_status
-      `)
-      .is("deleted_at", null)
-
-      // ✅ FIXED: include NULLs + exclude only pipeline
-      .or("resource_status.is.null,resource_status.neq.pipeline")
-
-      .limit(2000);
-
-    if (filters.projectId?.length) {
-      query = query.in("id", filters.projectId);
-    }
-
-    if (filters.projectCode?.length) {
-      query = query.in("project_code", filters.projectCode);
-    }
-
-    const { data, error } = await query;
-
-    if (error || !data?.length) return [];
-
-    let rows = (data as any[]).filter(Boolean);
-
-    if (filters.projectName?.length) {
-      const needles = filters.projectName
-        .map((v) => safeStr(v).trim().toLowerCase())
-        .filter(Boolean);
-
-      rows = rows.filter((r) => {
-        const title = safeStr(r?.title).trim().toLowerCase();
-        return needles.some((n) => title.includes(n));
-      });
-    }
-
-    if (filters.projectManagerId?.length) {
-      const pmSet = new Set(
-        filters.projectManagerId.map((v) => safeStr(v).trim()).filter(Boolean),
-      );
-
-      rows = rows.filter((r) => {
-        const ids = [
-          safeStr(r?.project_manager_id).trim(),
-          safeStr(r?.pm_user_id).trim(),
-          safeStr(r?.project_manager).trim(),
-          safeStr(r?.pm_name).trim(),
-        ].filter(Boolean);
-
-        return ids.some((v) => pmSet.has(v));
-      });
-    }
-
-    if (filters.department?.length) {
-      const deptNeedles = filters.department
-        .map((v) => safeStr(v).trim().toLowerCase())
-        .filter(Boolean);
-
-      rows = rows.filter((r) => {
-        const dept = safeStr(r?.department).trim().toLowerCase();
-        return deptNeedles.some((d) => dept.includes(d));
-      });
-    }
-
-    if (filters.q?.trim()) {
-      const q = filters.q.trim().toLowerCase();
-
-      rows = rows.filter((r) => {
-        const hay = [
-          safeStr(r?.title),
-          safeStr(r?.project_code),
-          safeStr(r?.department),
-          safeStr(r?.project_manager),
-          safeStr(r?.pm_name),
-        ]
-          .join(" ")
-          .toLowerCase();
-
-        return hay.includes(q);
-      });
-    }
-
-    return rows;
-  } catch {
-    return [];
+function projectCodeLabel(pc: any): string {
+  if (typeof pc === "string") return pc.trim();
+  if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
+  if (pc && typeof pc === "object") {
+    const v =
+      safeStr(pc.project_code) ||
+      safeStr(pc.code) ||
+      safeStr(pc.value) ||
+      safeStr(pc.id);
+    return v.trim();
   }
+  return "";
+}
+
+function looksMissingRelation(err: any) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return (
+    msg.includes("does not exist") ||
+    msg.includes("relation") ||
+    msg.includes("42p01")
+  );
+}
+
+function looksMissingColumn(err: any) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return msg.includes("column") && msg.includes("does not exist");
+}
+
+async function getProjectsByIds(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectIds: string[],
+): Promise<any[]> {
+  if (!projectIds.length) return [];
+
+  const selectSets = [
+    `
+      id,
+      title,
+      client_name,
+      project_code,
+      status,
+      lifecycle_state,
+      state,
+      phase,
+      department,
+      project_manager,
+      project_manager_id,
+      pm_name,
+      pm_user_id,
+      resource_status
+    `,
+    `
+      id,
+      title,
+      client_name,
+      project_code,
+      status,
+      lifecycle_state,
+      state,
+      phase,
+      department,
+      project_manager,
+      project_manager_id,
+      resource_status
+    `,
+    `
+      id,
+      title,
+      project_code,
+      status,
+      lifecycle_state,
+      state,
+      phase,
+      department,
+      project_manager,
+      project_manager_id,
+      resource_status
+    `,
+  ];
+
+  for (const sel of selectSets) {
+    const { data, error } = await supabase
+      .from("projects")
+      .select(sel)
+      .in("id", projectIds)
+      .limit(5000);
+
+    if (!error && Array.isArray(data)) return data;
+    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
+  }
+
+  return [];
+}
+
+async function applyDashboardFilters(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  scopedProjectIds: string[],
+  filters: PortfolioFilters,
+) {
+  const meta: any = { applied: false, filters, notes: [] as string[] };
+
+  if (!scopedProjectIds.length) {
+    return { projectIds: [], projectRows: [], meta: { ...meta, applied: true } };
+  }
+
+  const hasFilters =
+    Boolean(filters.q?.trim()) ||
+    Boolean(filters.projectId?.length) ||
+    Boolean(filters.projectName?.length) ||
+    Boolean(filters.projectCode?.length) ||
+    Boolean(filters.projectManagerId?.length) ||
+    Boolean(filters.department?.length);
+
+  if (!hasFilters) {
+    const rows = await getProjectsByIds(supabase, scopedProjectIds);
+    return { projectIds: scopedProjectIds, projectRows: rows, meta };
+  }
+
+  let workingIds = scopedProjectIds;
+
+  if (filters.projectId?.length) {
+    const wanted = new Set(filters.projectId.map((v) => safeStr(v).trim()).filter(Boolean));
+    workingIds = scopedProjectIds.filter((id) => wanted.has(String(id)));
+    meta.notes.push(`Applied explicit projectId scope (${workingIds.length}).`);
+  }
+
+  const rows = await getProjectsByIds(supabase, workingIds);
+
+  if (!rows.length) {
+    meta.applied = true;
+    meta.notes.push("Could not read projects for filtering; falling back to current scope.");
+    return { projectIds: workingIds, projectRows: [], meta };
+  }
+
+  let filtered = rows;
+
+  if (filters.projectName?.length) {
+    const needles = filters.projectName
+      .map((v) => safeStr(v).trim().toLowerCase())
+      .filter(Boolean);
+
+    filtered = filtered.filter((r) => {
+      const title = safeStr(r?.title).trim().toLowerCase();
+      return needles.some((n) => title.includes(n));
+    });
+  }
+
+  if (filters.projectCode?.length) {
+    const needles = filters.projectCode
+      .map((v) => safeStr(v).trim().toLowerCase())
+      .filter(Boolean);
+
+    filtered = filtered.filter((r) => {
+      const code = projectCodeLabel(r?.project_code).toLowerCase();
+      return needles.some((n) => code.includes(n));
+    });
+  }
+
+  if (filters.projectManagerId?.length) {
+    const pmSet = new Set(
+      filters.projectManagerId.map((v) => safeStr(v).trim()).filter(Boolean),
+    );
+
+    filtered = filtered.filter((r) => {
+      const ids = [
+        safeStr(r?.project_manager_id).trim(),
+        safeStr(r?.pm_user_id).trim(),
+        safeStr(r?.project_manager).trim(),
+        safeStr(r?.pm_name).trim(),
+      ].filter(Boolean);
+
+      return ids.some((v) => pmSet.has(v));
+    });
+  }
+
+  if (filters.department?.length) {
+    const deptNeedles = filters.department
+      .map((v) => safeStr(v).trim().toLowerCase())
+      .filter(Boolean);
+
+    filtered = filtered.filter((r) => {
+      const dept = safeStr(r?.department).trim().toLowerCase();
+      return deptNeedles.some((d) => dept.includes(d));
+    });
+  }
+
+  if (filters.q?.trim()) {
+    const q = filters.q.trim().toLowerCase();
+
+    filtered = filtered.filter((r) => {
+      const hay = [
+        safeStr(r?.title),
+        safeStr(r?.project_code),
+        safeStr(r?.department),
+        safeStr(r?.project_manager),
+        safeStr(r?.pm_name),
+        safeStr(r?.client_name),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return hay.includes(q);
+    });
+  }
+
+  const outIds = filtered
+    .map((r) => safeStr(r?.id).trim())
+    .filter(Boolean);
+
+  meta.applied = true;
+  meta.counts = { before: scopedProjectIds.length, after: outIds.length };
+
+  return {
+    projectIds: outIds,
+    projectRows: filtered,
+    meta,
+  };
 }
 
 export function normalizeAiBriefingPayload(input: any) {
@@ -336,31 +401,40 @@ export function normalizeAiBriefingPayload(input: any) {
 export function zeroPortfolioHealth(days: 7 | 14 | 30 | 60) {
   return {
     ok: true,
-    score: 0,
+    score: null,
     portfolio_health: 0,
     days,
     windowDays: days,
     projectCount: 0,
     parts: {
-      schedule: 0,
-      raid: 0,
-      budget: 0,
-      governance: 0,
-      flow: 0,
-      approvals: 0,
-      activity: 0,
+      schedule: null,
+      raid: null,
+      budget: null,
+      governance: null,
+      flow: null,
+      approvals: null,
+      activity: null,
     },
     projectScores: {},
     drivers: [],
-    meta: { emptyScope: true },
+    meta: {
+      emptyScope: true,
+      completeness: "empty",
+      reason: "NO_ACTIVE_PROJECTS",
+    },
   };
 }
 
-export function zeroMilestonesDue() {
+export function zeroMilestonesDue(days: 7 | 14 | 30 | 60) {
   return {
     ok: true,
+    days,
     count: 0,
-    items: [],
+    meta: {
+      projectCount: 0,
+      completeness: "empty",
+      reason: "NO_ACTIVE_PROJECTS",
+    },
   };
 }
 
@@ -375,8 +449,20 @@ export function zeroRaidPanel(days: 7 | 14 | 30 | 60) {
       issue_due: 0,
       dependency_due: 0,
       assumption_due: 0,
+      risk_overdue: 0,
+      issue_overdue: 0,
+      dependency_overdue: 0,
+      assumption_overdue: 0,
       risk_hi: 0,
       issue_hi: 0,
+      dependency_hi: 0,
+      assumption_hi: 0,
+      overdue_hi: 0,
+    },
+    meta: {
+      projectCount: 0,
+      completeness: "empty",
+      reason: "NO_ACTIVE_PROJECTS",
     },
   };
 }
@@ -384,19 +470,30 @@ export function zeroRaidPanel(days: 7 | 14 | 30 | 60) {
 export function zeroFinancialPlanSummary() {
   return {
     ok: true,
-    total_approved_budget: 0,
-    total_spent: 0,
-    variance_pct: 0,
-    pending_exposure_pct: 0,
-    rag: "G",
+    total_approved_budget: null,
+    total_spent: null,
+    variance_pct: null,
+    pending_exposure_pct: null,
+    rag: "A",
     currency: "GBP",
     project_count: 0,
     portfolio: {
       totalBudget: 0,
       totalActual: 0,
-      variance_pct: 0,
-      rag: "G",
+      totalForecast: 0,
+      totalVariance: 0,
+      projectCount: 0,
+      withPlanCount: 0,
+      variancePct: null,
+      rag: "A",
+      meta: {
+        totalApprovedBudget: 0,
+        totalEffectiveBudget: 0,
+        completeness: "empty",
+        reason: "NO_ACTIVE_PROJECTS",
+      },
     },
+    projects: [],
   };
 }
 
@@ -449,23 +546,90 @@ export async function loadDashboardSummaryData(
   const dueDays = normalizeDays(input?.dueWindowDays ?? input?.dueDays);
   const filters = canonicalizeFilters(normalizeFilters(input?.filters));
 
-  const scopedProjects = await getScopedProjects(supabase, filters);
-  const activeScopedProjects = scopedProjects;
+  const scope = await resolvePortfolioScope(supabase, input.userId);
+  const scopeMeta = scope.meta ?? {};
 
-  const scopedProjectIds = scopedProjects.map((p) => String(p.id)).filter(Boolean);
-  const activeProjectIds = activeScopedProjects.map((p) => String(p.id)).filter(Boolean);
+  const rawProjectIds = uniqStrings(Array.isArray(scope.rawProjectIds) ? scope.rawProjectIds : []);
+  const visibleProjectIdsFromScope = uniqStrings(
+    Array.isArray(scope.projectIds) ? scope.projectIds : [],
+  );
+  const activeProjectIdsFromScope = uniqStrings(
+    Array.isArray(scope.activeProjectIds) ? scope.activeProjectIds : [],
+  );
 
-  const confirmedFilters: PortfolioFilters = {
-    ...filters,
-    projectId: activeProjectIds,
-  };
+  const filtered = await applyDashboardFilters(supabase, visibleProjectIdsFromScope, filters);
+  const filteredVisibleProjectIds = uniqStrings(filtered.projectIds);
 
-  const scopedFilters: PortfolioFilters = {
-    projectId: activeProjectIds,
-    projectName: confirmedFilters.projectName,
-    projectCode: confirmedFilters.projectCode,
-    projectManagerId: confirmedFilters.projectManagerId,
-    department: confirmedFilters.department,
+  const activeAllowed = new Set(activeProjectIdsFromScope);
+  const filteredActiveProjectIds = filteredVisibleProjectIds.filter((id) =>
+    activeAllowed.has(id),
+  );
+
+  const completeness: "full" | "partial" | "empty" =
+    filteredVisibleProjectIds.length === 0
+      ? "empty"
+      : filteredActiveProjectIds.length === filteredVisibleProjectIds.length
+        ? "full"
+        : "partial";
+
+  const activeProjectRowMap = new Map(
+    (Array.isArray(filtered.projectRows) ? filtered.projectRows : []).map((r: any) => [
+      safeStr(r?.id).trim(),
+      r,
+    ]),
+  );
+
+  let activeProjects = filteredActiveProjectIds
+    .map((id) => activeProjectRowMap.get(id))
+    .filter(Boolean)
+    .map((p: any) => ({
+      id: String(p.id),
+      title: safeStr(p.title).trim() || "Project",
+      client_name: safeStr(p.client_name).trim() || null,
+      project_code: p.project_code ?? null,
+      status: safeStr(p.status).trim() || null,
+      lifecycle_state: safeStr(p.lifecycle_state).trim() || null,
+      state: safeStr(p.state).trim() || null,
+      phase: safeStr(p.phase).trim() || null,
+      department: safeStr(p.department).trim() || null,
+      project_manager: safeStr(p.project_manager || p.pm_name).trim() || null,
+      project_manager_id: safeStr(p.project_manager_id || p.pm_user_id).trim() || null,
+      resource_status: safeStr(p.resource_status).trim() || null,
+    }));
+
+  if (!activeProjects.length && filteredActiveProjectIds.length) {
+    const fallbackRows = await getProjectsByIds(supabase, filteredActiveProjectIds);
+    activeProjects = fallbackRows
+      .map((p: any) => ({
+        id: String(p.id),
+        title: safeStr(p.title).trim() || "Project",
+        client_name: safeStr(p.client_name).trim() || null,
+        project_code: p.project_code ?? null,
+        status: safeStr(p.status).trim() || null,
+        lifecycle_state: safeStr(p.lifecycle_state).trim() || null,
+        state: safeStr(p.state).trim() || null,
+        phase: safeStr(p.phase).trim() || null,
+        department: safeStr(p.department).trim() || null,
+        project_manager: safeStr(p.project_manager || p.pm_name).trim() || null,
+        project_manager_id: safeStr(p.project_manager_id || p.pm_user_id).trim() || null,
+        resource_status: safeStr(p.resource_status).trim() || null,
+      }));
+  }
+
+  activeProjects.sort((a, b) => {
+    const ac = safeStr(a.project_code).trim();
+    const bc = safeStr(b.project_code).trim();
+    if (ac && bc && ac !== bc) return ac.localeCompare(bc);
+    return a.title.localeCompare(b.title);
+  });
+
+  const moduleFilters: PortfolioFilters = {
+    q: filters.q,
+    projectId: filteredVisibleProjectIds,
+    projectName: filters.projectName,
+    projectCode: filters.projectCode,
+    projectManagerId: filters.projectManagerId,
+    department: filters.department,
   };
 
   let portfolioHealth: any = null;
@@ -477,12 +641,17 @@ export async function loadDashboardSummaryData(
   let aiBriefingRaw: any = null;
   let dueDigest: any = null;
 
-  if (activeProjectIds.length === 0) {
+  if (filteredVisibleProjectIds.length === 0) {
+    portfolioHealth = zeroPortfolioHealth(days);
+    milestonesDue = zeroMilestonesDue(days);
+    raidPanel = zeroRaidPanel(days);
+    financialPlanSummary = zeroFinancialPlanSummary();
+    recentWins = zeroRecentWins();
     resourceActivity = await loadResourceActivity({
       userId: input.userId,
       days,
       filters: {
-        projectId: scopedProjectIds,
+        projectId: [],
         projectName: filters.projectName,
         projectCode: filters.projectCode,
         projectManagerId: filters.projectManagerId,
@@ -490,12 +659,6 @@ export async function loadDashboardSummaryData(
       },
       supabase,
     });
-
-    portfolioHealth = zeroPortfolioHealth(days);
-    milestonesDue = zeroMilestonesDue();
-    raidPanel = zeroRaidPanel(days);
-    financialPlanSummary = zeroFinancialPlanSummary();
-    recentWins = zeroRecentWins();
     aiBriefingRaw = {
       ok: true,
       insights: [],
@@ -517,24 +680,24 @@ export async function loadDashboardSummaryData(
       loadPortfolioHealth({
         userId: input.userId,
         days,
-        filters: scopedFilters,
+        filters: moduleFilters,
         supabase,
       }),
       loadMilestonesDue({
         userId: input.userId,
         days,
-        filters: scopedFilters,
+        filters: moduleFilters,
         supabase,
       }),
       loadRaidPanel({
         userId: input.userId,
         days,
-        filters: scopedFilters,
+        filters: moduleFilters,
         supabase,
       }),
       loadFinancialPlanSummary({
         userId: input.userId,
-        filters: scopedFilters,
+        filters: moduleFilters,
         supabase,
       }),
       loadRecentWins(_req, {
@@ -546,7 +709,7 @@ export async function loadDashboardSummaryData(
       loadResourceActivity({
         userId: input.userId,
         days,
-        filters: scopedFilters,
+        filters: moduleFilters,
         supabase,
       }),
       loadAiBriefing({
@@ -554,10 +717,10 @@ export async function loadDashboardSummaryData(
         days,
         filters: {
           q: filters.q,
-          projectId: scopedFilters.projectId,
-          projectCode: scopedFilters.projectCode,
-          pm: scopedFilters.projectManagerId,
-          dept: scopedFilters.department,
+          projectId: filteredVisibleProjectIds,
+          projectCode: filters.projectCode,
+          pm: filters.projectManagerId,
+          dept: filters.department,
         },
         supabase,
       }),
@@ -574,28 +737,6 @@ export async function loadDashboardSummaryData(
   const executiveBriefing =
     aiBriefing?.executive_briefing ?? aiBriefing?.briefing ?? null;
 
-  const activeProjects = activeScopedProjects
-    .map((p) => ({
-      id: String(p.id),
-      title: safeStr(p.title).trim() || "Project",
-      client_name: safeStr(p.client_name).trim() || null,
-      project_code: p.project_code ?? null,
-      status: safeStr(p.status).trim() || null,
-      lifecycle_state: safeStr(p.lifecycle_state).trim() || null,
-      state: safeStr(p.state).trim() || null,
-      phase: safeStr(p.phase).trim() || null,
-      department: safeStr(p.department).trim() || null,
-      project_manager: safeStr(p.project_manager || p.pm_name).trim() || null,
-      project_manager_id: safeStr(p.project_manager_id || p.pm_user_id).trim() || null,
-      resource_status: safeStr(p.resource_status).trim() || null,
-    }))
-    .sort((a, b) => {
-      const ac = safeStr(a.project_code).trim();
-      const bc = safeStr(b.project_code).trim();
-      if (ac && bc && ac !== bc) return ac.localeCompare(bc);
-      return a.title.localeCompare(b.title);
-    });
-
   const portfolioScore =
     portfolioHealth && typeof portfolioHealth === "object"
       ? Number((portfolioHealth as any).score ?? (portfolioHealth as any).portfolio_health ?? 0)
@@ -610,11 +751,11 @@ export async function loadDashboardSummaryData(
     Number((raidPanel as any)?.panel?.due_total ?? (raidPanel as any)?.due_total ?? 0);
 
   if (
-    activeProjectIds.length === 0 &&
+    filteredActiveProjectIds.length === 0 &&
     (portfolioScore > 0 || milestoneCount > 0 || raidDueCount > 0)
   ) {
     console.warn("[dashboard-summary] inconsistent payload", {
-      activeProjectCount: activeProjectIds.length,
+      activeProjectCount: filteredActiveProjectIds.length,
       portfolioScore,
       milestoneCount,
       raidDueCount,
@@ -630,13 +771,22 @@ export async function loadDashboardSummaryData(
     generated_at: new Date().toISOString(),
 
     scope: {
-      scopedProjectCount: scopedProjectIds.length,
-      activeProjectCount: activeProjectIds.length,
-      scopedProjectIds,
-      activeProjectIds,
+      scopedProjectCount: filteredVisibleProjectIds.length,
+      activeProjectCount: filteredActiveProjectIds.length,
+      scopedProjectIds: filteredVisibleProjectIds,
+      activeProjectIds: filteredActiveProjectIds,
       windowDays: days,
       dueWindowDays: dueDays,
+      completeness,
+      mode: safeStr(scopeMeta?.mode) || null,
+      reason: safeStr(scopeMeta?.reason) || null,
+      rawProjectCount: rawProjectIds.length,
+      visibleProjectCount: visibleProjectIdsFromScope.length,
+      filteredVisibleProjectCount: filteredVisibleProjectIds.length,
+      filteredActiveProjectCount: filteredActiveProjectIds.length,
+      usedFallback: Boolean(scopeMeta?.usedFallback),
     },
+
     activeProjects,
 
     portfolioHealth: portfolioHealth ?? null,
