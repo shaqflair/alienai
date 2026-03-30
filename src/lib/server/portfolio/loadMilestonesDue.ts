@@ -1,7 +1,6 @@
 ﻿import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
-import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export type PortfolioMilestonesFilters = {
@@ -80,39 +79,6 @@ function looksMissingColumn(err: any) {
 function num(x: any, fallback = 0) {
   const n = Number(x);
   return Number.isFinite(n) ? n : fallback;
-}
-
-async function normalizeActiveIds(supabase: any, rawIds: string[]) {
-  const failOpen = (reason: string) => ({
-    ids: rawIds,
-    ok: false,
-    error: reason,
-  });
-
-  try {
-    const r: any = await filterActiveProjectIds(supabase, rawIds);
-
-    if (Array.isArray(r)) {
-      const ids = r.filter(Boolean);
-      if (!ids.length && rawIds.length) {
-        return failOpen("active filter returned 0 ids; failing open");
-      }
-      return { ids, ok: true, error: null as string | null };
-    }
-
-    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
-    if (!ids.length && rawIds.length) {
-      return failOpen("active filter returned 0 ids; failing open");
-    }
-
-    return {
-      ids,
-      ok: !r?.error,
-      error: r?.error ? safeStr(r.error?.message || r.error) : null,
-    };
-  } catch (e: any) {
-    return failOpen(safeStr(e?.message || e || "active filter failed"));
-  }
 }
 
 function hasAnyFilters(f: PortfolioMilestonesFilters) {
@@ -268,7 +234,11 @@ async function applyProjectFilters(
   return { projectIds: outIds, meta };
 }
 
-async function computeCount(supabase: any, projectIds: string[], days: 7 | 14 | 30 | 60) {
+async function computeCount(
+  supabase: any,
+  projectIds: string[],
+  days: 7 | 14 | 30 | 60,
+) {
   const { data, error } = await supabase.rpc("get_schedule_milestones_kpis_portfolio", {
     p_project_ids: projectIds,
     p_window_days: days,
@@ -303,28 +273,39 @@ export async function loadMilestonesDue(input: {
   const organisationId = scope.organisationId ?? null;
 
   const explicitProjectIds = uniqStrings(filters.projectId);
-  const scopedProjectIdsFromScope = uniqStrings(
-    Array.isArray(scope.rawProjectIds)
-      ? scope.rawProjectIds
-      : Array.isArray(scope.projectIds)
-        ? scope.projectIds
-        : [],
+
+  const rawProjectIds = uniqStrings(
+    Array.isArray(scope.rawProjectIds) ? scope.rawProjectIds : [],
   );
 
-  const scopedProjectIdsRaw = explicitProjectIds.length
+  const visibleProjectIdsFromScope = explicitProjectIds.length
     ? explicitProjectIds
-    : scopedProjectIdsFromScope;
+    : uniqStrings(Array.isArray(scope.projectIds) ? scope.projectIds : []);
 
-  const active = explicitProjectIds.length
-    ? { ids: explicitProjectIds, ok: true, error: null as string | null }
-    : await normalizeActiveIds(supabase, scopedProjectIdsRaw);
+  const activeProjectIdsFromScope = explicitProjectIds.length
+    ? explicitProjectIds
+    : uniqStrings(Array.isArray(scope.activeProjectIds) ? scope.activeProjectIds : []);
 
-  const scopedProjectIds = active.ids;
+  const filteredVisible = await applyProjectFilters(
+    supabase,
+    visibleProjectIdsFromScope,
+    filters,
+  );
+  const filteredVisibleProjectIds = uniqStrings(filteredVisible.projectIds);
 
-  const filtered = await applyProjectFilters(supabase, scopedProjectIds, filters);
-  const projectIds = filtered.projectIds;
+  const activeAllowed = new Set(activeProjectIdsFromScope);
+  const filteredActiveProjectIds = filteredVisibleProjectIds.filter((id) =>
+    activeAllowed.has(id),
+  );
 
-  if (!projectIds.length) {
+  const completeness: "full" | "partial" | "empty" =
+    filteredVisibleProjectIds.length === 0
+      ? "empty"
+      : filteredActiveProjectIds.length === filteredVisibleProjectIds.length
+        ? "full"
+        : "partial";
+
+  if (!filteredVisibleProjectIds.length) {
     return {
       ok: true,
       days,
@@ -333,21 +314,56 @@ export async function loadMilestonesDue(input: {
         organisationId,
         scope: {
           ...scopeMeta,
-          scopedIdsRaw: scopedProjectIdsRaw.length,
-          scopedIdsActive: scopedProjectIds.length,
-          active_filter_ok: active.ok,
-          active_filter_error: active.error,
+          rawProjectCount: rawProjectIds.length,
+          visibleProjectCount: visibleProjectIdsFromScope.length,
+          activeProjectCount: activeProjectIdsFromScope.length,
+          filteredVisibleProjectCount: 0,
+          filteredActiveProjectCount: 0,
           explicitProjectIds,
           source: explicitProjectIds.length
             ? "explicit-project-filter"
             : (scopeMeta?.source ?? "unknown"),
+          completeness,
         },
-        filters: filtered.meta,
+        filters: filteredVisible.meta,
+        projectCount: 0,
       },
     };
   }
 
-  const r = await computeCount(supabase, projectIds, days);
+  if (!filteredActiveProjectIds.length) {
+    return {
+      ok: true,
+      days,
+      count: 0,
+      meta: {
+        organisationId,
+        scope: {
+          ...scopeMeta,
+          rawProjectCount: rawProjectIds.length,
+          visibleProjectCount: visibleProjectIdsFromScope.length,
+          activeProjectCount: activeProjectIdsFromScope.length,
+          filteredVisibleProjectCount: filteredVisibleProjectIds.length,
+          filteredActiveProjectCount: 0,
+          explicitProjectIds,
+          source: explicitProjectIds.length
+            ? "explicit-project-filter"
+            : (scopeMeta?.source ?? "unknown"),
+          completeness,
+        },
+        filters: {
+          ...filteredVisible.meta,
+          notes: [
+            ...((filteredVisible.meta?.notes as string[]) ?? []),
+            "Projects are visible in scope, but none qualify for active milestone counting.",
+          ],
+        },
+        projectCount: filteredVisibleProjectIds.length,
+      },
+    };
+  }
+
+  const r = await computeCount(supabase, filteredActiveProjectIds, days);
   if (!r.ok) {
     throw new Error(r.error?.message || "RPC failed");
   }
@@ -360,17 +376,19 @@ export async function loadMilestonesDue(input: {
       organisationId,
       scope: {
         ...scopeMeta,
-        scopedIdsRaw: scopedProjectIdsRaw.length,
-        scopedIdsActive: scopedProjectIds.length,
-        active_filter_ok: active.ok,
-        active_filter_error: active.error,
+        rawProjectCount: rawProjectIds.length,
+        visibleProjectCount: visibleProjectIdsFromScope.length,
+        activeProjectCount: activeProjectIdsFromScope.length,
+        filteredVisibleProjectCount: filteredVisibleProjectIds.length,
+        filteredActiveProjectCount: filteredActiveProjectIds.length,
         explicitProjectIds,
         source: explicitProjectIds.length
           ? "explicit-project-filter"
           : (scopeMeta?.source ?? "unknown"),
+        completeness,
       },
-      filters: filtered.meta,
-      projectCount: projectIds.length,
+      filters: filteredVisible.meta,
+      projectCount: filteredActiveProjectIds.length,
     },
   };
 }
