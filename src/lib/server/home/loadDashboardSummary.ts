@@ -170,23 +170,36 @@ export function normalizeStatusParts(row: any): string[] {
 export function isProjectActive(row: any): boolean {
   if (!row) return false;
 
-  if (safeStr(row?.resource_status).trim().toLowerCase() === "pipeline") return false;
+  // Hard excludes only (true removals)
   if (row?.deleted_at) return false;
   if (isTruthyFlag(row?.is_deleted)) return false;
+
   if (row?.archived_at) return false;
   if (isTruthyFlag(row?.is_archived) || isTruthyFlag(row?.archived)) return false;
-  if (row?.closed_at) return false;
-  if (row?.cancelled_at) return false;
 
+  // Pipeline is not active delivery
+  if (safeStr(row?.resource_status).trim().toLowerCase() === "pipeline") return false;
+
+  // ✅ TRUST explicit flags FIRST
   if (row?.is_active === true || row?.active === true) return true;
   if (row?.is_active === false || row?.active === false) return false;
 
+  // ❗ DO NOT blindly trust closed_at / cancelled_at
+  // These are often stale in real data
+
+  // Soft classification based on status text
   const statuses = normalizeStatusParts(row);
+
   if (!statuses.length) return true;
 
-  const blockedTerms = ["closed", "cancelled", "archived", "deleted"];
+  const terminalStates = ["closed", "cancelled", "archived", "deleted"];
 
-  return !statuses.some((s) => blockedTerms.some((term) => s.includes(term)));
+  const isTerminal = statuses.some((s) =>
+    terminalStates.some((term) => s.includes(term))
+  );
+
+  // Only exclude if clearly terminal
+  return !isTerminal;
 }
 
 export async function getScopedProjects(
