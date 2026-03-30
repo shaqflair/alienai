@@ -698,7 +698,7 @@ export default function ChangeBoardDnd({
     if (!projectUuid) return;
     setLoading(true); setErr("");
     try {
-      const j = await apiJson(`/api/change?projectId=${encodeURIComponent(projectUuid)}&shape=lanes`, { cache: "no-store" });
+      const j = await apiJson(`/api/change/${encodeURIComponent(projectUuid)}?shape=lanes`, { cache: "no-store" });
       const lanes = (j as any)?.lanes as LanesResponse | undefined;
       const list = Array.isArray((j as any)?.items) ? ((j as any).items as ChangeItem[]) : [];
       const flattened = lanes && typeof lanes === "object"
