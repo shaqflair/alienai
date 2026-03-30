@@ -1,12 +1,10 @@
 ﻿// src/app/api/ai/events/route.ts — REBUILT v7 + AI health logging
-// ✅ Uses shared resolvePortfolioScope(supabase, userId)
-// ✅ Active-only filtering via filterActiveProjectIds
-// ✅ Fail-open only within scoped candidates
+// ✅ Write-focused AI/events endpoint
 // ✅ All responses remain no-store
 // ✅ Project-detail branches remain org-member/project-access controlled
 // ✅ project_events insert + trigger-engine wiring for governance suggestion generation
-// ✅ NEW: AI health logging (success / failure / slow / empty / invalid_json)
-// ✅ Due digest read-path extracted to shared server loader
+// ✅ AI health logging (success / failure / slow / empty / invalid_json)
+// ✅ artifact_due removed from this endpoint; use shared server loaders for due digest reads
 
 import "server-only";
 
@@ -15,11 +13,6 @@ import { createClient } from "@/utils/supabase/server";
 import { buildPmImpactAssessment, safeNum as safeNumAi } from "@/lib/ai/change-ai";
 import { processEventAndGenerateSuggestions } from "@/lib/ai/trigger-engine";
 import { logAiHealthEvent } from "@/lib/ai/health-logger";
-import {
-  loadPortfolioDueDigest,
-  loadProjectDueDigest,
-  parseWindowDays,
-} from "@/lib/server/ai/loadDueDigest";
 import OpenAI from "openai";
 
 export const runtime = "nodejs";
@@ -157,6 +150,11 @@ function startOfUtcDay(d: Date) {
 }
 function endOfUtcWindow(from: Date, windowDays: number) {
   return new Date(from.getTime() + windowDays * 24 * 60 * 60 * 1000);
+}
+function parseWindowDays(raw: any, fallback: number): number {
+  const s = safeStr(raw).trim().toLowerCase();
+  if (s === "all") return 60;
+  return clampInt(raw, 1, 90, fallback);
 }
 function parseDueToUtcDate(value: any): Date | null {
   if (!value) return null;
@@ -753,92 +751,18 @@ Generate the weekly report fields. Where data is insufficient, write realistic P
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   GET — canonical /api/ai/events?windowDays=14
+   GET
 ══════════════════════════════════════════════════════════════════════════ */
 
-export async function GET(req: Request) {
-  const startedAt = Date.now();
-
-  try {
-    const supabase = await createClient();
-    const user = await requireAuth(supabase);
-    const url = new URL(req.url);
-    const windowDays = parseWindowDays(url.searchParams.get("windowDays"), 14);
-
-    const result = await loadPortfolioDueDigest({
-      supabase,
-      userId: user.id,
-      windowDays,
-    });
-
-    const latencyMs = Date.now() - startedAt;
-
-    await safeLogRouteHealth({
-      eventType: "success",
-      severity: "info",
-      routeEventType: "artifact_due",
-      model: result.model,
-      latencyMs,
-      success: true,
-      metadata: {
-        scope: result.scope,
-        windowDays,
-        projects: result.stats.projects,
-        dueSoonCount: Array.isArray(result.ai.dueSoon) ? result.ai.dueSoon.length : 0,
-        counts: result.ai.counts,
-      },
-    });
-
-    await maybeLogSlowRouteHealth({
-      routeEventType: "artifact_due",
-      model: result.model,
-      latencyMs,
-      metadata: {
-        scope: result.scope,
-        projects: result.stats.projects,
-      },
-    });
-
-    return jsonNoStore({
-      ok: true,
-      eventType: "artifact_due",
-      scope: result.scope,
-      model: result.model,
-      windowDays: result.windowDays,
-      dueSoon: result.dueSoon,
-      counts: result.counts,
-      ai: result.ai,
-      stats: result.stats,
-    });
-  } catch (e: any) {
-    const latencyMs = Date.now() - startedAt;
-
-    await safeLogRouteHealth({
-      eventType: "failure",
-      severity: isAuthError(e) ? "warning" : "critical",
-      routeEventType: "artifact_due",
-      model: "artifact-due-rules-v7-org-scope",
-      latencyMs,
-      success: false,
-      errorMessage: e?.message ?? "Unknown error",
-      metadata: {
-        method: "GET",
-        code: e?.code ?? null,
-      },
-    });
-
-    if (isAuthError(e)) {
-      return jsonNoStore({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
-    return jsonNoStore(
-      {
-        ok: false,
-        error: e?.message ?? "Unknown error",
-        meta: { code: e?.code ?? null, details: e?.details ?? null, hint: e?.hint ?? null },
-      },
-      { status: 500 }
-    );
-  }
+export async function GET(_req: Request) {
+  return jsonNoStore(
+    {
+      ok: false,
+      error: "GET is not supported on this endpoint",
+      hint: "Use shared server loaders for read models and due digest",
+    },
+    { status: 405 }
+  );
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -862,6 +786,32 @@ export async function POST(req: Request) {
     const payload = (body && typeof body === "object" ? (body as any).payload : null) || null;
     healthArtifactId = extractArtifactId(body, payload);
 
+    if (eventType === "artifact_due") {
+      const latencyMs = Date.now() - startedAt;
+
+      await safeLogRouteHealth({
+        artifactId: healthArtifactId,
+        eventType: "failure",
+        severity: "warning",
+        routeEventType: eventType,
+        latencyMs,
+        success: false,
+        errorMessage: "artifact_due is no longer supported on this endpoint",
+        metadata: {
+          hint: "Use shared server loaders for due digest reads",
+        },
+      });
+
+      return jsonNoStore(
+        {
+          ok: false,
+          error: "artifact_due is no longer supported on this endpoint",
+          hint: "Use shared server loaders for due digest reads",
+        },
+        { status: 400 }
+      );
+    }
+
     const rawProject =
       safeStr(body?.project_id).trim() ||
       safeStr(body?.projectId).trim() ||
@@ -870,57 +820,7 @@ export async function POST(req: Request) {
       safeStr(body?.payload?.projectId).trim() ||
       safeStr(body?.payload?.project_human_id).trim();
 
-    if (eventType === "artifact_due" && !rawProject) {
-      const windowDays = parseWindowDays(body?.windowDays ?? payload?.windowDays, 14);
-
-      const result = await loadPortfolioDueDigest({
-        supabase,
-        userId: user.id,
-        windowDays,
-      });
-
-      const latencyMs = Date.now() - startedAt;
-
-      await safeLogRouteHealth({
-        eventType: "success",
-        severity: "info",
-        routeEventType: eventType,
-        model: result.model,
-        latencyMs,
-        success: true,
-        metadata: {
-          scope: result.scope,
-          windowDays,
-          projects: result.stats.projects,
-          dueSoonCount: Array.isArray(result.ai.dueSoon) ? result.ai.dueSoon.length : 0,
-          counts: result.ai.counts,
-        },
-      });
-
-      await maybeLogSlowRouteHealth({
-        routeEventType: eventType,
-        model: result.model,
-        latencyMs,
-        metadata: {
-          scope: result.scope,
-          projects: result.stats.projects,
-        },
-      });
-
-      return jsonNoStore({
-        ok: true,
-        eventType,
-        scope: result.scope,
-        model: result.model,
-        ai: result.ai,
-        windowDays: result.windowDays,
-        dueSoon: result.dueSoon,
-        counts: result.counts,
-        stats: result.stats,
-      });
-    }
-
-    if (!rawProject && eventType !== "artifact_due") {
+    if (!rawProject) {
       const latencyMs = Date.now() - startedAt;
 
       await safeLogRouteHealth({
@@ -936,10 +836,10 @@ export async function POST(req: Request) {
       return jsonNoStore({ ok: false, error: "Missing project id" }, { status: 400 });
     }
 
-    const projectUuid = rawProject ? await resolveProjectUuid(supabase, rawProject) : null;
+    const projectUuid = await resolveProjectUuid(supabase, rawProject);
     healthProjectId = projectUuid;
 
-    if (rawProject && !projectUuid) {
+    if (!projectUuid) {
       const latencyMs = Date.now() - startedAt;
 
       await safeLogRouteHealth({
@@ -958,82 +858,12 @@ export async function POST(req: Request) {
       );
     }
 
-    if (projectUuid) {
-      await requireProjectAccessViaOrg(supabase, projectUuid, user.id);
-    }
+    await requireProjectAccessViaOrg(supabase, projectUuid, user.id);
 
-    const meta = projectUuid
-      ? await loadProjectMeta(supabase, projectUuid)
-      : {
-          project_human_id: null,
-          project_code: null,
-          project_name: null,
-          project_manager_user_id: null,
-          project_manager_name: null,
-          project_manager_email: null,
-        };
+    const meta = await loadProjectMeta(supabase, projectUuid);
 
     const draftId =
       safeStr((payload as any)?.draftId).trim() || safeStr(body?.draftId).trim() || "";
-
-    if (eventType === "artifact_due" && projectUuid) {
-      const windowDays = parseWindowDays(
-        (body as any)?.windowDays ?? (payload as any)?.windowDays,
-        14
-      );
-
-      const result = await loadProjectDueDigest({
-        supabase,
-        projectUuid,
-        meta,
-        windowDays,
-      });
-
-      const latencyMs = Date.now() - startedAt;
-
-      await safeLogRouteHealth({
-        projectId: projectUuid,
-        eventType: "success",
-        severity: "info",
-        routeEventType: eventType,
-        model: result.model,
-        latencyMs,
-        success: true,
-        metadata: {
-          scope: result.scope,
-          windowDays,
-          dueSoonCount: Array.isArray(result.ai.dueSoon) ? result.ai.dueSoon.length : 0,
-          counts: result.ai.counts,
-        },
-      });
-
-      await maybeLogSlowRouteHealth({
-        projectId: projectUuid,
-        routeEventType: eventType,
-        model: result.model,
-        latencyMs,
-        metadata: {
-          scope: result.scope,
-          windowDays,
-        },
-      });
-
-      return jsonNoStore({
-        ok: true,
-        eventType,
-        scope: result.scope,
-        project_id: projectUuid,
-        project_code: meta.project_code,
-        project_name: meta.project_name,
-        project_manager_name: meta.project_manager_name,
-        project_manager_email: meta.project_manager_email,
-        model: result.model,
-        windowDays: result.windowDays,
-        dueSoon: result.dueSoon,
-        counts: result.counts,
-        ai: result.ai,
-      });
-    }
 
     if (eventType === "weekly_report_narrative") {
       try {
@@ -1140,24 +970,6 @@ export async function POST(req: Request) {
         });
 
         return jsonNoStore({ ok: false, error: "Missing changeId" }, { status: 400 });
-      }
-
-      if (!projectUuid) {
-        const latencyMs = Date.now() - startedAt;
-
-        await safeLogRouteHealth({
-          eventType: "failure",
-          severity: "warning",
-          routeEventType: eventType,
-          latencyMs,
-          success: false,
-          errorMessage: "Missing project id for change assessment",
-        });
-
-        return jsonNoStore(
-          { ok: false, error: "Missing project id for change assessment" },
-          { status: 400 }
-        );
       }
 
       let cr: any = null;
@@ -1314,24 +1126,6 @@ export async function POST(req: Request) {
     }
 
     if (eventType === "delivery_report") {
-      if (!projectUuid) {
-        const latencyMs = Date.now() - startedAt;
-
-        await safeLogRouteHealth({
-          eventType: "failure",
-          severity: "warning",
-          routeEventType: eventType,
-          latencyMs,
-          success: false,
-          errorMessage: "Missing project id for delivery_report",
-        });
-
-        return jsonNoStore(
-          { ok: false, error: "Missing project id for delivery_report" },
-          { status: 400 }
-        );
-      }
-
       try {
         const { artifactId, period, windowDays: wdRaw, derivedRag, healthContext } = (payload ??
           {}) as any;
@@ -1386,7 +1180,14 @@ export async function POST(req: Request) {
           .filter((m: any) => {
             const st = safeLower(m?.status);
             const due = parseDueToUtcDate(m?.end_date);
-            return st !== "done" && st !== "completed" && st !== "closed" && due && due >= from && due <= to;
+            return (
+              st !== "done" &&
+              st !== "completed" &&
+              st !== "closed" &&
+              due &&
+              due >= from &&
+              due <= to
+            );
           })
           .slice(0, 8);
 
