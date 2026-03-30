@@ -1,6 +1,7 @@
 ﻿// src/app/api/success-stories/summary/route.ts
 // ✅ Already org-scoped via resolveActiveOrgId + loadOrgProjects.
 //    Fixed: projectRouteId() now always uses UUID (consistent with projects list fix).
+//    Fixed: removed deleted_at filter — column does not exist in schema.
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -91,9 +92,10 @@ async function resolveActiveOrgId(supabase: any, userId: string): Promise<string
 type AllowedProject = { id: string; title: string; project_code: string | null };
 
 async function loadOrgProjects(supabase: any, orgId: string): Promise<AllowedProject[]> {
+  // ✅ removed deleted_at — column does not exist in schema
   const { data, error } = await supabase
-    .from("projects").select("id,title,project_code,deleted_at")
-    .eq("organisation_id", orgId).is("deleted_at", null)
+    .from("projects").select("id,title,project_code")
+    .eq("organisation_id", orgId)
     .order("created_at", { ascending: false }).limit(5000);
   if (error) throw new Error(error.message);
   return (Array.isArray(data) ? data : [])
