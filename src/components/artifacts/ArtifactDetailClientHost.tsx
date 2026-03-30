@@ -775,19 +775,18 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
 
   return (
     <div className="space-y-6 text-slate-900">
-      {!isApproverMode && !approvalLocked && (
-        <ArtifactCollaborationBanner
-          readOnly={effectiveReadOnly}
-          approvalLocked={approvalLocked}
-          lockOwnerName={
-            collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
-          }
-          expiresAt={collaboration.state?.activeLock?.expiresAt || null}
-          currentVersionNo={currentVersionNo}
-          currentDraftRev={currentDraftRev}
-        />
-      )}
-
+     {!isApproverMode && !approvalLocked && mode !== "weekly_report" && (
+  <ArtifactCollaborationBanner
+    readOnly={effectiveReadOnly}
+    approvalLocked={approvalLocked}
+    lockOwnerName={
+      collaboration.state?.activeLock?.isMine ? null : collaboration.state?.activeLock?.editorName || null
+    }
+    expiresAt={collaboration.state?.activeLock?.expiresAt || null}
+    currentVersionNo={currentVersionNo}
+    currentDraftRev={currentDraftRev}
+  />
+)}
       {mode === "weekly_report" && (
         <EditorStatusBar
           effectiveReadOnly={effectiveReadOnly}
