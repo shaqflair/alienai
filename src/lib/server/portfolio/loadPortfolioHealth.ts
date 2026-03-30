@@ -1,7 +1,6 @@
 ﻿import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
-import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 import { computePortfolioHealth } from "@/lib/server/project-health";
 
@@ -39,7 +38,9 @@ export type PortfolioHealthPayload = {
       rawCount: number;
       activeCount: number;
       finalCount: number;
+      visibleCount?: number;
       notes: string[];
+      completeness?: "full" | "partial" | "empty";
     };
     filters?: any;
     scope?: any;
@@ -106,75 +107,6 @@ function looksMissingRelation(err: any) {
 function looksMissingColumn(err: any) {
   const msg = String(err?.message || err || "").toLowerCase();
   return msg.includes("column") && msg.includes("does not exist");
-}
-
-const CLOSED_STATUSES = new Set([
-  "closed",
-  "cancelled",
-  "canceled",
-  "archived",
-  "pipeline",
-  "completed",
-  "done",
-  "inactive",
-]);
-
-async function resolveActiveProjectIds(
-  supabase: any,
-  candidateIds: string[],
-  orgId: string | null,
-  notes: string[],
-): Promise<string[]> {
-  if (!candidateIds.length) return [];
-
-  let q = supabase
-    .from("projects")
-    .select("id, status, resource_status, deleted_at")
-    .in("id", candidateIds)
-    .is("deleted_at", null)
-    .neq("resource_status", "pipeline")
-    .limit(20000);
-
-  if (orgId) q = q.eq("organisation_id", orgId);
-
-  const { data, error } = await q;
-
-  if (error) {
-    notes.push(`DB active-filter failed (${error.message}). Trying helper.`);
-    try {
-      const maybeActive = await filterActiveProjectIds(supabase, candidateIds);
-      const helperIds: string[] = Array.isArray(maybeActive)
-        ? maybeActive
-        : (maybeActive as any)?.projectIds ?? (maybeActive as any)?.ids ?? [];
-      if (helperIds.length) {
-        notes.push(`Helper returned ${helperIds.length} active IDs.`);
-        return helperIds;
-      }
-    } catch (e2: any) {
-      notes.push(`Helper also failed: ${String(e2?.message || e2)}.`);
-    }
-    notes.push("Both active-filters failed — returning candidates unfiltered.");
-    return candidateIds;
-  }
-
-  const rows = Array.isArray(data) ? data : [];
-  const activeIds = rows
-    .filter(
-      (p: any) =>
-        !CLOSED_STATUSES.has(String(p?.status ?? "active").toLowerCase().trim()) &&
-        String(p?.resource_status ?? "").toLowerCase().trim() !== "pipeline",
-    )
-    .map((p: any) => String(p.id));
-
-  const excludedCount = candidateIds.length - activeIds.length;
-  if (excludedCount > 0) {
-    notes.push(`Excluded ${excludedCount} project(s) — closed/archived/deleted.`);
-  }
-  if (activeIds.length === 0 && candidateIds.length > 0) {
-    notes.push("All scoped projects are closed or archived.");
-  }
-
-  return activeIds;
 }
 
 export function parsePortfolioHealthFiltersFromUrl(
@@ -266,17 +198,24 @@ async function applyProjectFilters(
   filters: PortfolioHealthFilters,
 ) {
   const meta: any = { applied: false, filters, notes: [] as string[] };
+
   if (!scopedProjectIds.length) {
     return { projectIds: [], meta: { ...meta, applied: true } };
   }
-  if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
+
+  if (!hasAnyFilters(filters)) {
+    return { projectIds: scopedProjectIds, meta };
+  }
 
   let workingIds = scopedProjectIds;
 
   if (filters.projectId?.length) {
-    const wanted = new Set(filters.projectId.map((v) => safeStr(v).trim()).filter(Boolean));
+    const wanted = new Set(
+      filters.projectId.map((v) => safeStr(v).trim()).filter(Boolean),
+    );
     workingIds = scopedProjectIds.filter((id) => wanted.has(String(id)));
     meta.notes.push(`Applied explicit projectId scope (${workingIds.length}).`);
+
     if (
       !filters.projectName?.length &&
       !filters.projectCode?.length &&
@@ -348,7 +287,10 @@ async function applyProjectFilters(
     return true;
   });
 
-  const outIds = filtered.map((p) => String(p?.id || "").trim()).filter(Boolean);
+  const outIds = filtered
+    .map((p) => String(p?.id || "").trim())
+    .filter(Boolean);
+
   meta.applied = true;
   meta.counts = { before: scopedProjectIds.length, after: outIds.length };
 
@@ -379,17 +321,18 @@ export async function loadPortfolioHealth(input: {
   const orgId = scope.organisationId ?? null;
 
   const explicitProjectIds = uniqStrings(filters.projectId);
-  const scopedIdsFromScope = uniqStrings(
-    Array.isArray(scope.rawProjectIds)
-      ? scope.rawProjectIds
-      : Array.isArray(scope.projectIds)
-        ? scope.projectIds
-        : [],
+
+  const rawProjectIds = uniqStrings(
+    Array.isArray(scope.rawProjectIds) ? scope.rawProjectIds : [],
   );
 
-  const scopedIdsRaw = explicitProjectIds.length
+  const visibleProjectIdsFromScope = explicitProjectIds.length
     ? explicitProjectIds
-    : scopedIdsFromScope;
+    : uniqStrings(Array.isArray(scope.projectIds) ? scope.projectIds : []);
+
+  const activeProjectIdsFromScope = explicitProjectIds.length
+    ? explicitProjectIds
+    : uniqStrings(Array.isArray(scope.activeProjectIds) ? scope.activeProjectIds : []);
 
   const emptyResponse: PortfolioHealthPayload = {
     ok: true,
@@ -423,19 +366,37 @@ export async function loadPortfolioHealth(input: {
         days: daysParam,
         windowDays,
         notes: ["No active organisation resolved."],
+        scope: {
+          ...scopeMeta,
+          rawProjectCount: rawProjectIds.length,
+          visibleProjectCount: visibleProjectIdsFromScope.length,
+          activeProjectCount: activeProjectIdsFromScope.length,
+          completeness: "empty",
+        },
       },
     };
   }
 
-  const activeNotes: string[] = [];
-  const activeIds = explicitProjectIds.length
-    ? explicitProjectIds
-    : await resolveActiveProjectIds(supabase, scopedIdsRaw, orgId, activeNotes);
+  const filteredVisible = await applyProjectFilters(
+    supabase,
+    visibleProjectIdsFromScope,
+    filters,
+  );
+  const filteredVisibleProjectIds = uniqStrings(filteredVisible.projectIds);
 
-  const filtered = await applyProjectFilters(supabase, activeIds, filters);
-  const finalProjectIds = filtered.projectIds;
+  const activeAllowed = new Set(activeProjectIdsFromScope);
+  const filteredActiveProjectIds = filteredVisibleProjectIds.filter((id) =>
+    activeAllowed.has(id),
+  );
 
-  if (!finalProjectIds.length) {
+  const completeness: "full" | "partial" | "empty" =
+    filteredVisibleProjectIds.length === 0
+      ? "empty"
+      : filteredActiveProjectIds.length === filteredVisibleProjectIds.length
+        ? "full"
+        : "partial";
+
+  if (!filteredVisibleProjectIds.length) {
     return {
       ...emptyResponse,
       meta: {
@@ -443,24 +404,73 @@ export async function loadPortfolioHealth(input: {
         days: daysParam,
         windowDays,
         activeFilter: {
-          rawCount: scopedIdsRaw.length,
-          activeCount: activeIds.length,
+          rawCount: rawProjectIds.length,
+          activeCount: activeProjectIdsFromScope.length,
           finalCount: 0,
-          notes: activeNotes,
+          visibleCount: 0,
+          notes: ["No projects remain after scope and filter application."],
+          completeness,
         },
-        filters: filtered.meta,
+        filters: filteredVisible.meta,
         scope: {
           ...scopeMeta,
-          scopedIdsRaw,
-          scopedIdsActive: activeIds,
+          rawProjectCount: rawProjectIds.length,
+          visibleProjectCount: visibleProjectIdsFromScope.length,
+          activeProjectCount: activeProjectIdsFromScope.length,
+          filteredVisibleProjectCount: 0,
+          filteredActiveProjectCount: 0,
           explicitProjectIds,
+          source: explicitProjectIds.length
+            ? "explicit-project-filter"
+            : (scopeMeta?.source ?? "unknown"),
+          completeness,
         },
-        notes: ["No active projects in scope after filtering."],
+        notes: ["No projects in scope after filtering."],
       },
     };
   }
 
-  const health = await computePortfolioHealth(supabase, finalProjectIds, windowDays);
+  if (!filteredActiveProjectIds.length) {
+    return {
+      ...emptyResponse,
+      meta: {
+        organisationId: orgId,
+        days: daysParam,
+        windowDays,
+        activeFilter: {
+          rawCount: rawProjectIds.length,
+          activeCount: activeProjectIdsFromScope.length,
+          finalCount: 0,
+          visibleCount: filteredVisibleProjectIds.length,
+          notes: [
+            "Projects are visible in scope, but none qualify for active health scoring.",
+          ],
+          completeness,
+        },
+        filters: filteredVisible.meta,
+        scope: {
+          ...scopeMeta,
+          rawProjectCount: rawProjectIds.length,
+          visibleProjectCount: visibleProjectIdsFromScope.length,
+          activeProjectCount: activeProjectIdsFromScope.length,
+          filteredVisibleProjectCount: filteredVisibleProjectIds.length,
+          filteredActiveProjectCount: 0,
+          explicitProjectIds,
+          source: explicitProjectIds.length
+            ? "explicit-project-filter"
+            : (scopeMeta?.source ?? "unknown"),
+          completeness,
+        },
+        notes: ["Visible projects exist, but no active projects remain for scoring."],
+      },
+    };
+  }
+
+  const health = await computePortfolioHealth(
+    supabase,
+    filteredActiveProjectIds,
+    windowDays,
+  );
   const scoreValue = health.score ?? 0;
 
   const projectScores: Record<string, { score: number; rag: Rag }> = {};
@@ -476,7 +486,7 @@ export async function loadPortfolioHealth(input: {
     ok: true,
     score: health.score,
     portfolio_health: scoreValue,
-    projectCount: health.projectCount,
+    projectCount: filteredActiveProjectIds.length,
     parts: {
       schedule: health.parts.schedule,
       raid: health.parts.raid,
@@ -493,20 +503,26 @@ export async function loadPortfolioHealth(input: {
       days: daysParam,
       windowDays,
       activeFilter: {
-        rawCount: scopedIdsRaw.length,
-        activeCount: activeIds.length,
-        finalCount: finalProjectIds.length,
-        notes: activeNotes,
+        rawCount: rawProjectIds.length,
+        activeCount: activeProjectIdsFromScope.length,
+        finalCount: filteredActiveProjectIds.length,
+        visibleCount: filteredVisibleProjectIds.length,
+        notes: [],
+        completeness,
       },
-      filters: filtered.meta,
+      filters: filteredVisible.meta,
       scope: {
         ...scopeMeta,
-        scopedIdsRaw,
-        scopedIdsActive: activeIds,
+        rawProjectCount: rawProjectIds.length,
+        visibleProjectCount: visibleProjectIdsFromScope.length,
+        activeProjectCount: activeProjectIdsFromScope.length,
+        filteredVisibleProjectCount: filteredVisibleProjectIds.length,
+        filteredActiveProjectCount: filteredActiveProjectIds.length,
         explicitProjectIds,
         source: explicitProjectIds.length
           ? "explicit-project-filter"
           : (scopeMeta?.source ?? "unknown"),
+        completeness,
       },
       notes: [],
     },
