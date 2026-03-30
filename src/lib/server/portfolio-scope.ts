@@ -1,9 +1,6 @@
 import "server-only";
 
-import {
-  resolveOrgActiveProjectScope,
-  filterActiveProjectIds,
-} from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
 
 type ScopeReason =
   | "ok"
@@ -12,7 +9,10 @@ type ScopeReason =
   | "scope_not_ok"
   | "scope_empty_fallback"
   | "active_filter_zero_fallback"
-  | "no_projects_in_scope";
+  | "no_projects_in_scope"
+  | "missing_org"
+  | "active_filter_zero"
+  | "no_memberships_no_org";
 
 type ScopeMode =
   | "strict"
@@ -93,17 +93,10 @@ export async function resolvePortfolioScope(
     null;
 
   const scopedOk =
-    typeof (scoped as any)?.ok === "boolean" ? Boolean((scoped as any).ok) : true;
+    typeof (scoped as any)?.ok === "boolean"
+      ? Boolean((scoped as any).ok)
+      : true;
 
-  const rawProjectIds = uniqStrings(
-    Array.isArray((scoped as any)?.projectIds)
-      ? (scoped as any).projectIds
-      : Array.isArray(scopeMeta?.scopedIdsRaw)
-        ? scopeMeta.scopedIdsRaw
-        : [],
-  );
-
-  // If the underlying scope resolver explicitly failed, surface it cleanly.
   if (!scopedOk) {
     return {
       ok: false,
@@ -125,38 +118,45 @@ export async function resolvePortfolioScope(
     };
   }
 
-  const activeFiltered = await filterActiveProjectIds(supabase, rawProjectIds);
+  const rawProjectIds = uniqStrings(
+    Array.isArray((scoped as any)?.rawProjectIds)
+      ? (scoped as any).rawProjectIds
+      : Array.isArray(scopeMeta?.scopedIdsRaw)
+        ? scopeMeta.scopedIdsRaw
+        : [],
+  );
 
   const activeProjectIds = uniqStrings(
-    Array.isArray(activeFiltered)
-      ? activeFiltered
-      : Array.isArray((activeFiltered as any)?.projectIds)
-        ? (activeFiltered as any).projectIds
-        : rawProjectIds,
+    Array.isArray((scoped as any)?.activeProjectIds)
+      ? (scoped as any).activeProjectIds
+      : Array.isArray((scoped as any)?.projectIds)
+        ? (scoped as any).projectIds
+        : [],
   );
 
   // Deterministic decision:
-  // - raw + active > 0 => strict OK
-  // - raw > 0 but active = 0 => fallback to raw, never silently empty
-  // - raw = 0 => explicit empty state
+  // - active > 0 => strict
+  // - raw > 0 but active = 0 => explicit fail_open to preserve visibility
+  // - raw = 0 => explicit empty
   let effectiveProjectIds: string[] = [];
   let mode: ScopeMode = "strict";
   let reason: ScopeReason = "ok";
   let usedFallback = false;
 
-  if (rawProjectIds.length === 0) {
-    effectiveProjectIds = [];
-    mode = "empty";
-    reason = "no_projects_in_scope";
-  } else if (activeProjectIds.length === 0) {
+  if (activeProjectIds.length > 0) {
+    effectiveProjectIds = activeProjectIds;
+    mode = "strict";
+    reason = "ok";
+  } else if (rawProjectIds.length > 0) {
     effectiveProjectIds = rawProjectIds;
     mode = "fail_open";
     reason = "active_filter_zero_fallback";
     usedFallback = true;
   } else {
-    effectiveProjectIds = activeProjectIds;
-    mode = "strict";
-    reason = "ok";
+    effectiveProjectIds = [];
+    mode = "empty";
+    reason =
+      (scopeMeta?.reason as ScopeReason | undefined) ?? "no_projects_in_scope";
   }
 
   return {
