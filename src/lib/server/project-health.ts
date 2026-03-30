@@ -644,38 +644,18 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
 /* ─── portfolio scorer ─── */
 
 export async function computePortfolioHealth(
-  supabase:    any,
-  projectIds:  string[],
-  windowDays:  number,
+  supabase: any,
+  projectIds: string[],
+  windowDays: number,
 ): Promise<{
-  score:        number | null;
-  parts:        HealthParts;
+  score: number | null;
+  parts: HealthParts;
   projectCount: number;
-  perProject:   Record<string, HealthResult>;
+  perProject: Record<string, HealthResult>;
 }> {
-  if (!projectIds.length) {
-    return {
-      score: null,
-      parts: { schedule: null, raid: null, budget: null, governance: null },
-      projectCount: 0,
-      perProject: {},
-    };
-  }
-
-  // Exclude pipeline projects from health scoring
-  const { data: projectMeta } = await supabase
-    .from("projects")
-    .select("id, resource_status, status")
-    .in("id", projectIds)
-    .limit(20000);
-
-  const activeIds = projectIds.filter((pid) => {
-    const p = Array.isArray(projectMeta) ? projectMeta.find((r: any) => String(r.id) === pid) : null;
-    // Exclude if resource_status OR status is "pipeline"
-    const resourceStatus = String(p?.resource_status ?? "").toLowerCase();
-    const status = String(p?.status ?? "").toLowerCase();
-    return resourceStatus !== "pipeline" && status !== "pipeline";
-  });
+  const activeIds = projectIds
+    .map((id) => String(id).trim())
+    .filter(Boolean);
 
   if (!activeIds.length) {
     return {
@@ -695,42 +675,41 @@ export async function computePortfolioHealth(
     fetchPortfolioGovernance(supabase, activeIds),
   ]);
 
-  // Group by project
   const milestonesByProject = new Map<string, any[]>();
-  const raidByProject       = new Map<string, any[]>();
+  const raidByProject = new Map<string, any[]>();
 
   for (const r of milestonesRes.rows) {
     const pid = String(r.project_id);
     if (!milestonesByProject.has(pid)) milestonesByProject.set(pid, []);
     milestonesByProject.get(pid)!.push(r);
   }
+
   for (const r of raidRes.rows) {
     const pid = String(r.project_id);
     if (!raidByProject.has(pid)) raidByProject.set(pid, []);
     raidByProject.get(pid)!.push(r);
   }
 
-  // Score each project
   const perProject: Record<string, HealthResult> = {};
 
   for (const pid of activeIds) {
     const budget = budgetMap.get(pid) ?? { budgetAmount: null, spentAmount: 0 };
-    const gov    = govMap.get(pid);
+    const gov = govMap.get(pid);
 
     perProject[pid] = computeHealthFromData({
-      milestones:                 milestonesByProject.get(pid) ?? [],
-      raidItems:                  raidByProject.get(pid) ?? [],
-      budgetAmount:               budget.budgetAmount,
-      spentAmount:                budget.spentAmount,
-      budgetDays:                 gov?.budgetDays ?? null,
-      pendingApprovalCount:       gov?.pendingApprovals ?? 0,
-      openChangeRequests:         gov?.openCRs ?? 0,
-      charterApproved:            gov?.charterApproved            ?? false,
-      budgetApproved:             gov?.budgetApproved             ?? false,
+      milestones: milestonesByProject.get(pid) ?? [],
+      raidItems: raidByProject.get(pid) ?? [],
+      budgetAmount: budget.budgetAmount,
+      spentAmount: budget.spentAmount,
+      budgetDays: gov?.budgetDays ?? null,
+      pendingApprovalCount: gov?.pendingApprovals ?? 0,
+      openChangeRequests: gov?.openCRs ?? 0,
+      charterApproved: gov?.charterApproved ?? false,
+      budgetApproved: gov?.budgetApproved ?? false,
       stakeholderRegisterPresent: gov?.stakeholderRegisterPresent ?? false,
-      gate1Complete:              gov?.gate1Complete              ?? false,
-      gate5Applicable:            gov?.gate5Applicable            ?? false,
-      gate5Ready:                 gov?.gate5Ready                 ?? false,
+      gate1Complete: gov?.gate1Complete ?? false,
+      gate5Applicable: gov?.gate5Applicable ?? false,
+      gate5Ready: gov?.gate5Ready ?? false,
       today,
     });
   }
@@ -741,26 +720,31 @@ export async function computePortfolioHealth(
     return {
       score: null,
       parts: { schedule: null, raid: null, budget: null, governance: null },
-      projectCount: projectIds.length,
+      projectCount: activeIds.length,
       perProject,
     };
   }
 
   const avgPart = (key: keyof HealthParts): number | null => {
-    const vals = scoredProjects.map((r) => r.parts[key]).filter((v) => v != null) as number[];
+    const vals = scoredProjects
+      .map((r) => r.parts[key])
+      .filter((v) => v != null) as number[];
+
     if (!vals.length) return null;
     return clamp(vals.reduce((s, v) => s + v, 0) / vals.length);
   };
 
   return {
-    score: clamp(scoredProjects.reduce((s, r) => s + r.score!, 0) / scoredProjects.length),
+    score: clamp(
+      scoredProjects.reduce((s, r) => s + (r.score ?? 0), 0) / scoredProjects.length,
+    ),
     parts: {
-      schedule:   avgPart("schedule"),
-      raid:       avgPart("raid"),
-      budget:     avgPart("budget"),
+      schedule: avgPart("schedule"),
+      raid: avgPart("raid"),
+      budget: avgPart("budget"),
       governance: avgPart("governance"),
     },
-    projectCount: projectIds.length,
+    projectCount: activeIds.length,
     perProject,
   };
 }
