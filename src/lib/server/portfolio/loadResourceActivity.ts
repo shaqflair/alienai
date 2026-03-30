@@ -241,24 +241,9 @@ async function normalizeActiveIds(supabase: any, rawIds: string[]) {
   });
 
   try {
-    const r: any = await filterActiveProjectIds(supabase, rawIds);
-
-    if (Array.isArray(r)) {
-      const ids = r.filter(Boolean);
-      if (!ids.length && rawIds.length) {
-        return failOpen("active filter returned 0 ids; failing open");
-      }
-      return { ids, ok: true, error: null as string | null };
-    }
-
-    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
-    if (!ids.length && rawIds.length) {
-      return failOpen("active filter returned 0 ids; failing open");
-    }
-    return {
-      ids,
-      ok: !r?.error,
-      error: r?.error ? safeStr(r.error?.message || r.error) : null,
+   // ✅ Resource activity intentionally includes pipeline projects —
+// pipeline capacity planning is a valid use case for this chart.
+return { ids: rawIds.filter(Boolean), ok: true, error: null as string | null };
     };
   } catch (e: any) {
     return failOpen(safeStr(e?.message || e || "active filter failed"));
