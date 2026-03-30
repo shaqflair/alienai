@@ -202,6 +202,8 @@ export function isProjectActive(row: any): boolean {
   return !isTerminal;
 }
 
+// ONLY showing the FIXED function (everything else remains same)
+
 export async function getScopedProjects(
   supabase: Awaited<ReturnType<typeof createClient>>,
   filters: PortfolioFilters,
@@ -235,17 +237,22 @@ export async function getScopedProjects(
         resource_status
       `)
       .is("deleted_at", null)
-      .neq("resource_status", "pipeline")
+
+      // ✅ FIXED: include NULLs + exclude only pipeline
+      .or("resource_status.is.null,resource_status.neq.pipeline")
+
       .limit(2000);
 
     if (filters.projectId?.length) {
       query = query.in("id", filters.projectId);
     }
+
     if (filters.projectCode?.length) {
       query = query.in("project_code", filters.projectCode);
     }
 
     const { data, error } = await query;
+
     if (error || !data?.length) return [];
 
     let rows = (data as any[]).filter(Boolean);
@@ -254,6 +261,7 @@ export async function getScopedProjects(
       const needles = filters.projectName
         .map((v) => safeStr(v).trim().toLowerCase())
         .filter(Boolean);
+
       rows = rows.filter((r) => {
         const title = safeStr(r?.title).trim().toLowerCase();
         return needles.some((n) => title.includes(n));
@@ -264,6 +272,7 @@ export async function getScopedProjects(
       const pmSet = new Set(
         filters.projectManagerId.map((v) => safeStr(v).trim()).filter(Boolean),
       );
+
       rows = rows.filter((r) => {
         const ids = [
           safeStr(r?.project_manager_id).trim(),
@@ -271,6 +280,7 @@ export async function getScopedProjects(
           safeStr(r?.project_manager).trim(),
           safeStr(r?.pm_name).trim(),
         ].filter(Boolean);
+
         return ids.some((v) => pmSet.has(v));
       });
     }
@@ -279,6 +289,7 @@ export async function getScopedProjects(
       const deptNeedles = filters.department
         .map((v) => safeStr(v).trim().toLowerCase())
         .filter(Boolean);
+
       rows = rows.filter((r) => {
         const dept = safeStr(r?.department).trim().toLowerCase();
         return deptNeedles.some((d) => dept.includes(d));
@@ -287,6 +298,7 @@ export async function getScopedProjects(
 
     if (filters.q?.trim()) {
       const q = filters.q.trim().toLowerCase();
+
       rows = rows.filter((r) => {
         const hay = [
           safeStr(r?.title),
@@ -297,6 +309,7 @@ export async function getScopedProjects(
         ]
           .join(" ")
           .toLowerCase();
+
         return hay.includes(q);
       });
     }
