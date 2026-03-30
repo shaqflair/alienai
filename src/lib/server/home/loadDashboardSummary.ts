@@ -437,7 +437,7 @@ export async function loadDashboardSummaryData(
   const filters = canonicalizeFilters(normalizeFilters(input?.filters));
 
   const scopedProjects = await getScopedProjects(supabase, filters);
-  const activeScopedProjects = scopedProjects.filter(isProjectActive);
+  const activeScopedProjects = scopedProjects;
 
   const scopedProjectIds = scopedProjects.map((p) => String(p.id)).filter(Boolean);
   const activeProjectIds = activeScopedProjects.map((p) => String(p.id)).filter(Boolean);
