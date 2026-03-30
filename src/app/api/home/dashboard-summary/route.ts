@@ -49,8 +49,9 @@ function makeSummaryCacheKey(input: {
   return sha1(stableJson(canonical));
 }
 
-function jsonNoStore(payload: unknown, extraHeaders?: Record<string, string>) {
+function jsonNoStore(payload: unknown, extraHeaders?: Record<string, string>, status = 200) {
   return NextResponse.json(payload, {
+    status,
     headers: {
       "Cache-Control": "private, no-cache, no-store, max-age=0, must-revalidate",
       Pragma: "no-cache",
@@ -58,6 +59,98 @@ function jsonNoStore(payload: unknown, extraHeaders?: Record<string, string>) {
       ...(extraHeaders ?? {}),
     },
   });
+}
+
+function safeErrorMessage(err: unknown) {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return "Unknown dashboard summary error";
+  }
+}
+
+function makeFailurePayload(input: {
+  days: 7 | 14 | 30 | 60;
+  dueDays: 7 | 14 | 30 | 60;
+  filters: PortfolioFilters;
+  cacheKey: string;
+  error: unknown;
+}) {
+  const message = safeErrorMessage(input.error);
+
+  return {
+    ok: false,
+    days: input.days,
+    dueDays: input.dueDays,
+    filters: canonicalizeFilters(input.filters),
+    error: "Dashboard summary failed",
+    detail: message,
+    integrity: {
+      status: "error",
+      completeness: "empty",
+      reason: "DASHBOARD_SUMMARY_ROUTE_FAILURE",
+    },
+    cache: {
+      key: input.cacheKey,
+      hit: false,
+      ttlSeconds: SUMMARY_TTL_SECONDS,
+      scope: "none",
+    },
+    portfolioHealth: null,
+    milestonesDue: null,
+    raidPanel: null,
+    financialPlanSummary: null,
+    recentWins: null,
+    resourceActivity: null,
+    aiBriefing: null,
+    dueDigest: null,
+    executiveBriefing: null,
+    insights: [],
+  };
+}
+
+function attachCacheMeta(
+  payload: DashboardSummaryPayload | Record<string, unknown>,
+  cache: {
+    key: string;
+    hit: boolean;
+    ttlSeconds: number;
+    scope: "memory" | "none";
+  },
+) {
+  return {
+    ...payload,
+    cache,
+  };
+}
+
+async function loadSummarySafely(args: {
+  req: NextRequest;
+  userId: string;
+  days: 7 | 14 | 30 | 60;
+  dueDays: 7 | 14 | 30 | 60;
+  filters: PortfolioFilters;
+  cacheKey: string;
+}) {
+  try {
+    return await loadDashboardSummaryData(args.req, {
+      userId: args.userId,
+      days: args.days,
+      dueDays: args.dueDays,
+      filters: args.filters,
+      cacheKey: args.cacheKey,
+    });
+  } catch (error) {
+    return makeFailurePayload({
+      days: args.days,
+      dueDays: args.dueDays,
+      filters: args.filters,
+      cacheKey: args.cacheKey,
+      error,
+    });
+  }
 }
 
 async function handleDashboardSummary(
@@ -68,10 +161,46 @@ async function handleDashboardSummary(
   const supabase = await createClient();
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
 
+  if (authError) {
+    return jsonNoStore(
+      {
+        ok: false,
+        error: "Unauthorized",
+        detail: authError.message,
+        integrity: {
+          status: "error",
+          completeness: "empty",
+          reason: "AUTH_ERROR",
+        },
+      },
+      {
+        "x-dashboard-cache": "BYPASS",
+        "x-dashboard-cache-key": "none",
+      },
+      401,
+    );
+  }
+
   if (!user) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    return jsonNoStore(
+      {
+        ok: false,
+        error: "Unauthorized",
+        integrity: {
+          status: "error",
+          completeness: "empty",
+          reason: "NO_USER",
+        },
+      },
+      {
+        "x-dashboard-cache": "BYPASS",
+        "x-dashboard-cache-key": "none",
+      },
+      401,
+    );
   }
 
   const days = normalizeDays(input?.days);
@@ -93,15 +222,12 @@ async function handleDashboardSummary(
 
     if (cached && cached.expiresAt > now) {
       return jsonNoStore(
-        {
-          ...cached.payload,
-          cache: {
-            key: cacheKey,
-            hit: true,
-            ttlSeconds: SUMMARY_TTL_SECONDS,
-            scope: "memory",
-          },
-        },
+        attachCacheMeta(cached.payload, {
+          key: cacheKey,
+          hit: true,
+          ttlSeconds: SUMMARY_TTL_SECONDS,
+          scope: "memory",
+        }),
         {
           "x-dashboard-cache": "HIT",
           "x-dashboard-cache-key": cacheKey,
@@ -113,15 +239,12 @@ async function handleDashboardSummary(
     if (existingPromise) {
       const payload = await existingPromise;
       return jsonNoStore(
-        {
-          ...payload,
-          cache: {
-            key: cacheKey,
-            hit: true,
-            ttlSeconds: SUMMARY_TTL_SECONDS,
-            scope: "memory",
-          },
-        },
+        attachCacheMeta(payload, {
+          key: cacheKey,
+          hit: true,
+          ttlSeconds: SUMMARY_TTL_SECONDS,
+          scope: "memory",
+        }),
         {
           "x-dashboard-cache": "COALESCED",
           "x-dashboard-cache-key": cacheKey,
@@ -129,7 +252,8 @@ async function handleDashboardSummary(
       );
     }
 
-    const promise = loadDashboardSummaryData(req, {
+    const promise = loadSummarySafely({
+      req,
       userId: user.id,
       days,
       dueDays,
@@ -143,19 +267,28 @@ async function handleDashboardSummary(
       const payload = await promise;
       memoryCache.set(cacheKey, {
         expiresAt: Date.now() + SUMMARY_TTL_SECONDS * 1000,
-        payload,
+        payload: payload as DashboardSummaryPayload,
       });
 
-      return jsonNoStore(payload, {
-        "x-dashboard-cache": "MISS",
-        "x-dashboard-cache-key": cacheKey,
-      });
+      return jsonNoStore(
+        attachCacheMeta(payload, {
+          key: cacheKey,
+          hit: false,
+          ttlSeconds: SUMMARY_TTL_SECONDS,
+          scope: "memory",
+        }),
+        {
+          "x-dashboard-cache": "MISS",
+          "x-dashboard-cache-key": cacheKey,
+        },
+      );
     } finally {
       inFlight.delete(cacheKey);
     }
   }
 
-  const payload = await loadDashboardSummaryData(req, {
+  const payload = await loadSummarySafely({
+    req,
     userId: user.id,
     days,
     dueDays,
@@ -163,10 +296,18 @@ async function handleDashboardSummary(
     cacheKey,
   });
 
-  return jsonNoStore(payload, {
-    "x-dashboard-cache": "BYPASS",
-    "x-dashboard-cache-key": cacheKey,
-  });
+  return jsonNoStore(
+    attachCacheMeta(payload, {
+      key: cacheKey,
+      hit: false,
+      ttlSeconds: SUMMARY_TTL_SECONDS,
+      scope: "none",
+    }),
+    {
+      "x-dashboard-cache": "BYPASS",
+      "x-dashboard-cache-key": cacheKey,
+    },
+  );
 }
 
 export async function GET(req: NextRequest) {
