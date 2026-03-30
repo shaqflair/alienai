@@ -233,8 +233,6 @@ export async function POST(req: Request, ctx: Ctx) {
       patch.requester_name = clamp(safeStr(body.requester), 160);
 
     // ── Proposed change / justification fields ──
-    // Client sends proposedChange (the full combined string) AND individual fields.
-    // Store the full string in proposed_change, plus individual columns if they exist.
     if (hasOwn(body, "proposedChange"))
       patch.proposed_change = clamp(safeStr(body.proposedChange), 8000);
     else if (hasOwn(body, "proposed_change"))
@@ -244,7 +242,6 @@ export async function POST(req: Request, ctx: Ctx) {
     const breakdown = ["justification", "financial", "schedule", "risks", "dependencies",
                        "assumptions", "implementation_plan", "rollback_plan"] as const;
     for (const field of breakdown) {
-      // camelCase variants sent by client
       const camel: Record<string, string> = {
         implementation_plan: "implementationPlan",
         rollback_plan: "rollbackPlan",
@@ -257,33 +254,32 @@ export async function POST(req: Request, ctx: Ctx) {
     }
 
     // ── Impact analysis ──
-    // Client sends impactAnalysis: { days, cost, risk }
-    // Server stores as impact_days, impact_cost, impact_scope / impact_analysis JSON
+    // ai_cost and ai_schedule are integer columns in the schema.
+    // The risk descriptor text is stored only inside the impact_analysis JSONB blob —
+    // there is no separate text column for it.
     const ia = body.impactAnalysis ?? body.impact_analysis ?? null;
-  if (isObj(ia)) {
-  const days = Number(ia.days ?? 0);
-  const cost = Number(ia.cost ?? 0);
-  const risk = clamp(safeStr(ia.risk ?? "None identified"), 280);
+    if (isObj(ia)) {
+      const days = Number(ia.days ?? 0);
+      const cost = Number(ia.cost ?? 0);
+      const risk = clamp(safeStr(ia.risk ?? "None identified"), 280);
 
-  if (Number.isFinite(days)) patch.ai_schedule = days;   // ✅ correct column
-  if (Number.isFinite(cost)) patch.ai_cost = cost;       // ✅ correct column
-  patch.ai_scope = risk;                                  // ✅ correct column
+      if (Number.isFinite(days)) patch.ai_schedule = days;  // integer column
+      if (Number.isFinite(cost)) patch.ai_cost = cost;      // integer column
+      // risk text lives only in the JSONB blob below — no separate integer column for it
 
-  // Also store as JSON blob
-  patch.impact_analysis = { days, cost, risk, highlights: ia.highlights ?? [] };
-} else {
-  // Individual numeric fields (legacy)
-  if (hasOwn(body, "impact_cost") || hasOwn(body, "ai_cost")) {
-    const n = Number(body.impact_cost ?? body.ai_cost);
-    patch.ai_cost = Number.isFinite(n) ? n : null;
-  }
-  if (hasOwn(body, "impact_days") || hasOwn(body, "ai_schedule")) {
-    const n = Number(body.impact_days ?? body.ai_schedule);
-    patch.ai_schedule = Number.isFinite(n) ? n : null;
-  }
-  if (hasOwn(body, "impact_scope") || hasOwn(body, "ai_scope"))
-    patch.ai_scope = clamp(safeStr(body.impact_scope ?? body.ai_scope), 2000);
-}
+      patch.impact_analysis = { days, cost, risk, highlights: ia.highlights ?? [] };
+    } else {
+      // Individual numeric fields (legacy)
+      if (hasOwn(body, "impact_cost") || hasOwn(body, "ai_cost")) {
+        const n = Number(body.ai_cost ?? body.impact_cost);
+        if (Number.isFinite(n)) patch.ai_cost = n;
+      }
+      if (hasOwn(body, "impact_days") || hasOwn(body, "ai_schedule")) {
+        const n = Number(body.ai_schedule ?? body.impact_days);
+        if (Number.isFinite(n)) patch.ai_schedule = n;
+      }
+      // ai_scope is an integer column — do not write text to it
+    }
 
     // ── Status / stage ──
     if (hasOwn(body, "stage")) {
@@ -314,8 +310,6 @@ export async function POST(req: Request, ctx: Ctx) {
     // If nothing changed, return existing
     if (!Object.keys(patch).length) return ok({ item: existing });
 
-    // Strip columns that don't exist in the table (best-effort introspection)
-    // We do this by attempting the update and retrying without unknown columns on error
     let updated: any = null;
     let upErr: any = null;
 
@@ -323,7 +317,7 @@ export async function POST(req: Request, ctx: Ctx) {
     ({ data: updated, error: upErr } = await supabase
       .from(TABLE).update(patch).eq("id", existing.id).select("*").maybeSingle());
 
-    // If column doesn't exist, strip the unknown column and retry
+    // If a column doesn't exist, strip it and retry once
     if (upErr) {
       const msg = safeStr(upErr.message).toLowerCase();
       const colMatch = msg.match(/column ["']?(\w+)["']? of relation/);
