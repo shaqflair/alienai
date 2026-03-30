@@ -70,26 +70,26 @@ function projectHref(project: any, projectIdFallback?: string | null) {
   return ref ? `/projects/${encodeURIComponent(ref)}` : null;
 }
 
-async function normalizeActiveIds(supabase: any, rawIds: string[]) {
+async function normalizeActiveIds(supabase: any, canonicalIds: string[]) {
   const failOpen = (reason: string) => ({
-    ids: rawIds,
+    ids: canonicalIds,
     ok: false,
     error: reason,
   });
 
   try {
-    const r: any = await filterActiveProjectIds(supabase, rawIds);
+    const r: any = await filterActiveProjectIds(supabase, canonicalIds);
 
     if (Array.isArray(r)) {
       const ids = r.filter(Boolean);
-      if (!ids.length && rawIds.length) {
+      if (!ids.length && canonicalIds.length) {
         return failOpen("active filter returned 0 ids; failing open");
       }
       return { ids, ok: true, error: null as string | null };
     }
 
     const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
-    if (!ids.length && rawIds.length) {
+    if (!ids.length && canonicalIds.length) {
       return failOpen("active filter returned 0 ids; failing open");
     }
 
@@ -203,28 +203,22 @@ export async function loadRecentWins(
   const supabase = input.supabase ?? (await createClient());
   const days = Math.min(60, Math.max(7, parseInt(String(input?.days ?? 30), 10)));
   const limit = Math.min(20, Math.max(1, parseInt(String(input?.limit ?? 8), 10)));
-
-  const summary = await fetchSuccessStoriesSummary(req, days);
-
-  const topWins: any[] = (Array.isArray(summary?.top) ? summary.top : []).map((w: any) => ({
-    ...w,
-    type: w?.type ?? w?.category ?? "other",
-    category: w?.category ?? w?.type ?? "other",
-  }));
+  const since = isoDaysAgo(days);
 
   const sharedScope = await resolvePortfolioScope(supabase, input.userId);
   const organisationId = sharedScope.organisationId ?? null;
   const scopeMeta = sharedScope.meta ?? {};
-  const scopedRaw: string[] = Array.isArray(sharedScope.rawProjectIds)
-    ? sharedScope.rawProjectIds
-    : Array.isArray(sharedScope.projectIds)
-      ? sharedScope.projectIds
+
+  // Prefer canonical UUID projectIds first.
+  const scopedCanonicalIds: string[] = Array.isArray(sharedScope.projectIds)
+    ? sharedScope.projectIds.filter(Boolean)
+    : Array.isArray(sharedScope.rawProjectIds)
+      ? sharedScope.rawProjectIds.filter(Boolean)
       : [];
 
-  const active = await normalizeActiveIds(supabase, scopedRaw);
+  const active = await normalizeActiveIds(supabase, scopedCanonicalIds);
   const projectIds = active.ids;
-
-  const since = isoDaysAgo(days);
+  const projectIdSet = new Set(projectIds);
 
   const projById = new Map<string, any>();
   if (projectIds.length) {
@@ -234,8 +228,49 @@ export async function loadRecentWins(
       .in("id", projectIds)
       .limit(2000);
 
-    for (const p of prows ?? []) projById.set(String((p as any).id), p);
+    for (const p of prows ?? []) {
+      projById.set(String((p as any).id), p);
+    }
   }
+
+  // External summary may be broader than current scoped portfolio.
+  // Fetch it, but filter back to active scoped project ids before using top wins.
+  let summary: any = {
+    top: [],
+    score: 0,
+    prev_score: 0,
+    delta: 0,
+    breakdown: {},
+    meta: {},
+  };
+
+  try {
+    summary = await fetchSuccessStoriesSummary(req, days);
+  } catch {
+    summary = {
+      top: [],
+      score: 0,
+      prev_score: 0,
+      delta: 0,
+      breakdown: {},
+      meta: {},
+    };
+  }
+
+  const rawTopWins: any[] = Array.isArray(summary?.top) ? summary.top : [];
+
+  const topWins: any[] = rawTopWins
+    .map((w: any) => ({
+      ...w,
+      type: w?.type ?? w?.category ?? "other",
+      category: w?.category ?? w?.type ?? "other",
+    }))
+    .filter((w: any) => {
+      const pid = extractProjectIdFromWin(w);
+      if (!pid) return false;
+      if (!projectIds.length) return false;
+      return projectIdSet.has(pid);
+    });
 
   const winPids = [
     ...new Set(topWins.map((w: any) => extractProjectIdFromWin(w)).filter(Boolean)),
@@ -249,7 +284,9 @@ export async function loadRecentWins(
       .in("id", missingPids)
       .limit(500);
 
-    for (const p of extraProjs ?? []) projById.set(String((p as any).id), p);
+    for (const p of extraProjs ?? []) {
+      projById.set(String((p as any).id), p);
+    }
   }
 
   const pmById = new Map<string, string>();
@@ -314,23 +351,28 @@ export async function loadRecentWins(
     wins: allWins,
     days,
     count: allWins.length,
-    score: summary?.score ?? 0,
-    prev_score: summary?.prev_score ?? 0,
-    delta: summary?.delta ?? 0,
+    // Keep summary scores for now, but top wins are now safely scoped.
+    // If needed, we can next refactor the summary route itself to become scope-aware.
+    score: Number(summary?.score ?? 0),
+    prev_score: Number(summary?.prev_score ?? 0),
+    delta: Number(summary?.delta ?? 0),
     breakdown: {
       ...(summary?.breakdown ?? {}),
+      scoped_top_wins: topWins.length,
       budget_on_track: budgetWins.length,
     },
     meta: {
       organisationId,
       since_iso: since,
-      total_wins: summary?.meta?.total_wins ?? allWins.length,
+      total_wins: allWins.length,
       scope: {
         ...scopeMeta,
-        scopedIdsRaw: scopedRaw.length,
+        scopedIdsCanonical: scopedCanonicalIds.length,
         scopedIdsActive: projectIds.length,
         active_filter_ok: active.ok,
         active_filter_error: active.error,
+        unscoped_summary_top_count: rawTopWins.length,
+        scoped_summary_top_count: topWins.length,
       },
     },
   };

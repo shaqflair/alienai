@@ -2,6 +2,7 @@
 
 import { NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 import { loadPortfolioHealth } from "@/lib/server/portfolio/loadPortfolioHealth";
 import { loadMilestonesDue } from "@/lib/server/portfolio/loadMilestonesDue";
@@ -42,6 +43,8 @@ export type DashboardSummaryPayload = {
     filteredVisibleProjectCount?: number;
     filteredActiveProjectCount?: number;
     usedFallback?: boolean;
+    activeFilterOk?: boolean;
+    activeFilterError?: string | null;
   };
   activeProjects: Array<{
     id: string;
@@ -385,6 +388,46 @@ async function applyDashboardFilters(
   };
 }
 
+async function normalizeActiveIds(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  visibleProjectIds: string[],
+) {
+  const failOpen = (reason: string) => ({
+    ids: visibleProjectIds,
+    ok: false,
+    error: reason,
+  });
+
+  if (!visibleProjectIds.length) {
+    return { ids: [], ok: true, error: null as string | null };
+  }
+
+  try {
+    const r: any = await filterActiveProjectIds(supabase, visibleProjectIds);
+
+    if (Array.isArray(r)) {
+      const ids = r.filter(Boolean);
+      if (!ids.length && visibleProjectIds.length) {
+        return failOpen("active filter returned 0 ids; failing open");
+      }
+      return { ids, ok: true, error: null as string | null };
+    }
+
+    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
+    if (!ids.length && visibleProjectIds.length) {
+      return failOpen("active filter returned 0 ids; failing open");
+    }
+
+    return {
+      ids,
+      ok: !r?.error,
+      error: r?.error ? safeStr(r.error?.message || r.error) : null,
+    };
+  } catch (e: any) {
+    return failOpen(safeStr(e?.message || e || "active filter failed"));
+  }
+}
+
 export function normalizeAiBriefingPayload(input: any) {
   const src = input && typeof input === "object" ? input : null;
   const insights = Array.isArray(src?.insights) ? src.insights : [];
@@ -553,17 +596,12 @@ export async function loadDashboardSummaryData(
   const visibleProjectIdsFromScope = uniqStrings(
     Array.isArray(scope.projectIds) ? scope.projectIds : [],
   );
-  const activeProjectIdsFromScope = uniqStrings(
-    Array.isArray(scope.activeProjectIds) ? scope.activeProjectIds : [],
-  );
 
   const filtered = await applyDashboardFilters(supabase, visibleProjectIdsFromScope, filters);
   const filteredVisibleProjectIds = uniqStrings(filtered.projectIds);
 
-  const activeAllowed = new Set(activeProjectIdsFromScope);
-  const filteredActiveProjectIds = filteredVisibleProjectIds.filter((id) =>
-    activeAllowed.has(id),
-  );
+  const active = await normalizeActiveIds(supabase, filteredVisibleProjectIds);
+  const filteredActiveProjectIds = uniqStrings(active.ids);
 
   const completeness: "full" | "partial" | "empty" =
     filteredVisibleProjectIds.length === 0
@@ -599,21 +637,20 @@ export async function loadDashboardSummaryData(
 
   if (!activeProjects.length && filteredActiveProjectIds.length) {
     const fallbackRows = await getProjectsByIds(supabase, filteredActiveProjectIds);
-    activeProjects = fallbackRows
-      .map((p: any) => ({
-        id: String(p.id),
-        title: safeStr(p.title).trim() || "Project",
-        client_name: safeStr(p.client_name).trim() || null,
-        project_code: p.project_code ?? null,
-        status: safeStr(p.status).trim() || null,
-        lifecycle_state: safeStr(p.lifecycle_state).trim() || null,
-        state: safeStr(p.state).trim() || null,
-        phase: safeStr(p.phase).trim() || null,
-        department: safeStr(p.department).trim() || null,
-        project_manager: safeStr(p.project_manager || p.pm_name).trim() || null,
-        project_manager_id: safeStr(p.project_manager_id || p.pm_user_id).trim() || null,
-        resource_status: safeStr(p.resource_status).trim() || null,
-      }));
+    activeProjects = fallbackRows.map((p: any) => ({
+      id: String(p.id),
+      title: safeStr(p.title).trim() || "Project",
+      client_name: safeStr(p.client_name).trim() || null,
+      project_code: p.project_code ?? null,
+      status: safeStr(p.status).trim() || null,
+      lifecycle_state: safeStr(p.lifecycle_state).trim() || null,
+      state: safeStr(p.state).trim() || null,
+      phase: safeStr(p.phase).trim() || null,
+      department: safeStr(p.department).trim() || null,
+      project_manager: safeStr(p.project_manager || p.pm_name).trim() || null,
+      project_manager_id: safeStr(p.project_manager_id || p.pm_user_id).trim() || null,
+      resource_status: safeStr(p.resource_status).trim() || null,
+    }));
   }
 
   activeProjects.sort((a, b) => {
@@ -784,7 +821,9 @@ export async function loadDashboardSummaryData(
       visibleProjectCount: visibleProjectIdsFromScope.length,
       filteredVisibleProjectCount: filteredVisibleProjectIds.length,
       filteredActiveProjectCount: filteredActiveProjectIds.length,
-      usedFallback: Boolean(scopeMeta?.usedFallback),
+      usedFallback: Boolean(scopeMeta?.usedFallback) || !active.ok,
+      activeFilterOk: active.ok,
+      activeFilterError: active.error,
     },
 
     activeProjects,

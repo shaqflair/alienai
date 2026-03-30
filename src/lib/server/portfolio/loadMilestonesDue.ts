@@ -1,6 +1,7 @@
 ﻿import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
+import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export type PortfolioMilestonesFilters = {
@@ -82,12 +83,12 @@ function num(x: any, fallback = 0) {
 }
 
 function hasAnyFilters(f: PortfolioMilestonesFilters) {
-  return (
+  return Boolean(
     (f.projectId && f.projectId.length) ||
-    (f.projectName && f.projectName.length) ||
-    (f.projectCode && f.projectCode.length) ||
-    (f.projectManagerId && f.projectManagerId.length) ||
-    (f.department && f.department.length)
+      (f.projectName && f.projectName.length) ||
+      (f.projectCode && f.projectCode.length) ||
+      (f.projectManagerId && f.projectManagerId.length) ||
+      (f.department && f.department.length),
   );
 }
 
@@ -234,6 +235,43 @@ async function applyProjectFilters(
   return { projectIds: outIds, meta };
 }
 
+async function normalizeActiveIds(supabase: any, visibleProjectIds: string[]) {
+  const failOpen = (reason: string) => ({
+    ids: visibleProjectIds,
+    ok: false,
+    error: reason,
+  });
+
+  if (!visibleProjectIds.length) {
+    return { ids: [], ok: true, error: null as string | null };
+  }
+
+  try {
+    const r: any = await filterActiveProjectIds(supabase, visibleProjectIds);
+
+    if (Array.isArray(r)) {
+      const ids = r.filter(Boolean);
+      if (!ids.length && visibleProjectIds.length) {
+        return failOpen("active filter returned 0 ids; failing open");
+      }
+      return { ids, ok: true, error: null as string | null };
+    }
+
+    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
+    if (!ids.length && visibleProjectIds.length) {
+      return failOpen("active filter returned 0 ids; failing open");
+    }
+
+    return {
+      ids,
+      ok: !r?.error,
+      error: r?.error ? safeStr(r.error?.message || r.error) : null,
+    };
+  } catch (e: any) {
+    return failOpen(safeStr(e?.message || e || "active filter failed"));
+  }
+}
+
 async function computeCount(
   supabase: any,
   projectIds: string[],
@@ -274,17 +312,14 @@ export async function loadMilestonesDue(input: {
 
   const explicitProjectIds = uniqStrings(filters.projectId);
 
-  const rawProjectIds = uniqStrings(
-    Array.isArray(scope.rawProjectIds) ? scope.rawProjectIds : [],
-  );
-
+  // Canonical visible scope should always prefer scope.projectIds.
   const visibleProjectIdsFromScope = explicitProjectIds.length
     ? explicitProjectIds
     : uniqStrings(Array.isArray(scope.projectIds) ? scope.projectIds : []);
 
-  const activeProjectIdsFromScope = explicitProjectIds.length
-    ? explicitProjectIds
-    : uniqStrings(Array.isArray(scope.activeProjectIds) ? scope.activeProjectIds : []);
+  const rawProjectIds = uniqStrings(
+    Array.isArray(scope.rawProjectIds) ? scope.rawProjectIds : [],
+  );
 
   const filteredVisible = await applyProjectFilters(
     supabase,
@@ -293,10 +328,8 @@ export async function loadMilestonesDue(input: {
   );
   const filteredVisibleProjectIds = uniqStrings(filteredVisible.projectIds);
 
-  const activeAllowed = new Set(activeProjectIdsFromScope);
-  const filteredActiveProjectIds = filteredVisibleProjectIds.filter((id) =>
-    activeAllowed.has(id),
-  );
+  const active = await normalizeActiveIds(supabase, filteredVisibleProjectIds);
+  const filteredActiveProjectIds = uniqStrings(active.ids);
 
   const completeness: "full" | "partial" | "empty" =
     filteredVisibleProjectIds.length === 0
@@ -316,7 +349,7 @@ export async function loadMilestonesDue(input: {
           ...scopeMeta,
           rawProjectCount: rawProjectIds.length,
           visibleProjectCount: visibleProjectIdsFromScope.length,
-          activeProjectCount: activeProjectIdsFromScope.length,
+          activeProjectCount: 0,
           filteredVisibleProjectCount: 0,
           filteredActiveProjectCount: 0,
           explicitProjectIds,
@@ -324,6 +357,8 @@ export async function loadMilestonesDue(input: {
             ? "explicit-project-filter"
             : (scopeMeta?.source ?? "unknown"),
           completeness,
+          active_filter_ok: active.ok,
+          active_filter_error: active.error,
         },
         filters: filteredVisible.meta,
         projectCount: 0,
@@ -342,7 +377,7 @@ export async function loadMilestonesDue(input: {
           ...scopeMeta,
           rawProjectCount: rawProjectIds.length,
           visibleProjectCount: visibleProjectIdsFromScope.length,
-          activeProjectCount: activeProjectIdsFromScope.length,
+          activeProjectCount: filteredActiveProjectIds.length,
           filteredVisibleProjectCount: filteredVisibleProjectIds.length,
           filteredActiveProjectCount: 0,
           explicitProjectIds,
@@ -350,6 +385,8 @@ export async function loadMilestonesDue(input: {
             ? "explicit-project-filter"
             : (scopeMeta?.source ?? "unknown"),
           completeness,
+          active_filter_ok: active.ok,
+          active_filter_error: active.error,
         },
         filters: {
           ...filteredVisible.meta,
@@ -378,7 +415,7 @@ export async function loadMilestonesDue(input: {
         ...scopeMeta,
         rawProjectCount: rawProjectIds.length,
         visibleProjectCount: visibleProjectIdsFromScope.length,
-        activeProjectCount: activeProjectIdsFromScope.length,
+        activeProjectCount: filteredActiveProjectIds.length,
         filteredVisibleProjectCount: filteredVisibleProjectIds.length,
         filteredActiveProjectCount: filteredActiveProjectIds.length,
         explicitProjectIds,
@@ -386,6 +423,8 @@ export async function loadMilestonesDue(input: {
           ? "explicit-project-filter"
           : (scopeMeta?.source ?? "unknown"),
         completeness,
+        active_filter_ok: active.ok,
+        active_filter_error: active.error,
       },
       filters: filteredVisible.meta,
       projectCount: filteredActiveProjectIds.length,

@@ -1,6 +1,7 @@
 ﻿import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
+import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export type PortfolioRaidFilters = {
@@ -157,12 +158,12 @@ function looksMissingColumn(err: any) {
 }
 
 function hasAnyFilters(f: PortfolioRaidFilters) {
-  return (
+  return Boolean(
     (f.projectId && f.projectId.length) ||
-    (f.projectName && f.projectName.length) ||
-    (f.projectCode && f.projectCode.length) ||
-    (f.projectManagerId && f.projectManagerId.length) ||
-    (f.department && f.department.length)
+      (f.projectName && f.projectName.length) ||
+      (f.projectCode && f.projectCode.length) ||
+      (f.projectManagerId && f.projectManagerId.length) ||
+      (f.department && f.department.length),
   );
 }
 
@@ -309,6 +310,43 @@ async function applyProjectFilters(
   return { projectIds: outIds, meta };
 }
 
+async function normalizeActiveIds(supabase: any, visibleProjectIds: string[]) {
+  const failOpen = (reason: string) => ({
+    ids: visibleProjectIds,
+    ok: false,
+    error: reason,
+  });
+
+  if (!visibleProjectIds.length) {
+    return { ids: [], ok: true, error: null as string | null };
+  }
+
+  try {
+    const r: any = await filterActiveProjectIds(supabase, visibleProjectIds);
+
+    if (Array.isArray(r)) {
+      const ids = r.filter(Boolean);
+      if (!ids.length && visibleProjectIds.length) {
+        return failOpen("active filter returned 0 ids; failing open");
+      }
+      return { ids, ok: true, error: null as string | null };
+    }
+
+    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
+    if (!ids.length && visibleProjectIds.length) {
+      return failOpen("active filter returned 0 ids; failing open");
+    }
+
+    return {
+      ids,
+      ok: !r?.error,
+      error: r?.error ? safeStr(r.error?.message || r.error) : null,
+    };
+  } catch (e: any) {
+    return failOpen(safeStr(e?.message || e || "active filter failed"));
+  }
+}
+
 type TypedCounts = {
   risk_due: number;
   issue_due: number;
@@ -324,22 +362,34 @@ async function computeTypedCounts(opts: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   projectIds: string[];
   days: number;
-  openStatuses: string[];
 }): Promise<TypedCounts> {
-  const { supabase, projectIds, days, openStatuses } = opts;
-  const types = ["Risk", "Issue", "Dependency", "Assumption"] as const;
+  const { supabase, projectIds, days } = opts;
 
   const todayISO = new Date().toISOString().slice(0, 10);
   const end = new Date();
   end.setDate(end.getDate() + days);
   const endISO = end.toISOString().slice(0, 10);
 
-  const countFor = async (type: (typeof types)[number], mode: "due" | "overdue") => {
+  const baseOpenStatusVariants = [
+    "Open",
+    "In Progress",
+    "open",
+    "in progress",
+    "in_progress",
+    "OPEN",
+    "IN PROGRESS",
+  ];
+
+  const countFor = async (
+    type: "Risk" | "Issue" | "Dependency" | "Assumption",
+    mode: "due" | "overdue",
+  ) => {
+    // Try exact status variants first.
     let q = supabase
       .from("raid_items")
       .select("id", { count: "exact", head: true })
       .in("project_id", projectIds)
-      .in("status", openStatuses)
+      .in("status", baseOpenStatusVariants)
       .not("due_date", "is", null)
       .eq("type", type);
 
@@ -348,8 +398,24 @@ async function computeTypedCounts(opts: {
         ? q.gte("due_date", todayISO).lte("due_date", endISO)
         : q.lt("due_date", todayISO);
 
-    const r = await q;
-    return Number(r.count ?? 0);
+    const exactRes = await q;
+    if (!exactRes.error) return Number(exactRes.count ?? 0);
+
+    // Fallback: no status filter if schema/data shape differs.
+    let fallbackQ = supabase
+      .from("raid_items")
+      .select("id", { count: "exact", head: true })
+      .in("project_id", projectIds)
+      .not("due_date", "is", null)
+      .eq("type", type);
+
+    fallbackQ =
+      mode === "due"
+        ? fallbackQ.gte("due_date", todayISO).lte("due_date", endISO)
+        : fallbackQ.lt("due_date", todayISO);
+
+    const fallbackRes = await fallbackQ;
+    return Number(fallbackRes.count ?? 0);
   };
 
   const results = await Promise.all([
@@ -395,13 +461,10 @@ export async function loadRaidPanel(input: {
     Array.isArray(sharedScope.rawProjectIds) ? sharedScope.rawProjectIds : [],
   );
 
+  // Canonical visible scope should prefer projectIds.
   const visibleProjectIdsFromScope = explicitProjectIds.length
     ? explicitProjectIds
     : uniqStrings(Array.isArray(sharedScope.projectIds) ? sharedScope.projectIds : []);
-
-  const activeProjectIdsFromScope = explicitProjectIds.length
-    ? explicitProjectIds
-    : uniqStrings(Array.isArray(sharedScope.activeProjectIds) ? sharedScope.activeProjectIds : []);
 
   const filteredVisible = await applyProjectFilters(
     supabase,
@@ -410,10 +473,8 @@ export async function loadRaidPanel(input: {
   );
   const filteredVisibleProjectIds = uniqStrings(filteredVisible.projectIds);
 
-  const activeAllowed = new Set(activeProjectIdsFromScope);
-  const filteredActiveProjectIds = filteredVisibleProjectIds.filter((id) =>
-    activeAllowed.has(id),
-  );
+  const active = await normalizeActiveIds(supabase, filteredVisibleProjectIds);
+  const filteredActiveProjectIds = uniqStrings(active.ids);
 
   const completeness: "full" | "partial" | "empty" =
     filteredVisibleProjectIds.length === 0
@@ -434,7 +495,7 @@ export async function loadRaidPanel(input: {
           ...scopeMeta,
           rawProjectCount: rawProjectIds.length,
           visibleProjectCount: visibleProjectIdsFromScope.length,
-          activeProjectCount: activeProjectIdsFromScope.length,
+          activeProjectCount: 0,
           filteredVisibleProjectCount: 0,
           filteredActiveProjectCount: 0,
           explicitProjectIds,
@@ -442,6 +503,8 @@ export async function loadRaidPanel(input: {
             ? "explicit-project-filter"
             : (scopeMeta?.source ?? "unknown"),
           completeness,
+          active_filter_ok: active.ok,
+          active_filter_error: active.error,
         },
         filters: filteredVisible.meta,
       },
@@ -460,7 +523,7 @@ export async function loadRaidPanel(input: {
           ...scopeMeta,
           rawProjectCount: rawProjectIds.length,
           visibleProjectCount: visibleProjectIdsFromScope.length,
-          activeProjectCount: activeProjectIdsFromScope.length,
+          activeProjectCount: 0,
           filteredVisibleProjectCount: filteredVisibleProjectIds.length,
           filteredActiveProjectCount: 0,
           explicitProjectIds,
@@ -468,6 +531,8 @@ export async function loadRaidPanel(input: {
             ? "explicit-project-filter"
             : (scopeMeta?.source ?? "unknown"),
           completeness,
+          active_filter_ok: active.ok,
+          active_filter_error: active.error,
         },
         filters: {
           ...filteredVisible.meta,
@@ -480,8 +545,6 @@ export async function loadRaidPanel(input: {
     };
   }
 
-  const openStatuses = ["Open", "In Progress"];
-
   const { data: panelData, error: panelErr } = await supabase.rpc("get_portfolio_raid_panel", {
     p_project_ids: filteredActiveProjectIds,
     p_days: days,
@@ -493,7 +556,6 @@ export async function loadRaidPanel(input: {
       supabase,
       projectIds: filteredActiveProjectIds,
       days,
-      openStatuses,
     });
   } catch {
     typed = {
@@ -541,7 +603,7 @@ export async function loadRaidPanel(input: {
           ...scopeMeta,
           rawProjectCount: rawProjectIds.length,
           visibleProjectCount: visibleProjectIdsFromScope.length,
-          activeProjectCount: activeProjectIdsFromScope.length,
+          activeProjectCount: filteredActiveProjectIds.length,
           filteredVisibleProjectCount: filteredVisibleProjectIds.length,
           filteredActiveProjectCount: filteredActiveProjectIds.length,
           explicitProjectIds,
@@ -549,6 +611,8 @@ export async function loadRaidPanel(input: {
             ? "explicit-project-filter"
             : (scopeMeta?.source ?? "unknown"),
           completeness,
+          active_filter_ok: active.ok,
+          active_filter_error: active.error,
         },
         filters: filteredVisible.meta,
       },
@@ -597,7 +661,7 @@ export async function loadRaidPanel(input: {
         ...scopeMeta,
         rawProjectCount: rawProjectIds.length,
         visibleProjectCount: visibleProjectIdsFromScope.length,
-        activeProjectCount: activeProjectIdsFromScope.length,
+        activeProjectCount: filteredActiveProjectIds.length,
         filteredVisibleProjectCount: filteredVisibleProjectIds.length,
         filteredActiveProjectCount: filteredActiveProjectIds.length,
         explicitProjectIds,
@@ -605,6 +669,8 @@ export async function loadRaidPanel(input: {
           ? "explicit-project-filter"
           : (scopeMeta?.source ?? "unknown"),
         completeness,
+        active_filter_ok: active.ok,
+        active_filter_error: active.error,
       },
       filters: filteredVisible.meta,
     },

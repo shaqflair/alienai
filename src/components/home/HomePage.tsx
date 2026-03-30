@@ -1900,8 +1900,9 @@ export default function HomePage({
           const nextPh = j.portfolioHealth ?? null;
           const nextInsights = orderBriefingInsights(Array.isArray(j.insights) ? j.insights : []);
           const nextFp = j.financialPlan ?? null;
-          const nextDueItems = normalizeDueItemsFromEvent(j.due ?? null);
-          const nextRaid = normalizeRaidPanel(j.raidPanel, numericWindowDays);
+         const nextDueItems = normalizeDueItemsFromEvent(j.due ?? null).filter(
+  (x) => safeStr(x?.itemType).toLowerCase() === "milestone",
+);          const nextRaid = normalizeRaidPanel(j.raidPanel, numericWindowDays);
           const nextWeeks = normalizeWeeks(j.resourceActivity);
           const nextWins = normalizeWins(j.recentWins);
           const nextMilestones = normalizeMilestonesDueCount(j.milestonesDue);
@@ -2171,9 +2172,13 @@ export default function HomePage({
     return num(raidPanel.due_total);
   }, [raidPanel]);
 
-  const openRisksValue = raidPanel ? raidDueTotal : null;
-  const raidHighSeverity = num(raidPanel?.risk_hi) + num(raidPanel?.issue_hi);
+  const openRisksValue = raidPanel ? num(raidPanel?.risk_due) : null;
+const openIssuesValue = raidPanel ? num(raidPanel?.issue_due) : 0;
+const raidHighSeverity = num(raidPanel?.risk_hi);
 
+const raidCardSub = raidPanel
+  ? `${openIssuesValue} issues due · ${raidHighSeverity} high-risk`
+  : "risk items due";
   const fpHasData = fpSummary?.ok === true;
   const fpPortfolioPre = fpHasData ? (fpSummary as any).portfolio : null;
   const fpVariancePct = fpHasData
@@ -2490,10 +2495,10 @@ export default function HomePage({
               onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))}
             />
             <KpiCard
-              label="Open Risks"
-              value={openRisksValue == null ? "..." : `${openRisksValue}`}
-              sub="high priority"
-              icon={<AlertTriangle className="h-5 w-5" />}
+  label="Open Risks"
+  value={openRisksValue == null ? "..." : `${openRisksValue}`}
+  sub={raidCardSub}
+                icon={<AlertTriangle className="h-5 w-5" />}
               colorKey="amber"
               trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity}` : undefined}
               onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))}
