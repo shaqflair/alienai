@@ -1,4 +1,4 @@
-import "server-only";
+ï»¿import "server-only";
 
 import { NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -563,7 +563,7 @@ export function zeroScheduleIntelligence(days: 7 | 14 | 30 | 60): ScheduleIntell
       atRiskCount: 0,
     },
     insight: {
-      summary: "No active projects in scope — schedule visibility unavailable.",
+      summary: "No active projects in scope ï¿½ schedule visibility unavailable.",
       tone: "neutral",
     },
     meta: {
@@ -738,13 +738,13 @@ function normalizeScheduleIntelligencePayload(
   let summary = safeStr(src?.insight?.summary).trim();
   if (!summary) {
     if (!hasAny) {
-      summary = "No milestones defined — schedule visibility limited.";
+      summary = "No milestones defined ï¿½ schedule visibility limited.";
     } else if (overdueCount > 0) {
-      summary = `${overdueCount} milestone(s) overdue — schedule risk detected.`;
+      summary = `${overdueCount} milestone(s) overdue ï¿½ schedule risk detected.`;
     } else if (dueSoon.length === 0 && nextMilestone) {
-      summary = `No milestones due in the next ${windowDays} days — next milestone scheduled ahead.`;
+      summary = `No milestones due in the next ${windowDays} days ï¿½ next milestone scheduled ahead.`;
     } else if (dueSoon.length === 0) {
-      summary = `No milestones due in the next ${windowDays} days — schedule on track.`;
+      summary = `No milestones due in the next ${windowDays} days ï¿½ schedule on track.`;
     } else {
       summary = `${dueSoon.length} milestone(s) due in the next ${windowDays} days.`;
     }
