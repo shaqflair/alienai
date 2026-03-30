@@ -699,12 +699,11 @@ export default function ChangeBoardDnd({
     setLoading(true); setErr("");
     try {
       const j = await apiJson(`/api/change/${encodeURIComponent(projectUuid)}?shape=lanes`, { cache: "no-store" });
-      const lanes = (j as any)?.lanes as LanesResponse | undefined;
-      const list = Array.isArray((j as any)?.items) ? ((j as any).items as ChangeItem[]) : [];
-      const flattened = lanes && typeof lanes === "object"
-        ? LANES.flatMap((l) => (Array.isArray((lanes as any)[l]) ? (lanes as any)[l] : []))
-        : list;
-      setItems(dedupeKeepLatest(flattened).sort(sortForBoard));
+const lanes = (j as any)?.lanes as LanesResponse | undefined;
+const list = Array.isArray((j as any)?.items) ? ((j as any).items as ChangeItem[]) : [];
+const flattened = lanes && typeof lanes === "object"
+  ? LANES.flatMap((l) => (Array.isArray((lanes as any)[l]) ? (lanes as any)[l] : []))
+  : list;      setItems(dedupeKeepLatest(flattened).sort(sortForBoard));
     } catch (e: any) {
       setItems([]); setErr(safeStr(e?.message) || "Failed to load changes");
     } finally {
