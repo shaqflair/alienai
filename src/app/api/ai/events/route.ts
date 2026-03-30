@@ -6,6 +6,7 @@
 // ✅ Project-detail branches remain org-member/project-access controlled
 // ✅ project_events insert + trigger-engine wiring for governance suggestion generation
 // ✅ NEW: AI health logging (success / failure / slow / empty / invalid_json)
+// ✅ Due digest read-path extracted to shared server loader
 
 import "server-only";
 
@@ -14,8 +15,11 @@ import { createClient } from "@/utils/supabase/server";
 import { buildPmImpactAssessment, safeNum as safeNumAi } from "@/lib/ai/change-ai";
 import { processEventAndGenerateSuggestions } from "@/lib/ai/trigger-engine";
 import { logAiHealthEvent } from "@/lib/ai/health-logger";
-import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
-import { filterActiveProjectIds } from "@/lib/server/project-scope";
+import {
+  loadPortfolioDueDigest,
+  loadProjectDueDigest,
+  parseWindowDays,
+} from "@/lib/server/ai/loadDueDigest";
 import OpenAI from "openai";
 
 export const runtime = "nodejs";
@@ -27,7 +31,13 @@ export const revalidate = 0;
 const AI_HEALTH_ENDPOINT = "/api/ai/events";
 const AI_SLOW_RESPONSE_MS = 8000;
 
-type AiHealthSignal = "success" | "failure" | "timeout" | "empty_output" | "invalid_json" | "slow_response";
+type AiHealthSignal =
+  | "success"
+  | "failure"
+  | "timeout"
+  | "empty_output"
+  | "invalid_json"
+  | "slow_response";
 type AiHealthSeverity = "info" | "warning" | "critical";
 
 async function safeLogRouteHealth(args: {
@@ -133,11 +143,6 @@ function clampInt(n: any, min: number, max: number, fallback: number) {
   if (!Number.isFinite(v)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(v)));
 }
-function parseWindowDays(raw: any, fallback: number): number {
-  const s = safeStr(raw).trim().toLowerCase();
-  if (s === "all") return 60;
-  return clampInt(raw, 1, 90, fallback);
-}
 function safeJson(x: any): any {
   if (!x) return null;
   if (typeof x === "object") return x;
@@ -152,10 +157,6 @@ function startOfUtcDay(d: Date) {
 }
 function endOfUtcWindow(from: Date, windowDays: number) {
   return new Date(from.getTime() + windowDays * 24 * 60 * 60 * 1000);
-}
-function inWindow(d: Date, from: Date, to: Date) {
-  const t = d.getTime();
-  return t >= from.getTime() && t <= to.getTime();
 }
 function parseDueToUtcDate(value: any): Date | null {
   if (!value) return null;
@@ -185,10 +186,6 @@ function mergeBits(parts: Array<string | null | undefined>) {
     .filter(Boolean)
     .join("\n\n");
 }
-function normalizeProjectHumanId(projectCode: string | null | undefined, fallback: string) {
-  const v = safeStr(projectCode).trim();
-  return v || safeStr(fallback).trim();
-}
 function normalizeProjectIdentifier(input: string) {
   let v = safeStr(input).trim();
   try {
@@ -208,30 +205,8 @@ function isMissingColumnError(errMsg: string, col: string) {
     m.includes("unknown column")
   );
 }
-function normalizeArtifactLink(href: string | null | undefined) {
-  const raw = safeStr(href).trim();
-  if (!raw) return null;
-  const hashIdx = raw.indexOf("#");
-  const qIdx = raw.indexOf("?");
-  const cutIdx =
-    qIdx >= 0 && hashIdx >= 0 ? Math.min(qIdx, hashIdx) : qIdx >= 0 ? qIdx : hashIdx >= 0 ? hashIdx : -1;
-  const path = cutIdx >= 0 ? raw.slice(0, cutIdx) : raw;
-  const tail = cutIdx >= 0 ? raw.slice(cutIdx) : "";
-  const fixedPath = path
-    .replace(/\/RAID(\/|$)/g, "/raid$1")
-    .replace(/\/WBS(\/|$)/g, "/wbs$1")
-    .replace(/\/SCHEDULE(\/|$)/g, "/schedule$1")
-    .replace(/\/CHANGE(\/|$)/g, "/change$1")
-    .replace(/\/CHANGES(\/|$)/g, "/change$1")
-    .replace(/\/CHANGE_REQUESTS(\/|$)/g, "/change$1")
-    .replace(/\/ARTIFACTS(\/|$)/g, "/artifacts$1");
-  return `${fixedPath}${tail}`;
-}
 function isNumericLike(s: string) {
   return /^\d+$/.test(String(s || "").trim());
-}
-function uniqueStrings(values: Array<string | null | undefined>) {
-  return Array.from(new Set(values.map((x) => safeStr(x).trim()).filter(Boolean)));
 }
 
 /* ── event trigger helpers ─────────────────────────────────────────────── */
@@ -356,7 +331,11 @@ async function createProjectEventAndRunEngine(args: {
     payload: eventPayload,
   };
 
-  const { data, error } = await supabase.from("project_events").insert(insertRow).select("id").maybeSingle();
+  const { data, error } = await supabase
+    .from("project_events")
+    .insert(insertRow)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     throw new Error(error.message);
@@ -397,73 +376,6 @@ function isAuthError(e: any): boolean {
   );
 }
 
-/* ── canonical DueSoonItem shape ───────────────────────────────────────── */
-
-type DueSoonItem = {
-  type: "milestone" | "work_item" | "raid" | "change_request";
-  due_date: string;
-  title: string;
-  project_id: string;
-  project_code: string;
-  project_name?: string;
-  href: string;
-  status?: string;
-  owner_label?: string;
-  severity?: string;
-  rag?: "G" | "A" | "R";
-  source?: {
-    artifact_id?: string;
-    milestone_id?: string;
-    work_item_id?: string;
-    raid_item_id?: string;
-    change_request_id?: string;
-  };
-};
-
-function buildHref(input: {
-  type: DueSoonItem["type"];
-  projectUuid: string;
-  artifactId?: string | null;
-  milestoneId?: string | null;
-  workItemId?: string | null;
-  raidItemId?: string | null;
-  raidPublicId?: string | null;
-  changeRequestId?: string | null;
-}) {
-  const pid = safeStr(input.projectUuid).trim();
-
-  if (input.type === "work_item") {
-    const qs = new URLSearchParams();
-    qs.set("panel", "wbs");
-    if (input.artifactId) qs.set("artifactId", String(input.artifactId));
-    if (input.workItemId) qs.set("focus", String(input.workItemId));
-    return `/projects/${pid}/artifacts?${qs.toString()}`;
-  }
-
-  if (input.type === "milestone") {
-    const qs = new URLSearchParams();
-    qs.set("panel", "schedule");
-    if (input.artifactId) qs.set("artifactId", String(input.artifactId));
-    if (input.milestoneId) qs.set("milestone", String(input.milestoneId));
-    return `/projects/${pid}/artifacts?${qs.toString()}`;
-  }
-
-  if (input.type === "raid") {
-    const qs = new URLSearchParams();
-    if (input.raidItemId) qs.set("focus", String(input.raidItemId));
-    else if (input.raidPublicId) qs.set("focus", String(input.raidPublicId));
-    return qs.toString() ? `/projects/${pid}/raid?${qs.toString()}` : `/projects/${pid}/raid`;
-  }
-
-  const qs = new URLSearchParams();
-  if (input.artifactId) {
-    qs.set("artifactId", String(input.artifactId));
-    qs.set("panel", "change");
-  }
-  if (input.changeRequestId) qs.set("focus", String(input.changeRequestId));
-  return qs.toString() ? `/projects/${pid}/change?${qs.toString()}` : `/projects/${pid}/change`;
-}
-
 /* ── auth ──────────────────────────────────────────────────────────────── */
 
 async function requireAuth(supabase: any) {
@@ -500,77 +412,6 @@ async function requireProjectAccessViaOrg(supabase: any, projectUuid: string, us
   return { organisation_id: orgId, role: safeStr(mem.role).trim() || "member" };
 }
 
-/* ── shared org-wide portfolio scope loader ────────────────────────────── */
-
-type ScopedPortfolioProject = {
-  id: string;
-  title: string | null;
-  project_code: string | null;
-  created_at?: string | null;
-};
-
-function extractScopedProjectIds(scope: any): string[] {
-  const fromProjectIds = Array.isArray(scope?.projectIds) ? scope.projectIds : [];
-  const fromProjectIdsSnake = Array.isArray(scope?.project_ids) ? scope.project_ids : [];
-  const fromProjects = Array.isArray(scope?.projects)
-    ? scope.projects.map((x: any) => x?.id ?? x?.project_id)
-    : [];
-  const fromItems = Array.isArray(scope?.items)
-    ? scope.items.map((x: any) => x?.id ?? x?.project_id)
-    : [];
-
-  return uniqueStrings([...fromProjectIds, ...fromProjectIdsSnake, ...fromProjects, ...fromItems]);
-}
-
-async function loadScopedPortfolioProjects(
-  supabase: any,
-  userId: string
-): Promise<{
-  projects: ScopedPortfolioProject[];
-  scopedProjectIds: string[];
-  activeProjectIds: string[];
-}> {
-  const scope = await resolvePortfolioScope(supabase, userId);
-  const scopedProjectIds = extractScopedProjectIds(scope);
-
-  if (!scopedProjectIds.length) {
-    return { projects: [], scopedProjectIds: [], activeProjectIds: [] };
-  }
-
-  let activeProjectIds = scopedProjectIds;
-
-  try {
-    const filtered = await filterActiveProjectIds(supabase, scopedProjectIds);
-    const filteredIds = uniqueStrings(Array.isArray(filtered) ? filtered : []);
-    if (filteredIds.length > 0) {
-      activeProjectIds = filteredIds;
-    }
-  } catch {
-    activeProjectIds = scopedProjectIds;
-  }
-
-  const { data, error } = await supabase
-    .from("projects")
-    .select("id,title,project_code,created_at,deleted_at")
-    .in("id", activeProjectIds)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
-
-  if (error) throw new Error(error.message);
-
-  const rows = (Array.isArray(data) ? data : []) as any[];
-  const projects = rows
-    .map((row) => ({
-      id: safeStr(row?.id).trim(),
-      title: safeStr(row?.title).trim() || null,
-      project_code: safeStr(row?.project_code).trim() || null,
-      created_at: safeStr(row?.created_at).trim() || null,
-    }))
-    .filter((row) => row.id);
-
-  return { projects, scopedProjectIds, activeProjectIds };
-}
-
 /* ── project resolver ───────────────────────────────────────────────────── */
 
 const HUMAN_COL_CANDIDATES = [
@@ -591,10 +432,16 @@ async function resolveProjectUuid(supabase: any, identifier: string): Promise<st
   const id = normalizeProjectIdentifier(raw);
 
   for (const col of HUMAN_COL_CANDIDATES) {
-    const likelyNumeric = col === "project_code" || col === "human_id" || col === "project_human_id";
+    const likelyNumeric =
+      col === "project_code" || col === "human_id" || col === "project_human_id";
     if (likelyNumeric && !isNumericLike(id)) continue;
 
-    const { data, error } = await supabase.from("projects").select("id").eq(col as any, id).maybeSingle();
+    const { data, error } = await supabase
+      .from("projects")
+      .select("id")
+      .eq(col as any, id)
+      .maybeSingle();
+
     if (error) {
       if (isMissingColumnError(error.message, col)) continue;
       throw new Error(error.message);
@@ -603,7 +450,12 @@ async function resolveProjectUuid(supabase: any, identifier: string): Promise<st
   }
 
   for (const col of ["slug", "reference", "ref", "code"] as const) {
-    const { data, error } = await supabase.from("projects").select("id").eq(col as any, raw).maybeSingle();
+    const { data, error } = await supabase
+      .from("projects")
+      .select("id")
+      .eq(col as any, raw)
+      .maybeSingle();
+
     if (error) {
       if (isMissingColumnError(error.message, col)) continue;
       throw new Error(error.message);
@@ -719,7 +571,9 @@ function buildDraftAssistAi(input: any) {
     mergeBits([
       why ? `Driver / value: ${why}` : "",
       constraints ? `Governance / constraints: ${constraints}` : "",
-      bestTitle ? `Outcome: Deliver "${bestTitle}" with controlled risk and clear validation evidence.` : "",
+      bestTitle
+        ? `Outcome: Deliver "${bestTitle}" with controlled risk and clear validation evidence.`
+        : "",
     ]) ||
     "State why the change is required, business benefit, and risk of not proceeding.";
 
@@ -797,876 +651,6 @@ function buildDraftAssistAi(input: any) {
     implementation: bestImplementation,
     rollback: bestRollback,
     impact: { days: 1, cost: 0, risk: "Medium — validate in change window" },
-  };
-}
-
-/* ── due digest helpers ─────────────────────────────────────────────────── */
-
-type DueDigestItem = {
-  itemType: "artifact" | "milestone" | "work_item" | "raid" | "change";
-  title: string;
-  dueDate: string | null;
-  status?: string | null;
-  ownerLabel?: string | null;
-  ownerEmail?: string | null;
-  link?: string | null;
-  meta?: any;
-};
-
-function extractArtifactDueDate(row: any): Date | null {
-  const d1 = parseDueToUtcDate(row?.due_date);
-  if (d1) return d1;
-  const cj = safeJson(row?.content_json);
-  const d2 = parseDueToUtcDate(cj?.due_date ?? cj?.dueDate);
-  if (d2) return d2;
-  const d3 = parseDueToUtcDate(cj?.meta?.due_date ?? cj?.meta?.dueDate);
-  if (d3) return d3;
-  return null;
-}
-
-function attachProjectMeta(x: DueDigestItem, projectUuid: string, p: any): DueDigestItem {
-  return {
-    ...x,
-    meta: {
-      ...(x?.meta ?? {}),
-      project_id: projectUuid,
-      project_code: p.project_code ?? null,
-      project_name: p.project_name ?? null,
-      project_human_id: p.project_human_id ?? null,
-      project_manager_name: p.project_manager_name ?? null,
-      project_manager_email: p.project_manager_email ?? null,
-      project_manager_user_id: p.project_manager_user_id ?? null,
-    },
-  };
-}
-
-function toCanonicalDueSoonItem(x: DueDigestItem): DueSoonItem | null {
-  const m = x?.meta ?? {};
-  const project_id = safeStr(m?.project_id).trim();
-  if (!project_id) return null;
-
-  const project_code = normalizeProjectHumanId(m?.project_code ?? null, project_id);
-  const project_name = safeStr(m?.project_name).trim() || undefined;
-  const due_date = safeStr(x?.dueDate).trim();
-  if (!due_date) return null;
-
-  const title = safeStr(x?.title).trim() || "Due item";
-
-  if (x.itemType === "milestone") {
-    const milestone_id = safeStr(m?.milestoneId).trim() || undefined;
-    const artifact_id = safeStr(m?.sourceArtifactId).trim() || undefined;
-    return {
-      type: "milestone",
-      due_date,
-      title,
-      project_id,
-      project_code,
-      project_name,
-      href: buildHref({
-        type: "milestone",
-        projectUuid: project_id,
-        artifactId: artifact_id,
-        milestoneId: milestone_id,
-      }),
-      status: safeStr(x?.status).trim() || undefined,
-      source: { artifact_id, milestone_id },
-    };
-  }
-
-  if (x.itemType === "work_item") {
-    const work_item_id = safeStr(m?.workItemId).trim() || undefined;
-    const artifact_id = safeStr(m?.sourceArtifactId).trim() || undefined;
-    return {
-      type: "work_item",
-      due_date,
-      title,
-      project_id,
-      project_code,
-      project_name,
-      href: buildHref({
-        type: "work_item",
-        projectUuid: project_id,
-        artifactId: artifact_id,
-        workItemId: work_item_id,
-      }),
-      status: safeStr(x?.status).trim() || undefined,
-      owner_label: safeStr(x?.ownerLabel).trim() || undefined,
-      source: { artifact_id, work_item_id },
-    };
-  }
-
-  if (x.itemType === "raid") {
-    const raid_item_id = safeStr(m?.raidId ?? m?.raid_item_id).trim() || undefined;
-    const raidPublicId = safeStr(m?.publicId).trim() || undefined;
-    const ragRaw = safeStr(m?.rag).trim().toUpperCase();
-    const rag =
-      ragRaw === "G" || ragRaw === "A" || ragRaw === "R" ? (ragRaw as "G" | "A" | "R") : undefined;
-
-    return {
-      type: "raid",
-      due_date,
-      title,
-      project_id,
-      project_code,
-      project_name,
-      href: buildHref({
-        type: "raid",
-        projectUuid: project_id,
-        raidItemId: raid_item_id,
-        raidPublicId,
-      }),
-      status: safeStr(x?.status).trim() || undefined,
-      owner_label: safeStr(x?.ownerLabel).trim() || undefined,
-      severity: safeStr(m?.priority).trim() || safeStr(m?.severity).trim() || undefined,
-      rag,
-      source: { raid_item_id },
-    };
-  }
-
-  if (x.itemType === "change") {
-    const change_request_id = safeStr(m?.changeId ?? m?.change_request_id).trim() || undefined;
-    const artifact_id = safeStr(m?.sourceArtifactId).trim() || undefined;
-    return {
-      type: "change_request",
-      due_date,
-      title,
-      project_id,
-      project_code,
-      project_name,
-      href: buildHref({
-        type: "change_request",
-        projectUuid: project_id,
-        artifactId: artifact_id,
-        changeRequestId: change_request_id,
-      }),
-      status: safeStr(x?.status).trim() || "review",
-      owner_label: safeStr(x?.ownerLabel).trim() || undefined,
-      source: { artifact_id, change_request_id },
-    };
-  }
-
-  return null;
-}
-
-/* ── bulk PM loader ─────────────────────────────────────────────────────── */
-
-async function bulkLoadProjectManagers(supabase: any, projectIds: string[]) {
-  if (!projectIds.length) {
-    return new Map<string, { user_id: string | null; name: string | null; email: string | null }>();
-  }
-
-  const { data: mem } = await supabase
-    .from("project_members")
-    .select("project_id,user_id,role,created_at,removed_at")
-    .in("project_id", projectIds)
-    .is("removed_at", null)
-    .order("created_at", { ascending: true })
-    .limit(50000);
-
-  const rows = Array.isArray(mem) ? (mem as any[]) : [];
-  const byProject = new Map<string, any[]>();
-
-  for (const r of rows) {
-    const pid = safeStr(r?.project_id).trim();
-    if (!pid) continue;
-    const arr = byProject.get(pid) ?? [];
-    arr.push(r);
-    byProject.set(pid, arr);
-  }
-
-  const pmUserIds: string[] = [];
-  const pmUserByProject = new Map<string, string | null>();
-
-  for (const pid of projectIds) {
-    const arr = byProject.get(pid) ?? [];
-    const pick = (role: string) => arr.find((x: any) => safeLower(x?.role) === role && x?.user_id)?.user_id;
-    const pm = pick("project_manager") || pick("owner") || null;
-    const pmId = pm ? String(pm) : null;
-    pmUserByProject.set(pid, pmId);
-    if (pmId) pmUserIds.push(pmId);
-  }
-
-  const uniqUserIds = Array.from(new Set(pmUserIds));
-  const profByUser = new Map<string, { name: string | null; email: string | null }>();
-
-  if (uniqUserIds.length) {
-    const { data: profs } = await supabase
-      .from("profiles")
-      .select("user_id,full_name,email")
-      .in("user_id", uniqUserIds)
-      .limit(50000);
-
-    for (const p of Array.isArray(profs) ? (profs as any[]) : []) {
-      const uid = safeStr(p?.user_id).trim();
-      if (!uid) continue;
-      profByUser.set(uid, {
-        name: safeStr(p?.full_name).trim() || "Project Manager",
-        email: safeStr(p?.email).trim() || null,
-      });
-    }
-  }
-
-  const out = new Map<string, { user_id: string | null; name: string | null; email: string | null }>();
-  for (const pid of projectIds) {
-    const uid = pmUserByProject.get(pid) ?? null;
-    const prof = uid ? profByUser.get(uid) : null;
-    out.set(pid, {
-      user_id: uid,
-      name: prof?.name ?? (uid ? "Project Manager" : null),
-      email: prof?.email ?? null,
-    });
-  }
-
-  return out;
-}
-
-/* ── org-scope bulk due loader ──────────────────────────────────────────── */
-
-async function buildDueDigestOrgBulk(args: {
-  supabase: any;
-  projects: Array<{ id: string; title: string | null; project_code: any }>;
-  windowDays: number;
-}) {
-  const { supabase, projects, windowDays } = args;
-  const from = startOfUtcDay(new Date());
-  const to = endOfUtcWindow(from, windowDays);
-  const projectIds = projects.map((p) => String(p.id)).filter(Boolean);
-
-  const pmByProjectId = await bulkLoadProjectManagers(supabase, projectIds);
-  const projectById = new Map<string, any>();
-
-  for (const p of projects) {
-    const uuid = String(p.id);
-    const code = safeStr((p as any).project_code).trim() || null;
-    const name = safeStr((p as any).title).trim() || null;
-    const pm = pmByProjectId.get(uuid) || { user_id: null, name: null, email: null };
-
-    projectById.set(uuid, {
-      project_code: code,
-      project_name: name,
-      project_human_id: normalizeProjectHumanId(code, uuid),
-      project_manager_user_id: pm.user_id,
-      project_manager_name: pm.name,
-      project_manager_email: pm.email,
-    });
-  }
-
-  const [artRes, msRes, wResTry, raidRes, chRes] = await Promise.all([
-    supabase
-      .from("v_artifact_board")
-      .select(
-        "project_id,artifact_id,id,artifact_key,title,owner_email,due_date,phase,approval_status,status,updated_at,content_json,artifact_type,type,is_current"
-      )
-      .in("project_id", projectIds)
-      .order("updated_at", { ascending: false })
-      .limit(5000),
-
-    supabase
-      .from("schedule_milestones")
-      .select("id,project_id,milestone_name,start_date,end_date,status,progress_pct,critical_path_flag,source_artifact_id")
-      .in("project_id", projectIds)
-      .order("end_date", { ascending: true })
-      .limit(5000),
-
-    supabase
-      .from("work_items")
-      .select("id,project_id,title,type,stage,status,due_date,artifact_id,parent_id,milestone_id,created_at,updated_at")
-      .in("project_id", projectIds)
-      .not("due_date", "is", null)
-      .order("due_date", { ascending: true })
-      .limit(20000),
-
-    supabase
-      .from("raid_items")
-      .select("id,project_id,public_id,item_no,type,title,description,status,due_date,owner_label,ai_status,priority,source_artifact_id")
-      .in("project_id", projectIds)
-      .not("due_date", "is", null)
-      .order("due_date", { ascending: true })
-      .limit(20000),
-
-    supabase
-      .from("change_requests")
-      .select("id,project_id,title,seq,status,delivery_status,decision_status,updated_at,artifact_id,review_by")
-      .in("project_id", projectIds)
-      .order("updated_at", { ascending: false })
-      .limit(5000),
-  ]);
-
-  let raidRows: any[] = Array.isArray(raidRes.data) ? (raidRes.data as any[]) : [];
-  if (raidRes.error && isMissingColumnError(raidRes.error.message, "source_artifact_id")) {
-    const fb = await supabase
-      .from("raid_items")
-      .select("id,project_id,public_id,item_no,type,title,description,status,due_date,owner_label,ai_status,priority")
-      .in("project_id", projectIds)
-      .not("due_date", "is", null)
-      .order("due_date", { ascending: true })
-      .limit(20000);
-    raidRows = Array.isArray(fb.data) ? (fb.data as any[]) : [];
-  }
-
-  let workRows: any[] = Array.isArray(wResTry.data) ? (wResTry.data as any[]) : [];
-  if (wResTry.error) {
-    const msg = safeStr(wResTry.error.message).toLowerCase();
-    if (msg.includes("relation") && msg.includes("work_items") && msg.includes("does not exist")) {
-      const wbsFb = await supabase
-        .from("wbs_items")
-        .select("id,project_id,name,description,status,due_date,owner,source_artifact_id,sort_order,parent_id,updated_at")
-        .in("project_id", projectIds)
-        .not("due_date", "is", null)
-        .order("due_date", { ascending: true })
-        .limit(20000);
-      workRows = Array.isArray(wbsFb.data) ? (wbsFb.data as any[]) : [];
-    }
-  }
-
-  const artRows: any[] = Array.isArray(artRes.data) ? (artRes.data as any[]) : [];
-  const msRows: any[] = Array.isArray(msRes.data) ? (msRes.data as any[]) : [];
-  const chRows: any[] = Array.isArray(chRes.data) ? (chRes.data as any[]) : [];
-  const all: DueDigestItem[] = [];
-
-  for (const x of artRows) {
-    const projectUuid = safeStr(x?.project_id).trim();
-    const p = projectById.get(projectUuid);
-    if (!projectUuid || !p) continue;
-
-    const due = extractArtifactDueDate(x);
-    if (!due || !inWindow(due, from, to)) continue;
-
-    const artifactId = String(x?.artifact_id ?? x?.id ?? "").trim();
-    if (!artifactId) continue;
-
-    all.push(
-      attachProjectMeta(
-        {
-          itemType: "artifact",
-          title: safeStr(x?.title).trim() || safeStr(x?.artifact_key).trim() || "Artifact",
-          dueDate: due.toISOString(),
-          ownerEmail: safeStr(x?.owner_email).trim() || null,
-          status: safeStr(x?.approval_status ?? x?.status).trim() || null,
-          link: normalizeArtifactLink(`/projects/${projectUuid}/artifacts?artifactId=${encodeURIComponent(artifactId)}`),
-          meta: {
-            artifactId,
-            sourceArtifactId: artifactId,
-            artifactKey: safeStr(x?.artifact_key).trim() || null,
-            phase: x?.phase ?? null,
-            artifact_type: safeLower(x?.artifact_type ?? x?.type) || null,
-          },
-        },
-        projectUuid,
-        p
-      )
-    );
-  }
-
-  for (const m of msRows) {
-    const projectUuid = safeStr(m?.project_id).trim();
-    const p = projectById.get(projectUuid);
-    if (!projectUuid || !p) continue;
-
-    const due = parseDueToUtcDate(m?.end_date ?? m?.start_date);
-    if (!due || !inWindow(due, from, to)) continue;
-
-    all.push(
-      attachProjectMeta(
-        {
-          itemType: "milestone",
-          title: safeStr(m?.milestone_name).trim() || "Milestone",
-          dueDate: due.toISOString(),
-          status: safeStr(m?.status).trim() || null,
-          link: null,
-          meta: {
-            milestoneId: String(m?.id ?? "").trim(),
-            critical: !!m?.critical_path_flag,
-            progress: typeof m?.progress_pct === "number" ? m.progress_pct : null,
-            sourceArtifactId: safeStr(m?.source_artifact_id).trim() || null,
-          },
-        },
-        projectUuid,
-        p
-      )
-    );
-  }
-
-  for (const w of workRows) {
-    const projectUuid = safeStr(w?.project_id).trim();
-    const p = projectById.get(projectUuid);
-    if (!projectUuid || !p) continue;
-
-    const status = safeLower(w?.status);
-    if (status === "done" || status === "closed" || status === "completed") continue;
-
-    const due = parseDueToUtcDate(w?.due_date);
-    if (!due || !inWindow(due, from, to)) continue;
-
-    const id = String(w?.id ?? "").trim();
-    if (!id) continue;
-
-    const srcArtifactId = safeStr((w as any)?.artifact_id).trim() || safeStr((w as any)?.source_artifact_id).trim();
-
-    all.push(
-      attachProjectMeta(
-        {
-          itemType: "work_item",
-          title: safeStr((w as any)?.title).trim() || safeStr((w as any)?.name).trim() || "Work item",
-          dueDate: due.toISOString(),
-          status: safeStr((w as any)?.status).trim() || null,
-          ownerLabel: safeStr((w as any)?.owner).trim() || null,
-          link: null,
-          meta: {
-            workItemId: id,
-            parentId: safeStr((w as any)?.parent_id).trim() || null,
-            milestoneId: safeStr((w as any)?.milestone_id).trim() || null,
-            sourceArtifactId: srcArtifactId || null,
-            workType: safeStr((w as any)?.type).trim() || null,
-            stage: safeStr((w as any)?.stage).trim() || null,
-          },
-        },
-        projectUuid,
-        p
-      )
-    );
-  }
-
-  for (const r of raidRows) {
-    const projectUuid = safeStr(r?.project_id).trim();
-    const p = projectById.get(projectUuid);
-    if (!projectUuid || !p) continue;
-
-    const st = safeLower(r?.status);
-    if (st === "closed" || st === "invalid") continue;
-
-    const due = parseDueToUtcDate(r?.due_date);
-    if (!due || !inWindow(due, from, to)) continue;
-
-    all.push(
-      attachProjectMeta(
-        {
-          itemType: "raid",
-          title:
-            safeStr(r?.title).trim() ||
-            safeStr(r?.description).trim().slice(0, 100) ||
-            `${safeStr(r?.type).trim() || "RAID"} item`,
-          dueDate: due.toISOString(),
-          status: safeStr(r?.status).trim() || null,
-          ownerLabel: safeStr(r?.owner_label).trim() || null,
-          link: null,
-          meta: {
-            raidId: String(r?.id ?? ""),
-            publicId: safeStr(r?.public_id).trim() || null,
-            itemNo: r?.item_no ?? null,
-            raidType: safeStr(r?.type).trim() || null,
-            priority: safeStr(r?.priority).trim() || null,
-            aiStatus: safeStr(r?.ai_status).trim() || null,
-            sourceArtifactId: safeStr((r as any)?.source_artifact_id).trim() || null,
-          },
-        },
-        projectUuid,
-        p
-      )
-    );
-  }
-
-  const isInReview = (r: any) => {
-    const d = safeLower(r?.delivery_status);
-    const dc = safeLower(r?.decision_status);
-    return d === "review" || dc === "submitted";
-  };
-
-  for (const c of chRows.filter(isInReview)) {
-    const projectUuid = safeStr(c?.project_id).trim();
-    const p = projectById.get(projectUuid);
-    if (!projectUuid || !p) continue;
-
-    const due = parseDueToUtcDate(c?.review_by) || parseDueToUtcDate(c?.updated_at);
-    if (!due || !inWindow(due, from, to)) continue;
-
-    const changeId = String(c?.id ?? "").trim();
-    if (!changeId) continue;
-
-    all.push(
-      attachProjectMeta(
-        {
-          itemType: "change",
-          title: safeStr(c?.title).trim() || "Change request (review)",
-          dueDate: due.toISOString(),
-          status: safeStr(c?.decision_status ?? c?.delivery_status ?? c?.status ?? "review").trim() || "review",
-          link: null,
-          meta: {
-            changeId,
-            seq: c?.seq ?? null,
-            reviewBy: safeStr(c?.review_by).trim() || null,
-            delivery_status: safeLower(c?.delivery_status) || null,
-            decision_status: safeLower(c?.decision_status) || null,
-            sourceArtifactId: safeStr(c?.artifact_id).trim() || null,
-          },
-        },
-        projectUuid,
-        p
-      )
-    );
-  }
-
-  const dueSoonLegacy = all
-    .slice()
-    .sort((a: any, b: any) => {
-      const ad = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-      const bd = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-      if (ad !== bd) return ad - bd;
-      return safeStr(a.title).localeCompare(safeStr(b.title));
-    })
-    .slice(0, 500)
-    .map((x: any) => ({ ...x, link: normalizeArtifactLink(x.link) || null }));
-
-  const dueSoonCanonical: DueSoonItem[] = dueSoonLegacy
-    .map((x: DueDigestItem) => toCanonicalDueSoonItem(x))
-    .filter(Boolean) as DueSoonItem[];
-
-  const counts = dueSoonCanonical.reduce(
-    (acc: any, x: DueSoonItem) => {
-      acc.total++;
-      acc[x.type] = (acc[x.type] ?? 0) + 1;
-      return acc;
-    },
-    { total: 0, milestone: 0, work_item: 0, raid: 0, change_request: 0 }
-  );
-
-  return {
-    summary:
-      dueSoonCanonical.length > 0
-        ? `Found ${dueSoonCanonical.length} due item(s) in the next ${windowDays} days across ${projects.length} project(s).`
-        : `No due items found in the next ${windowDays} days.`,
-    windowDays,
-    counts,
-    dueSoon: dueSoonCanonical,
-    dueSoon_legacy: dueSoonLegacy,
-    recommendedMessage:
-      dueSoonCanonical.length > 0
-        ? "Review the due list and notify owners for items due soon."
-        : "No reminders needed.",
-    _rows: { msRows, workRows, raidRows, chRows, artRows },
-  };
-}
-
-/* ── stats from bulk rows ───────────────────────────────────────────────── */
-
-function buildDashboardStatsFromBulkRows(args: {
-  msRows: any[];
-  workRows: any[];
-  artRows: any[];
-  raidRows: any[];
-  chRows: any[];
-  projectIds: string[];
-}) {
-  const { msRows, workRows, artRows, raidRows, chRows, projectIds } = args;
-  const from = startOfUtcDay(new Date());
-  const to = endOfUtcWindow(from, 30);
-
-  const milestones_due_30d = msRows.filter((m: any) => {
-    const st = safeLower(m?.status);
-    if (st === "done" || st === "completed" || st === "closed") return false;
-    const d = parseDueToUtcDate(m?.end_date ?? m?.start_date);
-    return !!(d && inWindow(d, from, to));
-  }).length;
-
-  const wbs_done = workRows.filter((x: any) => {
-    const st = safeLower(x?.status);
-    return st === "done" || st === "completed" || st === "closed";
-  }).length;
-
-  const milestones_done = msRows.filter((m: any) => {
-    const st = safeLower(m?.status);
-    return st === "done" || st === "completed" || st === "closed";
-  }).length;
-
-  const raid_closed = raidRows.filter((r: any) => safeLower(r?.status) === "closed").length;
-
-  const changes_closed = chRows.filter((c: any) => {
-    const s = safeLower(c?.status);
-    const d = safeLower(c?.delivery_status);
-    return s === "closed" || s === "implemented" || d === "closed" || d === "implemented";
-  }).length;
-
-  const lessons_count = artRows.filter((a: any) => {
-    const t = safeLower(a?.artifact_type || a?.type);
-    return t === "lessons_learned" && (a?.is_current === true || a?.is_current == null);
-  }).length;
-
-  return {
-    projects: projectIds.length,
-    success: {
-      work_packages_completed: wbs_done,
-      milestones_done,
-      raid_closed,
-      changes_closed,
-      wbs_done,
-      lessons: lessons_count,
-    },
-    milestones_due_30d,
-  };
-}
-
-/* ── project-scoped due loaders ─────────────────────────────────────────── */
-
-async function loadDueMilestones(supabase: any, projectUuid: string, from: Date, to: Date): Promise<DueDigestItem[]> {
-  const { data, error } = await supabase
-    .from("schedule_milestones")
-    .select("id,milestone_name,start_date,end_date,status,progress_pct,critical_path_flag,source_artifact_id")
-    .eq("project_id", projectUuid)
-    .order("end_date", { ascending: true })
-    .limit(500);
-
-  if (error || !Array.isArray(data)) return [];
-
-  return (data as any[])
-    .map((m: any) => {
-      const due = parseDueToUtcDate(m?.end_date ?? m?.start_date);
-      if (!due || !inWindow(due, from, to)) return null;
-
-      return {
-        itemType: "milestone",
-        title: safeStr(m?.milestone_name).trim() || "Milestone",
-        dueDate: due.toISOString(),
-        status: safeStr(m?.status).trim() || null,
-        link: null,
-        meta: {
-          milestoneId: String(m?.id ?? "").trim(),
-          critical: !!m?.critical_path_flag,
-          progress: typeof m?.progress_pct === "number" ? m.progress_pct : null,
-          sourceArtifactId: safeStr(m?.source_artifact_id).trim() || null,
-        },
-      } as DueDigestItem;
-    })
-    .filter(Boolean) as DueDigestItem[];
-}
-
-async function loadDueWorkItems(supabase: any, projectUuid: string, from: Date, to: Date): Promise<DueDigestItem[]> {
-  const tryWork = await supabase
-    .from("work_items")
-    .select("id,title,type,stage,status,due_date,artifact_id,parent_id,milestone_id")
-    .eq("project_id", projectUuid)
-    .not("due_date", "is", null)
-    .order("due_date", { ascending: true })
-    .limit(1000);
-
-  let rows: any[] = Array.isArray(tryWork.data) ? tryWork.data : [];
-  let usedLegacy = false;
-
-  if (tryWork.error) {
-    const msg = safeStr(tryWork.error.message).toLowerCase();
-    if (msg.includes("relation") && msg.includes("work_items") && msg.includes("does not exist")) {
-      usedLegacy = true;
-      const fb = await supabase
-        .from("wbs_items")
-        .select("id,name,description,status,due_date,owner,source_artifact_id,sort_order,parent_id")
-        .eq("project_id", projectUuid)
-        .not("due_date", "is", null)
-        .order("due_date", { ascending: true })
-        .limit(1000);
-      rows = Array.isArray(fb.data) ? fb.data : [];
-    } else {
-      return [];
-    }
-  }
-
-  return rows
-    .map((w: any) => {
-      const st = safeLower(w?.status);
-      if (st === "done" || st === "closed" || st === "completed") return null;
-
-      const due = parseDueToUtcDate(w?.due_date);
-      if (!due || !inWindow(due, from, to)) return null;
-
-      const id = String(w?.id ?? "").trim();
-      if (!id) return null;
-
-      const srcArtifactId = usedLegacy ? safeStr(w?.source_artifact_id).trim() : safeStr(w?.artifact_id).trim();
-
-      return {
-        itemType: "work_item",
-        title: usedLegacy ? safeStr(w?.name).trim() || "WBS item" : safeStr(w?.title).trim() || "Work item",
-        dueDate: due.toISOString(),
-        status: safeStr(w?.status).trim() || null,
-        ownerLabel: usedLegacy ? safeStr(w?.owner).trim() || null : null,
-        link: null,
-        meta: {
-          workItemId: id,
-          parentId: safeStr(w?.parent_id).trim() || null,
-          milestoneId: safeStr(w?.milestone_id).trim() || null,
-          sourceArtifactId: srcArtifactId || null,
-          workType: safeStr(w?.type).trim() || null,
-          stage: safeStr(w?.stage).trim() || null,
-          legacy: usedLegacy ? true : undefined,
-        },
-      } as DueDigestItem;
-    })
-    .filter(Boolean) as DueDigestItem[];
-}
-
-async function loadDueRaidItems(supabase: any, projectUuid: string, from: Date, to: Date): Promise<DueDigestItem[]> {
-  const { data, error } = await supabase
-    .from("raid_items")
-    .select("id,public_id,item_no,type,title,description,status,due_date,owner_label,ai_status,priority,source_artifact_id")
-    .eq("project_id", projectUuid)
-    .not("due_date", "is", null)
-    .order("due_date", { ascending: true })
-    .limit(500);
-
-  let rows = data as any[] | null;
-
-  if (error) {
-    const fb = await supabase
-      .from("raid_items")
-      .select("id,public_id,item_no,type,title,description,status,due_date,owner_label,ai_status,priority")
-      .eq("project_id", projectUuid)
-      .not("due_date", "is", null)
-      .order("due_date", { ascending: true })
-      .limit(500);
-    if (fb.error || !Array.isArray(fb.data)) return [];
-    rows = fb.data as any[];
-  }
-
-  if (!Array.isArray(rows)) return [];
-
-  return rows
-    .map((r: any) => {
-      const st = safeLower(r?.status);
-      if (st === "closed" || st === "invalid") return null;
-
-      const due = parseDueToUtcDate(r?.due_date);
-      if (!due || !inWindow(due, from, to)) return null;
-
-      return {
-        itemType: "raid",
-        title:
-          safeStr(r?.title).trim() ||
-          safeStr(r?.description).trim().slice(0, 100) ||
-          `${safeStr(r?.type).trim() || "RAID"} item`,
-        dueDate: due.toISOString(),
-        status: safeStr(r?.status).trim() || null,
-        ownerLabel: safeStr(r?.owner_label).trim() || null,
-        link: null,
-        meta: {
-          raidId: String(r?.id ?? ""),
-          publicId: safeStr(r?.public_id).trim() || null,
-          itemNo: r?.item_no ?? null,
-          raidType: safeStr(r?.type).trim() || null,
-          priority: safeStr(r?.priority).trim() || null,
-          aiStatus: safeStr(r?.ai_status).trim() || null,
-          sourceArtifactId: safeStr((r as any)?.source_artifact_id).trim() || null,
-        },
-      } as DueDigestItem;
-    })
-    .filter(Boolean) as DueDigestItem[];
-}
-
-async function loadChangesInReview(supabase: any, projectUuid: string, from: Date, to: Date): Promise<DueDigestItem[]> {
-  const { data, error } = await supabase
-    .from("change_requests")
-    .select("id,title,seq,status,delivery_status,decision_status,updated_at,artifact_id,review_by")
-    .eq("project_id", projectUuid)
-    .order("updated_at", { ascending: false })
-    .limit(500);
-
-  if (error || !Array.isArray(data)) return [];
-
-  const isInReview = (r: any) => {
-    const d = safeLower(r?.delivery_status);
-    const dc = safeLower(r?.decision_status);
-    return d === "review" || dc === "submitted";
-  };
-
-  return (data as any[])
-    .filter(isInReview)
-    .map((c: any) => {
-      const due = parseDueToUtcDate(c?.review_by) || parseDueToUtcDate(c?.updated_at);
-      if (!due || !inWindow(due, from, to)) return null;
-
-      const changeId = String(c?.id ?? "").trim();
-      if (!changeId) return null;
-
-      return {
-        itemType: "change",
-        title: safeStr(c?.title).trim() || "Change request (review)",
-        dueDate: due.toISOString(),
-        status: safeStr(c?.decision_status ?? c?.delivery_status ?? c?.status ?? "review").trim() || "review",
-        link: null,
-        meta: {
-          changeId,
-          seq: c?.seq ?? null,
-          reviewBy: safeStr(c?.review_by).trim() || null,
-          delivery_status: safeLower(c?.delivery_status) || null,
-          decision_status: safeLower(c?.decision_status) || null,
-          sourceArtifactId: safeStr(c?.artifact_id).trim() || null,
-        },
-      } as DueDigestItem;
-    })
-    .filter(Boolean) as DueDigestItem[];
-}
-
-async function buildDueDigestAi(supabase: any, projectUuid: string, meta: ProjectMeta, windowDays: number) {
-  const from = startOfUtcDay(new Date());
-  const to = endOfUtcWindow(from, windowDays);
-
-  const [milestones, workItems, raidItems, changesInReview] = await Promise.all([
-    loadDueMilestones(supabase, projectUuid, from, to),
-    loadDueWorkItems(supabase, projectUuid, from, to),
-    loadDueRaidItems(supabase, projectUuid, from, to),
-    loadChangesInReview(supabase, projectUuid, from, to),
-  ]);
-
-  const enrich = (x: DueDigestItem) =>
-    attachProjectMeta(x, projectUuid, {
-      project_code: meta.project_code,
-      project_name: meta.project_name,
-      project_human_id: meta.project_human_id,
-      project_manager_email: meta.project_manager_email,
-      project_manager_name: meta.project_manager_name,
-      project_manager_user_id: meta.project_manager_user_id,
-    });
-
-  const all: DueDigestItem[] = [
-    ...milestones.map(enrich),
-    ...workItems.map(enrich),
-    ...raidItems.map(enrich),
-    ...changesInReview.map(enrich),
-  ];
-
-  const dueSoonLegacy = all
-    .slice()
-    .sort((a, b) => {
-      const ad = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-      const bd = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-      return ad !== bd ? ad - bd : safeStr(a.title).localeCompare(safeStr(b.title));
-    })
-    .slice(0, 500)
-    .map((x) => ({ ...x, link: normalizeArtifactLink(x.link) || null }));
-
-  const dueSoonCanonical: DueSoonItem[] = dueSoonLegacy
-    .map((x) => toCanonicalDueSoonItem(x))
-    .filter(Boolean) as DueSoonItem[];
-
-  const counts = dueSoonCanonical.reduce(
-    (acc: any, x: DueSoonItem) => {
-      acc.total++;
-      acc[x.type] = (acc[x.type] ?? 0) + 1;
-      return acc;
-    },
-    { total: 0, milestone: 0, work_item: 0, raid: 0, change_request: 0 }
-  );
-
-  return {
-    summary:
-      dueSoonCanonical.length > 0
-        ? `Found ${dueSoonCanonical.length} due item(s) in the next ${windowDays} days.`
-        : `No due items found in the next ${windowDays} days.`,
-    windowDays,
-    counts,
-    dueSoon: dueSoonCanonical,
-    dueSoon_legacy: dueSoonLegacy,
-    recommendedMessage:
-      dueSoonCanonical.length > 0
-        ? "Review the due list and notify owners for items due soon."
-        : "No reminders needed.",
   };
 }
 
@@ -1781,118 +765,56 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const windowDays = parseWindowDays(url.searchParams.get("windowDays"), 14);
 
-    const scoped = await loadScopedPortfolioProjects(supabase, user.id);
-    const projects = scoped.projects;
-
-    if (!projects.length) {
-      const latencyMs = Date.now() - startedAt;
-
-      await safeLogRouteHealth({
-        eventType: "success",
-        severity: "info",
-        routeEventType: "artifact_due",
-        model: "artifact-due-rules-v7-org-scope",
-        latencyMs,
-        success: true,
-        metadata: {
-          scope: "org",
-          windowDays,
-          projects: 0,
-          dueSoonCount: 0,
-        },
-      });
-
-      await maybeLogSlowRouteHealth({
-        routeEventType: "artifact_due",
-        model: "artifact-due-rules-v7-org-scope",
-        latencyMs,
-        metadata: { scope: "org", projects: 0 },
-      });
-
-      return jsonNoStore({
-        ok: true,
-        eventType: "artifact_due",
-        scope: "org",
-        model: "artifact-due-rules-v7-org-scope",
-        ai: {
-          summary: "No projects available for this portfolio scope.",
-          windowDays,
-          counts: { total: 0, milestone: 0, work_item: 0, raid: 0, change_request: 0 },
-          dueSoon: [],
-          recommendedMessage: "Create a project to start tracking due items.",
-        },
-        stats: {
-          projects: 0,
-          milestones_due_30d: 0,
-          success: {
-            work_packages_completed: 0,
-            milestones_done: 0,
-            raid_closed: 0,
-            changes_closed: 0,
-            wbs_done: 0,
-            lessons: 0,
-          },
-        },
-      });
-    }
-
-    const bulkResult = await buildDueDigestOrgBulk({ supabase, projects, windowDays });
-    const projectIds = projects.map((p) => String(p.id)).filter(Boolean);
-
-    const stats = buildDashboardStatsFromBulkRows({
-      msRows: bulkResult._rows.msRows,
-      workRows: bulkResult._rows.workRows,
-      artRows: bulkResult._rows.artRows,
-      raidRows: bulkResult._rows.raidRows,
-      chRows: bulkResult._rows.chRows,
-      projectIds,
+    const result = await loadPortfolioDueDigest({
+      supabase,
+      userId: user.id,
+      windowDays,
     });
 
-    const { _rows: _dropped, dueSoon_legacy: _legacy, ...ai } = bulkResult;
     const latencyMs = Date.now() - startedAt;
 
     await safeLogRouteHealth({
       eventType: "success",
       severity: "info",
       routeEventType: "artifact_due",
-      model: "artifact-due-rules-v7-org-scope",
+      model: result.model,
       latencyMs,
       success: true,
       metadata: {
-        scope: "org",
+        scope: result.scope,
         windowDays,
-        projects: projects.length,
-        dueSoonCount: Array.isArray(ai.dueSoon) ? ai.dueSoon.length : 0,
-        counts: ai.counts,
+        projects: result.stats.projects,
+        dueSoonCount: Array.isArray(result.ai.dueSoon) ? result.ai.dueSoon.length : 0,
+        counts: result.ai.counts,
       },
     });
 
     await maybeLogSlowRouteHealth({
       routeEventType: "artifact_due",
-      model: "artifact-due-rules-v7-org-scope",
+      model: result.model,
       latencyMs,
       metadata: {
-        scope: "org",
-        projects: projects.length,
+        scope: result.scope,
+        projects: result.stats.projects,
       },
     });
 
     return jsonNoStore({
       ok: true,
       eventType: "artifact_due",
-      scope: "org",
-      model: "artifact-due-rules-v7-org-scope",
-      windowDays,
-      dueSoon: ai.dueSoon,
-      counts: ai.counts,
-      ai,
-      stats,
+      scope: result.scope,
+      model: result.model,
+      windowDays: result.windowDays,
+      dueSoon: result.dueSoon,
+      counts: result.counts,
+      ai: result.ai,
+      stats: result.stats,
     });
   } catch (e: any) {
     const latencyMs = Date.now() - startedAt;
 
     await safeLogRouteHealth({
-      eventType: isAuthError(e) ? "failure" : "failure",
+      eventType: "failure",
       severity: isAuthError(e) ? "warning" : "critical",
       routeEventType: "artifact_due",
       model: "artifact-due-rules-v7-org-scope",
@@ -1950,112 +872,51 @@ export async function POST(req: Request) {
 
     if (eventType === "artifact_due" && !rawProject) {
       const windowDays = parseWindowDays(body?.windowDays ?? payload?.windowDays, 14);
-      const scoped = await loadScopedPortfolioProjects(supabase, user.id);
-      const projects = scoped.projects;
 
-      if (!projects.length) {
-        const latencyMs = Date.now() - startedAt;
-
-        await safeLogRouteHealth({
-          eventType: "success",
-          severity: "info",
-          routeEventType: eventType,
-          model: "artifact-due-rules-v7-org-scope",
-          latencyMs,
-          success: true,
-          metadata: {
-            scope: "org",
-            windowDays,
-            projects: 0,
-            dueSoonCount: 0,
-          },
-        });
-
-        await maybeLogSlowRouteHealth({
-          routeEventType: eventType,
-          model: "artifact-due-rules-v7-org-scope",
-          latencyMs,
-          metadata: { scope: "org", projects: 0 },
-        });
-
-        return jsonNoStore({
-          ok: true,
-          eventType,
-          scope: "org",
-          model: "artifact-due-rules-v7-org-scope",
-          ai: {
-            summary: "No projects available for this portfolio scope.",
-            windowDays,
-            counts: { total: 0, milestone: 0, work_item: 0, raid: 0, change_request: 0 },
-            dueSoon: [],
-            recommendedMessage: "Create a project to start tracking due items.",
-          },
-          stats: {
-            projects: 0,
-            milestones_due_30d: 0,
-            success: {
-              work_packages_completed: 0,
-              milestones_done: 0,
-              raid_closed: 0,
-              changes_closed: 0,
-              wbs_done: 0,
-              lessons: 0,
-            },
-          },
-        });
-      }
-
-      const bulkResult = await buildDueDigestOrgBulk({ supabase, projects, windowDays });
-      const projectIds = projects.map((p) => String(p.id)).filter(Boolean);
-
-      const stats = buildDashboardStatsFromBulkRows({
-        msRows: bulkResult._rows.msRows,
-        workRows: bulkResult._rows.workRows,
-        artRows: bulkResult._rows.artRows,
-        raidRows: bulkResult._rows.raidRows,
-        chRows: bulkResult._rows.chRows,
-        projectIds,
+      const result = await loadPortfolioDueDigest({
+        supabase,
+        userId: user.id,
+        windowDays,
       });
 
-      const { _rows: _dropped, dueSoon_legacy: _legacy, ...ai } = bulkResult;
       const latencyMs = Date.now() - startedAt;
 
       await safeLogRouteHealth({
         eventType: "success",
         severity: "info",
         routeEventType: eventType,
-        model: "artifact-due-rules-v7-org-scope",
+        model: result.model,
         latencyMs,
         success: true,
         metadata: {
-          scope: "org",
+          scope: result.scope,
           windowDays,
-          projects: projects.length,
-          dueSoonCount: Array.isArray(ai.dueSoon) ? ai.dueSoon.length : 0,
-          counts: ai.counts,
+          projects: result.stats.projects,
+          dueSoonCount: Array.isArray(result.ai.dueSoon) ? result.ai.dueSoon.length : 0,
+          counts: result.ai.counts,
         },
       });
 
       await maybeLogSlowRouteHealth({
         routeEventType: eventType,
-        model: "artifact-due-rules-v7-org-scope",
+        model: result.model,
         latencyMs,
         metadata: {
-          scope: "org",
-          projects: projects.length,
+          scope: result.scope,
+          projects: result.stats.projects,
         },
       });
 
       return jsonNoStore({
         ok: true,
         eventType,
-        scope: "org",
-        model: "artifact-due-rules-v7-org-scope",
-        ai,
-        windowDays,
-        dueSoon: ai.dueSoon,
-        counts: ai.counts,
-        stats,
+        scope: result.scope,
+        model: result.model,
+        ai: result.ai,
+        windowDays: result.windowDays,
+        dueSoon: result.dueSoon,
+        counts: result.counts,
+        stats: result.stats,
       });
     }
 
@@ -2091,7 +952,10 @@ export async function POST(req: Request) {
         metadata: { rawProject },
       });
 
-      return jsonNoStore({ ok: false, error: "Project not found", meta: { rawProject } }, { status: 404 });
+      return jsonNoStore(
+        { ok: false, error: "Project not found", meta: { rawProject } },
+        { status: 404 }
+      );
     }
 
     if (projectUuid) {
@@ -2113,8 +977,18 @@ export async function POST(req: Request) {
       safeStr((payload as any)?.draftId).trim() || safeStr(body?.draftId).trim() || "";
 
     if (eventType === "artifact_due" && projectUuid) {
-      const windowDays = parseWindowDays((body as any)?.windowDays ?? (payload as any)?.windowDays, 14);
-      const ai = await buildDueDigestAi(supabase, projectUuid, meta, windowDays);
+      const windowDays = parseWindowDays(
+        (body as any)?.windowDays ?? (payload as any)?.windowDays,
+        14
+      );
+
+      const result = await loadProjectDueDigest({
+        supabase,
+        projectUuid,
+        meta,
+        windowDays,
+      });
+
       const latencyMs = Date.now() - startedAt;
 
       await safeLogRouteHealth({
@@ -2122,24 +996,24 @@ export async function POST(req: Request) {
         eventType: "success",
         severity: "info",
         routeEventType: eventType,
-        model: "artifact-due-rules-v7-project-scope",
+        model: result.model,
         latencyMs,
         success: true,
         metadata: {
-          scope: "project",
+          scope: result.scope,
           windowDays,
-          dueSoonCount: Array.isArray(ai.dueSoon) ? ai.dueSoon.length : 0,
-          counts: ai.counts,
+          dueSoonCount: Array.isArray(result.ai.dueSoon) ? result.ai.dueSoon.length : 0,
+          counts: result.ai.counts,
         },
       });
 
       await maybeLogSlowRouteHealth({
         projectId: projectUuid,
         routeEventType: eventType,
-        model: "artifact-due-rules-v7-project-scope",
+        model: result.model,
         latencyMs,
         metadata: {
-          scope: "project",
+          scope: result.scope,
           windowDays,
         },
       });
@@ -2147,17 +1021,17 @@ export async function POST(req: Request) {
       return jsonNoStore({
         ok: true,
         eventType,
-        scope: "project",
+        scope: result.scope,
         project_id: projectUuid,
         project_code: meta.project_code,
         project_name: meta.project_name,
         project_manager_name: meta.project_manager_name,
         project_manager_email: meta.project_manager_email,
-        model: "artifact-due-rules-v7-project-scope",
-        windowDays,
-        dueSoon: ai.dueSoon,
-        counts: ai.counts,
-        ai,
+        model: result.model,
+        windowDays: result.windowDays,
+        dueSoon: result.dueSoon,
+        counts: result.counts,
+        ai: result.ai,
       });
     }
 
@@ -2201,7 +1075,9 @@ export async function POST(req: Request) {
               headlinePresent: !!safeStr(result.headline).trim(),
               narrativePresent: !!safeStr(result.narrative).trim(),
               deliveredCount: Array.isArray(result.delivered) ? result.delivered.length : 0,
-              planNextWeekCount: Array.isArray(result.planNextWeek) ? result.planNextWeek.length : 0,
+              planNextWeekCount: Array.isArray(result.planNextWeek)
+                ? result.planNextWeek.length
+                : 0,
             },
           });
         }
@@ -2278,7 +1154,10 @@ export async function POST(req: Request) {
           errorMessage: "Missing project id for change assessment",
         });
 
-        return jsonNoStore({ ok: false, error: "Missing project id for change assessment" }, { status: 400 });
+        return jsonNoStore(
+          { ok: false, error: "Missing project id for change assessment" },
+          { status: 400 }
+        );
       }
 
       let cr: any = null;
@@ -2297,7 +1176,9 @@ export async function POST(req: Request) {
       } else {
         const { data: d2, error: e2 } = await supabase
           .from("change_requests")
-          .select("id,project_id,title,description,delivery_status,decision_status,priority,impact_analysis")
+          .select(
+            "id,project_id,title,description,delivery_status,decision_status,priority,impact_analysis"
+          )
           .eq("id", changeId)
           .eq("project_id", projectUuid)
           .maybeSingle();
@@ -2395,7 +1276,9 @@ export async function POST(req: Request) {
             changeId,
             readiness_score: assessment?.readiness_score ?? null,
             blockersCount: Array.isArray(assessment?.blockers) ? assessment.blockers.length : 0,
-            nextActionsCount: Array.isArray(assessment?.next_actions) ? assessment.next_actions.length : 0,
+            nextActionsCount: Array.isArray(assessment?.next_actions)
+              ? assessment.next_actions.length
+              : 0,
           },
         });
       }
@@ -2443,11 +1326,15 @@ export async function POST(req: Request) {
           errorMessage: "Missing project id for delivery_report",
         });
 
-        return jsonNoStore({ ok: false, error: "Missing project id for delivery_report" }, { status: 400 });
+        return jsonNoStore(
+          { ok: false, error: "Missing project id for delivery_report" },
+          { status: 400 }
+        );
       }
 
       try {
-        const { artifactId, period, windowDays: wdRaw, derivedRag, healthContext } = (payload ?? {}) as any;
+        const { artifactId, period, windowDays: wdRaw, derivedRag, healthContext } = (payload ??
+          {}) as any;
         healthArtifactId = safeStr(artifactId).trim() || healthArtifactId;
 
         const windowDays = parseWindowDays(wdRaw, 7);
@@ -2457,7 +1344,9 @@ export async function POST(req: Request) {
 
         const { data: msData } = await supabase
           .from("schedule_milestones")
-          .select("id,milestone_name,end_date,status,critical_path_flag,source_artifact_id")
+          .select(
+            "id,milestone_name,end_date,status,critical_path_flag,source_artifact_id"
+          )
           .eq("project_id", projectUuid)
           .order("end_date", { ascending: true })
           .limit(50);
@@ -2497,7 +1386,7 @@ export async function POST(req: Request) {
           .filter((m: any) => {
             const st = safeLower(m?.status);
             const due = parseDueToUtcDate(m?.end_date);
-            return st !== "done" && st !== "completed" && st !== "closed" && due && inWindow(due, from, to);
+            return st !== "done" && st !== "completed" && st !== "closed" && due && due >= from && due <= to;
           })
           .slice(0, 8);
 
@@ -2515,7 +1404,8 @@ export async function POST(req: Request) {
 
         const changesForReport = chRows.slice(0, 5).map((c: any) => ({
           title: safeStr(c?.title).trim() || "Change request",
-          status: safeStr(c?.decision_status ?? c?.delivery_status ?? c?.status).trim() || "review",
+          status:
+            safeStr(c?.decision_status ?? c?.delivery_status ?? c?.status).trim() || "review",
         }));
 
         const raidForReport = raidRows.slice(0, 5).map((r: any) => ({
@@ -2539,21 +1429,53 @@ export async function POST(req: Request) {
         try {
           const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-          const ragLabel = rag === "red" ? "Red — Critical" : rag === "amber" ? "Amber — At Risk" : "Green — On Track";
-          const msCompletedNames = msCompleted.map((m: any) => safeStr(m?.milestone_name).trim()).filter(Boolean);
-          const msDueNames = msDue
-            .map((m: any) => `${safeStr(m?.milestone_name).trim()} (due ${safeStr(m?.end_date).split("T")[0]})`)
+          const ragLabel =
+            rag === "red"
+              ? "Red — Critical"
+              : rag === "amber"
+                ? "Amber — At Risk"
+                : "Green — On Track";
+          const msCompletedNames = msCompleted
+            .map((m: any) => safeStr(m?.milestone_name).trim())
             .filter(Boolean);
-          const highRaid = raidRows.filter((r: any) => safeLower(r?.priority) === "high").slice(0, 3);
+          const msDueNames = msDue
+            .map(
+              (m: any) =>
+                `${safeStr(m?.milestone_name).trim()} (due ${safeStr(m?.end_date).split("T")[0]})`
+            )
+            .filter(Boolean);
+          const highRaid = raidRows
+            .filter((r: any) => safeLower(r?.priority) === "high")
+            .slice(0, 3);
 
-          const userPrompt = `Project: ${meta.project_name ?? "Project"}${meta.project_code ? ` (${meta.project_code})` : ""}
+          const userPrompt = `Project: ${meta.project_name ?? "Project"}${
+            meta.project_code ? ` (${meta.project_code})` : ""
+          }
 PM: ${meta.project_manager_name ?? "Project Manager"}
 Period: ${periodFrom} to ${periodTo}
 RAG Status: ${ragLabel}
 ${healthContext ? `\nHealth context:\n${healthContext}` : ""}
-${msCompletedNames.length ? `\nMilestones completed this period:\n${msCompletedNames.map((n: string) => `- ${n}`).join("\n")}` : ""}
-${msDueNames.length ? `\nMilestones due next ${windowDays} days:\n${msDueNames.map((n: string) => `- ${n}`).join("\n")}` : ""}
-${highRaid.length ? `\nHigh-priority RAID items:\n${highRaid.map((r: any) => `- ${safeStr(r?.title).trim()}`).join("\n")}` : ""}
+${
+  msCompletedNames.length
+    ? `\nMilestones completed this period:\n${msCompletedNames
+        .map((n: string) => `- ${n}`)
+        .join("\n")}`
+    : ""
+}
+${
+  msDueNames.length
+    ? `\nMilestones due next ${windowDays} days:\n${msDueNames
+        .map((n: string) => `- ${n}`)
+        .join("\n")}`
+    : ""
+}
+${
+  highRaid.length
+    ? `\nHigh-priority RAID items:\n${highRaid
+        .map((r: any) => `- ${safeStr(r?.title).trim()}`)
+        .join("\n")}`
+    : ""
+}
 
 Generate the weekly delivery report. Return ONLY valid JSON:
 {
@@ -2607,29 +1529,49 @@ Generate the weekly delivery report. Return ONLY valid JSON:
               model: "gpt-4o-mini",
               latencyMs: Date.now() - startedAt,
               success: false,
-              errorMessage: innerErr?.message ?? "Invalid JSON in delivery_report AI generation",
+              errorMessage:
+                innerErr?.message ?? "Invalid JSON in delivery_report AI generation",
             });
           }
 
-          const ragLabel = rag === "red" ? "Critical" : rag === "amber" ? "At Risk" : "On Track";
+          const ragLabel =
+            rag === "red" ? "Critical" : rag === "amber" ? "At Risk" : "On Track";
           const name = meta.project_name ?? "Project";
           headline = `${name} — ${ragLabel}`;
           narrative = `${name} is currently ${ragLabel.toLowerCase()}. ${
-            raidRows.length > 0 ? `There are ${raidRows.length} open RAID items requiring attention.` : "No critical blockers identified."
-          } ${msDue.length > 0 ? `${msDue.length} milestone(s) are due in the coming period.` : "No milestones due immediately."} The team continues to work towards delivery objectives.`;
+            raidRows.length > 0
+              ? `There are ${raidRows.length} open RAID items requiring attention.`
+              : "No critical blockers identified."
+          } ${
+            msDue.length > 0
+              ? `${msDue.length} milestone(s) are due in the coming period.`
+              : "No milestones due immediately."
+          } The team continues to work towards delivery objectives.`;
           delivered = msCompleted
             .slice(0, 3)
-            .map((m: any) => ({ text: `Completed milestone: ${safeStr(m?.milestone_name).trim()}` }));
+            .map((m: any) => ({
+              text: `Completed milestone: ${safeStr(m?.milestone_name).trim()}`,
+            }));
           if (!delivered.length) {
-            delivered = [{ text: "Continued delivery activities and progress on planned work items." }];
+            delivered = [
+              { text: "Continued delivery activities and progress on planned work items." },
+            ];
           }
           planNextWeek = msDue
             .slice(0, 3)
-            .map((m: any) => ({ text: `Deliver milestone: ${safeStr(m?.milestone_name).trim()}` }));
+            .map((m: any) => ({
+              text: `Deliver milestone: ${safeStr(m?.milestone_name).trim()}`,
+            }));
           if (!planNextWeek.length) {
-            planNextWeek = [{ text: "Continue progress on planned work items and milestone delivery." }];
+            planNextWeek = [
+              {
+                text: "Continue progress on planned work items and milestone delivery.",
+              },
+            ];
           }
-          resourceSummary = [{ text: "Team resources allocated as planned. No capacity issues identified." }];
+          resourceSummary = [
+            { text: "Team resources allocated as planned. No capacity issues identified." },
+          ];
           keyDecisions = [];
           blockers = raidRows
             .filter((r: any) => safeLower(r?.priority) === "high")
@@ -2705,7 +1647,9 @@ Generate the weekly delivery report. Return ONLY valid JSON:
               aiGenerated,
               usage: usageMeta,
               deliveredCount: Array.isArray(delivered) ? delivered.length : 0,
-              planNextWeekCount: Array.isArray(planNextWeek) ? planNextWeek.length : 0,
+              planNextWeekCount: Array.isArray(planNextWeek)
+                ? planNextWeek.length
+                : 0,
               blockersCount: Array.isArray(blockers) ? blockers.length : 0,
             },
           });
@@ -2762,7 +1706,9 @@ Generate the weekly delivery report. Return ONLY valid JSON:
     ];
 
     if (eventType && !knownTypes.includes(eventType)) {
-      console.warn(`[ai/events] Unrecognised eventType "${eventType}" — falling through to draft assist.`);
+      console.warn(
+        `[ai/events] Unrecognised eventType "${eventType}" — falling through to draft assist.`
+      );
     }
 
     if (projectUuid && shouldPersistProjectEvent(eventType)) {
