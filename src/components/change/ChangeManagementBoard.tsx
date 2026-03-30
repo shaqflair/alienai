@@ -170,8 +170,8 @@ export default function ChangeBoard({ projectId }: { projectId?: string }) {
   const params = useParams() as any;
   const searchParams = useSearchParams();
 
-  const routeProjectParam = safeStr(projectId || params?.id || params?.projectId).trim();
-  // ✅ deep link support:
+const routeProjectParam = safeStr(projectId || params?.id || params?.projectId).trim();
+const artifactId = safeStr(params?.artifactId).trim() || null;  // ✅ deep link support:
   // /projects/:id/change?cr=<uuid>
   // /projects/:id/change?publicId=cr-123
   const initialOpen = useMemo(() => {
