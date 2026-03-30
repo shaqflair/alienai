@@ -1399,8 +1399,8 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                   ) : scheduleDueSoon.length > 0 ? (
                     <>
                     {scheduleInsightSummary && (
-  <div className={["rounded-xl border px-4 py-3 text-sm font-medium text-gray-700", scheduleCardToneClasses].join(" ")}>
-  {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days — next milestone scheduled ahead.`}
+<div className={["rounded-xl border px-4 py-3 text-sm font-medium", scheduleCardToneClasses].join(" ")} style={{ color: "#374151" }}> 
+ {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days — next milestone scheduled ahead.`}
 </div>)}                      {allDueItems.map((it, i) => (
                         <MilestoneCard key={`${it.title}-${i}`} item={it} onClick={() => { const href = safeStr(it?.link).trim(); if (href && !href.includes("/raid") && !href.includes("/risks")) router.push(href); else router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters)); }} />
                       ))}
@@ -1414,7 +1414,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                     </div>
                   ) : scheduleNextMilestone ? (
                     <div className="space-y-3">
-                      <div className={["rounded-xl border px-4 py-3 text-sm font-medium", scheduleCardToneClasses].join(" ")}>
+                      <div className={["rounded-xl border px-4 py-3 text-sm font-medium", scheduleCardToneClasses].join(" ")} style={{ color: "#374151" }}>
                         {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days — next milestone scheduled ahead.`}
                       </div>
                       <div className="rounded-xl border border-gray-100 bg-white p-4">
