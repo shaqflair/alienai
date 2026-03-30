@@ -1,7 +1,6 @@
 ﻿import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
-import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export type PortfolioFinancialPlanFilters = {
@@ -34,6 +33,15 @@ export type PortfolioFinancialPlanSummaryPayload = {
     meta: {
       totalApprovedBudget: number;
       totalEffectiveBudget: number;
+      completeness?: "full" | "partial" | "empty";
+      reason?: string | null;
+      scope_mode?: string | null;
+      rawCount?: number;
+      activeCount?: number;
+      effectiveCount?: number;
+      visibleProjectCount?: number;
+      activeProjectCount?: number;
+      usedFallback?: boolean;
     };
   };
   projects: Array<{
@@ -126,23 +134,6 @@ function ragFromVariancePct(pct: number | null): "G" | "A" | "R" {
   return "G";
 }
 
-async function normalizeActiveIds(supabase: any, rawIds: string[]) {
-  const failOpen = (reason: string) => ({ ids: rawIds, ok: false, error: reason });
-  try {
-    const r: any = await filterActiveProjectIds(supabase, rawIds);
-    if (Array.isArray(r)) {
-      const ids = r.filter(Boolean);
-      if (!ids.length && rawIds.length) return failOpen("active filter 0");
-      return { ids, ok: true, error: null as string | null };
-    }
-    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
-    if (!ids.length && rawIds.length) return failOpen("active filter 0");
-    return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
-  } catch (e: any) {
-    return failOpen(safeStr(e?.message || e || "active filter failed"));
-  }
-}
-
 function hasAnyFilters(f: PortfolioFinancialPlanFilters) {
   return (
     (f.projectName && f.projectName.length) ||
@@ -214,7 +205,9 @@ async function applyProjectFilters(
   filters: PortfolioFinancialPlanFilters,
 ) {
   const meta: any = { applied: false, filters, notes: [] as string[] };
-  if (!scopedProjectIds.length) return { projectIds: [], meta: { ...meta, applied: true } };
+  if (!scopedProjectIds.length) {
+    return { projectIds: [], meta: { ...meta, applied: true } };
+  }
   if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
 
   const selectSets = [
@@ -226,17 +219,20 @@ async function applyProjectFilters(
 
   let rows: any[] = [];
   let lastErr: any = null;
+
   for (const sel of selectSets) {
     const { data, error } = await supabase
       .from("projects")
       .select(sel)
       .in("id", scopedProjectIds)
       .limit(10000);
+
     if (!error && Array.isArray(data)) {
       rows = data;
       lastErr = null;
       break;
     }
+
     lastErr = error;
     if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
   }
@@ -256,20 +252,27 @@ async function applyProjectFilters(
   const filtered = rows.filter((p) => {
     const title = safeStr(p?.title).toLowerCase();
     const code = projectCodeLabel(p?.project_code).toLowerCase();
+
     if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
     if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
+
     if (pmSet.size) {
       const pm = safeStr(p?.project_manager_id).trim();
       if (!pm || !pmSet.has(pm)) return false;
     }
+
     if (deptNeedles.length) {
       const dept = safeStr(p?.department).toLowerCase().trim();
       if (!dept || !deptNeedles.some((d) => dept.includes(d))) return false;
     }
+
     return true;
   });
 
-  const outIds = filtered.map((p) => String(p?.id || "").trim()).filter(Boolean);
+  const outIds = filtered
+    .map((p) => String(p?.id || "").trim())
+    .filter(Boolean);
+
   meta.applied = true;
   meta.counts = { before: scopedProjectIds.length, after: outIds.length };
   return { projectIds: outIds, meta, projectRows: rows };
@@ -318,7 +321,10 @@ function extractBudgetFromContent(content: any): {
           : [];
 
   for (const line of costLines) {
-    totalBudgeted += num(line?.budgeted ?? line?.budget ?? line?.planned ?? line?.amount, 0);
+    totalBudgeted += num(
+      line?.budgeted ?? line?.budget ?? line?.planned ?? line?.amount,
+      0,
+    );
     totalActual += num(line?.actual ?? line?.actuals ?? line?.spent, 0);
   }
 
@@ -343,7 +349,13 @@ function extractBudgetFromContent(content: any): {
     totalActual = num(content.actual ?? content.total_actual, totalActual);
   }
 
-  return { totalApprovedBudget, totalBudgeted, totalForecast, totalActual, currency };
+  return {
+    totalApprovedBudget,
+    totalBudgeted,
+    totalForecast,
+    totalActual,
+    currency,
+  };
 }
 
 export async function loadFinancialPlanSummary(input: {
@@ -358,32 +370,49 @@ export async function loadFinancialPlanSummary(input: {
   const scopeMeta = scope.meta ?? {};
   const organisationId = scope.organisationId ?? null;
 
-  const scopedProjectIdsRaw = uniqStrings(
-    Array.isArray(scope.rawProjectIds)
-      ? scope.rawProjectIds
-      : Array.isArray(scope.projectIds)
-        ? scope.projectIds
-        : [],
+  const visibleProjectIds = uniqStrings(
+    Array.isArray(scope.projectIds) ? scope.projectIds : [],
   );
 
-const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
+  const activeProjectIds = uniqStrings(
+    Array.isArray(scope.activeProjectIds) ? scope.activeProjectIds : [],
+  );
 
-// 🚨 FAIL-OPEN FIX (THIS IS WHAT SAVES YOUR DASHBOARD)
-const scopedProjectIds =
-  active.ids && active.ids.length > 0
-    ? active.ids
-    : scopedProjectIdsRaw;
-  const filtered = await applyProjectFilters(supabase, scopedProjectIds, filters);
-  const projectIds = filtered.projectIds;
+  const rawProjectIds = uniqStrings(
+    Array.isArray(scope.rawProjectIds) ? scope.rawProjectIds : [],
+  );
 
-  if (!projectIds.length) {
+  const filteredVisible = await applyProjectFilters(
+    supabase,
+    visibleProjectIds,
+    filters,
+  );
+  const filteredVisibleProjectIds = uniqStrings(filteredVisible.projectIds);
+
+  const activeAllowed = new Set(activeProjectIds);
+  const filteredActiveProjectIds = filteredVisibleProjectIds.filter((id) =>
+    activeAllowed.has(id),
+  );
+
+  const effectiveProjectIdsForDisplay = filteredVisibleProjectIds;
+  const effectiveProjectIdsForScoring =
+    filteredActiveProjectIds.length > 0 ? filteredActiveProjectIds : [];
+
+  const completeness: "full" | "partial" | "empty" =
+    effectiveProjectIdsForDisplay.length === 0
+      ? "empty"
+      : effectiveProjectIdsForScoring.length === effectiveProjectIdsForDisplay.length
+        ? "full"
+        : "partial";
+
+  if (!effectiveProjectIdsForDisplay.length) {
     return {
       ok: true,
-      total_approved_budget: 0,
-      total_spent: 0,
+      total_approved_budget: null,
+      total_spent: null,
       variance_pct: null,
       pending_exposure_pct: null,
-      rag: "G",
+      rag: "A",
       currency: "GBP",
       project_ref: null,
       artifact_id: null,
@@ -396,10 +425,19 @@ const scopedProjectIds =
         projectCount: 0,
         withPlanCount: 0,
         variancePct: null,
-        rag: "G",
+        rag: "A",
         meta: {
           totalApprovedBudget: 0,
           totalEffectiveBudget: 0,
+          completeness,
+          reason: safeStr(scopeMeta?.reason || "no_projects_in_scope") || "no_projects_in_scope",
+          scope_mode: safeStr(scopeMeta?.mode || "empty") || "empty",
+          rawCount: rawProjectIds.length,
+          activeCount: activeProjectIds.length,
+          effectiveCount: effectiveProjectIdsForDisplay.length,
+          visibleProjectCount: effectiveProjectIdsForDisplay.length,
+          activeProjectCount: effectiveProjectIdsForScoring.length,
+          usedFallback: Boolean(scopeMeta?.usedFallback),
         },
       },
       projects: [],
@@ -407,28 +445,35 @@ const scopedProjectIds =
         organisationId,
         scope: {
           ...scopeMeta,
-          scopedIdsRaw: scopedProjectIdsRaw.length,
-          scopedIdsActive: scopedProjectIds.length,
-          active_filter_ok: active.ok,
-          active_filter_error: active.error,
+          rawProjectCount: rawProjectIds.length,
+          activeProjectCount: activeProjectIds.length,
+          visibleProjectCount: visibleProjectIds.length,
+          filteredVisibleProjectCount: effectiveProjectIdsForDisplay.length,
+          filteredActiveProjectCount: effectiveProjectIdsForScoring.length,
+          completeness,
         },
-        filters: filtered.meta,
+        filters: filteredVisible.meta,
       },
     };
   }
 
   let projects: any[] = [];
-  if (Array.isArray((filtered as any).projectRows) && (filtered as any).projectRows.length) {
-    const allow = new Set(projectIds);
-    projects = (filtered as any).projectRows.filter((p: any) =>
+  if (
+    Array.isArray((filteredVisible as any).projectRows) &&
+    (filteredVisible as any).projectRows.length
+  ) {
+    const allow = new Set(effectiveProjectIdsForDisplay);
+    projects = (filteredVisible as any).projectRows.filter((p: any) =>
       allow.has(String(p?.id || "").trim()),
     );
-    projects.sort((a: any, b: any) => safeStr(a?.title).localeCompare(safeStr(b?.title)));
+    projects.sort((a: any, b: any) =>
+      safeStr(a?.title).localeCompare(safeStr(b?.title)),
+    );
   } else {
     const { data: projRows, error: projErr } = await supabase
       .from("projects")
       .select("id, title, project_code, colour, start_date, finish_date, resource_status")
-      .in("id", projectIds)
+      .in("id", effectiveProjectIdsForDisplay)
       .order("title", { ascending: true });
 
     if (projErr) throw new Error(projErr.message);
@@ -450,7 +495,7 @@ const scopedProjectIds =
     const { data, error } = await supabase
       .from("artifacts")
       .select(artSel)
-      .in("project_id", projectIds)
+      .in("project_id", effectiveProjectIdsForDisplay)
       .eq("type", artType)
       .order("updated_at", { ascending: false })
       .limit(20000);
@@ -474,7 +519,7 @@ const scopedProjectIds =
       .select("project_id, role, is_active, removed_at")
       .eq("user_id", input.userId)
       .is("removed_at", null)
-      .in("project_id", projectIds)
+      .in("project_id", effectiveProjectIdsForDisplay)
       .limit(20000);
 
     for (const m of memberships ?? []) {
@@ -486,6 +531,8 @@ const scopedProjectIds =
   } catch {
     roleByProject = new Map();
   }
+
+  const scoringAllowed = new Set(effectiveProjectIdsForScoring);
 
   const summaries = (projects ?? []).map((project: any) => {
     const pid = String(project?.id || "").trim();
@@ -522,7 +569,9 @@ const scopedProjectIds =
         ? Math.round(((variance / effectiveBudget) * 100) * 10) / 10
         : null;
     const burnPct =
-      effectiveBudget > 0 ? Math.round((totalActual / effectiveBudget) * 100) : 0;
+      effectiveBudget > 0
+        ? Math.round((totalActual / effectiveBudget) * 100)
+        : 0;
 
     const monthlyBreakdown: Record<
       string,
@@ -546,6 +595,8 @@ const scopedProjectIds =
       } catch {}
     }
 
+    const includedInScoring = scoringAllowed.has(pid);
+
     return {
       projectId: pid,
       projectCode: project?.project_code ?? null,
@@ -561,19 +612,22 @@ const scopedProjectIds =
       lastUpdated: artifact?.updated_at ?? null,
       currency,
       totals: {
-        approvedBudget: totalApprovedBudget,
-        budget: effectiveBudget,
-        forecast: totalForecast,
-        actual: totalActual,
-        variance,
-        variancePct,
-        burnPct,
+        approvedBudget: includedInScoring ? totalApprovedBudget : 0,
+        budget: includedInScoring ? effectiveBudget : 0,
+        forecast: includedInScoring ? totalForecast : 0,
+        actual: includedInScoring ? totalActual : 0,
+        variance: includedInScoring ? variance : 0,
+        variancePct: includedInScoring ? variancePct : null,
+        burnPct: includedInScoring ? burnPct : 0,
       },
-      monthlyBreakdown,
+      monthlyBreakdown: includedInScoring ? monthlyBreakdown : {},
     };
   });
 
-  const withPlan = summaries.filter((p: any) => p.hasFinancialPlan);
+  const withPlan = summaries.filter(
+    (p: any) => p.hasFinancialPlan && scoringAllowed.has(p.projectId),
+  );
+
   const portTotalApproved = withPlan.reduce(
     (s: number, p: any) => s + num(p.totals.approvedBudget, 0),
     0,
@@ -598,7 +652,11 @@ const scopedProjectIds =
       ? Math.round(((portfolioVariance / effectivePortBudget) * 100) * 10) / 10
       : null;
 
-  const portfolioRag = ragFromVariancePct(portfolioVariancePct);
+  const portfolioRag =
+    effectiveProjectIdsForScoring.length === 0
+      ? "A"
+      : ragFromVariancePct(portfolioVariancePct);
+
   const firstPlanProject = withPlan[0];
   const portfolioCurrency = firstPlanProject?.currency ?? "GBP";
 
@@ -607,13 +665,24 @@ const scopedProjectIds =
     totalForecast: portTotalForecast,
     totalActual: portTotalActual,
     totalVariance: portfolioVariance,
-    projectCount: summaries.length,
+    projectCount: effectiveProjectIdsForDisplay.length,
     withPlanCount: withPlan.length,
     variancePct: portfolioVariancePct,
     rag: portfolioRag,
     meta: {
       totalApprovedBudget: portTotalApproved,
       totalEffectiveBudget: portTotalBudget,
+      completeness,
+      reason:
+        safeStr(scopeMeta?.reason || "ok") || "ok",
+      scope_mode:
+        safeStr(scopeMeta?.mode || "strict") || "strict",
+      rawCount: rawProjectIds.length,
+      activeCount: activeProjectIds.length,
+      effectiveCount: effectiveProjectIdsForDisplay.length,
+      visibleProjectCount: effectiveProjectIdsForDisplay.length,
+      activeProjectCount: effectiveProjectIdsForScoring.length,
+      usedFallback: Boolean(scopeMeta?.usedFallback),
     },
   };
 
@@ -627,19 +696,21 @@ const scopedProjectIds =
     currency: portfolioCurrency,
     project_ref: firstPlanProject?.projectId ?? null,
     artifact_id: firstPlanProject?.artifactId ?? null,
-    project_count: summaries.length,
+    project_count: effectiveProjectIdsForDisplay.length,
     portfolio,
     projects: summaries,
     meta: {
       organisationId,
       scope: {
         ...scopeMeta,
-        scopedIdsRaw: scopedProjectIdsRaw.length,
-        scopedIdsActive: scopedProjectIds.length,
-        active_filter_ok: active.ok,
-        active_filter_error: active.error,
+        rawProjectCount: rawProjectIds.length,
+        activeProjectCount: activeProjectIds.length,
+        visibleProjectCount: visibleProjectIds.length,
+        filteredVisibleProjectCount: effectiveProjectIdsForDisplay.length,
+        filteredActiveProjectCount: effectiveProjectIdsForScoring.length,
+        completeness,
       },
-      filters: filtered.meta,
+      filters: filteredVisible.meta,
     },
   };
 }
