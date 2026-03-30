@@ -1,37 +1,28 @@
 ﻿import "server-only";
 
-import type { PortfolioFilters } from "@/lib/server/home/loadDashboardSummaryData";
+import { NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { filterActiveProjectIds } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
+import { loadPortfolioHealth } from "@/lib/server/portfolio/loadPortfolioHealth";
+import { loadScheduleIntelligence } from "@/lib/server/portfolio/loadScheduleIntelligence";
+import { loadRaidPanel } from "@/lib/server/portfolio/loadRaidPanel";
+import { loadFinancialPlanSummary } from "@/lib/server/portfolio/loadFinancialPlanSummary";
+import { loadRecentWins } from "@/lib/server/portfolio/loadRecentWins";
+import { loadResourceActivity } from "@/lib/server/portfolio/loadResourceActivity";
+import { loadAiBriefing } from "@/lib/server/ai/loadAiBriefing";
+import { loadPortfolioDueDigest } from "@/lib/server/ai/loadDueDigest";
 
-type LoadArgs = {
-  userId: string;
-  days?: 7 | 14 | 30 | 60;
-  filters?: PortfolioFilters;
-  supabase?: Awaited<ReturnType<typeof createClient>>;
+export type PortfolioFilters = {
+  q?: string;
+  projectId?: string[];
+  projectName?: string[];
+  projectCode?: string[];
+  projectManagerId?: string[];
+  department?: string[];
 };
 
-type Tone = "positive" | "neutral" | "warning";
-
-type MilestoneRow = {
-  id: string;
-  title?: string | null;
-  name?: string | null;
-  due_date?: string | null;
-  target_date?: string | null;
-  date?: string | null;
-  status?: string | null;
-  project_id?: string | null;
-  project?: {
-    id?: string | null;
-    title?: string | null;
-    project_code?: string | null;
-  } | null;
-  projects?: {
-    id?: string | null;
-    title?: string | null;
-    project_code?: string | null;
-  } | null;
-};
+export type ScheduleIntelligenceTone = "positive" | "neutral" | "warning";
 
 export type ScheduleIntelligencePayload = {
   ok: true;
@@ -63,22 +54,80 @@ export type ScheduleIntelligencePayload = {
   };
   insight: {
     summary: string;
-    tone: Tone;
+    tone: ScheduleIntelligenceTone;
   };
-  meta: {
+  meta?: {
     projectCount: number;
     completeness?: "full" | "partial" | "empty";
     reason?: string | null;
   };
 };
 
-function safeStr(x: unknown): string {
+export type DashboardSummaryPayload = {
+  ok: true;
+  days: 7 | 14 | 30 | 60;
+  dueDays: 7 | 14 | 30 | 60;
+  filters: PortfolioFilters;
+  generated_at: string;
+  scope: {
+    scopedProjectCount: number;
+    activeProjectCount: number;
+    scopedProjectIds: string[];
+    activeProjectIds: string[];
+    windowDays: 7 | 14 | 30 | 60;
+    dueWindowDays: 7 | 14 | 30 | 60;
+    completeness?: "full" | "partial" | "empty";
+    mode?: string | null;
+    reason?: string | null;
+    rawProjectCount?: number;
+    visibleProjectCount?: number;
+    filteredVisibleProjectCount?: number;
+    filteredActiveProjectCount?: number;
+    usedFallback?: boolean;
+    activeFilterOk?: boolean;
+    activeFilterError?: string | null;
+  };
+  activeProjects: Array<{
+    id: string;
+    title: string;
+    client_name: string | null;
+    project_code: string | null;
+    status: string | null;
+    lifecycle_state: string | null;
+    state: string | null;
+    phase: string | null;
+    department: string | null;
+    project_manager: string | null;
+    project_manager_id: string | null;
+    resource_status: string | null;
+  }>;
+  portfolioHealth: any;
+  scheduleIntelligence: ScheduleIntelligencePayload | any;
+  milestonesDue: ScheduleIntelligencePayload | any;
+  raidPanel: any;
+  financialPlanSummary: any;
+  recentWins: any;
+  resourceActivity: any;
+  aiBriefing: any;
+  dueDigest: any;
+  insights: any[];
+  executiveBriefing: any;
+  financialPlan: any;
+  due: any;
+  cache?: {
+    key: string;
+    hit: boolean;
+    ttlSeconds: number;
+    scope: "memory" | "fresh";
+  };
+};
+
+export function safeStr(x: unknown): string {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-function uniqStrings(input: unknown): string[] {
+export function uniqStrings(input: unknown): string[] {
   const out = new Set<string>();
-
   const push = (v: unknown) => {
     const s = safeStr(v).trim();
     if (s) out.add(s);
@@ -91,31 +140,98 @@ function uniqStrings(input: unknown): string[] {
   return Array.from(out);
 }
 
-function normalizeWindow(days?: unknown): 7 | 14 | 30 | 60 {
-  const n = Number(days ?? 30);
-  if (!Number.isFinite(n)) return 30;
+export function clampDays(x: number) {
+  if (!Number.isFinite(x)) return 30;
+  return Math.max(1, Math.min(365, Math.floor(x)));
+}
+
+export function normalizeDays(v: unknown): 7 | 14 | 30 | 60 {
+  const raw = safeStr(v).trim().toLowerCase();
+  if (raw === "all") return 60;
+
+  const n = clampDays(Number(raw || 30));
   if (n <= 7) return 7;
   if (n <= 14) return 14;
   if (n <= 30) return 30;
   return 60;
 }
 
-function startOfTodayUtc() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+export function parseFiltersFromSearchParams(sp: URLSearchParams): PortfolioFilters {
+  const q = safeStr(sp.get("q")).trim() || undefined;
+  const projectId = uniqStrings(sp.getAll("projectId"));
+  const projectCode = uniqStrings([...sp.getAll("projectCode"), ...sp.getAll("code")]);
+  const projectName = uniqStrings(sp.getAll("name"));
+  const projectManagerId = uniqStrings(sp.getAll("pm"));
+  const department = uniqStrings(sp.getAll("dept"));
+
+  const out: PortfolioFilters = {};
+  if (q) out.q = q;
+  if (projectId.length) out.projectId = projectId;
+  if (projectCode.length) out.projectCode = projectCode;
+  if (projectName.length) out.projectName = projectName;
+  if (projectManagerId.length) out.projectManagerId = projectManagerId;
+  if (department.length) out.department = department;
+  return out;
 }
 
-function addDays(date: Date, days: number) {
-  const d = new Date(date);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d;
+export function normalizeFilters(input: any): PortfolioFilters {
+  const out: PortfolioFilters = {};
+  const q = safeStr(input?.q).trim();
+  if (q) out.q = q;
+
+  const projectId = uniqStrings(input?.projectId);
+  const projectName = uniqStrings(input?.projectName);
+  const projectCode = uniqStrings(input?.projectCode);
+  const projectManagerId = uniqStrings(input?.projectManagerId);
+  const department = uniqStrings(input?.department);
+
+  if (projectId.length) out.projectId = projectId;
+  if (projectName.length) out.projectName = projectName;
+  if (projectCode.length) out.projectCode = projectCode;
+  if (projectManagerId.length) out.projectManagerId = projectManagerId;
+  if (department.length) out.department = department;
+
+  return out;
 }
 
-function parseDateLike(value: unknown): Date | null {
-  const s = safeStr(value).trim();
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+export function sortStrings(input?: string[]) {
+  return [...(input ?? [])].map((v) => safeStr(v).trim()).filter(Boolean).sort();
+}
+
+export function canonicalizeFilters(filters: PortfolioFilters): PortfolioFilters {
+  const out: PortfolioFilters = {};
+  if (filters.q?.trim()) out.q = filters.q.trim();
+  if (filters.projectId?.length) out.projectId = sortStrings(filters.projectId);
+  if (filters.projectName?.length) out.projectName = sortStrings(filters.projectName);
+  if (filters.projectCode?.length) out.projectCode = sortStrings(filters.projectCode);
+  if (filters.projectManagerId?.length) {
+    out.projectManagerId = sortStrings(filters.projectManagerId);
+  }
+  if (filters.department?.length) out.department = sortStrings(filters.department);
+  return out;
+}
+
+function projectCodeLabel(pc: any): string {
+  if (typeof pc === "string") return pc.trim();
+  if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
+  if (pc && typeof pc === "object") {
+    const v =
+      safeStr(pc.project_code) ||
+      safeStr(pc.code) ||
+      safeStr(pc.value) ||
+      safeStr(pc.id);
+    return v.trim();
+  }
+  return "";
+}
+
+function looksMissingRelation(err: any) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return (
+    msg.includes("does not exist") ||
+    msg.includes("relation") ||
+    msg.includes("42p01")
+  );
 }
 
 function looksMissingColumn(err: any) {
@@ -123,229 +239,827 @@ function looksMissingColumn(err: any) {
   return msg.includes("column") && msg.includes("does not exist");
 }
 
-function looksMissingRelation(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return (
-    msg.includes("relation") ||
-    msg.includes("does not exist") ||
-    msg.includes("42p01")
-  );
-}
-
-function milestoneTitle(row: MilestoneRow) {
-  return safeStr(row.title || row.name).trim() || "Milestone";
-}
-
-function milestoneDateValue(row: MilestoneRow) {
-  return safeStr(row.due_date || row.target_date || row.date).trim();
-}
-
-function projectJoin(row: MilestoneRow) {
-  return row.projects ?? row.project ?? null;
-}
-
-function normalizeMilestone(row: MilestoneRow) {
-  const joined = projectJoin(row);
-
-  return {
-    id: safeStr(row.id).trim(),
-    title: milestoneTitle(row),
-    date: milestoneDateValue(row),
-    project_id: safeStr(row.project_id || joined?.id).trim(),
-    project_title: safeStr(joined?.title).trim() || null,
-    project_code: safeStr(joined?.project_code).trim() || null,
-    status: safeStr(row.status).trim() || null,
-  };
-}
-
-function buildInsight(args: {
-  hasAny: boolean;
-  dueSoonCount: number;
-  overdueCount: number;
-  nextMilestone: ScheduleIntelligencePayload["nextMilestone"];
-  windowDays: 7 | 14 | 30 | 60;
-}): { summary: string; tone: Tone } {
-  const { hasAny, dueSoonCount, overdueCount, nextMilestone, windowDays } = args;
-
-  if (!hasAny) {
-    return {
-      summary: "No milestones defined — schedule visibility limited.",
-      tone: "warning",
-    };
-  }
-
-  if (overdueCount > 0) {
-    return {
-      summary: `${overdueCount} milestone(s) overdue — schedule risk detected.`,
-      tone: "warning",
-    };
-  }
-
-  if (dueSoonCount > 0) {
-    return {
-      summary: `${dueSoonCount} milestone(s) due in the next ${windowDays} days.`,
-      tone: "neutral",
-    };
-  }
-
-  if (nextMilestone) {
-    return {
-      summary: `No milestones due in the next ${windowDays} days — next milestone scheduled ahead.`,
-      tone: "positive",
-    };
-  }
-
-  return {
-    summary: `No milestones due in the next ${windowDays} days — schedule on track.`,
-    tone: "positive",
-  };
-}
-
-async function fetchScopedProjectIds(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  filters?: PortfolioFilters,
-): Promise<string[]> {
-  const explicitIds = uniqStrings(filters?.projectId);
-  if (explicitIds.length) return explicitIds;
-  return [];
-}
-
-async function getMilestoneRows(
+async function getProjectsByIds(
   supabase: Awaited<ReturnType<typeof createClient>>,
   projectIds: string[],
-): Promise<MilestoneRow[]> {
+): Promise<any[]> {
   if (!projectIds.length) return [];
 
   const selectSets = [
-    "id, title, due_date, status, project_id, projects:project_id (id, title, project_code)",
-    "id, name, due_date, status, project_id, projects:project_id (id, title, project_code)",
-    "id, title, target_date, status, project_id, projects:project_id (id, title, project_code)",
-    "id, title, due_date, project_id, projects:project_id (id, title, project_code)",
-    "id, title, due_date, status, project_id",
-    "id, name, due_date, status, project_id",
-    "id, title, target_date, status, project_id"
+    `
+      id,
+      title,
+      client_name,
+      project_code,
+      status,
+      lifecycle_state,
+      state,
+      phase,
+      department,
+      project_manager,
+      project_manager_id,
+      pm_name,
+      pm_user_id,
+      resource_status
+    `,
+    `
+      id,
+      title,
+      client_name,
+      project_code,
+      status,
+      lifecycle_state,
+      state,
+      phase,
+      department,
+      project_manager,
+      project_manager_id,
+      resource_status
+    `,
+    `
+      id,
+      title,
+      client_name,
+      project_code,
+      status,
+      lifecycle_state,
+      state,
+      phase,
+      department,
+      project_manager,
+      project_manager_id
+    `,
+    `
+      id,
+      title,
+      project_code,
+      status,
+      lifecycle_state,
+      state,
+      phase,
+      department,
+      project_manager,
+      project_manager_id
+    `,
+    `
+      id,
+      title,
+      project_code,
+      status
+    `,
+    `
+      id,
+      title,
+      project_code
+    `,
+    `
+      id,
+      title
+    `,
   ];
 
   let lastError: any = null;
 
   for (const sel of selectSets) {
     const { data, error } = await supabase
-      .from("schedule_milestones")
+      .from("projects")
       .select(sel)
-      .in("project_id", projectIds)
+      .in("id", projectIds)
       .limit(5000);
 
-    if (!error && Array.isArray(data)) {
-      return data as MilestoneRow[];
-    }
+    if (!error && Array.isArray(data)) return data;
 
     lastError = error;
-    if (!(looksMissingColumn(error) || looksMissingRelation(error))) break;
+    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
   }
 
-  console.warn("[loadScheduleIntelligence] failed to load schedule_milestones", {
-    projectCount: projectIds.length,
+  console.warn("[dashboard-summary:getProjectsByIds] failed to load project rows", {
+    requestedIds: projectIds.length,
     error: safeStr(lastError?.message || lastError),
   });
 
   return [];
 }
 
-export async function loadScheduleIntelligence(
-  args: LoadArgs,
-): Promise<ScheduleIntelligencePayload> {
-  const supabase = args.supabase ?? (await createClient());
-  const windowDays = normalizeWindow(args.days);
-  const projectIds = await fetchScopedProjectIds(supabase, args.filters);
+async function applyDashboardFilters(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  scopedProjectIds: string[],
+  filters: PortfolioFilters,
+) {
+  const meta: any = { applied: false, filters, notes: [] as string[] };
 
-  if (!projectIds.length) {
-    return {
-      ok: true,
-      windowDays,
-      dueSoon: [],
-      nextMilestone: null,
-      totalMilestones: 0,
-      hasAny: false,
-      signals: {
-        hasOverdue: false,
-        overdueCount: 0,
-        atRiskCount: 0,
-      },
-      insight: {
-        summary: "No active projects in scope — schedule visibility unavailable.",
-        tone: "neutral",
-      },
-      meta: {
-        projectCount: 0,
-        completeness: "empty",
-        reason: "NO_PROJECT_SCOPE",
-      },
-    };
+  if (!scopedProjectIds.length) {
+    return { projectIds: [], projectRows: [], meta: { ...meta, applied: true } };
   }
 
-  const rows = await getMilestoneRows(supabase, projectIds);
-  const normalized = rows
-    .map(normalizeMilestone)
-    .filter((m) => m.id && m.date);
+  const hasFilters =
+    Boolean(filters.q?.trim()) ||
+    Boolean(filters.projectId?.length) ||
+    Boolean(filters.projectName?.length) ||
+    Boolean(filters.projectCode?.length) ||
+    Boolean(filters.projectManagerId?.length) ||
+    Boolean(filters.department?.length);
 
-  const today = startOfTodayUtc();
-  const windowEnd = addDays(today, windowDays);
+  if (!hasFilters) {
+    const rows = await getProjectsByIds(supabase, scopedProjectIds);
+    return { projectIds: scopedProjectIds, projectRows: rows, meta };
+  }
 
-  const dated = normalized
-    .map((m) => ({
-      ...m,
-      _date: parseDateLike(m.date),
-    }))
-    .filter((m) => m._date);
+  let workingIds = scopedProjectIds;
 
-  const dueSoon = dated
-    .filter((m) => m._date! >= today && m._date! <= windowEnd)
-    .sort((a, b) => a._date!.getTime() - b._date!.getTime())
-    .map(({ _date, ...m }) => m);
+  if (filters.projectId?.length) {
+    const wanted = new Set(filters.projectId.map((v) => safeStr(v).trim()).filter(Boolean));
+    workingIds = scopedProjectIds.filter((id) => wanted.has(String(id)));
+    meta.notes.push(`Applied explicit projectId scope (${workingIds.length}).`);
+  }
 
-  const futureMilestones = dated
-    .filter((m) => m._date! > windowEnd)
-    .sort((a, b) => a._date!.getTime() - b._date!.getTime());
+  const rows = await getProjectsByIds(supabase, workingIds);
 
-  const nextMilestone =
-    dueSoon[0] ??
-    (futureMilestones[0]
-      ? (() => {
-          const { _date, ...m } = futureMilestones[0];
-          return m;
-        })()
-      : null);
+  if (!rows.length) {
+    meta.applied = true;
+    meta.notes.push("Could not read projects for filtering; falling back to current scope.");
+    return { projectIds: workingIds, projectRows: [], meta };
+  }
 
-  const overdueCount = dated.filter((m) => m._date! < today).length;
-  const hasAny = normalized.length > 0;
+  let filtered = rows;
 
-  const insight = buildInsight({
-    hasAny,
-    dueSoonCount: dueSoon.length,
-    overdueCount,
-    nextMilestone,
-    windowDays,
+  if (filters.projectName?.length) {
+    const needles = filters.projectName
+      .map((v) => safeStr(v).trim().toLowerCase())
+      .filter(Boolean);
+
+    filtered = filtered.filter((r) => {
+      const title = safeStr(r?.title).trim().toLowerCase();
+      return needles.some((n) => title.includes(n));
+    });
+  }
+
+  if (filters.projectCode?.length) {
+    const needles = filters.projectCode
+      .map((v) => safeStr(v).trim().toLowerCase())
+      .filter(Boolean);
+
+    filtered = filtered.filter((r) => {
+      const code = projectCodeLabel(r?.project_code).toLowerCase();
+      return needles.some((n) => code.includes(n));
+    });
+  }
+
+  if (filters.projectManagerId?.length) {
+    const pmSet = new Set(
+      filters.projectManagerId.map((v) => safeStr(v).trim()).filter(Boolean),
+    );
+
+    filtered = filtered.filter((r) => {
+      const ids = [
+        safeStr(r?.project_manager_id).trim(),
+        safeStr(r?.pm_user_id).trim(),
+        safeStr(r?.project_manager).trim(),
+        safeStr(r?.pm_name).trim(),
+      ].filter(Boolean);
+
+      return ids.some((v) => pmSet.has(v));
+    });
+  }
+
+  if (filters.department?.length) {
+    const deptNeedles = filters.department
+      .map((v) => safeStr(v).trim().toLowerCase())
+      .filter(Boolean);
+
+    filtered = filtered.filter((r) => {
+      const dept = safeStr(r?.department).trim().toLowerCase();
+      return deptNeedles.some((d) => dept.includes(d));
+    });
+  }
+
+  if (filters.q?.trim()) {
+    const q = filters.q.trim().toLowerCase();
+
+    filtered = filtered.filter((r) => {
+      const hay = [
+        safeStr(r?.title),
+        safeStr(r?.project_code),
+        safeStr(r?.department),
+        safeStr(r?.project_manager),
+        safeStr(r?.pm_name),
+        safeStr(r?.client_name),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return hay.includes(q);
+    });
+  }
+
+  const outIds = filtered
+    .map((r) => safeStr(r?.id).trim())
+    .filter(Boolean);
+
+  meta.applied = true;
+  meta.counts = { before: scopedProjectIds.length, after: outIds.length };
+
+  return {
+    projectIds: outIds,
+    projectRows: filtered,
+    meta,
+  };
+}
+
+async function normalizeActiveIds(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  visibleProjectIds: string[],
+) {
+  const failOpen = (reason: string) => ({
+    ids: visibleProjectIds,
+    ok: false,
+    error: reason,
   });
+
+  if (!visibleProjectIds.length) {
+    return { ids: [], ok: true, error: null as string | null };
+  }
+
+  try {
+    const r: any = await filterActiveProjectIds(supabase, visibleProjectIds);
+
+    if (Array.isArray(r)) {
+      const ids = r.filter(Boolean);
+      if (!ids.length && visibleProjectIds.length) {
+        return failOpen("active filter returned 0 ids; failing open");
+      }
+      return { ids, ok: true, error: null as string | null };
+    }
+
+    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
+    if (!ids.length && visibleProjectIds.length) {
+      return failOpen("active filter returned 0 ids; failing open");
+    }
+
+    return {
+      ids,
+      ok: !r?.error,
+      error: r?.error ? safeStr(r.error?.message || r.error) : null,
+    };
+  } catch (e: any) {
+    return failOpen(safeStr(e?.message || e || "active filter failed"));
+  }
+}
+
+export function normalizeAiBriefingPayload(input: any) {
+  const src = input && typeof input === "object" ? input : null;
+  const insights = Array.isArray(src?.insights) ? src.insights : [];
+  const executiveBriefing = src?.executive_briefing ?? src?.briefing ?? src?.data ?? null;
+
+  return {
+    ...(src ?? {}),
+    insights,
+    executive_briefing: executiveBriefing,
+    briefing: executiveBriefing,
+  };
+}
+
+export function zeroPortfolioHealth(days: 7 | 14 | 30 | 60) {
+  return {
+    ok: true,
+    score: null,
+    portfolio_health: 0,
+    days,
+    windowDays: days,
+    projectCount: 0,
+    parts: {
+      schedule: null,
+      raid: null,
+      budget: null,
+      governance: null,
+      flow: null,
+      approvals: null,
+      activity: null,
+    },
+    projectScores: {},
+    drivers: [],
+    meta: {
+      emptyScope: true,
+      completeness: "empty",
+      reason: "NO_ACTIVE_PROJECTS",
+    },
+  };
+}
+
+export function zeroScheduleIntelligence(days: 7 | 14 | 30 | 60): ScheduleIntelligencePayload {
+  return {
+    ok: true,
+    windowDays: days,
+    dueSoon: [],
+    nextMilestone: null,
+    totalMilestones: 0,
+    hasAny: false,
+    signals: {
+      hasOverdue: false,
+      overdueCount: 0,
+      atRiskCount: 0,
+    },
+    insight: {
+      summary: "No active projects in scope — schedule visibility unavailable.",
+      tone: "neutral",
+    },
+    meta: {
+      projectCount: 0,
+      completeness: "empty",
+      reason: "NO_ACTIVE_PROJECTS",
+    },
+  };
+}
+
+export function zeroRaidPanel(days: 7 | 14 | 30 | 60) {
+  return {
+    ok: true,
+    panel: {
+      days,
+      due_total: 0,
+      overdue_total: 0,
+      risk_due: 0,
+      issue_due: 0,
+      dependency_due: 0,
+      assumption_due: 0,
+      risk_overdue: 0,
+      issue_overdue: 0,
+      dependency_overdue: 0,
+      assumption_overdue: 0,
+      risk_hi: 0,
+      issue_hi: 0,
+      dependency_hi: 0,
+      assumption_hi: 0,
+      overdue_hi: 0,
+    },
+    meta: {
+      projectCount: 0,
+      completeness: "empty",
+      reason: "NO_ACTIVE_PROJECTS",
+    },
+  };
+}
+
+export function zeroFinancialPlanSummary() {
+  return {
+    ok: true,
+    total_approved_budget: null,
+    total_spent: null,
+    variance_pct: null,
+    pending_exposure_pct: null,
+    rag: "A",
+    currency: "GBP",
+    project_count: 0,
+    portfolio: {
+      totalBudget: 0,
+      totalActual: 0,
+      totalForecast: 0,
+      totalVariance: 0,
+      projectCount: 0,
+      withPlanCount: 0,
+      variancePct: null,
+      rag: "A",
+      meta: {
+        totalApprovedBudget: 0,
+        totalEffectiveBudget: 0,
+        completeness: "empty",
+        reason: "NO_ACTIVE_PROJECTS",
+      },
+    },
+    projects: [],
+  };
+}
+
+export function zeroRecentWins() {
+  return {
+    ok: true,
+    wins: [],
+  };
+}
+
+export function zeroDueDigest(dueDays: 7 | 14 | 30 | 60) {
+  return {
+    ok: true,
+    eventType: "artifact_due" as const,
+    scope: "org" as const,
+    ai: {
+      summary: `No due items in the next ${dueDays} days.`,
+      windowDays: dueDays,
+      counts: {
+        total: 0,
+        milestone: 0,
+        work_item: 0,
+        raid: 0,
+        artifact: 0,
+        change: 0,
+      },
+      dueSoon: [],
+      recommendedMessage: "",
+    },
+    stats: {
+      total: 0,
+    },
+  };
+}
+
+function normalizeScheduleIntelligencePayload(
+  input: any,
+  windowDays: 7 | 14 | 30 | 60,
+): ScheduleIntelligencePayload {
+  const src = input && typeof input === "object" ? input : null;
+  if (!src) return zeroScheduleIntelligence(windowDays);
+
+  const dueSoonRaw = Array.isArray(src.dueSoon)
+    ? src.dueSoon
+    : Array.isArray(src.items)
+      ? src.items
+      : Array.isArray(src.milestones)
+        ? src.milestones
+        : [];
+
+  const dueSoon = dueSoonRaw
+    .map((m: any) => ({
+      id: safeStr(m?.id).trim(),
+      title: safeStr(m?.title || m?.name).trim() || "Milestone",
+      date: safeStr(m?.date || m?.due_date || m?.dueDate).trim(),
+      project_id: safeStr(m?.project_id || m?.projectId).trim(),
+      project_title: safeStr(m?.project_title || m?.projectTitle).trim() || null,
+      project_code: safeStr(m?.project_code || m?.projectCode).trim() || null,
+      status: safeStr(m?.status).trim() || null,
+    }))
+    .filter((m) => m.id || (m.title && m.date));
+
+  const nextRaw = src.nextMilestone ?? src.next ?? null;
+  const nextMilestone = nextRaw
+    ? {
+        id: safeStr(nextRaw?.id).trim(),
+        title: safeStr(nextRaw?.title || nextRaw?.name).trim() || "Milestone",
+        date: safeStr(nextRaw?.date || nextRaw?.due_date || nextRaw?.dueDate).trim(),
+        project_id: safeStr(nextRaw?.project_id || nextRaw?.projectId).trim(),
+        project_title: safeStr(nextRaw?.project_title || nextRaw?.projectTitle).trim() || null,
+        project_code: safeStr(nextRaw?.project_code || nextRaw?.projectCode).trim() || null,
+        status: safeStr(nextRaw?.status).trim() || null,
+      }
+    : null;
+
+  const overdueCount = Number(
+    src?.signals?.overdueCount ??
+      src?.overdueCount ??
+      src?.meta?.overdueCount ??
+      0,
+  );
+
+  const atRiskCount = Number(
+    src?.signals?.atRiskCount ??
+      src?.atRiskCount ??
+      src?.meta?.atRiskCount ??
+      0,
+  );
+
+  const totalMilestones = Number(
+    src?.totalMilestones ??
+      src?.total ??
+      src?.count ??
+      dueSoon.length,
+  );
+
+  const hasAny =
+    typeof src?.hasAny === "boolean"
+      ? src.hasAny
+      : totalMilestones > 0 || dueSoon.length > 0 || Boolean(nextMilestone);
+
+  const toneRaw = safeStr(src?.insight?.tone || src?.tone).trim().toLowerCase();
+  const tone: ScheduleIntelligenceTone =
+    toneRaw === "positive" || toneRaw === "warning" ? toneRaw : "neutral";
+
+  let summary = safeStr(src?.insight?.summary).trim();
+  const metaReason = safeStr(src?.meta?.reason).trim().toUpperCase();
+
+  if (!summary) {
+    if (metaReason === "NO_ACTIVE_PROJECTS") {
+      summary = "No active projects in scope — schedule visibility unavailable.";
+    } else if (metaReason === "NO_MILESTONES_DEFINED") {
+      summary = "No milestones defined — schedule visibility limited.";
+    } else if (metaReason === "NO_MILESTONES_IN_WINDOW") {
+      summary = `No milestones due in the next ${windowDays} days — schedule on track.`;
+    } else if (!hasAny) {
+      summary = "No milestones defined — schedule visibility limited.";
+    } else if (overdueCount > 0) {
+      summary = `${overdueCount} milestone(s) overdue — schedule risk detected.`;
+    } else if (dueSoon.length === 0 && nextMilestone) {
+      summary = `No milestones due in the next ${windowDays} days — next milestone scheduled ahead.`;
+    } else if (dueSoon.length === 0) {
+      summary = `No milestones due in the next ${windowDays} days — schedule on track.`;
+    } else {
+      summary = `${dueSoon.length} milestone(s) due in the next ${windowDays} days.`;
+    }
+  }
 
   return {
     ok: true,
     windowDays,
     dueSoon,
     nextMilestone,
-    totalMilestones: normalized.length,
+    totalMilestones,
     hasAny,
     signals: {
-      hasOverdue: overdueCount > 0,
+      hasOverdue:
+        typeof src?.signals?.hasOverdue === "boolean"
+          ? src.signals.hasOverdue
+          : overdueCount > 0,
       overdueCount,
-      atRiskCount: 0,
+      atRiskCount,
     },
-    insight,
+    insight: {
+      summary,
+      tone,
+    },
     meta: {
-      projectCount: projectIds.length,
-      completeness: hasAny ? "full" : "empty",
-      reason: hasAny ? null : "NO_MILESTONES_DEFINED",
+      projectCount: Number(src?.meta?.projectCount ?? 0),
+      completeness: src?.meta?.completeness ?? undefined,
+      reason: src?.meta?.reason ?? null,
     },
   };
 }
 
-export default loadScheduleIntelligence;
+export async function loadDashboardSummaryData(
+  _req: NextRequest,
+  input: {
+    userId: string;
+    days?: unknown;
+    dueDays?: unknown;
+    dueWindowDays?: unknown;
+    filters?: any;
+    cacheKey: string;
+  },
+): Promise<DashboardSummaryPayload> {
+  const supabase = await createClient();
+
+  const days = normalizeDays(input?.days);
+  const dueDays = normalizeDays(input?.dueWindowDays ?? input?.dueDays);
+  const filters = canonicalizeFilters(normalizeFilters(input?.filters));
+
+  const scope = await resolvePortfolioScope(supabase, input.userId);
+  const scopeMeta = scope.meta ?? {};
+
+  const rawProjectIds = uniqStrings(Array.isArray(scope.rawProjectIds) ? scope.rawProjectIds : []);
+  const visibleProjectIdsFromScope = uniqStrings(
+    Array.isArray(scope.projectIds) ? scope.projectIds : [],
+  );
+
+  const filtered = await applyDashboardFilters(supabase, visibleProjectIdsFromScope, filters);
+  const filteredVisibleProjectIds = uniqStrings(filtered.projectIds);
+
+  const active = await normalizeActiveIds(supabase, filteredVisibleProjectIds);
+  const filteredActiveProjectIds = uniqStrings(active.ids);
+
+  const completeness: "full" | "partial" | "empty" =
+    filteredVisibleProjectIds.length === 0
+      ? "empty"
+      : filteredActiveProjectIds.length === filteredVisibleProjectIds.length
+        ? "full"
+        : "partial";
+
+  const activeProjectRowMap = new Map(
+    (Array.isArray(filtered.projectRows) ? filtered.projectRows : []).map((r: any) => [
+      safeStr(r?.id).trim(),
+      r,
+    ]),
+  );
+
+  let activeProjects = filteredActiveProjectIds
+    .map((id) => activeProjectRowMap.get(id))
+    .filter(Boolean)
+    .map((p: any) => ({
+      id: String(p.id),
+      title: safeStr(p.title).trim() || "Project",
+      client_name: safeStr(p.client_name).trim() || null,
+      project_code: p.project_code ?? null,
+      status: safeStr(p.status).trim() || null,
+      lifecycle_state: safeStr(p.lifecycle_state).trim() || null,
+      state: safeStr(p.state).trim() || null,
+      phase: safeStr(p.phase).trim() || null,
+      department: safeStr(p.department).trim() || null,
+      project_manager: safeStr(p.project_manager || p.pm_name).trim() || null,
+      project_manager_id: safeStr(p.project_manager_id || p.pm_user_id).trim() || null,
+      resource_status: safeStr(p.resource_status).trim() || null,
+    }));
+
+  if (!activeProjects.length && filteredActiveProjectIds.length) {
+    const fallbackRows = await getProjectsByIds(supabase, filteredActiveProjectIds);
+    activeProjects = fallbackRows.map((p: any) => ({
+      id: String(p.id),
+      title: safeStr(p.title).trim() || "Project",
+      client_name: safeStr(p.client_name).trim() || null,
+      project_code: p.project_code ?? null,
+      status: safeStr(p.status).trim() || null,
+      lifecycle_state: safeStr(p.lifecycle_state).trim() || null,
+      state: safeStr(p.state).trim() || null,
+      phase: safeStr(p.phase).trim() || null,
+      department: safeStr(p.department).trim() || null,
+      project_manager: safeStr(p.project_manager || p.pm_name).trim() || null,
+      project_manager_id: safeStr(p.project_manager_id || p.pm_user_id).trim() || null,
+      resource_status: safeStr(p.resource_status).trim() || null,
+    }));
+  }
+
+  activeProjects.sort((a, b) => {
+    const ac = safeStr(a.project_code).trim();
+    const bc = safeStr(b.project_code).trim();
+    if (ac && bc && ac !== bc) return ac.localeCompare(bc);
+    return a.title.localeCompare(b.title);
+  });
+
+  const moduleFilters: PortfolioFilters = {
+    q: filters.q,
+    projectId: filteredActiveProjectIds,
+    projectName: filters.projectName,
+    projectCode: filters.projectCode,
+    projectManagerId: filters.projectManagerId,
+    department: filters.department,
+  };
+
+  let portfolioHealth: any = null;
+  let scheduleIntelligence: ScheduleIntelligencePayload | any = null;
+  let raidPanel: any = null;
+  let financialPlanSummary: any = null;
+  let recentWins: any = null;
+  let resourceActivity: any = null;
+  let aiBriefingRaw: any = null;
+  let dueDigest: any = null;
+
+  if (filteredVisibleProjectIds.length === 0) {
+    portfolioHealth = zeroPortfolioHealth(days);
+    scheduleIntelligence = zeroScheduleIntelligence(dueDays);
+    raidPanel = zeroRaidPanel(days);
+    financialPlanSummary = zeroFinancialPlanSummary();
+    recentWins = zeroRecentWins();
+    resourceActivity = await loadResourceActivity({
+      userId: input.userId,
+      days,
+      filters: {
+        projectId: [],
+        projectName: filters.projectName,
+        projectCode: filters.projectCode,
+        projectManagerId: filters.projectManagerId,
+        department: filters.department,
+      },
+      supabase,
+    });
+    aiBriefingRaw = {
+      ok: true,
+      insights: [],
+      executive_briefing: null,
+      briefing: null,
+    };
+    dueDigest = zeroDueDigest(dueDays);
+  } else {
+    [
+      portfolioHealth,
+      scheduleIntelligence,
+      raidPanel,
+      financialPlanSummary,
+      recentWins,
+      resourceActivity,
+      aiBriefingRaw,
+      dueDigest,
+    ] = await Promise.all([
+      loadPortfolioHealth({
+        userId: input.userId,
+        days,
+        filters: moduleFilters,
+        supabase,
+      }),
+      loadScheduleIntelligence({
+        userId: input.userId,
+        days: dueDays,
+        filters: moduleFilters,
+        supabase,
+      }),
+      loadRaidPanel({
+        userId: input.userId,
+        days,
+        filters: moduleFilters,
+        supabase,
+      }),
+      loadFinancialPlanSummary({
+        userId: input.userId,
+        filters: moduleFilters,
+        supabase,
+      }),
+      loadRecentWins(_req, {
+        userId: input.userId,
+        days: 7,
+        limit: 8,
+        supabase,
+      }),
+      loadResourceActivity({
+        userId: input.userId,
+        days,
+        filters: moduleFilters,
+        supabase,
+      }),
+      loadAiBriefing({
+        userId: input.userId,
+        days,
+        filters: {
+          q: filters.q,
+          projectId: filteredActiveProjectIds,
+          projectCode: filters.projectCode,
+          pm: filters.projectManagerId,
+          dept: filters.department,
+        },
+        supabase,
+      }),
+      loadPortfolioDueDigest({
+        supabase,
+        userId: input.userId,
+        windowDays: dueDays,
+      }),
+    ]);
+  }
+
+  const normalizedScheduleIntelligence = normalizeScheduleIntelligencePayload(
+    scheduleIntelligence,
+    dueDays,
+  );
+
+  const aiBriefing = normalizeAiBriefingPayload(aiBriefingRaw);
+  const insights = Array.isArray(aiBriefing?.insights) ? aiBriefing.insights : [];
+  const executiveBriefing =
+    aiBriefing?.executive_briefing ?? aiBriefing?.briefing ?? null;
+
+  const portfolioScore =
+    portfolioHealth && typeof portfolioHealth === "object"
+      ? Number((portfolioHealth as any).score ?? (portfolioHealth as any).portfolio_health ?? 0)
+      : 0;
+
+  const scheduleDueCount = Number(normalizedScheduleIntelligence?.dueSoon?.length ?? 0);
+
+  const raidDueCount =
+    Number((raidPanel as any)?.panel?.due_total ?? (raidPanel as any)?.due_total ?? 0);
+
+  if (
+    filteredActiveProjectIds.length === 0 &&
+    (portfolioScore > 0 || scheduleDueCount > 0 || raidDueCount > 0)
+  ) {
+    console.warn("[dashboard-summary] inconsistent payload", {
+      activeProjectCount: filteredActiveProjectIds.length,
+      portfolioScore,
+      scheduleDueCount,
+      raidDueCount,
+      filters,
+    });
+  }
+
+  return {
+    ok: true,
+    days,
+    dueDays,
+    filters,
+    generated_at: new Date().toISOString(),
+
+    scope: {
+      scopedProjectCount: filteredVisibleProjectIds.length,
+      activeProjectCount: filteredActiveProjectIds.length,
+      scopedProjectIds: filteredVisibleProjectIds,
+      activeProjectIds: filteredActiveProjectIds,
+      windowDays: days,
+      dueWindowDays: dueDays,
+      completeness,
+      mode: safeStr(scopeMeta?.mode) || null,
+      reason: safeStr(scopeMeta?.reason) || null,
+      rawProjectCount: rawProjectIds.length,
+      visibleProjectCount: visibleProjectIdsFromScope.length,
+      filteredVisibleProjectCount: filteredVisibleProjectIds.length,
+      filteredActiveProjectCount: filteredActiveProjectIds.length,
+      usedFallback: Boolean(scopeMeta?.usedFallback) || !active.ok,
+      activeFilterOk: active.ok,
+      activeFilterError: active.error,
+    },
+
+    activeProjects,
+
+    portfolioHealth: portfolioHealth ?? null,
+    scheduleIntelligence: normalizedScheduleIntelligence,
+    milestonesDue: normalizedScheduleIntelligence,
+    raidPanel: raidPanel ?? null,
+    financialPlanSummary: financialPlanSummary ?? null,
+    recentWins: recentWins ?? null,
+    resourceActivity: resourceActivity ?? null,
+    aiBriefing: aiBriefingRaw ? aiBriefing : null,
+    dueDigest: dueDigest ?? null,
+
+    insights,
+    executiveBriefing,
+    financialPlan: financialPlanSummary ?? null,
+    due: dueDigest ?? null,
+
+    cache: {
+      key: input.cacheKey,
+      hit: false,
+      ttlSeconds: 45,
+      scope: "fresh",
+    },
+  };
+}
