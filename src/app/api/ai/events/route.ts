@@ -386,12 +386,12 @@ async function requireAuth(supabase: any) {
 async function requireProjectAccessViaOrg(supabase: any, projectUuid: string, userId: string) {
   const { data, error } = await supabase
     .from("projects")
-    .select("id,organisation_id,deleted_at")
+    .select("id,organisation_id")
     .eq("id", projectUuid)
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  if (!data?.id || data.deleted_at != null) throw new Error("Project not found");
+ if (!data?.id) throw new Error("Project not found");
 
   const orgId = safeStr(data.organisation_id).trim();
   if (!orgId) throw new Error("Forbidden");
