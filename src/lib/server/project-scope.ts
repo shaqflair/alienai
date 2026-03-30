@@ -171,7 +171,7 @@ export async function filterActiveProjectIds(
   if (!ids.length) return [];
 
   const wide =
-    "id, deleted_at, removed_at, archived_at, closed_at, completed_at, ended_at, is_archived, is_live, status, lifecycle_status, delivery_status, resource_status";
+  "id, status, resource_status";
   const minimal = "id";
 
   let rows: any[] = [];
