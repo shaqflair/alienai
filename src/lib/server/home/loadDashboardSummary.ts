@@ -69,6 +69,9 @@ export type DashboardSummaryPayload = {
   dueDays: 7 | 14 | 30 | 60;
   filters: PortfolioFilters;
   generated_at: string;
+  isEmptyPortfolio?: boolean;
+  hasVisibleScope?: boolean;
+  hasActiveScope?: boolean;
   scope: {
     scopedProjectCount: number;
     activeProjectCount: number;
@@ -812,6 +815,10 @@ export async function loadDashboardSummaryData(
         ? "full"
         : "partial";
 
+  const hasVisibleScope = filteredVisibleProjectIds.length > 0;
+  const hasActiveScope = filteredActiveProjectIds.length > 0;
+  const isEmptyPortfolio = !hasVisibleScope;
+
   const activeProjectRowMap = new Map(
     (Array.isArray(filtered.projectRows) ? filtered.projectRows : []).map((r: any) => [
       safeStr(r?.id).trim(),
@@ -903,6 +910,7 @@ export async function loadDashboardSummaryData(
       insights: [],
       executive_briefing: null,
       briefing: null,
+      status: "no_data",
     };
     dueDigest = zeroDueDigest(dueDays);
   } else {
@@ -1010,6 +1018,9 @@ export async function loadDashboardSummaryData(
     dueDays,
     filters,
     generated_at: new Date().toISOString(),
+    isEmptyPortfolio,
+    hasVisibleScope,
+    hasActiveScope,
 
     scope: {
       scopedProjectCount: filteredVisibleProjectIds.length,
