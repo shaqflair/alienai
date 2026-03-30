@@ -11,7 +11,6 @@ import {
   logChangeEvent,
   getApprovalProgressForArtifact,
 } from "@/lib/change/server-helpers";
-import { computeChangeAIFields } from "@/lib/change/ai-compute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -161,20 +160,20 @@ export async function GET(req: Request, ctx: Ctx) {
     const role = await requireProjectRole(supabase, projectId, user.id);
     if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
 
+    // ✅ No deleted_at filter — column does not exist in schema
+    // ✅ No computeChangeAIFields — it's async and breaks sync .map()
     const { data: items, error: itemsErr } = await supabase
-  .from(TABLE).select("*").eq("project_id", projectId).order("created_at", { ascending: true });
+      .from(TABLE)
+      .select("*")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: true });
 
     if (itemsErr) {
       if (isMissingRelation(itemsErr.message)) return err("Database table missing: change_requests", { status: 500, code: "missing_relation", extra: { table: TABLE } });
       return err(itemsErr.message || "Failed to load changes", { status: 500, code: "db_error" });
     }
 
-    let withAI = items ?? [];
-    try {
-      withAI = (items ?? []).map((it: any) => { try { return computeChangeAIFields(it); } catch { return it; } });
-    } catch {}
-
-    return ok({ mode: "project", project_id: projectId, role, can_edit: canEdit(role), items: withAI });
+    return ok({ mode: "project", project_id: projectId, role, can_edit: canEdit(role), items: items ?? [] });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
     const status = msg === "Unauthorized" ? 401 : 500;
@@ -238,7 +237,7 @@ export async function POST(req: Request, ctx: Ctx) {
     else if (hasOwn(body, "proposed_change"))
       patch.proposed_change = clamp(safeStr(body.proposed_change), 8000);
 
-    // Individual breakdown fields (stored separately when columns exist)
+    // Individual breakdown fields
     const breakdown = ["justification", "financial", "schedule", "risks", "dependencies",
                        "assumptions", "implementation_plan", "rollback_plan"] as const;
     for (const field of breakdown) {
@@ -255,21 +254,18 @@ export async function POST(req: Request, ctx: Ctx) {
 
     // ── Impact analysis ──
     // ai_cost and ai_schedule are integer columns in the schema.
-    // The risk descriptor text is stored only inside the impact_analysis JSONB blob —
-    // there is no separate text column for it.
+    // The risk descriptor text is stored only inside the impact_analysis JSONB blob.
     const ia = body.impactAnalysis ?? body.impact_analysis ?? null;
     if (isObj(ia)) {
       const days = Number(ia.days ?? 0);
       const cost = Number(ia.cost ?? 0);
       const risk = clamp(safeStr(ia.risk ?? "None identified"), 280);
 
-      if (Number.isFinite(days)) patch.ai_schedule = days;  // integer column
-      if (Number.isFinite(cost)) patch.ai_cost = cost;      // integer column
-      // risk text lives only in the JSONB blob below — no separate integer column for it
+      if (Number.isFinite(days)) patch.ai_schedule = days;
+      if (Number.isFinite(cost)) patch.ai_cost = cost;
 
       patch.impact_analysis = { days, cost, risk, highlights: ia.highlights ?? [] };
     } else {
-      // Individual numeric fields (legacy)
       if (hasOwn(body, "impact_cost") || hasOwn(body, "ai_cost")) {
         const n = Number(body.ai_cost ?? body.impact_cost);
         if (Number.isFinite(n)) patch.ai_cost = n;
@@ -278,7 +274,6 @@ export async function POST(req: Request, ctx: Ctx) {
         const n = Number(body.ai_schedule ?? body.impact_days);
         if (Number.isFinite(n)) patch.ai_schedule = n;
       }
-      // ai_scope is an integer column — do not write text to it
     }
 
     // ── Status / stage ──
@@ -299,21 +294,12 @@ export async function POST(req: Request, ctx: Ctx) {
     if (hasOwn(body, "owner_id"))    patch.owner_id    = safeStr(body.owner_id) || null;
     if (hasOwn(body, "owner_label")) patch.owner_label = clamp(safeStr(body.owner_label), 120);
 
-    // ── AI rollup (best-effort) ──
-    try {
-      const computed = computeChangeAIFields({ ...existing, ...patch });
-      if (computed && typeof computed === "object" && hasOwn(computed, "ai_rollup")) {
-        patch.ai_rollup = (computed as any).ai_rollup;
-      }
-    } catch {}
-
     // If nothing changed, return existing
     if (!Object.keys(patch).length) return ok({ item: existing });
 
     let updated: any = null;
     let upErr: any = null;
 
-    // First attempt — full patch
     ({ data: updated, error: upErr } = await supabase
       .from(TABLE).update(patch).eq("id", existing.id).select("*").maybeSingle());
 
@@ -396,25 +382,7 @@ export async function DELETE(req: Request, ctx: Ctx) {
     if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
     if (!canEdit(role)) return err("Forbidden", { status: 403, code: "forbidden" });
 
-    const hasDeletedAt = hasOwn(existing, "deleted_at");
-
-    if (hasDeletedAt) {
-      const { data: deleted, error: delErr } = await supabase
-        .from(TABLE).update({ deleted_at: new Date().toISOString() }).eq("id", existing.id).select("*").maybeSingle();
-
-      if (delErr) return err(delErr.message || "Failed to delete change", { status: 500, code: "db_error" });
-
-      try {
-        await logChangeEvent(supabase, {
-          projectId: existing.project_id, changeRequestId: existing.id,
-          actorUserId: user.id, actorRole: role, eventType: "deleted",
-          note: "Change deleted", payload: {},
-        });
-      } catch {}
-
-      return ok({ id: existing.id, deleted: true, item: deleted ?? null });
-    }
-
+    // ✅ Hard delete only — deleted_at column does not exist in schema
     const { error: hardErr } = await supabase.from(TABLE).delete().eq("id", existing.id);
     if (hardErr) return err(hardErr.message || "Failed to delete change", { status: 500, code: "db_error" });
 
