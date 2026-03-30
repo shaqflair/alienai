@@ -1900,9 +1900,9 @@ export default function HomePage({
           const nextPh = j.portfolioHealth ?? null;
           const nextInsights = orderBriefingInsights(Array.isArray(j.insights) ? j.insights : []);
           const nextFp = j.financialPlan ?? null;
-         const nextDueItems = normalizeDueItemsFromEvent(j.due ?? null).filter(
-  (x) => safeStr(x?.itemType).toLowerCase() === "milestone",
-);          const nextRaid = normalizeRaidPanel(j.raidPanel, numericWindowDays);
+       const nextDueItems = normalizeDueItemsFromEvent(j.due ?? null).filter(
+  (x) => safeStr(x?.itemType || (x as any)?.type).toLowerCase() === "milestone",
+);     const nextRaid = normalizeRaidPanel(j.raidPanel, numericWindowDays);
           const nextWeeks = normalizeWeeks(j.resourceActivity);
           const nextWins = normalizeWins(j.recentWins);
           const nextMilestones = normalizeMilestonesDueCount(j.milestonesDue);
