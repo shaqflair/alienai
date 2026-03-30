@@ -22,9 +22,9 @@ const SUMMARY_TTL_SECONDS = 45;
 
 const memoryCache = new Map<
   string,
-  { expiresAt: number; payload: DashboardSummaryPayload }
+  { expiresAt: number; payload: DashboardSummaryPayload | Record<string, unknown> }
 >();
-const inFlight = new Map<string, Promise<DashboardSummaryPayload>>();
+const inFlight = new Map<string, Promise<DashboardSummaryPayload | Record<string, unknown>>>();
 
 function stableJson(value: unknown) {
   return JSON.stringify(value);
@@ -49,7 +49,11 @@ function makeSummaryCacheKey(input: {
   return sha1(stableJson(canonical));
 }
 
-function jsonNoStore(payload: unknown, extraHeaders?: Record<string, string>, status = 200) {
+function jsonNoStore(
+  payload: unknown,
+  extraHeaders?: Record<string, string>,
+  status = 200,
+) {
   return NextResponse.json(payload, {
     status,
     headers: {
@@ -98,8 +102,13 @@ function makeFailurePayload(input: {
       ttlSeconds: SUMMARY_TTL_SECONDS,
       scope: "none",
     },
+
     portfolioHealth: null,
+
+    // schedule intelligence compatibility
+    scheduleIntelligence: null,
     milestonesDue: null,
+
     raidPanel: null,
     financialPlanSummary: null,
     recentWins: null,
@@ -108,6 +117,10 @@ function makeFailurePayload(input: {
     dueDigest: null,
     executiveBriefing: null,
     insights: [],
+    financialPlan: null,
+    due: null,
+    activeProjects: [],
+    scope: null,
   };
 }
 
@@ -126,6 +139,23 @@ function attachCacheMeta(
   };
 }
 
+function normalizeDashboardSummaryPayload(
+  payload: DashboardSummaryPayload | Record<string, unknown>,
+) {
+  const src = payload && typeof payload === "object" ? payload : {};
+
+  const scheduleIntelligence =
+    (src as any).scheduleIntelligence ??
+    (src as any).milestonesDue ??
+    null;
+
+  return {
+    ...src,
+    scheduleIntelligence,
+    milestonesDue: scheduleIntelligence,
+  };
+}
+
 async function loadSummarySafely(args: {
   req: NextRequest;
   userId: string;
@@ -135,13 +165,15 @@ async function loadSummarySafely(args: {
   cacheKey: string;
 }) {
   try {
-    return await loadDashboardSummaryData(args.req, {
+    const payload = await loadDashboardSummaryData(args.req, {
       userId: args.userId,
       days: args.days,
       dueDays: args.dueDays,
       filters: args.filters,
       cacheKey: args.cacheKey,
     });
+
+    return normalizeDashboardSummaryPayload(payload);
   } catch (error) {
     return makeFailurePayload({
       days: args.days,
@@ -222,7 +254,7 @@ async function handleDashboardSummary(
 
     if (cached && cached.expiresAt > now) {
       return jsonNoStore(
-        attachCacheMeta(cached.payload, {
+        attachCacheMeta(normalizeDashboardSummaryPayload(cached.payload), {
           key: cacheKey,
           hit: true,
           ttlSeconds: SUMMARY_TTL_SECONDS,
@@ -239,7 +271,7 @@ async function handleDashboardSummary(
     if (existingPromise) {
       const payload = await existingPromise;
       return jsonNoStore(
-        attachCacheMeta(payload, {
+        attachCacheMeta(normalizeDashboardSummaryPayload(payload), {
           key: cacheKey,
           hit: true,
           ttlSeconds: SUMMARY_TTL_SECONDS,
@@ -267,11 +299,11 @@ async function handleDashboardSummary(
       const payload = await promise;
       memoryCache.set(cacheKey, {
         expiresAt: Date.now() + SUMMARY_TTL_SECONDS * 1000,
-        payload: payload as DashboardSummaryPayload,
+        payload,
       });
 
       return jsonNoStore(
-        attachCacheMeta(payload, {
+        attachCacheMeta(normalizeDashboardSummaryPayload(payload), {
           key: cacheKey,
           hit: false,
           ttlSeconds: SUMMARY_TTL_SECONDS,
@@ -297,7 +329,7 @@ async function handleDashboardSummary(
   });
 
   return jsonNoStore(
-    attachCacheMeta(payload, {
+    attachCacheMeta(normalizeDashboardSummaryPayload(payload), {
       key: cacheKey,
       hit: false,
       ttlSeconds: SUMMARY_TTL_SECONDS,
@@ -313,13 +345,17 @@ async function handleDashboardSummary(
 export async function GET(req: NextRequest) {
   const filters = parseFiltersFromSearchParams(req.nextUrl.searchParams);
   const days = normalizeDays(req.nextUrl.searchParams.get("days"));
-  const dueDays = normalizeDays(req.nextUrl.searchParams.get("dueDays"));
+  const dueDays = normalizeDays(
+    req.nextUrl.searchParams.get("dueWindowDays") ??
+      req.nextUrl.searchParams.get("dueDays"),
+  );
 
   return handleDashboardSummary(
     req,
     {
       days,
       dueDays,
+      dueWindowDays: dueDays,
       filters,
     },
     { enableMemoryCache: true },

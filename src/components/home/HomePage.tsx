@@ -2,6 +2,7 @@
 
 // src/components/home/HomePage.tsx -- dashboard-summary single-effect version
 // ✅ Upgraded: Intelligence states, governance alerts, action-oriented KPIs
+// ✅ Schedule intelligence wired: dueSoon / nextMilestone / hasAny / insight / signals
 
 import React, {
   useCallback,
@@ -219,6 +220,38 @@ type DashboardActiveProject = {
   project_manager_id?: string | null; resource_status?: string | null;
 };
 
+type ScheduleTone = "positive" | "neutral" | "warning";
+
+type ScheduleIntelligenceItem = {
+  id: string;
+  title: string;
+  date: string;
+  project_id: string;
+  project_title?: string | null;
+  project_code?: string | null;
+  status?: string | null;
+};
+
+type ScheduleIntelligence = {
+  ok?: boolean;
+  windowDays?: number;
+  dueSoon?: ScheduleIntelligenceItem[] | null;
+  nextMilestone?: ScheduleIntelligenceItem | null;
+  totalMilestones?: number | null;
+  hasAny?: boolean;
+  signals?: {
+    hasOverdue?: boolean;
+    overdueCount?: number;
+    atRiskCount?: number;
+  } | null;
+  insight?: {
+    summary?: string;
+    tone?: ScheduleTone;
+  } | null;
+  meta?: any;
+  count?: number | null;
+};
+
 type DashboardSummaryResponse =
   | { ok: false; error?: string }
   | {
@@ -230,7 +263,8 @@ type DashboardSummaryResponse =
       raidPanel?: { ok?: boolean; panel?: RaidPanel | null } | RaidPanel | null;
       resourceActivity?: { ok?: boolean; weeks?: ResourceWeek[] | null } | ResourceWeek[] | null;
       recentWins?: { ok?: boolean; wins?: RecentWin[] | null } | RecentWin[] | null;
-      milestonesDue?: { ok?: boolean; count?: number | null } | number | null;
+      milestonesDue?: ScheduleIntelligence | { ok?: boolean; count?: number | null } | number | null;
+      scheduleIntelligence?: ScheduleIntelligence | null;
       executiveBriefing?: any | null; aiBriefing?: any | null;
     };
 
@@ -371,6 +405,14 @@ function isOverdue(iso: string | null | undefined) {
   return t < Date.now() - 30000;
 }
 
+function daysUntil(iso: string | null | undefined): number | null {
+  const s = safeStr(iso).trim();
+  if (!s) return null;
+  const t = new Date(s).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.ceil((t - Date.now()) / 86400000);
+}
+
 function calcRagAgg(rag: { project_id?: string; rag: RagLetter; health: number }[] | null | undefined, projects: { id: string }[] | null | undefined) {
   const proj = Array.isArray(projects) ? projects : [];
   const list = Array.isArray(rag) ? rag : [];
@@ -452,11 +494,98 @@ function normalizeRaidPanel(input: any, fallbackDays: number): RaidPanel | null 
 
 function normalizeWeeks(input: any): ResourceWeek[] { if (Array.isArray(input)) return input as ResourceWeek[]; if (Array.isArray(input?.weeks)) return input.weeks as ResourceWeek[]; return []; }
 function normalizeWins(input: any): RecentWin[] { if (Array.isArray(input)) return input as RecentWin[]; if (Array.isArray(input?.wins)) return input.wins as RecentWin[]; return []; }
+
+function normalizeScheduleIntelligence(input: any): ScheduleIntelligence {
+  const src = input && typeof input === "object" ? input : null;
+  if (!src) {
+    return {
+      ok: true,
+      dueSoon: [],
+      nextMilestone: null,
+      totalMilestones: 0,
+      hasAny: false,
+      signals: { hasOverdue: false, overdueCount: 0, atRiskCount: 0 },
+      insight: { summary: "", tone: "neutral" },
+      count: 0,
+    };
+  }
+
+  const dueSoonRaw = Array.isArray(src?.dueSoon)
+    ? src.dueSoon
+    : [];
+
+  const dueSoon: ScheduleIntelligenceItem[] = dueSoonRaw.map((m: any) => ({
+    id: safeStr(m?.id).trim(),
+    title: safeStr(m?.title || m?.name).trim() || "Milestone",
+    date: safeStr(m?.date || m?.due_date || m?.dueDate).trim(),
+    project_id: safeStr(m?.project_id || m?.projectId).trim(),
+    project_title: safeStr(m?.project_title || m?.projectTitle).trim() || null,
+    project_code: safeStr(m?.project_code || m?.projectCode).trim() || null,
+    status: safeStr(m?.status).trim() || null,
+  })).filter((m) => m.title && m.date);
+
+  const nextRaw = src?.nextMilestone ?? null;
+  const nextMilestone: ScheduleIntelligenceItem | null = nextRaw
+    ? {
+        id: safeStr(nextRaw?.id).trim(),
+        title: safeStr(nextRaw?.title || nextRaw?.name).trim() || "Milestone",
+        date: safeStr(nextRaw?.date || nextRaw?.due_date || nextRaw?.dueDate).trim(),
+        project_id: safeStr(nextRaw?.project_id || nextRaw?.projectId).trim(),
+        project_title: safeStr(nextRaw?.project_title || nextRaw?.projectTitle).trim() || null,
+        project_code: safeStr(nextRaw?.project_code || nextRaw?.projectCode).trim() || null,
+        status: safeStr(nextRaw?.status).trim() || null,
+      }
+    : null;
+
+  const count = num(src?.count, dueSoon.length);
+  const totalMilestones = num(src?.totalMilestones, 0);
+  const hasAny = typeof src?.hasAny === "boolean" ? src.hasAny : totalMilestones > 0 || dueSoon.length > 0 || Boolean(nextMilestone);
+
+  return {
+    ok: src?.ok !== false,
+    windowDays: num(src?.windowDays, 0),
+    dueSoon,
+    nextMilestone,
+    totalMilestones,
+    hasAny,
+    signals: {
+      hasOverdue: Boolean(src?.signals?.hasOverdue),
+      overdueCount: num(src?.signals?.overdueCount, 0),
+      atRiskCount: num(src?.signals?.atRiskCount, 0),
+    },
+    insight: {
+      summary: safeStr(src?.insight?.summary).trim(),
+      tone: (safeStr(src?.insight?.tone).trim().toLowerCase() || "neutral") as ScheduleTone,
+    },
+    meta: src?.meta ?? null,
+    count,
+  };
+}
+
 function normalizeMilestonesDueCount(input: any): number | null {
   if (typeof input === "number" && Number.isFinite(input)) return Math.max(0, input);
   if (typeof input?.count === "number" && Number.isFinite(input.count)) return Math.max(0, input.count);
+  if (Array.isArray(input?.dueSoon)) return Math.max(0, input.dueSoon.length);
   return 0;
 }
+
+function toDueDigestItemFromScheduleItem(x: ScheduleIntelligenceItem): DueDigestItem {
+  return {
+    itemType: "milestone",
+    title: x.title,
+    dueDate: x.date || null,
+    status: x.status || null,
+    ownerLabel: null,
+    ownerEmail: null,
+    link: null,
+    meta: {
+      project_code: x.project_code || null,
+      project_name: x.project_title || null,
+      project_id: x.project_id || null,
+    },
+  };
+}
+
 function formatMoney(n: number): string {
   if (n >= 1_000_000) return `£${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `£${Math.round(n / 1_000)}k`;
@@ -853,6 +982,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
   const [insights, setInsights] = useState<Insight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(true);
   const [milestonesDueLive, setMilestonesDueLive] = useState<number | null>(null);
+  const [scheduleIntelligence, setScheduleIntelligence] = useState<ScheduleIntelligence | null>(null);
   const [raidPanel, setRaidPanel] = useState<RaidPanel | null>(null);
   const [raidLoading, setRaidLoading] = useState(false);
   const [dueWindowDays, setDueWindowDays] = useState<7 | 14 | 30>(14);
@@ -891,22 +1021,20 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
         try {
           const r = await fetch("/api/home/dashboard-summary", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", signal: controller.signal, body: JSON.stringify({ days: numericWindowDays, dueWindowDays, filters: derivedApiFilters }) });
           const j: DashboardSummaryResponse = await r.json().catch(() => ({ ok: false, error: "Bad JSON" }));
-          if (cancelled || !j?.ok) { if (!cancelled) { setInsights([]); setResourceWeeks([]); setRecentWins([]); setFpSummary(null); setDueItems([]); setRaidPanel(null); setMilestonesDueLive(0); setDashboardScope(null); setActiveProjectsLive([]); } return; }
+          if (cancelled || !j?.ok) { if (!cancelled) { setInsights([]); setResourceWeeks([]); setRecentWins([]); setFpSummary(null); setDueItems([]); setRaidPanel(null); setMilestonesDueLive(0); setScheduleIntelligence(null); setDashboardScope(null); setActiveProjectsLive([]); } return; }
           const nextScope: DashboardScope = { scopedProjectCount: Number((j as any).scope?.scopedProjectCount ?? 0), activeProjectCount: Number((j as any).scope?.activeProjectCount ?? 0), scopedProjectIds: Array.isArray((j as any).scope?.scopedProjectIds) ? (j as any).scope.scopedProjectIds : [], activeProjectIds: Array.isArray((j as any).scope?.activeProjectIds) ? (j as any).scope.activeProjectIds : [], windowDays: Number((j as any).scope?.windowDays ?? numericWindowDays), dueWindowDays: Number((j as any).scope?.dueWindowDays ?? dueWindowDays) };
           const nextActiveProjects = Array.isArray((j as any).activeProjects) ? (j as any).activeProjects : [];
           const nextPh = j.portfolioHealth ?? null;
           const nextInsights = orderBriefingInsights(Array.isArray(j.insights) ? j.insights : []);
           const nextFp = j.financialPlan ?? null;
-          // ✅ Filter by type OR itemType — ai.dueSoon uses "type", legacy uses "itemType"
-          const nextDueItems = normalizeDueItemsFromEvent(j.due ?? null).filter(
-            (x) => safeStr(x?.itemType || (x as any)?.type).toLowerCase() === "milestone",
-          );
+          const nextSchedule = normalizeScheduleIntelligence((j as any).scheduleIntelligence ?? j.milestonesDue ?? null);
+          const nextDueItems = (nextSchedule?.dueSoon ?? []).slice(0, 20).map(toDueDigestItemFromScheduleItem);
           const nextRaid = normalizeRaidPanel(j.raidPanel, numericWindowDays);
           const nextWeeks = normalizeWeeks(j.resourceActivity);
           const nextWins = normalizeWins(j.recentWins);
-          const nextMilestones = normalizeMilestonesDueCount(j.milestonesDue);
+          const nextMilestones = normalizeMilestonesDueCount((j as any).scheduleIntelligence ?? j.milestonesDue);
           if (cancelled) return;
-          setDashboardScope(nextScope); setActiveProjectsLive(nextActiveProjects); setPhData(nextPh); setInsights(nextInsights); setFpSummary(nextFp); setDueItems(nextDueItems); setRaidPanel(nextRaid); setResourceWeeks(nextWeeks); setRecentWins(nextWins); setMilestonesDueLive(nextMilestones);
+          setDashboardScope(nextScope); setActiveProjectsLive(nextActiveProjects); setPhData(nextPh); setInsights(nextInsights); setFpSummary(nextFp); setDueItems(nextDueItems); setRaidPanel(nextRaid); setResourceWeeks(nextWeeks); setRecentWins(nextWins); setMilestonesDueLive(nextMilestones); setScheduleIntelligence(nextSchedule);
           setDueUpdatedAt(safeStr(j.generated_at).trim() || new Date().toISOString());
           const executiveBriefingFromApi = (j as any).executiveBriefing || (j as any).aiBriefing?.executive_briefing || (j as any).aiBriefing?.briefing || null;
           if (executiveBriefingFromApi) { setBriefingData(executiveBriefingFromApi); } else {
@@ -940,7 +1068,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
             }
           }
         } catch {
-          if (!cancelled) { setInsights([]); setResourceWeeks([]); setRecentWins([]); setFpSummary(null); setDueItems([]); setRaidPanel(null); setMilestonesDueLive(0); setDashboardScope(null); setActiveProjectsLive([]); }
+          if (!cancelled) { setInsights([]); setResourceWeeks([]); setRecentWins([]); setFpSummary(null); setDueItems([]); setRaidPanel(null); setMilestonesDueLive(0); setScheduleIntelligence(null); setDashboardScope(null); setActiveProjectsLive([]); }
         } finally {
           if (!cancelled) { setResourceLoading(false); setWinsLoading(false); setInsightsLoading(false); setFpLoading(false); setDueLoading(false); setRaidLoading(false); }
         }
@@ -959,7 +1087,6 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
   const openIssuesValue = raidPanel ? num(raidPanel?.issue_due) : 0;
   const raidHighSeverity = num(raidPanel?.risk_hi);
 
-  // ✅ Action-oriented risk sub-label
   const raidCardSub = !raidPanel ? "Calculating risk signals..." :
     openRisksValue === 0 && openIssuesValue === 0 ? "No risks or issues detected this period" :
     raidHighSeverity > 0 ? `${raidHighSeverity} high-impact · ${openIssuesValue} issue${openIssuesValue !== 1 ? "s" : ""} due` :
@@ -985,7 +1112,6 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
     return `${prefix}${n.toFixed(0)}${suffix}`;
   }
 
-  // ✅ Never show "--" for budget
   const fpValueLabel = fpTotalBudget != null ? formatBudget(fpTotalBudget, fpCurrency) : fpLoading ? "..." : "No data";
   const fpSubLabel = fpHasData
     ? fpTotalSpent != null ? `${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` · ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}` : `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "needs monitoring" : "over budget"}`
@@ -994,20 +1120,57 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
 
   const phColorKey = phRag === "G" ? "green" : phRag === "A" ? "amber" : "red";
   const fpColorKey = !fpHasData ? "blue" : fpRag === "G" ? "green" : fpRag === "A" ? "amber" : "red";
+
   const allDueItems = dueItems.slice(0, 8);
+
   const displayRagCounts = phData?.ok ? liveRagCounts : { g: ragAgg.g, a: ragAgg.a, r: ragAgg.r };
   const activeProjectCountLabel = dashboardScope?.activeProjectCount ?? activeProjects.length;
 
-  // ✅ Smart portfolio health sub-label
   const phSubLabel = phScoreForUi == null ? "Calculating portfolio signals..." :
     activeProjects.length === 0 ? "No active projects detected" :
     displayRagCounts.r > 0 ? `${displayRagCounts.r} project${displayRagCounts.r > 1 ? "s" : ""} require${displayRagCounts.r === 1 ? "s" : ""} immediate attention` :
     displayRagCounts.a > 0 ? `${displayRagCounts.a} project${displayRagCounts.a > 1 ? "s" : ""} need${displayRagCounts.a === 1 ? "s" : ""} monitoring` :
     `All ${displayRagCounts.g} project${displayRagCounts.g !== 1 ? "s" : ""} on track`;
 
-  // ✅ Governance alerts visibility
   const hasGovernanceAlerts = raidPanel !== null || allDueItems.length > 0;
   const governanceAllClear = num(raidPanel?.overdue_total) === 0 && allDueItems.length === 0 && (openRisksValue ?? 0) === 0;
+
+  const scheduleDueSoon = scheduleIntelligence?.dueSoon ?? [];
+  const scheduleNextMilestone = scheduleIntelligence?.nextMilestone ?? null;
+  const scheduleHasAny = Boolean(scheduleIntelligence?.hasAny);
+  const scheduleInsightSummary = safeStr(scheduleIntelligence?.insight?.summary).trim();
+  const scheduleInsightTone = scheduleIntelligence?.insight?.tone ?? "neutral";
+  const scheduleOverdueCount = num(scheduleIntelligence?.signals?.overdueCount, 0);
+  const scheduleHasOverdue = Boolean(scheduleIntelligence?.signals?.hasOverdue) || scheduleOverdueCount > 0;
+  const nextMilestoneDays = daysUntil(scheduleNextMilestone?.date || null);
+
+  const milestoneKpiSub = milestonesDueLive == null
+    ? "Loading schedule intelligence..."
+    : !scheduleHasAny
+      ? "No milestones defined — schedule visibility limited"
+      : scheduleHasOverdue
+        ? `${scheduleOverdueCount} overdue · schedule risk detected`
+        : milestonesDueLive > 0
+          ? `${milestonesDueLive} due in next ${windowDays === "all" ? "60" : windowDays} days`
+          : scheduleNextMilestone
+            ? `Next: ${scheduleNextMilestone.title}${nextMilestoneDays != null ? ` · ${nextMilestoneDays > 0 ? `${nextMilestoneDays}d` : "due soon"}` : ""}`
+            : `No milestones due in next ${windowDays === "all" ? "60" : windowDays} days`;
+
+  const milestoneKpiColorKey =
+    !scheduleHasAny
+      ? "amber"
+      : scheduleHasOverdue
+        ? "red"
+        : milestonesDueLive && milestonesDueLive > 0
+          ? "blue"
+          : "green";
+
+  const scheduleCardToneClasses =
+    scheduleInsightTone === "warning"
+      ? "border-amber-100 bg-amber-50/50"
+      : scheduleInsightTone === "positive"
+        ? "border-green-100 bg-green-50/50"
+        : "border-blue-100 bg-blue-50/50";
 
   if (!ok) {
     return (
@@ -1077,17 +1240,15 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
             </div>
           )}
 
-          {/* KPI Cards */}
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <KpiCard label="Portfolio Health" value={phScoreForUi == null ? "..." : `${phScoreForUi}%`} sub={phSubLabel} icon={<Activity className="h-5 w-5" />} colorKey={phScoreForUi == null ? "blue" : phColorKey} trendLabel={phDelta != null && phDelta !== 0 ? `${Math.abs(Math.round(phDelta))}` : undefined} onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))} />
             <KpiCard label="Open Risks" value={openRisksValue == null ? "..." : `${openRisksValue}`} sub={raidCardSub} icon={<AlertTriangle className="h-5 w-5" />} colorKey="amber" trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity} high` : undefined} onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))} />
-            <KpiCard label="Milestones Due" value={milestonesDueLive == null ? "..." : `${milestonesDueLive}`} sub={milestonesDueLive === 0 ? `No milestones due in next ${windowDays === "all" ? "60" : windowDays} days` : `next ${windowDays === "all" ? "60" : windowDays} days`} icon={<Clock3 className="h-5 w-5" />} colorKey="blue" onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))} />
+            <KpiCard label="Milestones Due" value={milestonesDueLive == null ? "..." : `${milestonesDueLive}`} sub={milestoneKpiSub} icon={<Clock3 className="h-5 w-5" />} colorKey={milestoneKpiColorKey} onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))} />
             <KpiCard label="Budget Health" value={fpValueLabel} sub={fpSubLabel} icon={<DollarSign className="h-5 w-5" />} colorKey={fpColorKey} trendLabel={fpTrendLabel} onClick={() => router.push("/budget")} />
           </div>
 
           <ExecutiveBriefingCard data={briefingData} liveRagCounts={liveRagCounts} />
 
-          {/* Resource + AI Insights */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="rounded-2xl border border-gray-100 bg-white p-6 lg:col-span-2" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
               <div className="mb-2 flex items-start justify-between">
@@ -1114,7 +1275,6 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                 {insightsLoading ? (
                   Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-gray-50" />)
                 ) : insights.length === 0 ? (
-                  // ✅ Always populated — intelligence fallback states
                   <div className="space-y-3">
                     <InsightCard severity="info" title="Portfolio operating normally" body="No risks, governance breaches, or delivery issues detected across active projects. All signals within expected thresholds." />
                     <InsightCard severity="info" title="No approvals pending" body="All change requests and governance items are on track. No approvals overdue in the current window." />
@@ -1126,7 +1286,6 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
             </div>
           </div>
 
-          {/* Control Center */}
           <div className="rounded-2xl border border-gray-100 bg-white px-6 py-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
@@ -1140,7 +1299,6 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
             </div>
           </div>
 
-          {/* 🔥 Governance Alerts — killer signal card */}
           {hasGovernanceAlerts && (
             <div className="rounded-2xl border border-orange-100 bg-white px-6 py-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
               <div className="flex items-center justify-between mb-4">
@@ -1179,7 +1337,6 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
             </div>
           )}
 
-          {/* Project Health + Milestones + Wins */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="space-y-4 lg:col-span-2">
               {(phData?.ok ? liveRagCounts.g + liveRagCounts.a + liveRagCounts.r : ragAgg.scored) > 0 && (
@@ -1225,11 +1382,10 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
             </div>
 
             <div className="space-y-4">
-              {/* Upcoming Milestones */}
               <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-center gap-3 border-b border-gray-50 px-5 py-4">
                   <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50"><Calendar className="h-4 w-4 text-blue-500" /></div>
-                  <h3 className="flex-1 font-semibold text-gray-900">Upcoming Milestones</h3>
+                  <h3 className="flex-1 font-semibold text-gray-900">Schedule Intelligence</h3>
                   <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
                     {([7, 14, 30] as const).map((d) => (
                       <button key={d} type="button" onClick={() => setDueWindowDays(d)} className={["rounded-md px-2 py-1 text-[11px] font-semibold transition-all", dueWindowDays === d ? "bg-white text-gray-900 shadow-sm" : "text-gray-400 hover:text-gray-600"].join(" ")}>{d}d</button>
@@ -1240,17 +1396,45 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                 <div className="space-y-2.5 p-4">
                   {dueLoading ? (
                     Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 animate-pulse rounded-xl bg-gray-50" />)
-                  ) : allDueItems.length === 0 ? (
+                  ) : scheduleDueSoon.length > 0 ? (
+                    <>
+                      {scheduleInsightSummary && (
+                        <div className={["rounded-xl border px-4 py-3 text-sm font-medium", scheduleCardToneClasses].join(" ")}>
+                          {scheduleInsightSummary}
+                        </div>
+                      )}
+                      {allDueItems.map((it, i) => (
+                        <MilestoneCard key={`${it.title}-${i}`} item={it} onClick={() => { const href = safeStr(it?.link).trim(); if (href && !href.includes("/raid") && !href.includes("/risks")) router.push(href); else router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters)); }} />
+                      ))}
+                    </>
+                  ) : !scheduleHasAny ? (
+                    <div className="space-y-3 py-4 text-center">
+                      <AlertTriangle className="mx-auto h-7 w-7 text-amber-300" />
+                      <p className="text-sm text-gray-500">No milestones defined — schedule visibility limited</p>
+                      <p className="text-xs text-gray-400">Add milestones to track delivery progress and upcoming commitments</p>
+                      <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))} className="text-xs font-medium text-blue-600 hover:text-blue-700">Open schedule</button>
+                    </div>
+                  ) : scheduleNextMilestone ? (
+                    <div className="space-y-3">
+                      <div className={["rounded-xl border px-4 py-3 text-sm font-medium", scheduleCardToneClasses].join(" ")}>
+                        {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days — next milestone scheduled ahead.`}
+                      </div>
+                      <div className="rounded-xl border border-gray-100 bg-white p-4">
+                        <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-gray-400">Next milestone</div>
+                        <div className="text-sm font-semibold text-gray-800">{scheduleNextMilestone.title}</div>
+                        <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+                          <span>{dueDateLabel(scheduleNextMilestone.date)}</span>
+                          {scheduleNextMilestone.project_code && <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-400">{scheduleNextMilestone.project_code}</span>}
+                        </div>
+                        {scheduleNextMilestone.project_title && <div className="mt-1 text-xs text-gray-400">{scheduleNextMilestone.project_title}</div>}
+                      </div>
+                    </div>
+                  ) : (
                     <div className="py-8 text-center">
                       <CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-gray-200" />
-                      {/* ✅ Intelligence empty state */}
                       <p className="text-sm text-gray-400">{activeProjects.length === 0 ? "No active projects in scope" : `No milestones due in the next ${dueWindowDays} days — schedule on track`}</p>
                       <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))} className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-700">View milestone list</button>
                     </div>
-                  ) : (
-                    allDueItems.map((it, i) => (
-                      <MilestoneCard key={`${it.title}-${i}`} item={it} onClick={() => { const href = safeStr(it?.link).trim(); if (href && !href.includes("/raid") && !href.includes("/risks")) router.push(href); else router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters)); }} />
-                    ))
                   )}
                   {dueItems.length > 8 && (
                     <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))} className="mt-1 w-full border-t border-gray-50 py-2 text-center text-xs font-medium text-blue-600 hover:text-blue-700">View all {dueItems.length} milestones</button>
@@ -1258,7 +1442,6 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                 </div>
               </div>
 
-              {/* Recent Wins */}
               <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-center gap-3 border-b border-gray-50 px-5 py-4">
                   <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-green-50"><Trophy className="h-4 w-4 text-green-500" /></div>
@@ -1272,7 +1455,6 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                   ) : recentWins.length === 0 ? (
                     <div className="py-8 text-center">
                       <Trophy className="mx-auto mb-1.5 h-6 w-6 text-gray-200" />
-                      {/* ✅ Intelligence empty state */}
                       <p className="text-sm text-gray-400">No completions recorded in the last 7 days</p>
                       <p className="mt-1 text-xs text-gray-300">Wins appear when milestones, risks, or changes are closed</p>
                     </div>

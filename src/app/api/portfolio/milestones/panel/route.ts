@@ -1,17 +1,27 @@
-﻿// src/app/api/portfolio/milestones/panel/route.ts — REBUILT v4 (PORTFOLIO-SCOPE + shared scope + filter-ready + active-only FAIL-OPEN)
+﻿// src/app/api/portfolio/milestones/panel/route.ts — REBUILT v5 (SCHEDULE INTELLIGENCE)
 // Adds / Fixes:
 //   ✅ MP-F1: Supports dashboard filters (GET + POST): name/code/pm/dept
-//   ✅ MP-F2: ORG-wide scope now uses shared resolvePortfolioScope() helper
+//   ✅ MP-F2: ORG-wide scope uses shared resolvePortfolioScope() helper
 //   ✅ MP-F3: Active-only project filtering via filterActiveProjectIds (FAIL-OPEN)
 //   ✅ MP-F4: clampDays handles "all" → 60
 //   ✅ MP-F5: Cache-Control no-store everywhere
 //   ✅ MP-F6: Removes duplicated org-scope resolution logic from route body
 //   ✅ MP-F7: resolvePortfolioScope signature fixed (supabase, userId)
+//   ✅ MP-F8: Returns rich schedule intelligence payload:
+//            - dueSoon
+//            - nextMilestone
+//            - totalMilestones
+//            - hasAny
+//            - signals
+//            - insight
 // Keeps:
-//   • Uses get_schedule_milestones_kpis_portfolio RPC
+//   • Uses get_schedule_milestones_kpis_portfolio RPC for KPI panel
+//   • Backward-compatible panel + count response shape
 //
 // Notes:
 // - filterActiveProjectIds contract is normalized (supports either string[] OR { projectIds } return)
+// - Also reads schedule_milestones directly to build forward-looking intelligence
+// - milestonesDue can safely consume this payload shape on the UI side
 
 import "server-only";
 
@@ -92,7 +102,9 @@ function clampDays(x: any, fallback = 30): 7 | 14 | 30 | 60 {
   if (s === "all") return 60;
   const n = Number(s);
   const allowed = new Set([7, 14, 30, 60]);
-  return Number.isFinite(n) && allowed.has(n) ? (n as 7 | 14 | 30 | 60) : (fallback as 7 | 14 | 30 | 60);
+  return Number.isFinite(n) && allowed.has(n)
+    ? (n as 7 | 14 | 30 | 60)
+    : (fallback as 7 | 14 | 30 | 60);
 }
 
 function emptyPanel(days: number) {
@@ -104,6 +116,65 @@ function emptyPanel(days: number) {
     status_breakdown: { planned: 0, at_risk: 0, overdue: 0 },
     slippage: { avg_slip_days: 0, max_slip_days: 0 },
   };
+}
+
+function startOfTodayUtc() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+function addDays(date: Date, days: number) {
+  const d = new Date(date);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+function parseDateLike(value: any): Date | null {
+  const s = safeStr(value).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function inferTone(args: {
+  hasAny: boolean;
+  dueSoonCount: number;
+  overdueCount: number;
+  nextMilestone: any | null;
+}): "positive" | "neutral" | "warning" {
+  if (!args.hasAny) return "warning";
+  if (args.overdueCount > 0) return "warning";
+  if (args.dueSoonCount > 0) return "neutral";
+  if (args.nextMilestone) return "positive";
+  return "positive";
+}
+
+function buildInsightSummary(args: {
+  windowDays: number;
+  hasAny: boolean;
+  dueSoonCount: number;
+  overdueCount: number;
+  nextMilestone: any | null;
+}) {
+  const { windowDays, hasAny, dueSoonCount, overdueCount, nextMilestone } = args;
+
+  if (!hasAny) {
+    return "No milestones defined — schedule visibility limited.";
+  }
+
+  if (overdueCount > 0) {
+    return `${overdueCount} milestone(s) overdue — schedule risk detected.`;
+  }
+
+  if (dueSoonCount > 0) {
+    return `${dueSoonCount} milestone(s) due in the next ${windowDays} days.`;
+  }
+
+  if (nextMilestone) {
+    return `No milestones due in the next ${windowDays} days — next milestone scheduled ahead.`;
+  }
+
+  return `No milestones due in the next ${windowDays} days — schedule on track.`;
 }
 
 /* ---------------- filters ---------------- */
@@ -244,6 +315,157 @@ async function applyProjectFilters(
   return { projectIds: outIds, meta };
 }
 
+/* ---------------- schedule milestone reads ---------------- */
+
+type MilestoneRow = {
+  id: string;
+  title?: string | null;
+  name?: string | null;
+  due_date?: string | null;
+  target_date?: string | null;
+  date?: string | null;
+  status?: string | null;
+  project_id?: string | null;
+  project?: {
+    id?: string | null;
+    title?: string | null;
+    project_code?: string | null;
+  } | null;
+  projects?: {
+    id?: string | null;
+    title?: string | null;
+    project_code?: string | null;
+  } | null;
+};
+
+function milestoneTitle(row: MilestoneRow) {
+  return safeStr(row.title || row.name).trim() || "Milestone";
+}
+
+function milestoneDateValue(row: MilestoneRow) {
+  return safeStr(row.due_date || row.target_date || row.date).trim();
+}
+
+function projectJoin(row: MilestoneRow) {
+  return row.projects ?? row.project ?? null;
+}
+
+function normalizeMilestone(row: MilestoneRow) {
+  const joined = projectJoin(row);
+
+  return {
+    id: safeStr(row.id).trim(),
+    title: milestoneTitle(row),
+    date: milestoneDateValue(row),
+    project_id: safeStr(row.project_id || joined?.id).trim(),
+    project_title: safeStr(joined?.title).trim() || null,
+    project_code: safeStr(joined?.project_code).trim() || null,
+    status: safeStr(row.status).trim() || null,
+  };
+}
+
+async function getMilestoneRows(
+  supabase: any,
+  projectIds: string[],
+): Promise<MilestoneRow[]> {
+  if (!projectIds.length) return [];
+
+  const selectSets = [
+    `
+      id,
+      title,
+      due_date,
+      status,
+      project_id,
+      projects:project_id (
+        id,
+        title,
+        project_code
+      )
+    `,
+    `
+      id,
+      name,
+      due_date,
+      status,
+      project_id,
+      projects:project_id (
+        id,
+        title,
+        project_code
+      )
+    `,
+    `
+      id,
+      title,
+      target_date,
+      status,
+      project_id,
+      projects:project_id (
+        id,
+        title,
+        project_code
+      )
+    `,
+    `
+      id,
+      title,
+      due_date,
+      project_id,
+      projects:project_id (
+        id,
+        title,
+        project_code
+      )
+    `,
+    `
+      id,
+      title,
+      due_date,
+      status,
+      project_id
+    `,
+    `
+      id,
+      name,
+      due_date,
+      status,
+      project_id
+    `,
+    `
+      id,
+      title,
+      target_date,
+      status,
+      project_id
+    `,
+  ];
+
+  let lastError: any = null;
+
+  for (const sel of selectSets) {
+    const { data, error } = await supabase
+      .from("schedule_milestones")
+      .select(sel)
+      .in("project_id", projectIds)
+      .limit(5000);
+
+    if (!error && Array.isArray(data)) {
+      return data as MilestoneRow[];
+    }
+
+    lastError = error;
+    if (!(looksMissingColumn(error) || looksMissingRelation(error))) break;
+  }
+
+  console.warn("[portfolio/milestones/panel] failed to load schedule_milestones", {
+    projectCount: projectIds.length,
+    error: safeStr(lastError?.message || lastError),
+  });
+
+  return [];
+}
+
 /* ---------------- core ---------------- */
 
 async function normalizeActiveIds(supabase: any, rawIds: string[]) {
@@ -289,7 +511,6 @@ async function handle(
   const userId = auth?.user?.id || null;
   if (authErr || !userId) return err("Not authenticated", 401);
 
-  // ✅ Shared org-wide scope for dashboards
   const scope = await resolvePortfolioScope(supabase, userId);
   const scopeMeta = scope.meta ?? {};
   const organisationId = scope.organisationId ?? null;
@@ -301,19 +522,33 @@ async function handle(
         : [],
   );
 
-  // ✅ Active-only (terminal exclusion) — FAIL-OPEN
   const active = await normalizeActiveIds(supabase, scopedIdsRaw);
   const scopedIdsActive = active.ids;
 
-  // ✅ Apply dashboard filters within active scope
   const filtered = await applyProjectFilters(supabase, scopedIdsActive, opts.filters);
   const projectIds = filtered.projectIds;
 
   if (!projectIds.length) {
+    const insight = {
+      summary: "No active projects in scope — schedule visibility unavailable.",
+      tone: "neutral" as const,
+    };
+
     return ok({
       days: opts.days,
+      windowDays: opts.days,
       panel: emptyPanel(opts.days),
       count: 0,
+      dueSoon: [],
+      nextMilestone: null,
+      totalMilestones: 0,
+      hasAny: false,
+      signals: {
+        hasOverdue: false,
+        overdueCount: 0,
+        atRiskCount: 0,
+      },
+      insight,
       meta: {
         organisationId,
         scope: {
@@ -325,18 +560,23 @@ async function handle(
         },
         filters: filtered.meta,
         projectCount: 0,
+        completeness: "empty",
+        reason: "NO_ACTIVE_PROJECTS",
       },
     });
   }
 
-  const { data, error } = await supabase.rpc("get_schedule_milestones_kpis_portfolio", {
-    p_project_ids: projectIds,
-    p_window_days: opts.days,
-  });
+  const [{ data: kpiData, error: kpiError }, milestoneRows] = await Promise.all([
+    supabase.rpc("get_schedule_milestones_kpis_portfolio", {
+      p_project_ids: projectIds,
+      p_window_days: opts.days,
+    }),
+    getMilestoneRows(supabase, projectIds),
+  ]);
 
-  if (error) return err(error.message || "RPC failed", 500);
+  if (kpiError) return err(kpiError.message || "RPC failed", 500);
 
-  const row = Array.isArray(data) ? data[0] : data;
+  const row = Array.isArray(kpiData) ? kpiData[0] : kpiData;
 
   const planned = num(row?.planned);
   const at_risk = num(row?.at_risk);
@@ -344,7 +584,6 @@ async function handle(
   const ai_high_risk = num(row?.ai_high_risk);
   const avg_slip = num(row?.slip_avg_days);
   const max_slip = num(row?.slip_max_days);
-
   const due_count = num(row?.due_count, planned + at_risk + overdue);
 
   const panel = {
@@ -356,10 +595,77 @@ async function handle(
     slippage: { avg_slip_days: avg_slip, max_slip_days: max_slip },
   };
 
+  const today = startOfTodayUtc();
+  const windowEnd = addDays(today, opts.days);
+
+  const normalized = milestoneRows
+    .map(normalizeMilestone)
+    .filter((m) => m.id && m.date);
+
+  const dated = normalized
+    .map((m) => ({
+      ...m,
+      _date: parseDateLike(m.date),
+    }))
+    .filter((m) => m._date);
+
+  const dueSoon = dated
+    .filter((m) => m._date! >= today && m._date! <= windowEnd)
+    .sort((a, b) => a._date!.getTime() - b._date!.getTime())
+    .map(({ _date, ...m }) => m);
+
+  const futureMilestones = dated
+    .filter((m) => m._date! > windowEnd)
+    .sort((a, b) => a._date!.getTime() - b._date!.getTime());
+
+  const nextMilestone =
+    dueSoon[0] ??
+    (futureMilestones[0]
+      ? (() => {
+          const { _date, ...m } = futureMilestones[0];
+          return m;
+        })()
+      : null);
+
+  const overdueCount = dated.filter((m) => m._date! < today).length;
+  const hasAny = normalized.length > 0;
+
+  const insight = {
+    summary: buildInsightSummary({
+      windowDays: opts.days,
+      hasAny,
+      dueSoonCount: dueSoon.length,
+      overdueCount,
+      nextMilestone,
+    }),
+    tone: inferTone({
+      hasAny,
+      dueSoonCount: dueSoon.length,
+      overdueCount,
+      nextMilestone,
+    }),
+  };
+
   return ok({
     days: opts.days,
+    windowDays: opts.days,
+
+    // backward-compatible shape
     panel,
     count: due_count,
+
+    // new schedule intelligence shape
+    dueSoon,
+    nextMilestone,
+    totalMilestones: normalized.length,
+    hasAny,
+    signals: {
+      hasOverdue: overdueCount > 0,
+      overdueCount,
+      atRiskCount: at_risk,
+    },
+    insight,
+
     meta: {
       organisationId,
       scope: {
@@ -371,6 +677,8 @@ async function handle(
       },
       filters: filtered.meta,
       projectCount: projectIds.length,
+      completeness: hasAny ? "full" : "empty",
+      reason: hasAny ? null : "NO_MILESTONES_DEFINED",
     },
   });
 }

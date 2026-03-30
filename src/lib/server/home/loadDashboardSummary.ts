@@ -5,7 +5,7 @@ import { createClient } from "@/utils/supabase/server";
 import { filterActiveProjectIds } from "@/lib/server/project-scope";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 import { loadPortfolioHealth } from "@/lib/server/portfolio/loadPortfolioHealth";
-import { loadMilestonesDue } from "@/lib/server/portfolio/loadMilestonesDue";
+import { loadScheduleIntelligence } from "@/lib/server/portfolio/loadScheduleIntelligence";
 import { loadRaidPanel } from "@/lib/server/portfolio/loadRaidPanel";
 import { loadFinancialPlanSummary } from "@/lib/server/portfolio/loadFinancialPlanSummary";
 import { loadRecentWins } from "@/lib/server/portfolio/loadRecentWins";
@@ -20,6 +20,47 @@ export type PortfolioFilters = {
   projectCode?: string[];
   projectManagerId?: string[];
   department?: string[];
+};
+
+export type ScheduleIntelligenceTone = "positive" | "neutral" | "warning";
+
+export type ScheduleIntelligencePayload = {
+  ok: true;
+  windowDays: 7 | 14 | 30 | 60;
+  dueSoon: Array<{
+    id: string;
+    title: string;
+    date: string;
+    project_id: string;
+    project_title?: string | null;
+    project_code?: string | null;
+    status?: string | null;
+  }>;
+  nextMilestone: {
+    id: string;
+    title: string;
+    date: string;
+    project_id: string;
+    project_title?: string | null;
+    project_code?: string | null;
+    status?: string | null;
+  } | null;
+  totalMilestones: number;
+  hasAny: boolean;
+  signals: {
+    hasOverdue: boolean;
+    overdueCount: number;
+    atRiskCount: number;
+  };
+  insight: {
+    summary: string;
+    tone: ScheduleIntelligenceTone;
+  };
+  meta?: {
+    projectCount: number;
+    completeness?: "full" | "partial" | "empty";
+    reason?: string | null;
+  };
 };
 
 export type DashboardSummaryPayload = {
@@ -61,7 +102,8 @@ export type DashboardSummaryPayload = {
     resource_status: string | null;
   }>;
   portfolioHealth: any;
-  milestonesDue: any;
+  scheduleIntelligence: ScheduleIntelligencePayload | any;
+  milestonesDue: ScheduleIntelligencePayload | any;
   raidPanel: any;
   financialPlanSummary: any;
   recentWins: any;
@@ -504,11 +546,23 @@ export function zeroPortfolioHealth(days: 7 | 14 | 30 | 60) {
   };
 }
 
-export function zeroMilestonesDue(days: 7 | 14 | 30 | 60) {
+export function zeroScheduleIntelligence(days: 7 | 14 | 30 | 60): ScheduleIntelligencePayload {
   return {
     ok: true,
-    days,
-    count: 0,
+    windowDays: days,
+    dueSoon: [],
+    nextMilestone: null,
+    totalMilestones: 0,
+    hasAny: false,
+    signals: {
+      hasOverdue: false,
+      overdueCount: 0,
+      atRiskCount: 0,
+    },
+    insight: {
+      summary: "No active projects in scope — schedule visibility unavailable.",
+      tone: "neutral",
+    },
     meta: {
       projectCount: 0,
       completeness: "empty",
@@ -604,6 +658,118 @@ export function zeroDueDigest(dueDays: 7 | 14 | 30 | 60) {
     },
     stats: {
       total: 0,
+    },
+  };
+}
+
+function normalizeScheduleIntelligencePayload(
+  input: any,
+  windowDays: 7 | 14 | 30 | 60,
+): ScheduleIntelligencePayload {
+  const src = input && typeof input === "object" ? input : null;
+  if (!src) return zeroScheduleIntelligence(windowDays);
+
+  const dueSoonRaw = Array.isArray(src.dueSoon)
+    ? src.dueSoon
+    : Array.isArray(src.items)
+      ? src.items
+      : Array.isArray(src.milestones)
+        ? src.milestones
+        : [];
+
+  const dueSoon = dueSoonRaw
+    .map((m: any) => ({
+      id: safeStr(m?.id).trim(),
+      title: safeStr(m?.title || m?.name).trim() || "Milestone",
+      date: safeStr(m?.date || m?.due_date || m?.dueDate).trim(),
+      project_id: safeStr(m?.project_id || m?.projectId).trim(),
+      project_title: safeStr(m?.project_title || m?.projectTitle).trim() || null,
+      project_code: safeStr(m?.project_code || m?.projectCode).trim() || null,
+      status: safeStr(m?.status).trim() || null,
+    }))
+    .filter((m) => m.id || (m.title && m.date));
+
+  const nextRaw = src.nextMilestone ?? src.next ?? null;
+  const nextMilestone = nextRaw
+    ? {
+        id: safeStr(nextRaw?.id).trim(),
+        title: safeStr(nextRaw?.title || nextRaw?.name).trim() || "Milestone",
+        date: safeStr(nextRaw?.date || nextRaw?.due_date || nextRaw?.dueDate).trim(),
+        project_id: safeStr(nextRaw?.project_id || nextRaw?.projectId).trim(),
+        project_title: safeStr(nextRaw?.project_title || nextRaw?.projectTitle).trim() || null,
+        project_code: safeStr(nextRaw?.project_code || nextRaw?.projectCode).trim() || null,
+        status: safeStr(nextRaw?.status).trim() || null,
+      }
+    : null;
+
+  const overdueCount = Number(
+    src?.signals?.overdueCount ??
+      src?.overdueCount ??
+      src?.meta?.overdueCount ??
+      0,
+  );
+
+  const atRiskCount = Number(
+    src?.signals?.atRiskCount ??
+      src?.atRiskCount ??
+      src?.meta?.atRiskCount ??
+      0,
+  );
+
+  const totalMilestones = Number(
+    src?.totalMilestones ??
+      src?.total ??
+      src?.count ??
+      dueSoon.length,
+  );
+
+  const hasAny =
+    typeof src?.hasAny === "boolean"
+      ? src.hasAny
+      : totalMilestones > 0 || dueSoon.length > 0 || Boolean(nextMilestone);
+
+  const toneRaw = safeStr(src?.insight?.tone || src?.tone).trim().toLowerCase();
+  const tone: ScheduleIntelligenceTone =
+    toneRaw === "positive" || toneRaw === "warning" ? toneRaw : "neutral";
+
+  let summary = safeStr(src?.insight?.summary).trim();
+  if (!summary) {
+    if (!hasAny) {
+      summary = "No milestones defined — schedule visibility limited.";
+    } else if (overdueCount > 0) {
+      summary = `${overdueCount} milestone(s) overdue — schedule risk detected.`;
+    } else if (dueSoon.length === 0 && nextMilestone) {
+      summary = `No milestones due in the next ${windowDays} days — next milestone scheduled ahead.`;
+    } else if (dueSoon.length === 0) {
+      summary = `No milestones due in the next ${windowDays} days — schedule on track.`;
+    } else {
+      summary = `${dueSoon.length} milestone(s) due in the next ${windowDays} days.`;
+    }
+  }
+
+  return {
+    ok: true,
+    windowDays,
+    dueSoon,
+    nextMilestone,
+    totalMilestones,
+    hasAny,
+    signals: {
+      hasOverdue:
+        typeof src?.signals?.hasOverdue === "boolean"
+          ? src.signals.hasOverdue
+          : overdueCount > 0,
+      overdueCount,
+      atRiskCount,
+    },
+    insight: {
+      summary,
+      tone,
+    },
+    meta: {
+      projectCount: Number(src?.meta?.projectCount ?? 0),
+      completeness: src?.meta?.completeness ?? undefined,
+      reason: src?.meta?.reason ?? null,
     },
   };
 }
@@ -706,7 +872,7 @@ export async function loadDashboardSummaryData(
   };
 
   let portfolioHealth: any = null;
-  let milestonesDue: any = null;
+  let scheduleIntelligence: ScheduleIntelligencePayload | any = null;
   let raidPanel: any = null;
   let financialPlanSummary: any = null;
   let recentWins: any = null;
@@ -716,7 +882,7 @@ export async function loadDashboardSummaryData(
 
   if (filteredVisibleProjectIds.length === 0) {
     portfolioHealth = zeroPortfolioHealth(days);
-    milestonesDue = zeroMilestonesDue(days);
+    scheduleIntelligence = zeroScheduleIntelligence(dueDays);
     raidPanel = zeroRaidPanel(days);
     financialPlanSummary = zeroFinancialPlanSummary();
     recentWins = zeroRecentWins();
@@ -742,7 +908,7 @@ export async function loadDashboardSummaryData(
   } else {
     [
       portfolioHealth,
-      milestonesDue,
+      scheduleIntelligence,
       raidPanel,
       financialPlanSummary,
       recentWins,
@@ -756,9 +922,9 @@ export async function loadDashboardSummaryData(
         filters: moduleFilters,
         supabase,
       }),
-      loadMilestonesDue({
+      loadScheduleIntelligence({
         userId: input.userId,
-        days,
+        days: dueDays,
         filters: moduleFilters,
         supabase,
       }),
@@ -805,6 +971,11 @@ export async function loadDashboardSummaryData(
     ]);
   }
 
+  const normalizedScheduleIntelligence = normalizeScheduleIntelligencePayload(
+    scheduleIntelligence,
+    dueDays,
+  );
+
   const aiBriefing = normalizeAiBriefingPayload(aiBriefingRaw);
   const insights = Array.isArray(aiBriefing?.insights) ? aiBriefing.insights : [];
   const executiveBriefing =
@@ -815,22 +986,19 @@ export async function loadDashboardSummaryData(
       ? Number((portfolioHealth as any).score ?? (portfolioHealth as any).portfolio_health ?? 0)
       : 0;
 
-  const milestoneCount =
-    typeof milestonesDue === "number"
-      ? milestonesDue
-      : Number((milestonesDue as any)?.count ?? 0);
+  const scheduleDueCount = Number(normalizedScheduleIntelligence?.dueSoon?.length ?? 0);
 
   const raidDueCount =
     Number((raidPanel as any)?.panel?.due_total ?? (raidPanel as any)?.due_total ?? 0);
 
   if (
     filteredActiveProjectIds.length === 0 &&
-    (portfolioScore > 0 || milestoneCount > 0 || raidDueCount > 0)
+    (portfolioScore > 0 || scheduleDueCount > 0 || raidDueCount > 0)
   ) {
     console.warn("[dashboard-summary] inconsistent payload", {
       activeProjectCount: filteredActiveProjectIds.length,
       portfolioScore,
-      milestoneCount,
+      scheduleDueCount,
       raidDueCount,
       filters,
     });
@@ -865,7 +1033,8 @@ export async function loadDashboardSummaryData(
     activeProjects,
 
     portfolioHealth: portfolioHealth ?? null,
-    milestonesDue: milestonesDue ?? null,
+    scheduleIntelligence: normalizedScheduleIntelligence,
+    milestonesDue: normalizedScheduleIntelligence,
     raidPanel: raidPanel ?? null,
     financialPlanSummary: financialPlanSummary ?? null,
     recentWins: recentWins ?? null,
