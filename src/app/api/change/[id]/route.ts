@@ -260,30 +260,30 @@ export async function POST(req: Request, ctx: Ctx) {
     // Client sends impactAnalysis: { days, cost, risk }
     // Server stores as impact_days, impact_cost, impact_scope / impact_analysis JSON
     const ia = body.impactAnalysis ?? body.impact_analysis ?? null;
-    if (isObj(ia)) {
-      const days = Number(ia.days ?? 0);
-      const cost = Number(ia.cost ?? 0);
-      const risk = clamp(safeStr(ia.risk ?? "None identified"), 280);
+  if (isObj(ia)) {
+  const days = Number(ia.days ?? 0);
+  const cost = Number(ia.cost ?? 0);
+  const risk = clamp(safeStr(ia.risk ?? "None identified"), 280);
 
-      if (Number.isFinite(days)) patch.impact_days = days;
-      if (Number.isFinite(cost)) patch.impact_cost = cost;
-      patch.impact_scope = risk;
+  if (Number.isFinite(days)) patch.ai_schedule = days;   // ✅ correct column
+  if (Number.isFinite(cost)) patch.ai_cost = cost;       // ✅ correct column
+  patch.ai_scope = risk;                                  // ✅ correct column
 
-      // Also store as JSON blob if the column exists
-      patch.impact_analysis = { days, cost, risk, highlights: ia.highlights ?? [] };
-    } else {
-      // Individual numeric fields (legacy)
-      if (hasOwn(body, "impact_cost")) {
-        const n = Number(body.impact_cost);
-        patch.impact_cost = Number.isFinite(n) ? n : null;
-      }
-      if (hasOwn(body, "impact_days")) {
-        const n = Number(body.impact_days);
-        patch.impact_days = Number.isFinite(n) ? n : null;
-      }
-      if (hasOwn(body, "impact_scope"))
-        patch.impact_scope = clamp(safeStr(body.impact_scope), 2000);
-    }
+  // Also store as JSON blob
+  patch.impact_analysis = { days, cost, risk, highlights: ia.highlights ?? [] };
+} else {
+  // Individual numeric fields (legacy)
+  if (hasOwn(body, "impact_cost") || hasOwn(body, "ai_cost")) {
+    const n = Number(body.impact_cost ?? body.ai_cost);
+    patch.ai_cost = Number.isFinite(n) ? n : null;
+  }
+  if (hasOwn(body, "impact_days") || hasOwn(body, "ai_schedule")) {
+    const n = Number(body.impact_days ?? body.ai_schedule);
+    patch.ai_schedule = Number.isFinite(n) ? n : null;
+  }
+  if (hasOwn(body, "impact_scope") || hasOwn(body, "ai_scope"))
+    patch.ai_scope = clamp(safeStr(body.impact_scope ?? body.ai_scope), 2000);
+}
 
     // ── Status / stage ──
     if (hasOwn(body, "stage")) {
