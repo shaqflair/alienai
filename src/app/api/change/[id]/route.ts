@@ -162,7 +162,7 @@ export async function GET(req: Request, ctx: Ctx) {
     if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
 
     const { data: items, error: itemsErr } = await supabase
-      .from(TABLE).select("*").eq("project_id", projectId).is("deleted_at", null).order("created_at", { ascending: true });
+  .from(TABLE).select("*").eq("project_id", projectId).order("created_at", { ascending: true });
 
     if (itemsErr) {
       if (isMissingRelation(itemsErr.message)) return err("Database table missing: change_requests", { status: 500, code: "missing_relation", extra: { table: TABLE } });
