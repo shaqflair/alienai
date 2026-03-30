@@ -170,33 +170,29 @@ export function normalizeStatusParts(row: any): string[] {
 export function isProjectActive(row: any): boolean {
   if (!row) return false;
 
-  if (safeStr(row?.resource_status).trim().toLowerCase() === "pipeline") return false;
+  // Hard excludes only (safe)
+  if (safeStr(row?.resource_status).toLowerCase() === "pipeline") return false;
   if (row?.deleted_at) return false;
-  if (isTruthyFlag(row?.is_deleted)) return false;
   if (row?.archived_at) return false;
-  if (isTruthyFlag(row?.is_archived) || isTruthyFlag(row?.archived)) return false;
-  if (row?.closed_at || row?.cancelled_at) return false;
+  if (row?.closed_at) return false;
+  if (row?.cancelled_at) return false;
+
+  // Explicit flags override everything
+  if (row?.is_active === true || row?.active === true) return true;
   if (row?.is_active === false || row?.active === false) return false;
 
+  // ✅ RELAXED LOGIC
   const statuses = normalizeStatusParts(row);
+
   if (!statuses.length) return true;
 
-  const blockedTerms = [
-    "closed",
-    "cancel",
-    "deleted",
-    "archive",
-    "inactive",
-    "complete",
-    "completed",
-    "on_hold",
-    "paused",
-    "suspended",
-  ];
+  // Only block *true terminal states*
+  const blockedTerms = ["closed", "cancelled", "archived", "deleted"];
 
-  return !statuses.some((s) => blockedTerms.some((term) => s.includes(term)));
+  return !statuses.some((s) =>
+    blockedTerms.some((term) => s.includes(term))
+  );
 }
-
 export async function getScopedProjects(
   supabase: Awaited<ReturnType<typeof createClient>>,
   filters: PortfolioFilters,
