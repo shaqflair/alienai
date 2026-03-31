@@ -196,12 +196,12 @@ function SplitScreen({ frame, src, badge, badgeColor, line1, line2, accent, pid,
   const textY  = interpolate(frame, [0, 270], [0, -60], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   return (
     <AbsoluteFill style={{ background: "#000" }}>
-      {/* Full bleed screenshot */}
+      {/* Full bleed screenshot - tinted dark */}
       <AbsoluteFill style={{ opacity: imgOp }}>
-        <Img src={staticFile(src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }}/>
+        <Img src={staticFile(src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center", filter: "brightness(0.35) saturate(0.8)" }}/>
       </AbsoluteFill>
       {/* Dark gradient overlays */}
-      <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.55) 30%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.88) 100%)" }}/>
+      <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.1) 40%, rgba(0,0,0,0.1) 60%, rgba(0,0,0,0.5) 100%)" }}/>
       {/* Movie-style text scrolling top to bottom */}
       <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 80 }}>
         <div style={{ transform: `translateY(${textY}px)`, display: "flex", flexDirection: "column", alignItems: "center", gap: 18, textAlign: "center", maxWidth: 900, padding: "0 60px" }}>
@@ -504,9 +504,9 @@ export const AlienaPromo90: React.FC = () => {
           return (
             <AbsoluteFill style={{ background: "#000" }}>
               <AbsoluteFill style={{ opacity: imgOp }}>
-                <Img src={staticFile(sc.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }}/>
+                <Img src={staticFile(sc.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center", filter: "brightness(0.35) saturate(0.8)" }}/>
               </AbsoluteFill>
-              <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.55) 30%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.88) 100%)" }}/>
+              <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.1) 40%, rgba(0,0,0,0.1) 60%, rgba(0,0,0,0.5) 100%)" }}/>
               <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 80 }}>
                 <div style={{ transform: `translateY(${platTextY}px)`, display: "flex", flexDirection: "column", alignItems: "center", gap: 16, textAlign: "center", maxWidth: 900, padding: "0 60px" }}>
                   <div style={{ display: "flex", gap: 7, opacity: ease(segLf, 0.2, 0.8) }}>
