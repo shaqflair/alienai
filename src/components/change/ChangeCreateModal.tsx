@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -1103,7 +1103,7 @@ export default function ChangeCreateModal({
                   {projResolveErr && !projResolveBusy && (
                     <span style={{ fontSize: 10.5, color: "#dc2626" }}>{projResolveErr}</span>
                   )}
-                  {drafts && <span className="ccm-pill ccm-pill-green">✦ AI draft ready · {draftModel}</span>}
+                  {drafts && <span className="ccm-pill ccm-pill-green">✦ AI draft ready</span>}
                 </div>
               </div>
 
@@ -1608,11 +1608,7 @@ export default function ChangeCreateModal({
 
               <div className="ccm-div" />
 
-              {drafts && (
-                <div className="ccm-modelbadge">
-                  AI · <strong style={{ color: "#374151" }}>{draftModel}</strong>
-                </div>
-              )}
+              
 
               {/* PM Tips */}
               <div>

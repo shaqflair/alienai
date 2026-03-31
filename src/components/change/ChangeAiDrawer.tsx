@@ -1,4 +1,4 @@
-// src/components/change/ChangeAiDrawer.tsx
+﻿// src/components/change/ChangeAiDrawer.tsx
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -739,6 +739,7 @@ export default function ChangeAiDrawer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [lastRun, setLastRun] = useState<string>("");
+  const [crLabel, setCrLabel] = useState<string>("");
   const hasAutoRun = useRef(false);
 
   useEffect(() => {
@@ -761,6 +762,9 @@ export default function ChangeAiDrawer({
       const changeRes = await fetch(`/api/change/${encodeURIComponent(changeId)}`, { cache: "no-store" });
       const changeJson = await changeRes.json().catch(() => ({}));
       const row = changeJson?.item ?? changeJson?.data ?? changeJson ?? {};
+      const seq = Number(row?.seq);
+      if (Number.isFinite(seq) && seq > 0) setCrLabel(`CR${seq}`);
+      else if (row?.id) setCrLabel(`CR-${String(row.id).slice(0,6).toUpperCase()}`);
 
       const json = await apiPost("/api/ai/draft-assist", {
         projectId,
