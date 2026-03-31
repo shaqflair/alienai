@@ -1,4 +1,4 @@
-// src/app/api/change/[id]/route.ts
+﻿// src/app/api/change/[id]/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -193,7 +193,61 @@ export async function POST(req: Request, ctx: Ctx) {
     if (!isObj(body)) body = {};
 
     const id = await pickId(req, ctx, body);
-    if (!id) return err("Missing id", { status: 400, code: "missing_id" });
+
+    // ── CREATE branch ────────────────────────────────────────────────────────
+    if (!id) {
+      const projectId = safeStr(body.project_id).trim();
+      if (!projectId) return err("Missing id", { status: 400, code: "missing_id" });
+
+      const role = await requireProjectRole(supabase, projectId, user.id);
+      if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
+      if (!canEdit(role)) return err("Forbidden", { status: 403, code: "forbidden" });
+
+      const ia = body.impact_analysis ?? body.impactAnalysis ?? null;
+      const days = Number(isObj(ia) ? ia.days : 0) || 0;
+      const cost = Number(isObj(ia) ? ia.cost : 0) || 0;
+      const risk = clamp(safeStr(isObj(ia) ? ia.risk : "None identified"), 280);
+
+      const insert: any = {
+        project_id: projectId,
+        artifact_id: safeStr(body.artifact_id).trim() || null,
+        title: clamp(safeStr(body.title), 140),
+        description: clamp(safeStr(body.description ?? body.summary), 5000),
+        requester_name: clamp(safeStr(body.requester_name ?? body.requester), 160) || "Unknown requester",
+        priority: normalizePriorityToDb(body.priority),
+        tags: asTags(body.tags),
+        proposed_change: clamp(safeStr(body.proposed_change ?? body.proposedChange), 8000),
+        delivery_status: normalizeDeliveryStatus(body.delivery_status ?? body.status) ?? "new",
+        ai_schedule: days,
+        ai_cost: cost,
+        impact_analysis: { days, cost, risk, highlights: [] },
+        justification: clamp(safeStr(body.justification), 4000),
+        financial: clamp(safeStr(body.financial), 4000),
+        schedule: clamp(safeStr(body.schedule), 4000),
+        risks: clamp(safeStr(body.risks), 4000),
+        dependencies: clamp(safeStr(body.dependencies), 4000),
+        assumptions: clamp(safeStr(body.assumptions), 4000),
+        implementation_plan: clamp(safeStr(body.implementationPlan ?? body.implementation_plan), 4000),
+        rollback_plan: clamp(safeStr(body.rollbackPlan ?? body.rollback_plan), 4000),
+      };
+
+      const { data: created, error: createErr } = await supabase
+        .from(TABLE).insert(insert).select("*").maybeSingle();
+
+      if (createErr) return err(createErr.message || "Failed to create change", { status: 500, code: "db_error" });
+      if (!created) return err("Failed to create change", { status: 500, code: "db_error" });
+
+      try {
+        await logChangeEvent(supabase, {
+          projectId, changeRequestId: created.id,
+          actorUserId: user.id, actorRole: role,
+          eventType: "created", note: "Change created", payload: {},
+        });
+      } catch {}
+
+      return ok({ item: created, id: created.id });
+    }
+    // ── END CREATE branch ────────────────────────────────────────────────────
 
     const { data: existing, error: exErr } = await supabase
       .from(TABLE).select("*").eq("id", id).maybeSingle();
