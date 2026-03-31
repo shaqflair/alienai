@@ -1,6 +1,7 @@
 ﻿import React from "react";
 import {
   AbsoluteFill,
+  Audio,
   Img,
   Sequence,
   staticFile,
@@ -398,6 +399,7 @@ export const AlienaPromo90: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ background: C.bg }}>
+      <Audio src={staticFile("/audio/background.mp3")} volume={0.12} />
 
       {/* Scene 1: Intro */}
       <Sequence from={SCENES.intro.start} durationInFrames={SCENES.intro.dur}>

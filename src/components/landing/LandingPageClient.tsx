@@ -1,4 +1,6 @@
 "use client";
+import { Player } from "@remotion/player";
+import { AlienaPromo90 } from "@/Video/AlienaPromoVideo";
 
 import {
   useCallback,
@@ -316,23 +318,26 @@ function DemoModal({ open, onClose }: { open: boolean; onClose: () => void }) {
           </button>
         </div>
         <div style={{ padding:20 }}>
-          <div style={{ aspectRatio:"16 / 9",borderRadius:20,border:`1px solid ${T.border}`,background:`linear-gradient(135deg, ${T.bgCard}, ${T.surface})`,display:"grid",placeItems:"center",position:"relative",overflow:"hidden" }}>
-            <div style={{ position:"absolute",inset:0,background:`radial-gradient(circle at 50% 35%, ${T.cyan}14, transparent 55%)` }} />
-            <div style={{ position:"relative",zIndex:1,textAlign:"center",maxWidth:560,padding:24 }}>
-              <div style={{ width:84,height:84,borderRadius:"50%",margin:"0 auto 18px",display:"grid",placeItems:"center",background:`linear-gradient(135deg, ${T.cyan}, ${T.cyanDark})`,color:T.bg,boxShadow:`0 0 40px ${T.cyanGlow}` }}>
-                <Play size={32} fill={T.bg} />
-              </div>
-              <h3 style={{ fontFamily:F.display,fontSize:28,fontWeight:700,marginBottom:10 }}>See Aliena in action</h3>
-              <p style={{ color:T.textMuted,lineHeight:1.7,fontSize:15,marginBottom:20 }}>
-                Book a live walkthrough to see portfolio health scoring, RAID intelligence, approval flows, and AI briefings in your context.
-              </p>
-              <a href={withUtm("mailto:support@aliena.co.uk?subject=Book%20an%20Aliena%20demo","demo_modal")}
-                style={{ display:"inline-flex",alignItems:"center",gap:8,padding:"14px 22px",borderRadius:12,background:`linear-gradient(135deg, ${T.cyan}, ${T.cyanDark})`,color:T.bg,fontWeight:700,textDecoration:"none" }}
-                onClick={()=>trackEvent("demo_modal_book_click")}
-              >
-                Book a live demo <ArrowRight size={18} />
-              </a>
-            </div>
+          <div style={{ borderRadius:16, overflow:"hidden", background:"#000" }}>
+            <Player
+              component={AlienaPromo90}
+              durationInFrames={2700}
+              compositionWidth={1920}
+              compositionHeight={1080}
+              fps={30}
+              style={{ width:"100%", aspectRatio:"16/9" }}
+              controls
+              autoPlay
+              loop={false}
+            />
+          </div>
+          <div style={{ display:"flex", justifyContent:"center", marginTop:16 }}>
+            <a href={withUtm("mailto:support@aliena.co.uk?subject=Book%20an%20Aliena%20demo","demo_modal")}
+              style={{ display:"inline-flex",alignItems:"center",gap:8,padding:"12px 22px",borderRadius:12,background:`linear-gradient(135deg, ${T.cyan}, ${T.cyanDark})`,color:T.bg,fontWeight:700,textDecoration:"none",fontSize:14 }}
+              onClick={()=>trackEvent("demo_modal_book_click")}
+            >
+              Book a live demo <ArrowRight size={16} />
+            </a>
           </div>
         </div>
       </div>
