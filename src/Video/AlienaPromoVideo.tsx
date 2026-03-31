@@ -192,39 +192,22 @@ function Pill({ icon, value, label, color, frame, rf }: { icon: string; value: s
 }
 
 function SplitScreen({ frame, src, badge, badgeColor, line1, line2, accent, pid, children }: { frame: number; src: string; badge?: string; badgeColor?: string; line1: string; line2?: string; accent?: string; pid: string; children?: React.ReactNode }) {
-  const imgOp = ease(frame, 0.2, 1.1);
-  const sc    = sp(frame, 0, { stiffness: 40, damping: 20 });
+  const imgOp = ease(frame, 0, 0.8);
+  const textY  = interpolate(frame, [0, 270], [0, -60], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   return (
-    <AbsoluteFill style={{ background: C.bg }}>
-      <DarkBg opacity={0.4} pid={pid}/>
-      {/* Browser chrome frame */}
-      <AbsoluteFill style={{ left: "40%", top: "6%", bottom: "6%", right: "-2%", opacity: imgOp, transform: `scale(${0.93 + sc * 0.07})` }}>
-        {/* Browser window chrome */}
-        <div style={{ position: "absolute", inset: 0, borderRadius: 18, overflow: "hidden", boxShadow: "-30px 0 80px rgba(0,0,0,0.7), 0 30px 80px rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.08)" }}>
-          {/* Title bar */}
-          <div style={{ height: 36, background: "#1a1d24", display: "flex", alignItems: "center", padding: "0 16px", gap: 7, borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
-            <div style={{ width: 11, height: 11, borderRadius: "50%", background: "#FF5F57" }}/>
-            <div style={{ width: 11, height: 11, borderRadius: "50%", background: "#FEBC2E" }}/>
-            <div style={{ width: 11, height: 11, borderRadius: "50%", background: "#28C840" }}/>
-            <div style={{ flex: 1, margin: "0 16px", height: 22, background: "rgba(255,255,255,0.06)", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", fontFamily: "system-ui" }}>aliena.co.uk</div>
-            </div>
-          </div>
-          {/* Screenshot area */}
-          <div style={{ position: "relative", flex: 1, overflow: "hidden", height: "calc(100% - 36px)" }}>
-            <Img src={staticFile(src)} style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "top center", background: "#f8f9fc" }}/>
-            {/* Dark tint to blend light UIs with dark video */}
-            <div style={{ position: "absolute", inset: 0, background: "rgba(6,9,15,0.18)" }}/>
-            {/* Left fade */}
-            <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to right, rgba(6,9,15,0.92) 0%, rgba(6,9,15,0.2) 18%, transparent 35%)" }}/>
-          </div>
-        </div>
+    <AbsoluteFill style={{ background: "#000" }}>
+      {/* Full bleed screenshot */}
+      <AbsoluteFill style={{ opacity: imgOp }}>
+        <Img src={staticFile(src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }}/>
       </AbsoluteFill>
+      {/* Dark gradient overlays */}
+      <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.1) 40%, rgba(0,0,0,0.1) 60%, rgba(0,0,0,0.75) 100%)" }}/>
+      {/* Movie-style text scrolling top to bottom */}
+      <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 80 }}>
+        <div style={{ transform: `translateY(${textY}px)`, display: "flex", flexDirection: "column", alignItems: "center", gap: 18, textAlign: "center", maxWidth: 900, padding: "0 60px" }}>
 
-      <AbsoluteFill style={{ right: "58%", paddingLeft: 84, justifyContent: "center" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
           {badge && badgeColor && <Badge text={badge} color={badgeColor} frame={frame} rf={f(0.3)}/>}
-          <Headline line1={line1} line2={line2} frame={frame} rf={f(0.5)} accent={accent}/>
+          <Headline line1={line1} line2={line2} frame={frame} rf={f(0.5)} accent={accent} size={72}/>
           {children}
         </div>
       </AbsoluteFill>
