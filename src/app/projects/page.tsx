@@ -26,7 +26,7 @@ type Project = {
   pm_name?: string | null;
   health?: number | null;
   rag?: "G" | "A" | "R" | null;
-  isMember: boolean; // NEW: whether the current user is a project member
+  isMember: boolean;
 };
 
 function safeStr(x: unknown) {
@@ -37,25 +37,35 @@ function fmtShort(d: string | null | undefined) {
   if (!d) return null;
   try {
     return new Date(d).toLocaleDateString("en-GB", {
-      day: "numeric", month: "short", year: "2-digit",
+      day: "numeric",
+      month: "short",
+      year: "2-digit",
     });
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function fmtLong(d: string | null | undefined) {
   if (!d) return null;
   try {
     return new Date(d).toLocaleDateString("en-GB", {
-      day: "numeric", month: "short", year: "numeric",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
     });
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function daysUntil(d: string | null | undefined): number | null {
   if (!d) return null;
   try {
     return Math.ceil((new Date(d).getTime() - Date.now()) / 86_400_000);
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function normaliseRag(v: unknown): "G" | "A" | "R" | null {
@@ -73,12 +83,42 @@ function ragLabel(rag: "G" | "A" | "R" | null | undefined) {
   return "";
 }
 
+function isMissingSessionError(error: unknown) {
+  const name = String((error as any)?.name ?? "");
+  const message = String((error as any)?.message ?? "").toLowerCase();
+  return (
+    name === "AuthSessionMissingError" ||
+    message.includes("auth session missing")
+  );
+}
+
+async function requireUser() {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase.auth.getUser();
+
+    if (error) {
+      if (isMissingSessionError(error)) redirect("/login");
+      throw error;
+    }
+
+    if (!data.user) redirect("/login");
+
+    return {
+      supabase,
+      user: data.user,
+    };
+  } catch (error) {
+    if (isMissingSessionError(error)) redirect("/login");
+    throw error;
+  }
+}
+
 async function setProjectStatus(formData: FormData) {
   "use server";
-  const supabase = await createClient();
-  const { data: { user }, error: uErr } = await supabase.auth.getUser();
-  if (uErr) throw uErr;
-  if (!user) redirect("/login");
+
+  const { supabase, user } = await requireUser();
 
   const projectId = (formData.get("project_id") as string) || "";
   const status = (formData.get("status") as string) || "";
@@ -92,6 +132,7 @@ async function setProjectStatus(formData: FormData) {
     .eq("id", projectId);
 
   if (error) throw error;
+
   redirect(next);
 }
 
@@ -106,16 +147,18 @@ export default async function ProjectsPage({
     to_date?: string;
   }>;
 }) {
-  const supabase = await createClient();
+  const { supabase, user } = await requireUser();
 
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr) throw authErr;
-  if (!user) redirect("/login");
+  let activeOrgId: string | null = null;
+  try {
+    activeOrgId = await getActiveOrgId();
+  } catch (error) {
+    if (isMissingSessionError(error)) redirect("/login");
+    throw error;
+  }
 
-  const activeOrgId = await getActiveOrgId();
   if (!activeOrgId) redirect("/settings?err=no_active_org");
 
-  // ── 1a. Check if the user is an org admin/owner ───────────────────────────
   const { data: orgMemberRow } = await supabase
     .from("organisation_members")
     .select("role")
@@ -124,10 +167,9 @@ export default async function ProjectsPage({
     .is("removed_at", null)
     .maybeSingle();
 
-  const orgRole  = String(orgMemberRow?.role ?? "").toLowerCase();
+  const orgRole = String(orgMemberRow?.role ?? "").toLowerCase();
   const isOrgAdmin = orgRole === "admin" || orgRole === "owner";
 
-  // ── 1b. Get the current user's project memberships ────────────────────────
   const { data: memberRows, error: memErr } = await supabase
     .from("project_members")
     .select("project_id, role, removed_at")
@@ -147,7 +189,6 @@ export default async function ProjectsPage({
     (memberRows ?? []).map((r: any) => [String(r.project_id), r.role]),
   );
 
-  // ── 2. Fetch ALL org projects (not just the user's) ────────────────────────
   let projects: Project[] = [];
 
   const { data: pData, error: pErr } = await supabase
@@ -164,8 +205,10 @@ export default async function ProjectsPage({
 
   const projectIds = (pData ?? []).map((p: any) => String(p.id));
 
-  // ── 3. RAG scores ──────────────────────────────────────────────────────────
-  const ragMap = new Map<string, { health: number | null; rag: "G" | "A" | "R" | null }>();
+  const ragMap = new Map<
+    string,
+    { health: number | null; rag: "G" | "A" | "R" | null }
+  >();
 
   if (projectIds.length > 0) {
     const { data: ragData } = await supabase
@@ -179,50 +222,82 @@ export default async function ProjectsPage({
         const pid = String(r?.project_id ?? "");
         if (!pid || ragMap.has(pid)) continue;
         ragMap.set(pid, {
-          health: r?.health == null || Number.isNaN(Number(r.health)) ? null : Number(r.health),
+          health:
+            r?.health == null || Number.isNaN(Number(r.health))
+              ? null
+              : Number(r.health),
           rag: normaliseRag(r?.rag),
         });
       }
     }
   }
 
-  // ── 4. PM name resolution ─────────────────────────────────────────────────
-  const pmUserIds = Array.from(new Set(
-    (pData ?? []).map((p: any) => safeStr(p?.pm_user_id).trim()).filter(Boolean),
-  ));
-  const pmProfileIds = Array.from(new Set(
-    (pData ?? []).map((p: any) => safeStr(p?.project_manager_id).trim()).filter(Boolean),
-  ));
+  const pmUserIds = Array.from(
+    new Set(
+      (pData ?? [])
+        .map((p: any) => safeStr(p?.pm_user_id).trim())
+        .filter(Boolean),
+    ),
+  );
 
-  const pmByUserIdMap = new Map<string, { full_name?: string | null; email?: string | null }>();
-  const pmByIdMap     = new Map<string, { full_name?: string | null; email?: string | null }>();
+  const pmProfileIds = Array.from(
+    new Set(
+      (pData ?? [])
+        .map((p: any) => safeStr(p?.project_manager_id).trim())
+        .filter(Boolean),
+    ),
+  );
+
+  const pmByUserIdMap = new Map<
+    string,
+    { full_name?: string | null; email?: string | null }
+  >();
+  const pmByIdMap = new Map<
+    string,
+    { full_name?: string | null; email?: string | null }
+  >();
 
   if (pmUserIds.length > 0) {
     const { data: p1 } = await supabase
-      .from("profiles").select("id, user_id, full_name, email").in("user_id", pmUserIds);
+      .from("profiles")
+      .select("id, user_id, full_name, email")
+      .in("user_id", pmUserIds);
+
     for (const row of (p1 ?? []) as any[]) {
       const uid = safeStr(row?.user_id).trim();
-      if (uid) pmByUserIdMap.set(uid, { full_name: row?.full_name ?? null, email: row?.email ?? null });
+      if (uid) {
+        pmByUserIdMap.set(uid, {
+          full_name: row?.full_name ?? null,
+          email: row?.email ?? null,
+        });
+      }
     }
   }
 
   if (pmProfileIds.length > 0) {
     const { data: p2 } = await supabase
-      .from("profiles").select("id, user_id, full_name, email").in("id", pmProfileIds);
+      .from("profiles")
+      .select("id, user_id, full_name, email")
+      .in("id", pmProfileIds);
+
     for (const row of (p2 ?? []) as any[]) {
       const id = safeStr(row?.id).trim();
-      if (id) pmByIdMap.set(id, { full_name: row?.full_name ?? null, email: row?.email ?? null });
+      if (id) {
+        pmByIdMap.set(id, {
+          full_name: row?.full_name ?? null,
+          email: row?.email ?? null,
+        });
+      }
     }
   }
 
-  // ── 5. Build project list ─────────────────────────────────────────────────
   projects = (pData ?? []).map((p: any) => {
-    const projectId       = String(p.id);
-    const pmUserId        = safeStr(p?.pm_user_id).trim() || null;
-    const projectMgrId    = safeStr(p?.project_manager_id).trim() || null;
-    const storedPmName    = safeStr(p?.pm_name).trim() || null;
-    const pmByUser        = pmUserId ? pmByUserIdMap.get(pmUserId) : null;
-    const pmById          = projectMgrId ? pmByIdMap.get(projectMgrId) : null;
+    const projectId = String(p.id);
+    const pmUserId = safeStr(p?.pm_user_id).trim() || null;
+    const projectMgrId = safeStr(p?.project_manager_id).trim() || null;
+    const storedPmName = safeStr(p?.pm_name).trim() || null;
+    const pmByUser = pmUserId ? pmByUserIdMap.get(pmUserId) : null;
+    const pmById = projectMgrId ? pmByIdMap.get(projectMgrId) : null;
 
     const resolvedPmName =
       storedPmName ||
@@ -251,69 +326,72 @@ export default async function ProjectsPage({
     };
   });
 
-  // ── 6. URL params ─────────────────────────────────────────────────────────
-  const sp         = (await searchParams) ?? {};
-  const filter     = (sp.filter    ?? "Active").trim();
-  const sortMode   = (sp.sort      ?? "Newest").trim();
-  const query      = (sp.q         ?? "").trim().toLowerCase();
-  const fromDate   = (sp.from_date ?? "").trim();
-  const toDate     = (sp.to_date   ?? "").trim();
+  const sp = (await searchParams) ?? {};
+  const filter = (sp.filter ?? "Active").trim();
+  const sortMode = (sp.sort ?? "Newest").trim();
+  const query = (sp.q ?? "").trim().toLowerCase();
+  const fromDate = (sp.from_date ?? "").trim();
+  const toDate = (sp.to_date ?? "").trim();
 
-  // ── 7. Filtering ─────────────────────────────────────────────────────────
-const filtered = projects
+  const filtered = projects
     .filter((p) => {
       const st = (p.status ?? "active").toLowerCase();
       const pipeline = (p.resource_status ?? "").toLowerCase() === "pipeline";
-      if (filter === "Active")   return st !== "closed" && !pipeline;
+      if (filter === "Active") return st !== "closed" && !pipeline;
       if (filter === "Pipeline") return pipeline;
-      if (filter === "Closed")   return st === "closed";
-      return true; // "All"
+      if (filter === "Closed") return st === "closed";
+      return true;
     })
-        .filter((p) =>
-      !query ||
-      p.title.toLowerCase().includes(query) ||
-      (p.project_code ?? "").toLowerCase().includes(query) ||
-      (p.pm_name ?? "").toLowerCase().includes(query),
+    .filter(
+      (p) =>
+        !query ||
+        p.title.toLowerCase().includes(query) ||
+        (p.project_code ?? "").toLowerCase().includes(query) ||
+        (p.pm_name ?? "").toLowerCase().includes(query),
     )
-    // Date range: include project if it overlaps with [fromDate, toDate]
     .filter((p) => {
       if (!fromDate && !toDate) return true;
-      const projStart  = p.start_date  ? p.start_date.slice(0, 10)  : null;
+      const projStart = p.start_date ? p.start_date.slice(0, 10) : null;
       const projFinish = p.finish_date ? p.finish_date.slice(0, 10) : null;
-      // If project has no dates, always include it in a date-filtered view
       if (!projStart && !projFinish) return true;
       if (fromDate && projFinish && projFinish < fromDate) return false;
-      if (toDate   && projStart  && projStart  > toDate)   return false;
+      if (toDate && projStart && projStart > toDate) return false;
       return true;
     })
     .sort((a, b) => {
       if (sortMode === "A-Z") return a.title.localeCompare(b.title);
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      return (
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
     });
 
-  // ── 8. Summary counts ─────────────────────────────────────────────────────
-const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "pipeline";
-  const isActive   = (p: Project) => (p.status ?? "active").toLowerCase() !== "closed" && !isPipeline(p);
+  const isPipeline = (p: Project) =>
+    (p.resource_status ?? "").toLowerCase() === "pipeline";
+  const isActive = (p: Project) =>
+    (p.status ?? "active").toLowerCase() !== "closed" && !isPipeline(p);
 
-  const activeCt   = projects.filter(isActive).length;
+  const activeCt = projects.filter(isActive).length;
   const pipelineCt = projects.filter(isPipeline).length;
-  const closedCt   = projects.filter((p) => (p.status ?? "").toLowerCase() === "closed").length;
-  const atRiskCt   = projects.filter((p) => isActive(p) && p.rag === "R").length;
+  const closedCt = projects.filter(
+    (p) => (p.status ?? "").toLowerCase() === "closed",
+  ).length;
+  const atRiskCt = projects.filter((p) => isActive(p) && p.rag === "R").length;
 
   const healthAvg = (() => {
     const scored = projects.filter((p) => isActive(p) && p.health != null);
     if (!scored.length) return null;
-    return Math.round(scored.reduce((s, p) => s + (p.health ?? 0), 0) / scored.length);
+    return Math.round(
+      scored.reduce((s, p) => s + (p.health ?? 0), 0) / scored.length,
+    );
   })();
-  
-  // Helper: build href preserving all active params
+
   function tabHref(overrides: Record<string, string>) {
     const params = new URLSearchParams({
       filter,
       sort: sortMode,
       q: query,
       ...(fromDate ? { from_date: fromDate } : {}),
-      ...(toDate   ? { to_date:   toDate }   : {}),
+      ...(toDate ? { to_date: toDate } : {}),
       ...overrides,
     });
     return `/projects?${params.toString()}`;
@@ -462,7 +540,6 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
         .kpi-num { font-family: var(--mono); font-size: 28px; font-weight: 500; color: var(--ink); line-height: 1; letter-spacing: -0.04em; }
         .kpi-lbl { font-family: var(--mono); font-size: 9px; font-weight: 500; color: var(--ink-4); letter-spacing: 0.18em; text-transform: uppercase; margin-top: 6px; }
 
-        /* ── Toolbar ───────────────────────────────────── */
         .toolbar {
           display: flex;
           align-items: stretch;
@@ -525,7 +602,6 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
 
         .search-zone input::placeholder { color: var(--ink-4); }
 
-        /* ── Date range zone ────────────────────────────── */
         .date-zone {
           display: flex;
           align-items: center;
@@ -611,7 +687,6 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
         .s-tab:hover { color: var(--ink-2); background: var(--off-2); }
         .s-tab.active { color: var(--ink); }
 
-        /* ── Column header ──────────────────────────────── */
         .col-header {
           display: grid;
           grid-template-columns: 1fr 150px 130px 110px 36px;
@@ -633,7 +708,6 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
 
         .ch-r { text-align: right; }
 
-        /* ── Project rows ───────────────────────────────── */
         .p-row {
           display: grid;
           grid-template-columns: 1fr 150px 130px 110px 36px;
@@ -647,13 +721,11 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
           color: inherit;
         }
 
-        /* Member rows: fully interactive */
         .p-row.member { cursor: pointer; }
         .p-row.member:hover { background: #fcfcfc; }
         .p-row.member:hover .row-arrow { opacity: 1; transform: translateX(0); }
         .p-row.member:hover .row-actions-panel { opacity: 1; pointer-events: auto; }
 
-        /* Non-member rows: dimmed, locked */
         .p-row.non-member {
           cursor: default;
           opacity: 0.48;
@@ -719,7 +791,6 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
 
         .rm-sep { color: var(--rule); }
 
-        /* Lock badge for non-members */
         .lock-badge {
           display: inline-flex;
           align-items: center;
@@ -837,7 +908,6 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
         .footer-txt { font-family: var(--mono); font-size: 10px; font-weight: 400; color: var(--ink-4); letter-spacing: 0.08em; }
         .js-hidden { display: none !important; }
 
-        /* Date filter active indicator */
         .date-filter-active {
           display: inline-block;
           width: 6px; height: 6px; border-radius: 50%;
@@ -868,13 +938,11 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
         }
       `}</style>
 
-      {/* ── JS: search filter + date range auto-submit ────────────────────── */}
       <script
         dangerouslySetInnerHTML={{
           __html: `
             (function () {
               function boot() {
-                /* client-side text search */
                 var inp = document.getElementById('sq');
                 var lbl = document.getElementById('row-count');
                 if (inp) {
@@ -891,7 +959,6 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
                   });
                 }
 
-                /* date range auto-submit */
                 var dateForm = document.getElementById('date-form');
                 if (dateForm) {
                   dateForm.querySelectorAll('input[type="date"]').forEach(function (el) {
@@ -910,7 +977,6 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
       />
 
       <div className="page">
-        {/* ── Topbar ─────────────────────────────────────────────────────── */}
         <div className="topbar">
           <div className="topbar-left">
             <span className="topbar-title">Portfolio</span>
@@ -927,7 +993,6 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
           </div>
         </div>
 
-        {/* ── Masthead ────────────────────────────────────────────────────── */}
         <div className="masthead">
           <div className="mast-grid">
             <div className="mast-left">
@@ -966,13 +1031,30 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
                     </div>
                   )}
                   {healthAvg != null && (
-                    <div className="kpi-cell" style={{
-                      background: healthAvg >= 90 ? "var(--green-bg)" : healthAvg >= 70 ? "var(--amber-bg)" : "var(--red-bg)",
-                    }}>
-                      <div className="kpi-num" style={{
-                        color: healthAvg >= 90 ? "#166534" : healthAvg >= 70 ? "#b45309" : "#b91c1c",
-                      }}>
-                        {healthAvg}<span style={{ fontSize: 14, fontWeight: 300 }}>%</span>
+                    <div
+                      className="kpi-cell"
+                      style={{
+                        background:
+                          healthAvg >= 90
+                            ? "var(--green-bg)"
+                            : healthAvg >= 70
+                              ? "var(--amber-bg)"
+                              : "var(--red-bg)",
+                      }}
+                    >
+                      <div
+                        className="kpi-num"
+                        style={{
+                          color:
+                            healthAvg >= 90
+                              ? "#166534"
+                              : healthAvg >= 70
+                                ? "#b45309"
+                                : "#b91c1c",
+                        }}
+                      >
+                        {healthAvg}
+                        <span style={{ fontSize: 14, fontWeight: 300 }}>%</span>
                       </div>
                       <div className="kpi-lbl">Avg Health</div>
                     </div>
@@ -987,11 +1069,9 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
           </div>
         </div>
 
-        {/* ── Toolbar ─────────────────────────────────────────────────────── */}
         <div className="toolbar">
-          {/* Filter tabs */}
           <div className="filter-tabs">
-         {(["Active", "Pipeline", "Closed", "All"] as const).map((f) => (
+            {(["Active", "Pipeline", "Closed", "All"] as const).map((f) => (
               <Link
                 key={f}
                 href={tabHref({ filter: f })}
@@ -999,19 +1079,27 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
               >
                 {f}
                 <span className="f-count">
-                  {f === "Active"   ? activeCt
-                  : f === "Pipeline" ? pipelineCt
-                  : f === "Closed"   ? closedCt
-                  : projects.length}
+                  {f === "Active"
+                    ? activeCt
+                    : f === "Pipeline"
+                      ? pipelineCt
+                      : f === "Closed"
+                        ? closedCt
+                        : projects.length}
                 </span>
               </Link>
-            ))}          </div>
+            ))}
+          </div>
 
-          {/* Search */}
           <div className="search-zone">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-              <circle cx="11" cy="11" r="8" stroke="#bbbbbb" strokeWidth="1.5"/>
-              <path d="m21 21-4.35-4.35" stroke="#bbbbbb" strokeWidth="1.5" strokeLinecap="round"/>
+              <circle cx="11" cy="11" r="8" stroke="#bbbbbb" strokeWidth="1.5" />
+              <path
+                d="m21 21-4.35-4.35"
+                stroke="#bbbbbb"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
             </svg>
             <input
               id="sq"
@@ -1021,16 +1109,14 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
             />
           </div>
 
-          {/* ── Date range picker ─────────────────────────────────────── */}
           <form
             id="date-form"
             method="get"
             action="/projects"
             className="date-zone"
           >
-            {/* Preserve existing URL params as hidden inputs */}
-            <input type="hidden" name="filter"   value={filter} />
-            <input type="hidden" name="sort"     value={sortMode} />
+            <input type="hidden" name="filter" value={filter} />
+            <input type="hidden" name="sort" value={sortMode} />
             {query && <input type="hidden" name="q" value={query} />}
 
             <span className="date-label">
@@ -1065,7 +1151,6 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
             )}
           </form>
 
-          {/* Sort tabs */}
           <div className="sort-tabs">
             {(["Newest", "A-Z"] as const).map((s) => (
               <Link
@@ -1079,7 +1164,6 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
           </div>
         </div>
 
-        {/* ── Column header ───────────────────────────────────────────────── */}
         <div className="col-header">
           <div className="ch">Project</div>
           <div className="ch">Timeline</div>
@@ -1088,47 +1172,103 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
           <div className="ch" />
         </div>
 
-        {/* ── Project rows ─────────────────────────────────────────────────── */}
         {filtered.map((p, i) => {
-          const colour    = p.colour || "#111111";
-          const isActive  = (p.status ?? "active").toLowerCase() !== "closed";
-          const isMember  = p.isMember;
-          const health    = p.health;
-          const rag       = normaliseRag(p.rag);
-          const daysLeft  = daysUntil(p.finish_date);
+          const colour = p.colour || "#111111";
+          const active = (p.status ?? "active").toLowerCase() !== "closed";
+          const isMember = p.isMember;
+          const health = p.health;
+          const rag = normaliseRag(p.rag);
+          const daysLeft = daysUntil(p.finish_date);
 
           let tlPct = 0;
           if (p.start_date && p.finish_date) {
             const s = new Date(p.start_date).getTime();
             const e = new Date(p.finish_date).getTime();
-            if (e > s) tlPct = Math.min(100, Math.max(0, Math.round(((Date.now() - s) / (e - s)) * 100)));
+            if (e > s) {
+              tlPct = Math.min(
+                100,
+                Math.max(0, Math.round(((Date.now() - s) / (e - s)) * 100)),
+              );
+            }
           }
 
-          const tlColor = daysLeft == null ? colour : daysLeft < 0 ? "var(--red)" : daysLeft < 30 ? "var(--amber)" : colour;
-          const tlCls   = daysLeft == null ? "tl-nil" : daysLeft < 0 ? "tl-over" : daysLeft < 30 ? "tl-warn" : "tl-ok";
-          const tlLabel = daysLeft == null ? "" : daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : daysLeft === 0 ? "Due today" : `${daysLeft}d left`;
+          const tlColor =
+            daysLeft == null
+              ? colour
+              : daysLeft < 0
+                ? "var(--red)"
+                : daysLeft < 30
+                  ? "var(--amber)"
+                  : colour;
 
-          const hCls = health == null
-            ? (rag === "G" ? "h-g" : rag === "A" ? "h-a" : rag === "R" ? "h-r" : "h-n")
-            : (rag === "G" ? "h-g" : rag === "A" ? "h-a" : rag === "R" ? "h-r" : health >= 85 ? "h-g" : health >= 70 ? "h-a" : "h-r");
+          const tlCls =
+            daysLeft == null
+              ? "tl-nil"
+              : daysLeft < 0
+                ? "tl-over"
+                : daysLeft < 30
+                  ? "tl-warn"
+                  : "tl-ok";
 
-          const rpCls  = rag === "G" ? "rp-g" : rag === "A" ? "rp-a" : rag === "R" ? "rp-r" : "";
-          const stCls  = !isActive ? "st-closed" : p.resource_status === "pipeline" ? "st-pipeline" : "st-active";
-          const stLabel = !isActive ? "Closed" : p.resource_status === "pipeline" ? "Pipeline" : "Active";
+          const tlLabel =
+            daysLeft == null
+              ? ""
+              : daysLeft < 0
+                ? `${Math.abs(daysLeft)}d overdue`
+                : daysLeft === 0
+                  ? "Due today"
+                  : `${daysLeft}d left`;
+
+          const hCls =
+            health == null
+              ? rag === "G"
+                ? "h-g"
+                : rag === "A"
+                  ? "h-a"
+                  : rag === "R"
+                    ? "h-r"
+                    : "h-n"
+              : rag === "G"
+                ? "h-g"
+                : rag === "A"
+                  ? "h-a"
+                  : rag === "R"
+                    ? "h-r"
+                    : health >= 85
+                      ? "h-g"
+                      : health >= 70
+                        ? "h-a"
+                        : "h-r";
+
+          const rpCls =
+            rag === "G" ? "rp-g" : rag === "A" ? "rp-a" : rag === "R" ? "rp-r" : "";
+
+          const stCls = !active
+            ? "st-closed"
+            : p.resource_status === "pipeline"
+              ? "st-pipeline"
+              : "st-active";
+
+          const stLabel = !active
+            ? "Closed"
+            : p.resource_status === "pipeline"
+              ? "Pipeline"
+              : "Active";
 
           return (
             <div
               key={p.id}
               className={`p-row ${isMember ? "member" : "non-member"}`}
               data-s={`${p.title} ${p.project_code ?? ""} ${p.pm_name ?? ""}`.toLowerCase()}
-              style={{
-                "--accent": colour,
-                animationDelay: `${Math.min(i * 0.03, 0.25)}s`,
-              } as any}
+              style={
+                {
+                  "--accent": colour,
+                  animationDelay: `${Math.min(i * 0.03, 0.25)}s`,
+                } as any
+              }
             >
               <div className="c-main">
                 <div className="row-name-line">
-                  {/* Only members get a clickable link */}
                   {isMember ? (
                     <Link href={`/projects/${p.id}`} className="row-name">
                       {p.title}
@@ -1136,12 +1276,27 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
                   ) : (
                     <span className="row-name">{p.title}</span>
                   )}
+
                   {p.project_code && <span className="row-code">{p.project_code}</span>}
+
                   {!isMember && (
                     <span className="lock-badge">
                       <svg width="8" height="8" viewBox="0 0 24 24" fill="none">
-                        <rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" strokeWidth="2"/>
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                        <rect
+                          x="3"
+                          y="11"
+                          width="18"
+                          height="11"
+                          rx="2"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        />
+                        <path
+                          d="M7 11V7a5 5 0 0 1 10 0v4"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        />
                       </svg>
                       No access
                     </span>
@@ -1169,7 +1324,10 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
                   <span>{fmtShort(p.finish_date) ?? ""}</span>
                 </div>
                 <div className="tl-bar">
-                  <div className="tl-fill" style={{ width: `${tlPct}%`, background: tlColor }} />
+                  <div
+                    className="tl-fill"
+                    style={{ width: `${tlPct}%`, background: tlColor }}
+                  />
                 </div>
                 <div className={`tl-days ${tlCls}`}>{tlLabel}</div>
               </div>
@@ -1195,25 +1353,56 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
                 {isMember ? (
                   <span className="row-arrow">&#8594;</span>
                 ) : (
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.25 }}>
-                    <rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" strokeWidth="2"/>
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    style={{ opacity: 0.25 }}
+                  >
+                    <rect
+                      x="3"
+                      y="11"
+                      width="18"
+                      height="11"
+                      rx="2"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    />
+                    <path
+                      d="M7 11V7a5 5 0 0 1 10 0v4"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
                   </svg>
                 )}
               </div>
 
-              {/* Quick-action panel — only for members */}
               {isMember && (
                 <div className="row-actions-panel">
-                  <Link href={`/projects/${p.id}`} className="ra-btn">Overview &#8594;</Link>
-                  <Link href={`/projects/${p.id}/artifacts`} className="ra-btn">Artifacts</Link>
-                  <Link href={`/projects/${p.id}/members`} className="ra-btn">Members</Link>
+                  <Link href={`/projects/${p.id}`} className="ra-btn">
+                    Overview &#8594;
+                  </Link>
+                  <Link href={`/projects/${p.id}/artifacts`} className="ra-btn">
+                    Artifacts
+                  </Link>
+                  <Link href={`/projects/${p.id}/members`} className="ra-btn">
+                    Members
+                  </Link>
                   <form action={setProjectStatus} style={{ display: "contents" }}>
                     <input type="hidden" name="project_id" value={p.id} />
-                    <input type="hidden" name="status"     value={isActive ? "closed" : "active"} />
-                    <input type="hidden" name="next"       value="/projects" />
-                    <button type="submit" className={`ra-btn ${isActive ? "ra-close" : ""}`}>
-                      {isActive ? "Close" : "Reopen"}
+                    <input
+                      type="hidden"
+                      name="status"
+                      value={active ? "closed" : "active"}
+                    />
+                    <input type="hidden" name="next" value="/projects" />
+                    <button
+                      type="submit"
+                      className={`ra-btn ${active ? "ra-close" : ""}`}
+                    >
+                      {active ? "Close" : "Reopen"}
                     </button>
                   </form>
                 </div>
@@ -1244,11 +1433,14 @@ const isPipeline = (p: Project) => (p.resource_status ?? "").toLowerCase() === "
             {!isOrgAdmin && ` · ${memberProjectIds.size} accessible to you`}
           </span>
           <span className="footer-txt">
-            {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+            {new Date().toLocaleDateString("en-GB", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
           </span>
         </div>
       </div>
     </>
   );
 }
-
