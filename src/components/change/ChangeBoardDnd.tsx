@@ -645,9 +645,13 @@ const BOARD_CSS = `
 
   .kb-card-badges {
     display:flex;
+    flex-direction:row;
+    align-items:center;
     gap:6px;
-    flex-wrap:wrap;
+    flex-wrap:nowrap;
+    flex:1;
     min-width:0;
+    overflow:hidden;
   }
 
   .kb-badge {
