@@ -1039,8 +1039,13 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 onRequestChangesWithComments={handleRequestChangesWithComments}
               />
             ) : (
-              <div className="relative">
-                {mode === "charter" ? (
+             <div
+  className="relative [&_*]:opacity-100 [&_*]:blur-0"
+  style={{
+    filter: "none",
+    backdropFilter: "none",
+  }}
+>                {mode === "charter" ? (
                   <ProjectCharterEditorFormLazy
                     projectId={projectId}
                     artifactId={artifactId}

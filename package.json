@@ -27,6 +27,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@remotion/cli": "^4.0.441",
     "@remotion/media": "^4.0.441",
+    "@remotion/player": "^4.0.441",
     "@sparticuz/chromium": "^143.0.4",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.89.0",
