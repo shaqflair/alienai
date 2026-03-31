@@ -49,9 +49,19 @@ function hasMissingColumn(errMsg: string, col: string) {
   const m = (errMsg || "").toLowerCase();
   return m.includes("column") && m.includes(col.toLowerCase());
 }
+
 function hasDeliveryStatusMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "delivery_status");
 }
+
+function hasArtifactIdMissingColumn(errMsg: string) {
+  return hasMissingColumn(errMsg, "artifact_id");
+}
+
+function hasTitleMissingColumn(errMsg: string) {
+  return hasMissingColumn(errMsg, "title");
+}
+
 function isMissingRelation(errMsg: string) {
   const m = (errMsg || "").toLowerCase();
   return m.includes("does not exist") && m.includes("relation");
@@ -93,7 +103,10 @@ function getUserAgent(req: Request): string | null {
   return ua || null;
 }
 
-async function resolveOrganisationIdForProject(supabase: any, projectId: string): Promise<string | null> {
+async function resolveOrganisationIdForProject(
+  supabase: any,
+  projectId: string
+): Promise<string | null> {
   try {
     const { data, error } = await supabase
       .from("projects")
@@ -109,7 +122,11 @@ async function resolveOrganisationIdForProject(supabase: any, projectId: string)
   }
 }
 
-async function resolveActorName(supabase: any, userId: string, fallbackEmail?: string | null) {
+async function resolveActorName(
+  supabase: any,
+  userId: string,
+  fallbackEmail?: string | null
+) {
   try {
     const { data } = await supabase
       .from("profiles")
@@ -173,7 +190,7 @@ async function logApprovalAudit(
     if (ins?.error) {
       const msg = safeStr(ins.error.message);
       if (!isMissingRelation(msg)) {
-        // swallow anyway
+        // swallow
       }
     }
   } catch {
@@ -271,34 +288,208 @@ async function emitAiEvent(req: Request, body: any) {
   }
 }
 
-async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise<string | null> {
-  const current = safeStr(cr?.artifact_id).trim();
-  if (current) return current;
+async function loadChangeTitle(supabase: any, changeId: string): Promise<string> {
+  const first = await supabase
+    .from("change_requests")
+    .select("title")
+    .eq("id", changeId)
+    .maybeSingle();
 
-  const projectId = safeStr(cr?.project_id).trim();
-  if (!projectId) return null;
-
-  const { data, error } = await supabase
-    .from("artifacts")
-    .select("id, type, is_current, created_at")
-    .eq("project_id", projectId)
-    .in("type", ["change_requests", "change_request", "change"])
-    .order("is_current", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  if (error) return null;
-
-  const resolved = Array.isArray(data) && data[0]?.id ? String(data[0].id) : null;
-  if (!resolved) return null;
-
-  try {
-    await supabase.from("change_requests").update({ artifact_id: resolved }).eq("id", cr.id);
-  } catch {
-    // ignore
+  if (!first.error) {
+    return safeStr((first.data as any)?.title).trim() || "Change Request";
   }
 
-  return resolved;
+  if (hasTitleMissingColumn(safeStr(first.error?.message))) {
+    return "Change Request";
+  }
+
+  return "Change Request";
+}
+
+async function loadProjectOwnerForArtifact(
+  supabase: any,
+  projectId: string
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("projects")
+    .select("created_by, owner_id, user_id")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  return (
+    safeStr((data as any)?.created_by).trim() ||
+    safeStr((data as any)?.owner_id).trim() ||
+    safeStr((data as any)?.user_id).trim() ||
+    null
+  );
+}
+
+async function createDedicatedChangeArtifact(
+  supabase: any,
+  args: {
+    projectId: string;
+    userId: string;
+    changeId: string;
+    title: string;
+  }
+): Promise<string | null> {
+  const titleBase = safeStr(args.title).trim() || "Change Request";
+
+  const insertPayloads = [
+    {
+      project_id: args.projectId,
+      type: "change",
+      artifact_type: "change",
+      title: titleBase,
+      status: "draft",
+      user_id: args.userId,
+      is_current: true,
+      source_record_id: args.changeId,
+    },
+    {
+      project_id: args.projectId,
+      type: "change",
+      title: titleBase,
+      status: "draft",
+      user_id: args.userId,
+      is_current: true,
+    },
+    {
+      project_id: args.projectId,
+      type: "change_requests",
+      title: titleBase,
+      status: "draft",
+      user_id: args.userId,
+      is_current: true,
+    },
+  ];
+
+  for (const payload of insertPayloads) {
+    try {
+      const { data, error } = await supabase
+        .from("artifacts")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (!error && data?.id) {
+        return String(data.id);
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+/**
+ * IMPORTANT:
+ * Approval actions must resolve the dedicated per-change artifact,
+ * not a shared project-level change board artifact.
+ */
+async function ensureDedicatedArtifactIdForChangeRequest(
+  supabase: any,
+  cr: any
+): Promise<string | null> {
+  const current = safeStr(cr?.artifact_id).trim();
+  const projectId = safeStr(cr?.project_id).trim();
+  const changeId = safeStr(cr?.id).trim();
+
+  if (!projectId || !changeId) return null;
+
+  if (current) {
+    const { data: artifactRow, error } = await supabase
+      .from("artifacts")
+      .select("id, type, artifact_type, title, project_id")
+      .eq("id", current)
+      .maybeSingle();
+
+    if (!error && artifactRow?.id) {
+      const type = safeStr((artifactRow as any)?.type).trim().toLowerCase();
+      const artifactType = safeStr((artifactRow as any)?.artifact_type).trim().toLowerCase();
+
+      if (type === "change" || artifactType === "change") {
+        return String(artifactRow.id);
+      }
+    }
+  }
+
+  const changeTitle = await loadChangeTitle(supabase, changeId);
+
+  const searchQueries = [
+    supabase
+      .from("artifacts")
+      .select("id, type, artifact_type, title, project_id, created_at")
+      .eq("project_id", projectId)
+      .eq("type", "change")
+      .order("created_at", { ascending: false })
+      .limit(20),
+
+    supabase
+      .from("artifacts")
+      .select("id, type, artifact_type, title, project_id, created_at")
+      .eq("project_id", projectId)
+      .eq("artifact_type", "change")
+      .order("created_at", { ascending: false })
+      .limit(20),
+  ];
+
+  for (const query of searchQueries) {
+    try {
+      const { data, error } = await query;
+      if (error) continue;
+
+      const found = (Array.isArray(data) ? data : []).find((row: any) => {
+        const t = safeStr(row?.title).trim().toLowerCase();
+        const expected = changeTitle.trim().toLowerCase();
+        return !!t && !!expected && t === expected;
+      });
+
+      if (found?.id) {
+        const resolved = String(found.id);
+
+        try {
+          const attach = await supabase
+            .from("change_requests")
+            .update({ artifact_id: resolved })
+            .eq("id", changeId);
+
+          if (
+            attach.error &&
+            !hasArtifactIdMissingColumn(safeStr(attach.error.message))
+          ) {
+            // swallow
+          }
+        } catch {}
+
+        return resolved;
+      }
+    } catch {}
+  }
+
+  const ownerUserId = await loadProjectOwnerForArtifact(supabase, projectId);
+  if (!ownerUserId) return null;
+
+  const createdId = await createDedicatedChangeArtifact(supabase, {
+    projectId,
+    userId: ownerUserId,
+    changeId,
+    title: changeTitle,
+  });
+
+  if (!createdId) return null;
+
+  try {
+    const attach = await supabase
+      .from("change_requests")
+      .update({ artifact_id: createdId })
+      .eq("id", changeId);
+
+    if (attach.error && !hasArtifactIdMissingColumn(safeStr(attach.error.message))) {
+      // swallow
+    }
+  } catch {}
+
+  return createdId;
 }
 
 async function loadProjectForNotification(supabase: any, projectId: string) {
@@ -308,6 +499,7 @@ async function loadProjectForNotification(supabase: any, projectId: string) {
       .select("id, title, project_code")
       .eq("id", projectId)
       .maybeSingle();
+
     return data ?? { id: projectId, title: "Project", project_code: null };
   } catch {
     return { id: projectId, title: "Project", project_code: null };
@@ -400,6 +592,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (decisionStatus === "approved" || govStatus === "approved" || govStatus === "in_progress") {
       return jsonOk({ item: cr, data: cr, already: "approved" });
     }
+
     if (decisionStatus === "rejected" || govStatus === "rejected") {
       return jsonErr("Cannot approve a rejected change request.", 409);
     }
@@ -415,10 +608,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return jsonErr(`Cannot approve unless in Review lane (lane=${fromLane || "(null)"})`, 409);
     }
 
-    const artifactId = await ensureArtifactIdForChangeRequest(supabase, cr);
+    const artifactId = await ensureDedicatedArtifactIdForChangeRequest(supabase, cr);
     if (!artifactId) {
       return jsonErr(
-        "Missing artifact_id for this change request. Ensure submit created/linked an artifact.",
+        "Missing dedicated artifact_id for this change request. Ensure submit created/linked a per-change artifact.",
         409
       );
     }
@@ -524,6 +717,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       try {
         await logChangeEvent(supabase, {
           projectId,
+          artifactId,
           changeRequestId: id,
           actorUserId: user.id,
           actorRole: onBehalfOf ? "delegate_approver" : "approver",
@@ -552,6 +746,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           comment: note ? `Approved step: ${note}` : "Approved step",
           payload: {
             source: "approve_route",
+            artifact_id: artifactId,
             chain_id: pending.chainId,
             step_id: pending.stepId,
             chain_status: state.chainStatus,
@@ -576,7 +771,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         console.error("[POST /api/change/:id/approve] next-step notification failed:", notifyErr);
       }
 
-      const fresh = await supabase.from("change_requests").select("*").eq("id", id).maybeSingle();
+      const fresh = await supabase
+        .from("change_requests")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+
       const item = fresh.data || cr;
 
       await emitAiEvent(req, {
@@ -599,6 +799,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         item,
         data: item,
         approval_chain_id: pending.chainId,
+        artifact_id: artifactId,
         step_complete: state.stepStatus === "approved",
         chain_complete: false,
       });
@@ -615,16 +816,27 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       decision_role: onBehalfOf ? "delegate_final" : "chain_final",
       delivery_status: toLane,
       updated_at: now,
+      artifact_id: artifactId,
     };
 
-    let patch: any = { ...patchBase, approver_id: effectiveApproverUserId, approval_date: now };
+    let patch: any = {
+      ...patchBase,
+      approver_id: effectiveApproverUserId,
+      approval_date: now,
+    };
 
-    const first = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
+    const first = await supabase
+      .from("change_requests")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
 
     if (first.error) {
       const msg = safeStr(first.error.message);
 
       if (hasDeliveryStatusMissingColumn(msg)) delete patch.delivery_status;
+      if (hasArtifactIdMissingColumn(msg)) delete patch.artifact_id;
       if (hasMissingColumn(msg, "approver_id")) delete patch.approver_id;
       if (hasMissingColumn(msg, "approval_date")) delete patch.approval_date;
       if (hasMissingColumn(msg, "decision_role")) delete patch.decision_role;
@@ -632,12 +844,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       if (hasMissingColumn(msg, "decision_by")) delete patch.decision_by;
       if (hasMissingColumn(msg, "decision_at")) delete patch.decision_at;
 
-      const second = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
+      const second = await supabase
+        .from("change_requests")
+        .update(patch)
+        .eq("id", id)
+        .select("*")
+        .single();
+
       if (second.error) throw second.error;
 
       try {
         await logChangeEvent(supabase, {
           projectId,
+          artifactId,
           changeRequestId: id,
           actorUserId: user.id,
           actorRole: patch.decision_role,
@@ -650,6 +869,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
             delegated_for: onBehalfOf || null,
             effective_approver: effectiveApproverUserId,
             delivery_status_missing: !("delivery_status" in patch),
+            artifact_id_missing: !("artifact_id" in patch),
           },
         } as any);
       } catch {}
@@ -665,6 +885,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         comment: note || null,
         payload: {
           source: "approve_route",
+          artifact_id: artifactId,
           chain_id: pending.chainId,
           decision_status: "approved",
           at: now,
@@ -704,7 +925,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         action_type: "approved_final",
         actor_user_id: user.id,
         actor_name: actorName,
-        actor_role: safeStr(patch?.decision_role).trim() || (onBehalfOf ? "delegate_final" : "chain_final"),
+        actor_role:
+          safeStr(patch?.decision_role).trim() ||
+          (onBehalfOf ? "delegate_final" : "chain_final"),
         comment: note || null,
         meta: {
           at: now,
@@ -753,12 +976,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         },
       });
 
-      return jsonOk({ item: second.data, data: second.data });
+      return jsonOk({
+        item: second.data,
+        data: second.data,
+        artifact_id: artifactId,
+      });
     }
 
     try {
       await logChangeEvent(supabase, {
         projectId,
+        artifactId,
         changeRequestId: id,
         actorUserId: user.id,
         actorRole: patch.decision_role,
@@ -785,6 +1013,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       comment: note || null,
       payload: {
         source: "approve_route",
+        artifact_id: artifactId,
         chain_id: pending.chainId,
         decision_status: "approved",
         at: now,
@@ -824,7 +1053,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       action_type: "approved_final",
       actor_user_id: user.id,
       actor_name: actorName,
-      actor_role: safeStr(patch?.decision_role).trim() || (onBehalfOf ? "delegate_final" : "chain_final"),
+      actor_role:
+        safeStr(patch?.decision_role).trim() ||
+        (onBehalfOf ? "delegate_final" : "chain_final"),
       comment: note || null,
       meta: {
         at: now,
@@ -873,7 +1104,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       },
     });
 
-    return jsonOk({ item: first.data, data: first.data });
+    return jsonOk({
+      item: first.data,
+      data: first.data,
+      artifact_id: artifactId,
+    });
   } catch (e: any) {
     console.error("[POST /api/change/:id/approve]", e);
     const msg = safeStr(e?.message) || "Unexpected error";
