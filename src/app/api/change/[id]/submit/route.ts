@@ -12,9 +12,9 @@ import {
   logChangeEvent,
 } from "@/lib/change/server-helpers";
 import { notifyFirstChangeStepApprovers } from "@/lib/server/notifications/approval-notifications";
+import { buildRuntimeApprovalChain } from "@/lib/server/approvals/runtime-chain-builder";
 
 export const runtime = "nodejs";
-
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -95,18 +95,23 @@ function hasMissingColumn(errMsg: string, col: string) {
   const c = col.toLowerCase();
   return m.includes("column") && m.includes(c);
 }
+
 function hasDeliveryStatusMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "delivery_status");
 }
+
 function hasApprovalChainIdMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "approval_chain_id");
 }
+
 function hasImpactAnalysisMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "impact_analysis");
 }
+
 function hasOrganisationIdMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "organisation_id") || hasMissingColumn(errMsg, "organization_id");
 }
+
 function isMissingRelation(errMsg: string) {
   const m = (errMsg || "").toLowerCase();
   return m.includes("does not exist") && m.includes("relation");
@@ -187,7 +192,6 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
   const projectId = safeStr(cr?.project_id).trim();
   if (!projectId) return null;
 
-  // 1. Try to find an existing artifact for this project
   const { data, error } = await supabase
     .from("artifacts")
     .select("id, type, artifact_type, is_current, created_at")
@@ -199,10 +203,8 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
 
   let resolved = !error && Array.isArray(data) && data[0]?.id ? String(data[0].id) : null;
 
-  // 2. Auto-create if none exists
   if (!resolved) {
     try {
-      // Get the project owner / creator to satisfy user_id NOT NULL
       const { data: projData } = await supabase
         .from("projects")
         .select("created_by, owner_id, user_id")
@@ -237,7 +239,6 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
 
   if (!resolved) return null;
 
-  // 3. Back-link the artifact_id onto the change request
   try {
     await supabase.from("change_requests").update({ artifact_id: resolved }).eq("id", cr.id);
   } catch {}
@@ -384,7 +385,7 @@ async function loadChangeNotificationContext(supabase: any, changeId: string) {
 }
 
 /* =========================================================
-   Org-driven approvals: rules -> chain + steps + approvers
+   Org + cost helpers
 ========================================================= */
 
 async function getOrganisationIdForProject(supabase: any, projectId: string): Promise<string | null> {
@@ -421,100 +422,6 @@ async function loadImpactCostForChange(supabase: any, changeId: string): Promise
   return 0;
 }
 
-type RuleRow = {
-  id: string;
-  step: number;
-  approval_role: string;
-  approver_user_id: string | null;
-  approval_group_id: string | null;
-  min_amount: number;
-  max_amount: number | null;
-};
-
-function inBand(amount: number, min: number, max: number | null) {
-  const minOk = amount >= (Number.isFinite(min) ? min : 0);
-  const maxOk = max == null ? true : amount <= Number(max);
-  return minOk && maxOk;
-}
-
-async function loadRulesForArtifact(
-  supabase: any,
-  organisationId: string,
-  artifactTypeRaw: string,
-  amount: number
-): Promise<RuleRow[]> {
-  const artifactType = normalizeArtifactType(artifactTypeRaw);
-
-  const { data, error } = await supabase
-    .from("artifact_approver_rules")
-    .select("id, step, approval_role, approver_user_id, approval_group_id, min_amount, max_amount, is_active")
-    .eq("organisation_id", organisationId)
-    .eq("artifact_type", artifactType)
-    .eq("is_active", true);
-
-  if (error) return [];
-
-  const rows = (Array.isArray(data) ? data : []).map((r: any) => ({
-    id: String(r.id),
-    step: Number(r.step ?? 1),
-    approval_role: safeStr(r.approval_role) || "Approval",
-    approver_user_id: r.approver_user_id ? String(r.approver_user_id) : null,
-    approval_group_id: r.approval_group_id ? String(r.approval_group_id) : null,
-    min_amount: Number(r.min_amount ?? 0) || 0,
-    max_amount: r.max_amount == null ? null : Number(r.max_amount),
-  })) as RuleRow[];
-
-  return rows.filter((r) => Number.isFinite(r.step) && r.step >= 1 && inBand(amount, r.min_amount, r.max_amount));
-}
-
-async function expandGroupMembersToUserIds(supabase: any, groupId: string): Promise<string[]> {
-  const gid = safeStr(groupId).trim();
-  if (!gid) return [];
-
-  try {
-    const gm = await supabase
-      .from("approval_group_members")
-      .select("approver_id")
-      .eq("group_id", gid);
-
-    if (gm.error) return [];
-
-    const approverIds = (Array.isArray(gm.data) ? gm.data : [])
-      .map((r: any) => safeStr(r?.approver_id))
-      .filter(Boolean);
-
-    if (!approverIds.length) return [];
-
-    const oa = await supabase
-      .from("organisation_approvers")
-      .select("id, user_id, is_active")
-      .in("id", approverIds)
-      .eq("is_active", true);
-
-    if (oa.error) return [];
-
-    const ids = (Array.isArray(oa.data) ? oa.data : [])
-      .map((r: any) => safeStr(r?.user_id))
-      .filter(Boolean);
-
-    return Array.from(new Set(ids));
-  } catch {
-    return [];
-  }
-}
-
-async function supersedeExistingArtifactChain(supabase: any, artifactId: string) {
-  const aid = safeStr(artifactId).trim();
-  if (!aid) return;
-  try {
-    await supabase
-      .from("approval_chains")
-      .update({ is_active: false, status: "superseded" })
-      .eq("artifact_id", aid)
-      .eq("is_active", true);
-  } catch {}
-}
-
 async function updateArtifactSubmitted(
   supabase: any,
   artifactId: string,
@@ -549,262 +456,6 @@ async function tryAttachApprovalChainIdToChange(supabase: any, changeId: string,
   const first = await supabase.from("change_requests").update({ approval_chain_id: chainId }).eq("id", changeId);
   if (!first.error) return;
   if (hasApprovalChainIdMissingColumn(safeStr(first.error.message))) return;
-}
-
-async function getActiveChainIdForArtifact(supabase: any, artifactId: string): Promise<string | null> {
-  const aid = safeStr(artifactId).trim();
-  if (!aid) return null;
-
-  const { data, error } = await supabase
-    .from("approval_chains")
-    .select("id, created_at")
-    .eq("artifact_id", aid)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) return null;
-  return (data as any)?.id ? String((data as any).id) : null;
-}
-
-async function mapUserIdsToOrgMemberIds(
-  supabase: any,
-  organisationId: string,
-  userIds: string[]
-): Promise<Map<string, string>> {
-  const orgId = safeStr(organisationId).trim();
-  const ids = Array.from(new Set((userIds || []).map((x) => safeStr(x)).filter(Boolean)));
-  const out = new Map<string, string>();
-  if (!orgId || !ids.length) return out;
-
-  try {
-    const { data, error } = await supabase
-      .from("organisation_members")
-      .select("id, user_id")
-      .eq("organisation_id", orgId)
-      .in("user_id", ids)
-      .is("removed_at", null);
-
-    if (error) return out;
-
-    (Array.isArray(data) ? data : []).forEach((r: any) => {
-      const uid = safeStr(r?.user_id);
-      const mid = safeStr(r?.id);
-      if (uid && mid) out.set(uid, mid);
-    });
-
-    return out;
-  } catch {
-    return out;
-  }
-}
-
-async function createChainAndStepsFromRules(
-  supabase: any,
-  args: {
-    organisationId: string;
-    projectId: string;
-    artifactId: string;
-    actorId: string;
-    amount: number;
-    artifactType: string;
-  }
-): Promise<{ chainId: string; stepIds: string[]; chosenType: string }> {
-  const { organisationId, projectId, artifactId, actorId, amount } = args;
-
-  const desiredType = normalizeArtifactType(args.artifactType) || "change";
-  const typeCandidates = Array.from(new Set([desiredType, "change_request", "change_requests", "change"]));
-
-  let rules: RuleRow[] = [];
-  let chosenType = desiredType;
-
-  for (const t of typeCandidates) {
-    const r = await loadRulesForArtifact(supabase, organisationId, t, amount);
-    if (r.length) {
-      rules = r;
-      chosenType = normalizeArtifactType(t) || desiredType;
-      break;
-    }
-  }
-
-  if (!rules.length) {
-    // Fallback: use all active organisation_approvers as step 1 approvers
-    const { data: orgApprovers, error: oaErr } = await supabase
-      .from("organisation_approvers")
-      .select("user_id")
-      .eq("organisation_id", organisationId)
-      .eq("is_active", true);
-    if (oaErr || !orgApprovers?.length) {
-      throw new Error(
-        `No active artifact_approver_rules configured for org/type. (org=${organisationId}, type=${desiredType}, amount=${amount})`
-      );
-    }
-    rules = orgApprovers.map((a: any) => ({
-      id: null,
-      step: 1,
-      approval_role: "Approver",
-      approver_user_id: String(a.user_id),
-      approval_group_id: null,
-      artifact_type: desiredType,
-      min_amount: null,
-      max_amount: null,
-    }));
-    chosenType = desiredType;
-  }
-
-  const byStep = new Map<number, RuleRow[]>();
-  for (const r of rules) {
-    const k = Number(r.step ?? 1);
-    if (!byStep.has(k)) byStep.set(k, []);
-    byStep.get(k)!.push(r);
-  }
-
-  const stepNumbers = Array.from(byStep.keys()).sort((a, b) => a - b);
-
-  const chainInsert: any = {
-    project_id: projectId,
-    artifact_type: chosenType,
-    is_active: true,
-    organisation_id: organisationId,
-    artifact_id: artifactId,
-    status: "active",
-    created_by: actorId,
-    source_rule_id: null,
-    amount,
-  };
-
-  const chainIns = await supabase.from("approval_chains").insert(chainInsert).select("id").single();
-
-  let chainId: string | null = null;
-
-  if (!chainIns.error) {
-    chainId = String(chainIns.data.id);
-  } else {
-    const existing = await getActiveChainIdForArtifact(supabase, artifactId);
-    if (existing) chainId = existing;
-    else throw new Error(safeStr(chainIns.error.message));
-  }
-
-  const existingSteps = await supabase
-    .from("artifact_approval_steps")
-    .select("id, step_order")
-    .eq("chain_id", chainId)
-    .order("step_order", { ascending: true });
-
-  if (!existingSteps.error && Array.isArray(existingSteps.data) && existingSteps.data.length > 0) {
-    return { chainId, stepIds: existingSteps.data.map((s: any) => String(s.id)), chosenType };
-  }
-
-  const stepRows = stepNumbers.map((stepNo) => {
-    const stepRules = byStep.get(stepNo) || [];
-    const label = safeStr(stepRules[0]?.approval_role) || `Step ${stepNo}`;
-    return {
-      artifact_id: artifactId,
-      chain_id: chainId,
-      project_id: projectId,
-      artifact_type: chosenType,
-      step_order: stepNo,
-      name: label,
-      mode: "VETO_QUORUM",
-      min_approvals: 1,
-      max_rejections: 0,
-      round: 1,
-      status: "pending",
-      approval_step_id: null,
-    };
-  });
-
-  const stepIns = await supabase.from("artifact_approval_steps").insert(stepRows).select("id, step_order");
-  let insertedSteps: any[] = [];
-  if (stepIns.error) {
-    const msg = safeStr(stepIns.error.message).toLowerCase();
-    if (msg.includes("duplicate") || msg.includes("unique")) {
-      const fallback = await supabase.from("artifact_approval_steps").select("id, step_order").eq("chain_id", chainId).order("step_order", { ascending: true });
-      if (fallback.error) throw new Error(safeStr(fallback.error.message));
-      insertedSteps = Array.isArray(fallback.data) ? fallback.data : [];
-    } else {
-      throw new Error(safeStr(stepIns.error.message));
-    }
-  } else {
-    insertedSteps = Array.isArray(stepIns.data) ? stepIns.data : [];
-  }
-  const stepIdByOrder = new Map<number, string>();
-  for (const s of insertedSteps as any[]) stepIdByOrder.set(Number(s.step_order), String(s.id));
-
-  const pendingApproversByStep: { stepId: string; userId: string }[] = [];
-
-  for (const stepNo of stepNumbers) {
-    const stepId = stepIdByOrder.get(stepNo);
-    if (!stepId) continue;
-
-    const stepRules = byStep.get(stepNo) || [];
-    for (const r of stepRules) {
-      if (r.approver_user_id) {
-        pendingApproversByStep.push({ stepId, userId: String(r.approver_user_id) });
-      } else if (r.approval_group_id) {
-        const members = await expandGroupMembersToUserIds(supabase, String(r.approval_group_id));
-        for (const userId of members) {
-          pendingApproversByStep.push({ stepId, userId: String(userId) });
-        }
-      }
-    }
-  }
-
-  const pairSeen = new Set<string>();
-  const pairs = pendingApproversByStep.filter((p) => {
-    const k = `${p.stepId}::${p.userId}`;
-    if (pairSeen.has(k)) return false;
-    pairSeen.add(k);
-    return true;
-  });
-
-  if (!pairs.length) {
-    throw new Error(
-      "Approval rules matched, but produced zero approvers. Ensure approver_user_id is set or the approver group has active members."
-    );
-  }
-
-  const memberIdByUserId = await mapUserIdsToOrgMemberIds(
-    supabase,
-    organisationId,
-    pairs.map((p) => p.userId)
-  );
-
-  const approverRowsPreferred: any[] = pairs.map((p) => ({
-    step_id: p.stepId,
-    approver_type: "user",
-    approver_member_id: memberIdByUserId.get(p.userId) ?? null,
-    approver_ref: p.userId,
-    required: true,
-    active: true,
-  }));
-
-  const try1 = await supabase.from("artifact_step_approvers").insert(approverRowsPreferred);
-
-  if (try1.error) {
-    const msg = safeStr(try1.error.message);
-    const missingMemberIdCol = hasMissingColumn(msg, "approver_member_id");
-
-    if (!missingMemberIdCol) {
-      throw new Error(`Failed to insert artifact_step_approvers. (${msg})`);
-    }
-
-    const legacyRows = pairs.map((p) => ({
-      step_id: p.stepId,
-      approver_type: "user",
-      approver_ref: p.userId,
-      required: true,
-      active: true,
-    }));
-
-    const try2 = await supabase.from("artifact_step_approvers").insert(legacyRows);
-    if (try2.error) {
-      throw new Error(`Failed to insert artifact_step_approvers (legacy fallback). (${safeStr(try2.error.message)})`);
-    }
-  }
-
-  return { chainId, stepIds: insertedSteps.map((s: any) => String(s.id)), chosenType };
 }
 
 /* =========================================================
@@ -882,7 +533,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     }
 
     if (decision === "submitted") {
-      return jsonOk({ item: { ...cr, delivery_status: cr?.delivery_status ?? null }, data: cr, already: "submitted" });
+      return jsonOk({
+        item: { ...cr, delivery_status: cr?.delivery_status ?? null },
+        data: cr,
+        already: "submitted",
+      });
     }
 
     if (!deliveryStatusMissing && fromLane !== "analysis") {
@@ -910,15 +565,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const amount = await loadImpactCostForChange(supabase, changeId);
 
-    await supersedeExistingArtifactChain(supabase, artifactId);
-
-    const { chainId, chosenType } = await createChainAndStepsFromRules(supabase, {
+    const { chainId, chosenType } = await buildRuntimeApprovalChain(supabase, {
       organisationId,
       projectId,
       artifactId,
       actorId: user.id,
       amount,
-      artifactType: "change",
+      artifactType: normalizeArtifactType("change"),
     });
 
     const firstStep = await getFirstPendingStepSummary(supabase, chainId);
@@ -974,12 +627,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
           actorUserId: user.id,
           actorRole: role,
           eventType: "submitted_for_approval",
-          fromValue: deliveryStatusMissing ? null : (fromLane || null),
+          fromValue: deliveryStatusMissing ? null : fromLane || null,
           toValue: deliveryMissingOnUpdate ? null : toLane,
           note: null,
           payload: {
             decision_status: { from: decision || null, to: "submitted" },
-            lane: { from: deliveryStatusMissing ? null : (fromLane || null), to: deliveryMissingOnUpdate ? null : toLane },
+            lane: {
+              from: deliveryStatusMissing ? null : fromLane || null,
+              to: deliveryMissingOnUpdate ? null : toLane,
+            },
             approval_chain_id: chainId,
             approval_chain_artifact_type: chosenType,
             amount,
@@ -1029,7 +685,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         approval_chain_id: chainId,
         artifact_type: chosenType,
         amount,
-        from_lane: deliveryStatusMissing ? null : (fromLane || null),
+        from_lane: deliveryStatusMissing ? null : fromLane || null,
         to_lane: deliveryMissingOnUpdate ? null : toLane,
         delivery_status_missing: deliveryMissingOnUpdate || deliveryStatusMissing,
         first_step: firstStep,
