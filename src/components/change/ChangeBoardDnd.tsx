@@ -505,13 +505,15 @@ function SortableCard({
             <div className="kb-card-badges">
               {priConf && item.priority && (
                 <span className="kb-badge" style={{ color: priConf.color, background: priConf.bg, borderColor: priConf.border }}>
-                  <span className="kb-badge-dot" style={{ background: priConf.color }} />
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+                  <span style={{fontSize:"8px",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",opacity:0.55,fontFamily:"monospace",marginRight:"2px"}}>Priority</span>
                   {safeStr(item.priority)}
                 </span>
               )}
               {riskLabel && (
                 <span className="kb-badge" style={{ color: risk.text, background: risk.bg, borderColor: risk.border }}>
-                  <span className="kb-badge-dot" style={{ background: risk.dot }} />
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  <span style={{fontSize:"8px",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",opacity:0.55,fontFamily:"monospace",marginRight:"2px"}}>Risk</span>
                   {riskLabel}
                 </span>
               )}
