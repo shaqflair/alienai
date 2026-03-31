@@ -214,91 +214,19 @@ function riskLabelFromImpact(impact: any): { label: string; level: "High" | "Med
 
 function priorityConfig(p: unknown) {
   const v = safeStr(p).trim().toLowerCase();
-  if (v === "critical") {
-    return {
-      color: "#ffffff",
-      bg: "linear-gradient(135deg,#dc2626,#ef4444)",
-      softBg: "rgba(220,38,38,0.08)",
-      label: "rgba(255,255,255,0.68)",
-    };
-  }
-  if (v === "high") {
-    return {
-      color: "#ffffff",
-      bg: "linear-gradient(135deg,#ea580c,#f97316)",
-      softBg: "rgba(234,88,12,0.08)",
-      label: "rgba(255,255,255,0.68)",
-    };
-  }
-  if (v === "medium") {
-    return {
-      color: "#ffffff",
-      bg: "linear-gradient(135deg,#6366f1,#8b5cf6)",
-      softBg: "rgba(99,102,241,0.08)",
-      label: "rgba(255,255,255,0.72)",
-    };
-  }
-  if (v === "low") {
-    return {
-      color: "#475569",
-      bg: "linear-gradient(135deg,#e2e8f0,#cbd5e1)",
-      softBg: "rgba(100,116,139,0.08)",
-      label: "rgba(71,85,105,0.7)",
-    };
-  }
-  return {
-    color: "#475569",
-    bg: "linear-gradient(135deg,#e2e8f0,#cbd5e1)",
-    softBg: "rgba(100,116,139,0.08)",
-    label: "rgba(71,85,105,0.7)",
-  };
+  if (v === "critical") return { color: "#dc2626", softBg: "rgba(220,38,38,0.10)" };
+  if (v === "high") return { color: "#ea580c", softBg: "rgba(234,88,12,0.10)" };
+  if (v === "medium") return { color: "#7c3aed", softBg: "rgba(124,58,237,0.10)" };
+  if (v === "low") return { color: "#475569", softBg: "rgba(100,116,139,0.10)" };
+  return { color: "#475569", softBg: "rgba(100,116,139,0.10)" };
 }
 
 function riskConfig(level: "High" | "Medium" | "Low" | "None") {
-  if (level === "High") {
-    return {
-      dot: "#ef4444",
-      text: "#ffffff",
-      bg: "linear-gradient(135deg,#ef4444,#f87171)",
-      softBg: "rgba(239,68,68,0.08)",
-      label: "rgba(255,255,255,0.7)",
-      orbBg: "rgba(239,68,68,0.10)",
-      orbBorder: "rgba(239,68,68,0.18)",
-    };
-  }
-  if (level === "Medium") {
-    return {
-      dot: "#f59e0b",
-      text: "#ffffff",
-      bg: "linear-gradient(135deg,#f59e0b,#fbbf24)",
-      softBg: "rgba(245,158,11,0.08)",
-      label: "rgba(255,255,255,0.72)",
-      orbBg: "rgba(245,158,11,0.10)",
-      orbBorder: "rgba(245,158,11,0.18)",
-    };
-  }
-  if (level === "Low") {
-    return {
-      dot: "#3b82f6",
-      text: "#ffffff",
-      bg: "linear-gradient(135deg,#3b82f6,#60a5fa)",
-      softBg: "rgba(59,130,246,0.08)",
-      label: "rgba(255,255,255,0.72)",
-      orbBg: "rgba(59,130,246,0.10)",
-      orbBorder: "rgba(59,130,246,0.18)",
-    };
-  }
-  return {
-    dot: "#94a3b8",
-    text: "#475569",
-    bg: "linear-gradient(135deg,#e2e8f0,#cbd5e1)",
-    softBg: "rgba(148,163,184,0.08)",
-    label: "rgba(71,85,105,0.68)",
-    orbBg: "rgba(148,163,184,0.10)",
-    orbBorder: "rgba(148,163,184,0.18)",
-  };
+  if (level === "High") return { dot: "#dc2626", softBg: "rgba(220,38,38,0.10)", orbBg: "rgba(239,68,68,0.10)", orbBorder: "rgba(239,68,68,0.18)" };
+  if (level === "Medium") return { dot: "#d97706", softBg: "rgba(245,158,11,0.10)", orbBg: "rgba(245,158,11,0.10)", orbBorder: "rgba(245,158,11,0.18)" };
+  if (level === "Low") return { dot: "#2563eb", softBg: "rgba(59,130,246,0.10)", orbBg: "rgba(59,130,246,0.10)", orbBorder: "rgba(59,130,246,0.18)" };
+  return { dot: "#64748b", softBg: "rgba(148,163,184,0.10)", orbBg: "rgba(148,163,184,0.10)", orbBorder: "rgba(148,163,184,0.18)" };
 }
-
 function deliveryLaneToUiStatus(raw: any): ChangeStatus {
   const v = String(raw ?? "").trim().toLowerCase();
   if (v === "intake") return "new";
@@ -1259,41 +1187,71 @@ function SortableCard({
                 <span className="kb-card-id">{changeDisplay(item)}</span>
               </div>
 
-              <div className="kb-card-badges">
-                {priConf && item.priority && (
-                  <span
-                    className="kb-badge"
-                    style={{
-                      color: priConf.color,
-                      background: priConf.bg,
-                    }}
-                  >
-                    <span
-                      className="kb-badge-label"
-                      style={{ color: priConf.label }}
-                    >
-                      Priority
-                    </span>
-                    <span className="kb-badge-value">{safeStr(item.priority)}</span>
-                  </span>
-                )}
+<div className="kb-card-badges">
+  {priConf && item.priority && (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 10px",
+        borderRadius: 999,
+        background: priConf.softBg,
+        color: priConf.color,
+        fontSize: 10,
+        fontWeight: 800,
+        border: "none",
+        boxShadow: "none",
+        outline: "none",
+      }}
+    >
+      <span
+        style={{
+          fontSize: 9,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          opacity: 0.7,
+          fontWeight: 700,
+        }}
+      >
+        Priority
+      </span>
+      <span>{safeStr(item.priority)}</span>
+    </div>
+  )}
 
-                {riskLabel && (
-                  <span
-                    className="kb-badge"
-                    style={{
-                      color: risk.text,
-                      background: risk.bg,
-                    }}
-                  >
-                    <span className="kb-badge-label" style={{ color: risk.label }}>
-                      Risk
-                    </span>
-                    <span className="kb-badge-value">{riskLabel}</span>
-                  </span>
-                )}
-              </div>
-            </div>
+  {riskLabel && (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 10px",
+        borderRadius: 999,
+        background: risk.softBg,
+        color: risk.dot,
+        fontSize: 10,
+        fontWeight: 800,
+        border: "none",
+        boxShadow: "none",
+        outline: "none",
+      }}
+    >
+      <span
+        style={{
+          fontSize: 9,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          opacity: 0.7,
+          fontWeight: 700,
+        }}
+      >
+        Risk
+      </span>
+      <span>{riskLabel}</span>
+    </div>
+  )}
+</div>          </div>
 
             <button
               type="button"
