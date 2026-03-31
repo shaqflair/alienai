@@ -39,7 +39,7 @@ function jsonErr(error: string, status = 400, meta?: any) {
 }
 
 /* =========================================================
-   local helpers (holiday-cover safe)
+   local helpers
 ========================================================= */
 
 function isBadIdString(x: string) {
@@ -112,6 +112,14 @@ function hasOrganisationIdMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "organisation_id") || hasMissingColumn(errMsg, "organization_id");
 }
 
+function hasArtifactIdMissingColumn(errMsg: string) {
+  return hasMissingColumn(errMsg, "artifact_id");
+}
+
+function hasTitleMissingColumn(errMsg: string) {
+  return hasMissingColumn(errMsg, "title");
+}
+
 function isMissingRelation(errMsg: string) {
   const m = (errMsg || "").toLowerCase();
   return m.includes("does not exist") && m.includes("relation");
@@ -159,6 +167,7 @@ function toLaneDb(v: string) {
   if (x === "intake") return "intake";
   if (x === "analysis") return "analysis";
   if (x === "review") return "review";
+  if (x === "implementation") return "implementation";
   if (x === "implemented") return "implemented";
   if (x === "closed") return "closed";
   if (x === "new") return "intake";
@@ -169,85 +178,232 @@ function toLaneDb(v: string) {
    Canonical artifact type normalisation
 ========================================================= */
 
-function normalizeArtifactType(raw: any): "project_charter" | "change" | "project_closure_report" | string {
+function normalizeArtifactType(
+  raw: any
+): "project_charter" | "change" | "project_closure_report" | string {
   const v = safeStr(raw).trim();
   const lower = v.toLowerCase();
   if (!lower) return "";
 
-  if (lower === "change_request" || lower === "change_requests") return "change";
-  if (lower === "project_closure" || lower === "project_closure_report") return "project_closure_report";
-  if (lower === "project_charter") return "project_charter";
+  if (lower === "change_request" || lower === "change_requests" || lower === "change") {
+    return "change";
+  }
+  if (lower === "project_closure" || lower === "project_closure_report") {
+    return "project_closure_report";
+  }
+  if (lower === "project_charter") {
+    return "project_charter";
+  }
 
   return lower;
 }
 
 /* =========================================================
-   ensureArtifactIdForChangeRequest
+   artifact helpers
 ========================================================= */
 
-async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise<string | null> {
-  const current = safeStr(cr?.artifact_id).trim();
-  if (current) return current;
+async function loadChangeTitle(supabase: any, changeId: string): Promise<string> {
+  const first = await supabase
+    .from("change_requests")
+    .select("title")
+    .eq("id", changeId)
+    .maybeSingle();
 
-  const projectId = safeStr(cr?.project_id).trim();
-  if (!projectId) return null;
+  if (!first.error) {
+    return safeStr((first.data as any)?.title).trim() || "Change Request";
+  }
 
-  const { data, error } = await supabase
-    .from("artifacts")
-    .select("id, type, artifact_type, is_current, created_at")
-    .eq("project_id", projectId)
-    .or("type.in.(change_requests,change_request,change),artifact_type.in.(change_requests,change_request,change)")
-    .order("is_current", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(1);
+  if (hasTitleMissingColumn(safeStr(first.error?.message))) {
+    return "Change Request";
+  }
 
-  let resolved = !error && Array.isArray(data) && data[0]?.id ? String(data[0].id) : null;
+  return "Change Request";
+}
 
-  if (!resolved) {
+async function loadProjectOwnerForArtifact(supabase: any, projectId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from("projects")
+    .select("created_by, owner_id, user_id")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  return (
+    safeStr((data as any)?.created_by).trim() ||
+    safeStr((data as any)?.owner_id).trim() ||
+    safeStr((data as any)?.user_id).trim() ||
+    null
+  );
+}
+
+async function createDedicatedChangeArtifact(
+  supabase: any,
+  args: {
+    projectId: string;
+    userId: string;
+    changeId: string;
+    title: string;
+  }
+): Promise<string | null> {
+  const titleBase = safeStr(args.title).trim() || "Change Request";
+
+  const insertPayloads = [
+    {
+      project_id: args.projectId,
+      type: "change",
+      artifact_type: "change",
+      title: titleBase,
+      status: "draft",
+      user_id: args.userId,
+      is_current: true,
+      source_record_id: args.changeId,
+    },
+    {
+      project_id: args.projectId,
+      type: "change",
+      title: titleBase,
+      status: "draft",
+      user_id: args.userId,
+      is_current: true,
+    },
+    {
+      project_id: args.projectId,
+      type: "change_requests",
+      title: titleBase,
+      status: "draft",
+      user_id: args.userId,
+      is_current: true,
+    },
+  ];
+
+  for (const payload of insertPayloads) {
     try {
-      const { data: projData } = await supabase
-        .from("projects")
-        .select("created_by, owner_id, user_id")
-        .eq("id", projectId)
-        .maybeSingle();
-
-      const userId =
-        safeStr((projData as any)?.created_by).trim() ||
-        safeStr((projData as any)?.owner_id).trim() ||
-        safeStr((projData as any)?.user_id).trim() ||
-        null;
-
-      if (!userId) return null;
-
-      const { data: inserted, error: insErr } = await supabase
+      const { data, error } = await supabase
         .from("artifacts")
-        .insert({
-          project_id: projectId,
-          type: "change_requests",
-          title: "Change Requests",
-          status: "draft",
-          user_id: userId,
-        })
+        .insert(payload)
         .select("id")
         .single();
 
-      if (!insErr && inserted?.id) {
-        resolved = String(inserted.id);
+      if (!error && data?.id) {
+        return String(data.id);
       }
     } catch {}
   }
 
-  if (!resolved) return null;
+  return null;
+}
 
+/**
+ * IMPORTANT FIX:
+ * A submitted change request must use a DEDICATED artifact row.
+ * Using the shared "Change Requests" board artifact causes approval-chain collisions
+ * because artifact_approval_steps is unique by artifact_id + step_order.
+ */
+async function ensureDedicatedArtifactIdForChangeRequest(
+  supabase: any,
+  cr: any
+): Promise<string | null> {
+  const current = safeStr(cr?.artifact_id).trim();
+  const projectId = safeStr(cr?.project_id).trim();
+  const changeId = safeStr(cr?.id).trim();
+
+  if (!projectId || !changeId) return null;
+
+  // 1) if CR already has an artifact_id, prefer it
+  if (current) {
+    const { data: artifactRow, error } = await supabase
+      .from("artifacts")
+      .select("id, type, artifact_type, title, project_id")
+      .eq("id", current)
+      .maybeSingle();
+
+    if (!error && artifactRow?.id) {
+      const type = safeStr((artifactRow as any)?.type).trim().toLowerCase();
+      const artifactType = safeStr((artifactRow as any)?.artifact_type).trim().toLowerCase();
+
+      // dedicated artifact types are safe
+      if (type === "change" || artifactType === "change") {
+        return String(artifactRow.id);
+      }
+
+      // shared board artifact types are NOT safe for per-change approvals
+      // so we fall through and create a dedicated change artifact instead
+    }
+  }
+
+  // 2) try to find a previously created dedicated artifact for this change
+  const searchQueries = [
+    supabase
+      .from("artifacts")
+      .select("id, type, artifact_type, title, project_id, created_at")
+      .eq("project_id", projectId)
+      .eq("type", "change")
+      .order("created_at", { ascending: false })
+      .limit(20),
+
+    supabase
+      .from("artifacts")
+      .select("id, type, artifact_type, title, project_id, created_at")
+      .eq("project_id", projectId)
+      .eq("artifact_type", "change")
+      .order("created_at", { ascending: false })
+      .limit(20),
+  ];
+
+  const changeTitle = await loadChangeTitle(supabase, changeId);
+
+  for (const query of searchQueries) {
+    try {
+      const { data, error } = await query;
+      if (error) continue;
+
+      const found = (Array.isArray(data) ? data : []).find((row: any) => {
+        const t = safeStr(row?.title).trim().toLowerCase();
+        const expected = changeTitle.trim().toLowerCase();
+        return !!t && !!expected && t === expected;
+      });
+
+      if (found?.id) {
+        const resolved = String(found.id);
+
+        try {
+          await supabase.from("change_requests").update({ artifact_id: resolved }).eq("id", changeId);
+        } catch {}
+
+        return resolved;
+      }
+    } catch {}
+  }
+
+  // 3) create a dedicated artifact
+  const ownerUserId = await loadProjectOwnerForArtifact(supabase, projectId);
+  if (!ownerUserId) return null;
+
+  const createdId = await createDedicatedChangeArtifact(supabase, {
+    projectId,
+    userId: ownerUserId,
+    changeId,
+    title: changeTitle,
+  });
+
+  if (!createdId) return null;
+
+  // 4) attach it back to the change request when the column exists
   try {
-    await supabase.from("change_requests").update({ artifact_id: resolved }).eq("id", cr.id);
+    const attach = await supabase
+      .from("change_requests")
+      .update({ artifact_id: createdId })
+      .eq("id", changeId);
+
+    if (attach.error && !hasArtifactIdMissingColumn(safeStr(attach.error.message))) {
+      // swallow non-fatal
+    }
   } catch {}
 
-  return resolved;
+  return createdId;
 }
 
 /* =========================================================
-   Approval timeline helpers (best-effort)
+   Approval timeline helpers
 ========================================================= */
 
 async function resolveActorName(supabase: any, userId: string, fallbackEmail?: string | null) {
@@ -327,6 +483,7 @@ async function getFirstPendingStepSummary(
       .from("artifact_approval_steps")
       .select("id, step_order, name, status")
       .eq("chain_id", cid)
+      .eq("status", "pending")
       .order("step_order", { ascending: true })
       .limit(1);
 
@@ -544,10 +701,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       return jsonErr("Only changes in Analysis can be submitted for approval.", 409);
     }
 
-    const artifactId = await ensureArtifactIdForChangeRequest(supabase, cr);
+    const artifactId = await ensureDedicatedArtifactIdForChangeRequest(supabase, cr);
     if (!artifactId) {
       return jsonErr(
-        "Missing artifact_id (Change Requests artifact). Create/backfill the project artifact first.",
+        "Unable to resolve a dedicated artifact for this change request. Create/backfill a per-change artifact first.",
         409
       );
     }
@@ -587,6 +744,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       decision_role: null,
       decision_rationale: null,
       updated_at: now,
+      artifact_id: artifactId,
     };
 
     const firstUpdate = await supabase
@@ -600,9 +758,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const deliveryMissingOnUpdate = Boolean(
       firstUpdate.error && hasDeliveryStatusMissingColumn(safeStr(firstUpdate.error.message))
     );
+    const artifactMissingOnUpdate = Boolean(
+      firstUpdate.error && hasArtifactIdMissingColumn(safeStr(firstUpdate.error.message))
+    );
 
-    if (deliveryMissingOnUpdate) {
-      delete patch.delivery_status;
+    if (deliveryMissingOnUpdate || artifactMissingOnUpdate) {
+      if (deliveryMissingOnUpdate) delete patch.delivery_status;
+      if (artifactMissingOnUpdate) delete patch.artifact_id;
 
       const secondUpdate = await supabase
         .from("change_requests")
@@ -660,6 +822,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         decision_status: "submitted",
         approval_chain_id: chainId,
         approval_chain_artifact_type: chosenType,
+        artifact_id: artifactId,
         amount,
         at: now,
         sla_start: true,
@@ -684,6 +847,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         request_id: requestId,
         approval_chain_id: chainId,
         artifact_type: chosenType,
+        artifact_id: artifactId,
         amount,
         from_lane: deliveryStatusMissing ? null : fromLane || null,
         to_lane: deliveryMissingOnUpdate ? null : toLane,
@@ -712,12 +876,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     }
 
     const resultItem = updated || cr;
-    const finalItem = { ...resultItem, delivery_status: resultItem?.delivery_status ?? null };
+    const finalItem = {
+      ...resultItem,
+      artifact_id: safeStr((resultItem as any)?.artifact_id).trim() || artifactId,
+      delivery_status: resultItem?.delivery_status ?? null,
+    };
 
     return jsonOk({
       item: finalItem,
       data: finalItem,
       approval_chain_id: chainId,
+      artifact_id: artifactId,
       amount,
       artifact_type: chosenType,
     });
