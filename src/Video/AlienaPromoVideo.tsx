@@ -212,7 +212,7 @@ function SplitScreen({ frame, src, badge, badgeColor, line1, line2, accent, pid,
           </div>
           {/* Screenshot area */}
           <div style={{ position: "relative", flex: 1, overflow: "hidden", height: "calc(100% - 36px)" }}>
-            <Img src={staticFile(src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top left" }}/>
+            <Img src={staticFile(src)} style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "top center", background: "#f8f9fc" }}/>
             {/* Dark tint to blend light UIs with dark video */}
             <div style={{ position: "absolute", inset: 0, background: "rgba(6,9,15,0.18)" }}/>
             {/* Left fade */}
