@@ -81,7 +81,12 @@ type LanesResponse = Record<DeliveryLane, ChangeItem[]>;
 const LANES: DeliveryLane[] = ["intake", "analysis", "review", "in_progress", "implemented", "closed"];
 
 const WIP_LIMITS: Partial<Record<DeliveryLane, number>> = {
-  intake: 99, analysis: 8, review: 6, in_progress: 8, implemented: 99, closed: 99,
+  intake: 99,
+  analysis: 8,
+  review: 6,
+  in_progress: 8,
+  implemented: 99,
+  closed: 99,
 };
 
 const dropAnimation: DropAnimation = {
@@ -92,16 +97,72 @@ const dropAnimation: DropAnimation = {
    Design tokens per lane
 ========================= */
 
-const LANE_CONFIG: Record<DeliveryLane, {
-  label: string; color: string; gradient: string;
-  bg: string; textColor: string; dotColor: string; dropBg: string;
-}> = {
-  intake:      { label: "Intake",         color: "#94a3b8", gradient: "linear-gradient(90deg,#94a3b8,#cbd5e1)", bg: "#f8f9fc", textColor: "#475569", dotColor: "#94a3b8", dropBg: "rgba(148,163,184,0.06)" },
-  analysis:    { label: "Analysis",       color: "#f59e0b", gradient: "linear-gradient(90deg,#f59e0b,#fbbf24)", bg: "#fffbeb", textColor: "#92400e", dotColor: "#f59e0b", dropBg: "rgba(245,158,11,0.06)" },
-  review:      { label: "Review",         color: "#6366f1", gradient: "linear-gradient(90deg,#6366f1,#8b5cf6)", bg: "#f5f3ff", textColor: "#4338ca", dotColor: "#6366f1", dropBg: "rgba(99,102,241,0.06)" },
-  in_progress: { label: "Implementation", color: "#3b82f6", gradient: "linear-gradient(90deg,#3b82f6,#60a5fa)", bg: "#eff6ff", textColor: "#1d4ed8", dotColor: "#3b82f6", dropBg: "rgba(59,130,246,0.06)" },
-  implemented: { label: "Implemented",    color: "#10b981", gradient: "linear-gradient(90deg,#10b981,#34d399)", bg: "#f0fdf4", textColor: "#065f46", dotColor: "#10b981", dropBg: "rgba(16,185,129,0.06)" },
-  closed:      { label: "Closed",         color: "#64748b", gradient: "linear-gradient(90deg,#64748b,#94a3b8)", bg: "#f8fafc", textColor: "#334155", dotColor: "#64748b", dropBg: "rgba(100,116,139,0.06)" },
+const LANE_CONFIG: Record<
+  DeliveryLane,
+  {
+    label: string;
+    color: string;
+    gradient: string;
+    bg: string;
+    textColor: string;
+    dotColor: string;
+    dropBg: string;
+  }
+> = {
+  intake: {
+    label: "Intake",
+    color: "#94a3b8",
+    gradient: "linear-gradient(90deg,#94a3b8,#cbd5e1)",
+    bg: "#f8f9fc",
+    textColor: "#475569",
+    dotColor: "#94a3b8",
+    dropBg: "rgba(148,163,184,0.06)",
+  },
+  analysis: {
+    label: "Analysis",
+    color: "#f59e0b",
+    gradient: "linear-gradient(90deg,#f59e0b,#fbbf24)",
+    bg: "#fffbeb",
+    textColor: "#92400e",
+    dotColor: "#f59e0b",
+    dropBg: "rgba(245,158,11,0.06)",
+  },
+  review: {
+    label: "Review",
+    color: "#6366f1",
+    gradient: "linear-gradient(90deg,#6366f1,#8b5cf6)",
+    bg: "#f5f3ff",
+    textColor: "#4338ca",
+    dotColor: "#6366f1",
+    dropBg: "rgba(99,102,241,0.06)",
+  },
+  in_progress: {
+    label: "Implementation",
+    color: "#3b82f6",
+    gradient: "linear-gradient(90deg,#3b82f6,#60a5fa)",
+    bg: "#eff6ff",
+    textColor: "#1d4ed8",
+    dotColor: "#3b82f6",
+    dropBg: "rgba(59,130,246,0.06)",
+  },
+  implemented: {
+    label: "Implemented",
+    color: "#10b981",
+    gradient: "linear-gradient(90deg,#10b981,#34d399)",
+    bg: "#f0fdf4",
+    textColor: "#065f46",
+    dotColor: "#10b981",
+    dropBg: "rgba(16,185,129,0.06)",
+  },
+  closed: {
+    label: "Closed",
+    color: "#64748b",
+    gradient: "linear-gradient(90deg,#64748b,#94a3b8)",
+    bg: "#f8fafc",
+    textColor: "#334155",
+    dotColor: "#64748b",
+    dropBg: "rgba(100,116,139,0.06)",
+  },
 };
 
 /* =========================
@@ -153,18 +214,89 @@ function riskLabelFromImpact(impact: any): { label: string; level: "High" | "Med
 
 function priorityConfig(p: unknown) {
   const v = safeStr(p).trim().toLowerCase();
-  if (v === "critical") return { color: "#dc2626", bg: "rgba(220,38,38,0.08)", border: "rgba(220,38,38,0.22)" };
-  if (v === "high") return { color: "#ea580c", bg: "rgba(234,88,12,0.08)", border: "rgba(234,88,12,0.22)" };
-  if (v === "medium") return { color: "#6366f1", bg: "rgba(99,102,241,0.08)", border: "rgba(99,102,241,0.22)" };
-  if (v === "low") return { color: "#64748b", bg: "rgba(100,116,139,0.08)", border: "rgba(100,116,139,0.22)" };
-  return { color: "#64748b", bg: "rgba(100,116,139,0.08)", border: "rgba(100,116,139,0.22)" };
+  if (v === "critical") {
+    return {
+      color: "#ffffff",
+      bg: "linear-gradient(135deg,#dc2626,#ef4444)",
+      softBg: "rgba(220,38,38,0.08)",
+      label: "rgba(255,255,255,0.68)",
+    };
+  }
+  if (v === "high") {
+    return {
+      color: "#ffffff",
+      bg: "linear-gradient(135deg,#ea580c,#f97316)",
+      softBg: "rgba(234,88,12,0.08)",
+      label: "rgba(255,255,255,0.68)",
+    };
+  }
+  if (v === "medium") {
+    return {
+      color: "#ffffff",
+      bg: "linear-gradient(135deg,#6366f1,#8b5cf6)",
+      softBg: "rgba(99,102,241,0.08)",
+      label: "rgba(255,255,255,0.72)",
+    };
+  }
+  if (v === "low") {
+    return {
+      color: "#475569",
+      bg: "linear-gradient(135deg,#e2e8f0,#cbd5e1)",
+      softBg: "rgba(100,116,139,0.08)",
+      label: "rgba(71,85,105,0.7)",
+    };
+  }
+  return {
+    color: "#475569",
+    bg: "linear-gradient(135deg,#e2e8f0,#cbd5e1)",
+    softBg: "rgba(100,116,139,0.08)",
+    label: "rgba(71,85,105,0.7)",
+  };
 }
 
 function riskConfig(level: "High" | "Medium" | "Low" | "None") {
-  if (level === "High") return { dot: "#ef4444", bg: "rgba(239,68,68,0.08)", text: "#dc2626", border: "rgba(239,68,68,0.22)" };
-  if (level === "Medium") return { dot: "#f59e0b", bg: "rgba(245,158,11,0.08)", text: "#d97706", border: "rgba(245,158,11,0.22)" };
-  if (level === "Low") return { dot: "#3b82f6", bg: "rgba(59,130,246,0.08)", text: "#2563eb", border: "rgba(59,130,246,0.22)" };
-  return { dot: "#94a3b8", bg: "rgba(148,163,184,0.08)", text: "#64748b", border: "rgba(148,163,184,0.22)" };
+  if (level === "High") {
+    return {
+      dot: "#ef4444",
+      text: "#ffffff",
+      bg: "linear-gradient(135deg,#ef4444,#f87171)",
+      softBg: "rgba(239,68,68,0.08)",
+      label: "rgba(255,255,255,0.7)",
+      orbBg: "rgba(239,68,68,0.10)",
+      orbBorder: "rgba(239,68,68,0.18)",
+    };
+  }
+  if (level === "Medium") {
+    return {
+      dot: "#f59e0b",
+      text: "#ffffff",
+      bg: "linear-gradient(135deg,#f59e0b,#fbbf24)",
+      softBg: "rgba(245,158,11,0.08)",
+      label: "rgba(255,255,255,0.72)",
+      orbBg: "rgba(245,158,11,0.10)",
+      orbBorder: "rgba(245,158,11,0.18)",
+    };
+  }
+  if (level === "Low") {
+    return {
+      dot: "#3b82f6",
+      text: "#ffffff",
+      bg: "linear-gradient(135deg,#3b82f6,#60a5fa)",
+      softBg: "rgba(59,130,246,0.08)",
+      label: "rgba(255,255,255,0.72)",
+      orbBg: "rgba(59,130,246,0.10)",
+      orbBorder: "rgba(59,130,246,0.18)",
+    };
+  }
+  return {
+    dot: "#94a3b8",
+    text: "#475569",
+    bg: "linear-gradient(135deg,#e2e8f0,#cbd5e1)",
+    softBg: "rgba(148,163,184,0.08)",
+    label: "rgba(71,85,105,0.68)",
+    orbBg: "rgba(148,163,184,0.10)",
+    orbBorder: "rgba(148,163,184,0.18)",
+  };
 }
 
 function deliveryLaneToUiStatus(raw: any): ChangeStatus {
@@ -193,10 +325,15 @@ function mapRowToModalInitialValue(it: ChangeItem) {
     risks: safeStr((it as any)?.risks),
     dependencies: safeStr((it as any)?.dependencies),
     assumptions: safeStr((it as any)?.assumptions),
-    implementationPlan: safeStr((it as any)?.implementationPlan) || safeStr((it as any)?.implementation_plan) || "",
+    implementationPlan:
+      safeStr((it as any)?.implementationPlan) || safeStr((it as any)?.implementation_plan) || "",
     rollbackPlan: safeStr((it as any)?.rollbackPlan) || safeStr((it as any)?.rollback_plan) || "",
     aiImpact: impact
-      ? { days: safeNum(impact?.days, 0), cost: safeNum(impact?.cost, 0), risk: safeStr(impact?.risk ?? "None identified") || "None identified" }
+      ? {
+          days: safeNum(impact?.days, 0),
+          cost: safeNum(impact?.cost, 0),
+          risk: safeStr(impact?.risk ?? "None identified") || "None identified",
+        }
       : undefined,
   };
 }
@@ -207,7 +344,10 @@ function dedupeKeepLatest(rows: ChangeItem[]) {
     const id = safeStr((r as any)?.id).trim();
     if (!id) continue;
     const prev = byId.get(id);
-    if (!prev) { byId.set(id, { ...(r as any), id }); continue; }
+    if (!prev) {
+      byId.set(id, { ...(r as any), id });
+      continue;
+    }
     const tPrev = new Date(prev.updated_at || prev.created_at || (0 as any)).getTime();
     const tCur = new Date((r as any).updated_at || (r as any).created_at || (0 as any)).getTime();
     if (tCur >= tPrev) byId.set(id, { ...(r as any), id });
@@ -225,14 +365,18 @@ function sortForBoard(a: ChangeItem, b: ChangeItem) {
 async function apiJson(url: string, init?: RequestInit) {
   const res = await fetch(url, init);
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || (json as any)?.ok === false) throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
+  if (!res.ok || (json as any)?.ok === false) {
+    throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
+  }
   return json;
 }
 
 async function apiDelete(url: string) {
   const res = await fetch(url, { method: "DELETE" });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || (json as any)?.ok === false) throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
+  if (!res.ok || (json as any)?.ok === false) {
+    throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
+  }
   return json;
 }
 
@@ -243,124 +387,720 @@ async function apiDelete(url: string) {
 const BOARD_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Mono:wght@500;600&display=swap');
 
-  .kb-root { font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  .kb-root {
+    font-family:'Inter',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    color:#0f172a;
+  }
 
-  .kb-topbar { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:20px 24px 0; }
-  .kb-title { font-size:17px; font-weight:800; color:#1a1d2e; letter-spacing:-0.02em; }
-  .kb-sub { font-size:12.5px; color:#9ba3bc; margin-top:3px; font-weight:400; }
-  .kb-wip-warn { margin-top:6px; font-size:11px; color:#dc2626; background:rgba(220,38,38,0.06); padding:4px 8px; border-radius:6px; border:1px solid rgba(220,38,38,0.15); display:inline-block; }
-  .kb-actions { display:flex; gap:8px; align-items:center; flex-shrink:0; }
-  .kb-btn-primary { padding:8px 16px; background:linear-gradient(135deg,#4f46e5,#6366f1); color:#fff; font-size:12px; font-weight:700; border:none; border-radius:9px; cursor:pointer; font-family:inherit; letter-spacing:0.02em; box-shadow:0 1px 4px rgba(99,102,241,0.3); transition:opacity 0.12s, transform 0.1s, box-shadow 0.12s; display:flex; align-items:center; gap:6px; }
-  .kb-btn-primary:hover:not(:disabled) { opacity:0.9; transform:translateY(-1px); box-shadow:0 3px 10px rgba(99,102,241,0.35); }
-  .kb-btn-primary:disabled { opacity:0.45; cursor:not-allowed; }
-  .kb-btn-ghost { padding:7px 13px; background:#fff; border:1px solid #e4e7f0; color:#5a6080; font-size:12px; font-weight:600; border-radius:9px; cursor:pointer; font-family:inherit; transition:background 0.12s, border-color 0.12s, color 0.12s; }
-  .kb-btn-ghost:hover:not(:disabled) { background:#f4f5fa; color:#1a1d2e; border-color:#d0d5e8; }
-  .kb-btn-ghost:disabled { opacity:0.4; cursor:not-allowed; }
+  .kb-topbar {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:16px;
+    padding:20px 24px 0;
+  }
 
-  .kb-err { margin:12px 24px 0; padding:10px 14px; border-radius:9px; background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.2); font-size:12.5px; color:#dc2626; display:flex; align-items:center; gap:8px; }
+  .kb-title {
+    font-size:18px;
+    font-weight:800;
+    color:#111827;
+    letter-spacing:-0.03em;
+  }
 
-  .kb-board { display:flex; gap:14px; padding:18px 24px 32px; overflow-x:auto; align-items:flex-start; min-height:80vh; }
-  .kb-board::-webkit-scrollbar { height:6px; }
+  .kb-sub {
+    font-size:12.5px;
+    color:#94a3b8;
+    margin-top:4px;
+    font-weight:500;
+  }
+
+  .kb-wip-warn {
+    margin-top:8px;
+    font-size:11px;
+    color:#b91c1c;
+    background:rgba(220,38,38,0.06);
+    padding:5px 9px;
+    border-radius:999px;
+    border:1px solid rgba(220,38,38,0.12);
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+  }
+
+  .kb-actions {
+    display:flex;
+    gap:10px;
+    align-items:center;
+    flex-shrink:0;
+  }
+
+  .kb-btn-primary {
+    padding:10px 16px;
+    background:linear-gradient(135deg,#4f46e5,#6366f1);
+    color:#fff;
+    font-size:12px;
+    font-weight:700;
+    border:none;
+    border-radius:12px;
+    cursor:pointer;
+    font-family:inherit;
+    letter-spacing:0.01em;
+    box-shadow:0 10px 24px rgba(99,102,241,0.22), inset 0 1px 0 rgba(255,255,255,0.18);
+    transition:opacity 0.12s, transform 0.12s, box-shadow 0.12s;
+    display:flex;
+    align-items:center;
+    gap:7px;
+  }
+
+  .kb-btn-primary:hover:not(:disabled) {
+    opacity:0.98;
+    transform:translateY(-1px);
+    box-shadow:0 14px 32px rgba(99,102,241,0.28), inset 0 1px 0 rgba(255,255,255,0.22);
+  }
+
+  .kb-btn-primary:disabled {
+    opacity:0.45;
+    cursor:not-allowed;
+  }
+
+  .kb-btn-ghost {
+    padding:9px 14px;
+    background:#fff;
+    border:1px solid #e5e7eb;
+    color:#475569;
+    font-size:12px;
+    font-weight:700;
+    border-radius:12px;
+    cursor:pointer;
+    font-family:inherit;
+    transition:background 0.12s, border-color 0.12s, color 0.12s, box-shadow 0.12s;
+    box-shadow:0 1px 2px rgba(15,23,42,0.03);
+  }
+
+  .kb-btn-ghost:hover:not(:disabled) {
+    background:#f8fafc;
+    color:#111827;
+    border-color:#dbe2ea;
+    box-shadow:0 4px 10px rgba(15,23,42,0.05);
+  }
+
+  .kb-btn-ghost:disabled {
+    opacity:0.4;
+    cursor:not-allowed;
+  }
+
+  .kb-err {
+    margin:12px 24px 0;
+    padding:11px 14px;
+    border-radius:12px;
+    background:rgba(239,68,68,0.06);
+    border:1px solid rgba(239,68,68,0.12);
+    font-size:12.5px;
+    color:#dc2626;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+
+  .kb-board {
+    display:flex;
+    gap:16px;
+    padding:18px 24px 32px;
+    overflow-x:auto;
+    align-items:flex-start;
+    min-height:80vh;
+  }
+
+  .kb-board::-webkit-scrollbar { height:8px; }
   .kb-board::-webkit-scrollbar-track { background:transparent; }
-  .kb-board::-webkit-scrollbar-thumb { background:#d5d9ef; border-radius:3px; }
-  .kb-board::-webkit-scrollbar-thumb:hover { background:#b0b7cc; }
+  .kb-board::-webkit-scrollbar-thumb {
+    background:#d7deea;
+    border-radius:999px;
+  }
+  .kb-board::-webkit-scrollbar-thumb:hover { background:#bac4d5; }
 
-  .kb-col { width:282px; min-width:282px; flex-shrink:0; display:flex; flex-direction:column; background:#fff; border-radius:14px; border:1px solid #e4e7f0; box-shadow:0 1px 3px rgba(0,0,0,0.04); overflow:hidden; }
-  .kb-col-top { height:3px; }
-  .kb-col-head { padding:11px 13px 10px; border-bottom:1px solid #f0f1f8; display:flex; align-items:center; gap:7px; }
-  .kb-col-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
-  .kb-col-title { font-size:10.5px; font-weight:800; letter-spacing:0.07em; text-transform:uppercase; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .kb-col-count { font-size:10.5px; font-weight:700; color:#9ba3bc; background:#f4f5f9; border:1px solid #e8eaf0; padding:2px 7px; border-radius:20px; }
-  .kb-col-wip-over { color:#dc2626 !important; background:rgba(220,38,38,0.08) !important; border-color:rgba(220,38,38,0.2) !important; }
-  .kb-col-add { width:22px; height:22px; display:flex; align-items:center; justify-content:center; border:1px solid #e4e7f0; border-radius:6px; background:transparent; color:#9ba3bc; cursor:pointer; font-size:15px; line-height:1; transition:background 0.1s, color 0.1s, border-color 0.1s; }
-  .kb-col-add:hover { background:#f4f5f9; color:#1a1d2e; border-color:#d0d5e8; }
+  .kb-col {
+    width:294px;
+    min-width:294px;
+    flex-shrink:0;
+    display:flex;
+    flex-direction:column;
+    background:linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.98));
+    border-radius:18px;
+    border:1px solid rgba(226,232,240,0.95);
+    box-shadow:0 8px 30px rgba(15,23,42,0.05), 0 1px 2px rgba(15,23,42,0.04);
+    overflow:hidden;
+    backdrop-filter:blur(12px);
+  }
 
-  .kb-drop { padding:10px; display:flex; flex-direction:column; gap:8px; min-height:340px; transition:background 0.15s; }
-  .kb-drop.over { background:rgba(99,102,241,0.04); }
-  .kb-empty { border:2px dashed #e2e5f0; border-radius:10px; padding:18px 14px; text-align:center; font-size:11.5px; color:#b0b7cc; font-weight:500; }
+  .kb-col-top {
+    height:3px;
+  }
 
-  @keyframes kb-card-in { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
-  .kb-card { background:#fff; border-radius:14px; border:1px solid #e4e7f0; box-shadow:0 1px 4px rgba(15,20,50,0.04),0 2px 8px rgba(15,20,50,0.03); transition:box-shadow 0.18s,transform 0.18s,border-color 0.18s; animation:kb-card-in 0.18s ease backwards; overflow:hidden; position:relative; }
-  .kb-card:hover { box-shadow:0 4px 20px rgba(15,20,50,0.09),0 2px 8px rgba(15,20,50,0.05); border-color:#c8cde0; transform:translateY(-2px); }
-  .kb-card.kb-saving { outline:1px solid rgba(99,102,241,0.3); }
-  .kb-card.kb-locked { opacity:0.68; }
-  .kb-card-rail { position:absolute; top:0; left:0; bottom:0; width:3px; border-radius:14px 0 0 14px; }
-  .kb-card-body { padding:13px 13px 11px 17px; }
-  .kb-card-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; gap:8px; }
-  .kb-card-id { font-family:'DM Mono',monospace; font-size:9.5px; font-weight:600; letter-spacing:0.08em; color:#7c85a2; background:#f3f4f8; padding:2px 7px; border-radius:5px; border:1px solid #e4e7f0; flex-shrink:0; }
-  .kb-card-badges { display:flex; gap:5px; flex-wrap:wrap; flex:1; min-width:0; }
-  .kb-badge { display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600; padding:3px 8px 3px 7px; border-radius:6px; border:none; letter-spacing:0.01em; white-space:nowrap; }
-  .kb-badge-prefix { font-size:8px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; opacity:0.55; font-family:'DM Mono',monospace; margin-right:2px; }
-  .kb-drag-handle { width:22px; height:22px; display:flex; align-items:center; justify-content:center; border-radius:5px; background:transparent; border:none; color:#c4cade; cursor:grab; transition:background 0.1s, color 0.1s; flex-shrink:0; padding:0; }
-  .kb-drag-handle:hover { background:#f0f1f8; color:#5a6080; }
-  .kb-drag-handle:disabled { opacity:0.25; cursor:not-allowed; }
-  .kb-card-title-btn { display:block; width:100%; text-align:left; background:transparent; border:none; padding:0; cursor:pointer; font-size:12.5px; font-weight:600; color:#1a1d2e; line-height:1.45; margin-bottom:7px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; transition:color 0.12s; font-family:inherit; }
-  .kb-card-title-btn:hover:not(:disabled) { color:#4f46e5; }
-  .kb-card-title-btn:disabled { cursor:not-allowed; }
-  .kb-card-meta { font-size:10.5px; color:#9ba3bc; margin-bottom:8px; display:flex; align-items:center; gap:5px; overflow:hidden; }
-  .kb-avatar { width:15px; height:15px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:7.5px; font-weight:800; color:#fff; flex-shrink:0; }
-  .kb-impact { background:#f8f9fc; border:1px solid #eceef5; border-radius:7px; padding:7px 9px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
-  .kb-impact-label { font-size:8.5px; font-weight:700; letter-spacing:0.09em; text-transform:uppercase; color:#b0b7cc; margin-bottom:4px; }
-  .kb-impact-vals { display:flex; gap:12px; }
-  .kb-impact-item { display:flex; align-items:center; gap:4px; font-size:11.5px; font-weight:700; color:#2d3152; }
-  .kb-impact-icon { color:#c4cade; }
-  .kb-risk-orb { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-  .kb-divider { height:1px; background:#f0f1f8; margin:8px 0; }
-  .kb-card-actions { display:flex; gap:4px; flex-wrap:wrap; }
-  .kb-action { display:inline-flex; align-items:center; gap:3px; padding:4px 8px; font-size:10.5px; font-weight:500; color:#6b7280; background:#f8f9fc; border:1px solid #eceef5; border-radius:6px; cursor:pointer; transition:background 0.1s, color 0.1s, border-color 0.1s; font-family:inherit; }
-  .kb-action:hover:not(:disabled) { background:#eceef5; color:#1a1d2e; border-color:#dde0ee; }
-  .kb-action:disabled { opacity:0.4; cursor:not-allowed; }
-  .kb-action-ai { color:#6366f1; background:rgba(99,102,241,0.05); border-color:rgba(99,102,241,0.18); }
-  .kb-action-ai:hover:not(:disabled) { background:rgba(99,102,241,0.1); border-color:rgba(99,102,241,0.3); color:#4338ca; }
-  .kb-action-submit { color:#b45309; background:rgba(245,158,11,0.07); border-color:rgba(245,158,11,0.22); font-weight:600; }
-  .kb-action-submit:hover:not(:disabled) { background:rgba(245,158,11,0.14); }
-  .kb-action-delete { color:#dc2626; background:rgba(220,38,38,0.06); border-color:rgba(220,38,38,0.18); }
-  .kb-action-delete:hover:not(:disabled) { background:rgba(220,38,38,0.12); color:#b91c1c; border-color:rgba(220,38,38,0.35); }
-  .kb-locked-msg { margin-top:8px; padding:5px 9px; background:rgba(245,158,11,0.07); border:1px solid rgba(245,158,11,0.2); border-radius:6px; font-size:10.5px; font-weight:500; color:#b45309; display:flex; align-items:center; gap:5px; }
+  .kb-col-head {
+    padding:13px 14px 12px;
+    border-bottom:1px solid rgba(241,245,249,1);
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
 
-  /* Delete confirm overlay on card */
+  .kb-col-dot {
+    width:8px;
+    height:8px;
+    border-radius:50%;
+    flex-shrink:0;
+  }
+
+  .kb-col-title {
+    font-size:10.5px;
+    font-weight:800;
+    letter-spacing:0.11em;
+    text-transform:uppercase;
+    flex:1;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
+  .kb-col-count {
+    min-width:22px;
+    height:22px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    font-size:10.5px;
+    font-weight:800;
+    color:#7c8799;
+    background:#f8fafc;
+    border:1px solid #edf2f7;
+    padding:0 7px;
+    border-radius:999px;
+  }
+
+  .kb-col-wip-over {
+    color:#dc2626 !important;
+    background:rgba(220,38,38,0.08) !important;
+    border-color:rgba(220,38,38,0.16) !important;
+  }
+
+  .kb-col-add {
+    width:24px;
+    height:24px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border:1px solid #e6ebf2;
+    border-radius:8px;
+    background:#fff;
+    color:#94a3b8;
+    cursor:pointer;
+    font-size:15px;
+    line-height:1;
+    transition:background 0.1s, color 0.1s, border-color 0.1s, transform 0.1s;
+    box-shadow:0 1px 2px rgba(15,23,42,0.03);
+  }
+
+  .kb-col-add:hover {
+    background:#f8fafc;
+    color:#111827;
+    border-color:#d8e1ec;
+    transform:translateY(-1px);
+  }
+
+  .kb-drop {
+    padding:12px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    min-height:360px;
+    transition:background 0.15s;
+  }
+
+  .kb-drop.over {
+    background:rgba(99,102,241,0.04);
+  }
+
+  .kb-empty {
+    border:1.5px dashed #dbe4f0;
+    border-radius:14px;
+    padding:20px 14px;
+    text-align:center;
+    font-size:11.5px;
+    color:#b0b7cc;
+    font-weight:600;
+    background:rgba(255,255,255,0.7);
+  }
+
+  @keyframes kb-card-in {
+    from { opacity:0; transform:translateY(5px); }
+    to { opacity:1; transform:translateY(0); }
+  }
+
+  .kb-card {
+    background:
+      radial-gradient(circle at top right, rgba(99,102,241,0.06), transparent 34%),
+      linear-gradient(180deg,#ffffff 0%, #fcfdff 100%);
+    border-radius:18px;
+    border:1px solid rgba(226,232,240,0.95);
+    box-shadow:
+      0 10px 26px rgba(15,23,42,0.06),
+      0 1px 2px rgba(15,23,42,0.04);
+    transition:box-shadow 0.16s, transform 0.16s, border-color 0.16s;
+    animation:kb-card-in 0.18s ease backwards;
+    overflow:hidden;
+    position:relative;
+    backdrop-filter:blur(8px);
+  }
+
+  .kb-card:hover {
+    box-shadow:
+      0 18px 38px rgba(15,23,42,0.09),
+      0 3px 10px rgba(15,23,42,0.05);
+    border-color:#dce4ef;
+    transform:translateY(-2px);
+  }
+
+  .kb-card.kb-saving {
+    box-shadow:
+      0 0 0 3px rgba(99,102,241,0.10),
+      0 18px 38px rgba(15,23,42,0.09),
+      0 3px 10px rgba(15,23,42,0.05);
+  }
+
+  .kb-card.kb-locked {
+    opacity:0.82;
+  }
+
+  .kb-card-top {
+    height:3px;
+    width:100%;
+  }
+
+  .kb-card-body {
+    padding:14px 14px 13px;
+  }
+
+  .kb-card-head {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    margin-bottom:10px;
+    gap:8px;
+  }
+
+  .kb-card-left {
+    min-width:0;
+    flex:1;
+  }
+
+  .kb-card-id-row {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-bottom:9px;
+  }
+
+  .kb-card-id {
+    font-family:'DM Mono',monospace;
+    font-size:9.5px;
+    font-weight:700;
+    letter-spacing:0.08em;
+    color:#7c8598;
+    background:#f8fafc;
+    padding:4px 8px;
+    border-radius:8px;
+    border:1px solid #edf2f7;
+    flex-shrink:0;
+  }
+
+  .kb-card-badges {
+    display:flex;
+    gap:6px;
+    flex-wrap:wrap;
+    min-width:0;
+  }
+
+  .kb-badge {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-size:10px;
+    font-weight:700;
+    padding:4px 8px;
+    border-radius:999px;
+    letter-spacing:0.01em;
+    white-space:nowrap;
+    border:none;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.15);
+  }
+
+  .kb-badge-label {
+    font-size:8px;
+    font-weight:800;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+  }
+
+  .kb-badge-value {
+    font-size:10px;
+    font-weight:800;
+    letter-spacing:0.01em;
+  }
+
+  .kb-badge-dot {
+    width:6px;
+    height:6px;
+    border-radius:50%;
+    flex-shrink:0;
+    background:currentColor;
+    opacity:0.92;
+  }
+
+  .kb-drag-handle {
+    width:28px;
+    height:28px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:10px;
+    background:#fff;
+    border:1px solid #edf2f7;
+    color:#c4cade;
+    cursor:grab;
+    transition:background 0.1s, color 0.1s, border-color 0.1s, transform 0.1s;
+    flex-shrink:0;
+    padding:0;
+    box-shadow:0 1px 2px rgba(15,23,42,0.03);
+  }
+
+  .kb-drag-handle:hover {
+    background:#f8fafc;
+    color:#5a6080;
+    border-color:#dce4ef;
+    transform:translateY(-1px);
+  }
+
+  .kb-drag-handle:disabled {
+    opacity:0.25;
+    cursor:not-allowed;
+  }
+
+  .kb-card-title-btn {
+    display:block;
+    width:100%;
+    text-align:left;
+    background:transparent;
+    border:none;
+    padding:0;
+    cursor:pointer;
+    font-size:14px;
+    font-weight:700;
+    color:#111827;
+    line-height:1.45;
+    margin-bottom:9px;
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+    transition:color 0.12s;
+    font-family:inherit;
+    letter-spacing:-0.01em;
+  }
+
+  .kb-card-title-btn:hover:not(:disabled) {
+    color:#4f46e5;
+  }
+
+  .kb-card-title-btn:disabled {
+    cursor:not-allowed;
+  }
+
+  .kb-card-meta {
+    font-size:11px;
+    color:#94a3b8;
+    margin-bottom:10px;
+    display:flex;
+    align-items:center;
+    gap:7px;
+    overflow:hidden;
+  }
+
+  .kb-avatar {
+    width:20px;
+    height:20px;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:9px;
+    font-weight:800;
+    color:#fff;
+    flex-shrink:0;
+    box-shadow:0 4px 12px rgba(99,102,241,0.18);
+  }
+
+  .kb-impact {
+    background:
+      linear-gradient(180deg,#f8fafc 0%, #f5f8fc 100%);
+    border:1px solid #eef2f7;
+    border-radius:14px;
+    padding:10px 11px;
+    margin-bottom:10px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+  }
+
+  .kb-impact-label {
+    font-size:8.5px;
+    font-weight:800;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    color:#a5afbf;
+    margin-bottom:6px;
+  }
+
+  .kb-impact-vals {
+    display:flex;
+    gap:14px;
+    flex-wrap:wrap;
+  }
+
+  .kb-impact-item {
+    display:flex;
+    align-items:center;
+    gap:5px;
+    font-size:11.5px;
+    font-weight:800;
+    color:#1f2937;
+  }
+
+  .kb-impact-icon {
+    color:#b6bfd0;
+  }
+
+  .kb-risk-orb {
+    width:34px;
+    height:34px;
+    border-radius:12px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.25);
+  }
+
+  .kb-divider {
+    height:1px;
+    background:linear-gradient(90deg, transparent, #edf2f7 10%, #edf2f7 90%, transparent);
+    margin:10px 0;
+  }
+
+  .kb-card-actions {
+    display:flex;
+    gap:6px;
+    flex-wrap:wrap;
+  }
+
+  .kb-action {
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    padding:6px 9px;
+    font-size:10.5px;
+    font-weight:700;
+    color:#64748b;
+    background:#f8fafc;
+    border:1px solid #edf2f7;
+    border-radius:10px;
+    cursor:pointer;
+    transition:background 0.1s, color 0.1s, border-color 0.1s, transform 0.1s;
+    font-family:inherit;
+  }
+
+  .kb-action:hover:not(:disabled) {
+    background:#f1f5f9;
+    color:#111827;
+    border-color:#dde5ef;
+    transform:translateY(-1px);
+  }
+
+  .kb-action:disabled {
+    opacity:0.4;
+    cursor:not-allowed;
+  }
+
+  .kb-action-ai {
+    color:#6366f1;
+    background:rgba(99,102,241,0.06);
+    border-color:rgba(99,102,241,0.14);
+  }
+
+  .kb-action-ai:hover:not(:disabled) {
+    background:rgba(99,102,241,0.11);
+    border-color:rgba(99,102,241,0.22);
+    color:#4338ca;
+  }
+
+  .kb-action-submit {
+    color:#b45309;
+    background:rgba(245,158,11,0.08);
+    border-color:rgba(245,158,11,0.18);
+    font-weight:800;
+  }
+
+  .kb-action-submit:hover:not(:disabled) {
+    background:rgba(245,158,11,0.14);
+  }
+
+  .kb-action-delete {
+    color:#dc2626;
+    background:rgba(220,38,38,0.06);
+    border-color:rgba(220,38,38,0.14);
+  }
+
+  .kb-action-delete:hover:not(:disabled) {
+    background:rgba(220,38,38,0.11);
+    color:#b91c1c;
+    border-color:rgba(220,38,38,0.22);
+  }
+
+  .kb-locked-msg {
+    margin-top:10px;
+    padding:7px 10px;
+    background:rgba(245,158,11,0.07);
+    border:1px solid rgba(245,158,11,0.16);
+    border-radius:10px;
+    font-size:10.5px;
+    font-weight:700;
+    color:#b45309;
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+
   .kb-del-confirm {
-    position:absolute; inset:0; z-index:10;
-    border-radius:11px;
+    position:absolute;
+    inset:0;
+    z-index:10;
+    border-radius:18px;
     background:rgba(10,11,18,0.92);
     backdrop-filter:blur(6px);
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    padding:14px; gap:10px; text-align:center;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:14px;
+    gap:10px;
+    text-align:center;
     animation:kb-card-in 0.15s ease;
   }
+
   .kb-del-icon {
-    width:34px; height:34px; border-radius:50%;
+    width:36px;
+    height:36px;
+    border-radius:50%;
     background:rgba(248,113,113,0.15);
     border:1px solid rgba(248,113,113,0.35);
-    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
   }
-  .kb-del-title { font-size:11.5px; font-weight:700; color:#f1f3fc; }
-  .kb-del-desc { font-size:10.5px; color:#7880a0; line-height:1.5; max-width:190px; }
-  .kb-del-actions { display:flex; gap:6px; }
-  .kb-del-btn { padding:5px 13px; border-radius:7px; font-size:11px; font-weight:600; cursor:pointer; transition:all 0.12s; }
-  .kb-del-btn-cancel { border:1px solid rgba(255,255,255,0.1); background:transparent; color:#9ba3c4; }
-  .kb-del-btn-cancel:hover { background:rgba(255,255,255,0.06); }
-  .kb-del-btn-confirm { border:1px solid rgba(248,113,113,0.4); background:rgba(248,113,113,0.15); color:#f87171; }
-  .kb-del-btn-confirm:hover:not(:disabled) { background:rgba(248,113,113,0.25); }
-  .kb-del-btn-confirm:disabled { opacity:0.5; cursor:not-allowed; }
 
-  .kb-overlay-card { width:270px; background:#fff; border-radius:11px; border:1px solid #d0d5e8; box-shadow:0 16px 48px rgba(0,0,0,0.18); transform:rotate(1.5deg); padding:12px; font-family:'Inter',system-ui,sans-serif; }
-  .kb-overlay-id { font-family:'DM Mono',monospace; font-size:9.5px; font-weight:600; color:#8b91a7; background:#f4f5f9; padding:2px 7px; border-radius:5px; border:1px solid #e8eaf0; display:inline-block; margin-bottom:7px; }
-  .kb-overlay-title { font-size:12.5px; font-weight:600; color:#1a1d2e; line-height:1.45; }
+  .kb-del-title {
+    font-size:12px;
+    font-weight:800;
+    color:#f1f5f9;
+  }
+
+  .kb-del-desc {
+    font-size:10.5px;
+    color:#8f9bb3;
+    line-height:1.5;
+    max-width:190px;
+  }
+
+  .kb-del-actions {
+    display:flex;
+    gap:6px;
+  }
+
+  .kb-del-btn {
+    padding:6px 13px;
+    border-radius:9px;
+    font-size:11px;
+    font-weight:700;
+    cursor:pointer;
+    transition:all 0.12s;
+  }
+
+  .kb-del-btn-cancel {
+    border:1px solid rgba(255,255,255,0.1);
+    background:transparent;
+    color:#b8c0d4;
+  }
+
+  .kb-del-btn-cancel:hover {
+    background:rgba(255,255,255,0.06);
+  }
+
+  .kb-del-btn-confirm {
+    border:1px solid rgba(248,113,113,0.4);
+    background:rgba(248,113,113,0.15);
+    color:#f87171;
+  }
+
+  .kb-del-btn-confirm:hover:not(:disabled) {
+    background:rgba(248,113,113,0.25);
+  }
+
+  .kb-del-btn-confirm:disabled {
+    opacity:0.5;
+    cursor:not-allowed;
+  }
+
+  .kb-overlay-card {
+    width:278px;
+    background:#fff;
+    border-radius:18px;
+    border:1px solid #dce4ef;
+    box-shadow:0 22px 56px rgba(15,23,42,0.18);
+    transform:rotate(1.5deg);
+    padding:14px;
+    font-family:'Inter',system-ui,sans-serif;
+  }
+
+  .kb-overlay-id {
+    font-family:'DM Mono',monospace;
+    font-size:9.5px;
+    font-weight:700;
+    color:#7c8598;
+    background:#f8fafc;
+    padding:4px 8px;
+    border-radius:8px;
+    border:1px solid #edf2f7;
+    display:inline-block;
+    margin-bottom:9px;
+  }
+
+  .kb-overlay-title {
+    font-size:13px;
+    font-weight:700;
+    color:#111827;
+    line-height:1.5;
+    letter-spacing:-0.01em;
+  }
 `;
 
+let cssInjected = false;
 function injectCss() {
-  if (typeof document === "undefined") return;
-  const id = "kb-board-css-v4";
-  const existing = document.getElementById(id);
-  if (existing) { existing.textContent = BOARD_CSS; return; }
-  // Remove any old versions
-  ["kb-board-css-v1","kb-board-css-v2","kb-board-css-v3"].forEach(old => {
-    const el = document.getElementById(old);
-    if (el) el.remove();
-  });
+  if (typeof document === "undefined" || cssInjected) return;
+  cssInjected = true;
   const el = document.createElement("style");
-  el.id = id;
   el.textContent = BOARD_CSS;
   document.head.appendChild(el);
 }
@@ -379,7 +1119,7 @@ function LaneList({ lane, children }: { lane: DeliveryLane; children: React.Reac
 }
 
 /* =========================
-   Delete confirm overlay (reusable inside card)
+   Delete confirm overlay
 ========================= */
 
 function CardDeleteConfirm({
@@ -396,7 +1136,16 @@ function CardDeleteConfirm({
   return (
     <div className="kb-del-confirm">
       <div className="kb-del-icon">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#f87171"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <polyline points="3 6 5 6 21 6" />
           <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
           <path d="M10 11v6M14 11v6" />
@@ -443,7 +1192,6 @@ function SortableCard({
   onTimeline: (it: ChangeItem) => void;
   onAttachments: (it: ChangeItem) => void;
   onSubmit: (it: ChangeItem) => void;
-  /** Called after successful delete so board can remove card */
   onDeleted: (id: string) => void;
   showSubmit: boolean;
 }) {
@@ -494,7 +1242,6 @@ function SortableCard({
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
       <div className={`kb-card${locked ? " kb-locked" : ""}${saving ? " kb-saving" : ""}`}>
-        {/* Delete confirmation overlay */}
         {showDeleteConfirm && (
           <CardDeleteConfirm
             title={safeStr(item.title) || changeDisplay(item)}
@@ -504,27 +1251,50 @@ function SortableCard({
           />
         )}
 
-        <div className="kb-card-rail" style={{ background: laneConf.gradient }} />
+        <div className="kb-card-top" style={{ background: laneConf.gradient }} />
         <div className="kb-card-body">
-          {/* Head */}
           <div className="kb-card-head">
-            <span className="kb-card-id">{changeDisplay(item)}</span>
-            <div className="kb-card-badges">
-              {priConf && item.priority && (
-                <span className="kb-badge" style={{ color: priConf.color, background: priConf.bg }}>
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-                  <span style={{fontSize:"8px",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",opacity:0.55,fontFamily:"monospace",marginRight:"2px"}}>Priority</span>
-                  {safeStr(item.priority)}
-                </span>
-              )}
-              {riskLabel && (
-                <span className="kb-badge" style={{ color: risk.text, background: risk.bg }}>
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                  <span style={{fontSize:"8px",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",opacity:0.55,fontFamily:"monospace",marginRight:"2px"}}>Risk</span>
-                  {riskLabel}
-                </span>
-              )}
+            <div className="kb-card-left">
+              <div className="kb-card-id-row">
+                <span className="kb-card-id">{changeDisplay(item)}</span>
+              </div>
+
+              <div className="kb-card-badges">
+                {priConf && item.priority && (
+                  <span
+                    className="kb-badge"
+                    style={{
+                      color: priConf.color,
+                      background: priConf.bg,
+                    }}
+                  >
+                    <span
+                      className="kb-badge-label"
+                      style={{ color: priConf.label }}
+                    >
+                      Priority
+                    </span>
+                    <span className="kb-badge-value">{safeStr(item.priority)}</span>
+                  </span>
+                )}
+
+                {riskLabel && (
+                  <span
+                    className="kb-badge"
+                    style={{
+                      color: risk.text,
+                      background: risk.bg,
+                    }}
+                  >
+                    <span className="kb-badge-label" style={{ color: risk.label }}>
+                      Risk
+                    </span>
+                    <span className="kb-badge-value">{riskLabel}</span>
+                  </span>
+                )}
+              </div>
             </div>
+
             <button
               type="button"
               className="kb-drag-handle"
@@ -538,41 +1308,72 @@ function SortableCard({
             </button>
           </div>
 
-          {/* Title */}
           <button type="button" className="kb-card-title-btn" onClick={() => onClick(item)} disabled={saving}>
             {safeStr(item.title) || "Untitled"}
           </button>
 
-          {/* Requester */}
           {requesterName && (
             <div className="kb-card-meta">
               <div className="kb-avatar" style={{ background: laneConf.gradient }}>
                 {requesterName.charAt(0).toUpperCase()}
               </div>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{requesterName}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {requesterName}
+              </span>
             </div>
           )}
 
-          {/* AI Impact */}
           <div className="kb-impact">
             <div>
               <div className="kb-impact-label">AI Impact</div>
               <div className="kb-impact-vals">
                 <div className="kb-impact-item">
-                  <svg className="kb-impact-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                  <svg
+                    className="kb-impact-icon"
+                    width="11"
+                    height="11"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
                   </svg>
                   {impactDays ? `+${impactDays}d` : "—"}
                 </div>
+
                 <div className="kb-impact-item">
-                  <svg className="kb-impact-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                  <svg
+                    className="kb-impact-icon"
+                    width="11"
+                    height="11"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="12" y1="1" x2="12" y2="23" />
+                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
                   </svg>
                   {impactCost ? `£${impactCost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "—"}
                 </div>
+
                 {score > 0 && (
-                  <div className="kb-impact-item" style={{ color: "#9ba3bc", fontWeight: 500 }}>
-                    <svg className="kb-impact-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <div className="kb-impact-item" style={{ color: "#94a3b8", fontWeight: 700 }}>
+                    <svg
+                      className="kb-impact-icon"
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                     </svg>
                     {Math.round(score)}
@@ -580,50 +1381,90 @@ function SortableCard({
                 )}
               </div>
             </div>
-            <div className="kb-risk-orb" style={{ background: risk.bg, border: `1.5px solid ${risk.border}` }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={risk.dot} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+
+            <div
+              className="kb-risk-orb"
+              style={{
+                background: risk.orbBg,
+                border: `1px solid ${risk.orbBorder}`,
+              }}
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={risk.dot}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
               </svg>
             </div>
           </div>
 
-          {/* Delete error */}
           {deleteErr && (
-            <div style={{ marginBottom: 8, padding: "6px 8px", background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 6, fontSize: 11, color: "#dc2626" }}>
+            <div
+              style={{
+                marginBottom: 8,
+                padding: "7px 9px",
+                background: "rgba(239,68,68,0.06)",
+                border: "1px solid rgba(239,68,68,0.14)",
+                borderRadius: 10,
+                fontSize: 11,
+                color: "#dc2626",
+              }}
+            >
               {deleteErr}
             </div>
           )}
 
           <div className="kb-divider" />
 
-          {/* Actions */}
           <div className="kb-card-actions">
             <button type="button" className="kb-action" onClick={() => onTimeline(item)} disabled={saving} title="Timeline">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
               </svg>
               Timeline
             </button>
-            <button type="button" className="kb-action" onClick={() => onAttachments(item)} disabled={saving} title="Attachments">
+
+            <button
+              type="button"
+              className="kb-action"
+              onClick={() => onAttachments(item)}
+              disabled={saving}
+              title="Attachments"
+            >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
               </svg>
               Attach
             </button>
+
             <button type="button" className="kb-action kb-action-ai" onClick={() => onAi(item)} disabled={saving} title="AI Analysis">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
               </svg>
               AI
             </button>
+
             {showSubmit && (
-              <button type="button" className="kb-action kb-action-submit" onClick={() => onSubmit(item)} disabled={saving} title="Submit for approval">
+              <button
+                type="button"
+                className="kb-action kb-action-submit"
+                onClick={() => onSubmit(item)}
+                disabled={saving}
+                title="Submit for approval"
+              >
                 Submit →
               </button>
             )}
 
-            {/* Delete — only for intake / analysis */}
             {canDelete && (
               <button
                 type="button"
@@ -648,7 +1489,8 @@ function SortableCard({
           {locked && (
             <div className="kb-locked-msg">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" />
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0110 0v4" />
               </svg>
               Awaiting approval
             </div>
@@ -664,8 +1506,12 @@ function SortableCard({
 ========================= */
 
 export default function ChangeBoardDnd({
-  projectUuid, artifactId, projectHumanId, projectLabel,
-  initialOpenChangeId, initialOpenPublicId,
+  projectUuid,
+  artifactId,
+  projectHumanId,
+  projectLabel,
+  initialOpenChangeId,
+  initialOpenPublicId,
 }: {
   projectUuid: string;
   artifactId?: string | null;
@@ -674,7 +1520,9 @@ export default function ChangeBoardDnd({
   initialOpenChangeId?: string;
   initialOpenPublicId?: string;
 }) {
-  useEffect(() => { injectCss(); }, []);
+  useEffect(() => {
+    injectCss();
+  }, []);
 
   const [items, setItems] = useState<ChangeItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -705,26 +1553,40 @@ export default function ChangeBoardDnd({
 
   const fetchData = useCallback(async () => {
     if (!projectUuid) return;
-    setLoading(true); setErr("");
+    setLoading(true);
+    setErr("");
     try {
       const j = await apiJson(`/api/change/${encodeURIComponent(projectUuid)}?shape=lanes`, { cache: "no-store" });
-const lanes = (j as any)?.lanes as LanesResponse | undefined;
-const list = Array.isArray((j as any)?.items) ? ((j as any).items as ChangeItem[]) : [];
-const flattened = lanes && typeof lanes === "object"
-  ? LANES.flatMap((l) => (Array.isArray((lanes as any)[l]) ? (lanes as any)[l] : []))
-  : list;      setItems(dedupeKeepLatest(flattened).sort(sortForBoard));
+      const lanes = (j as any)?.lanes as LanesResponse | undefined;
+      const list = Array.isArray((j as any)?.items) ? ((j as any).items as ChangeItem[]) : [];
+      const flattened =
+        lanes && typeof lanes === "object"
+          ? LANES.flatMap((l) => (Array.isArray((lanes as any)[l]) ? (lanes as any)[l] : []))
+          : list;
+      setItems(dedupeKeepLatest(flattened).sort(sortForBoard));
     } catch (e: any) {
-      setItems([]); setErr(safeStr(e?.message) || "Failed to load changes");
+      setItems([]);
+      setErr(safeStr(e?.message) || "Failed to load changes");
     } finally {
       setLoading(false);
     }
   }, [projectUuid]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const laneMap = useMemo(() => {
     const canonical = dedupeKeepLatest(items);
-    const map: Record<DeliveryLane, ChangeItem[]> = { intake: [], analysis: [], review: [], in_progress: [], implemented: [], closed: [] };
+    const map: Record<DeliveryLane, ChangeItem[]> = {
+      intake: [],
+      analysis: [],
+      review: [],
+      in_progress: [],
+      implemented: [],
+      closed: [],
+    };
+
     for (const raw of canonical) {
       const id = safeStr((raw as any)?.id).trim();
       if (!id) continue;
@@ -733,6 +1595,7 @@ const flattened = lanes && typeof lanes === "object"
       if (LANES.includes(l)) map[l].push(it);
       else map.intake.push(it);
     }
+
     for (const l of LANES) map[l] = dedupeKeepLatest(map[l]).sort(sortForBoard);
     return map;
   }, [items]);
@@ -746,16 +1609,37 @@ const flattened = lanes && typeof lanes === "object"
   const wipWarning = useMemo(() => {
     const over = LANES.filter((l) => (laneMap[l]?.length ?? 0) > (WIP_LIMITS[l] ?? 99));
     if (!over.length) return "";
-    return `WIP exceeded: ${over.map((l) => `${LANE_CONFIG[l].label} (${laneMap[l].length}/${WIP_LIMITS[l] ?? 99})`).join(", ")}`;
+    return `WIP exceeded: ${over
+      .map((l) => `${LANE_CONFIG[l].label} (${laneMap[l].length}/${WIP_LIMITS[l] ?? 99})`)
+      .join(", ")}`;
   }, [laneMap]);
 
-  const openCreate = useCallback((lane: DeliveryLane) => { setCreateLane(lane); setCreateOpen(true); }, []);
-  const openEdit = useCallback((it: ChangeItem) => { setEditId(it.id); setEditInitialValue(mapRowToModalInitialValue(it)); setEditOpen(true); }, []);
-  const openAi = useCallback((it: ChangeItem) => { setAiChangeId(it.id); setAiOpen(true); }, []);
-  const openTimeline = useCallback((it: ChangeItem) => { setTimelineChangeId(it.id); setTimelineOpen(true); }, []);
-  const openAttachments = useCallback((it: ChangeItem) => { setAttChangeId(it.id); setAttOpen(true); }, []);
+  const openCreate = useCallback((lane: DeliveryLane) => {
+    setCreateLane(lane);
+    setCreateOpen(true);
+  }, []);
 
-  /** Remove a card from local state immediately after delete */
+  const openEdit = useCallback((it: ChangeItem) => {
+    setEditId(it.id);
+    setEditInitialValue(mapRowToModalInitialValue(it));
+    setEditOpen(true);
+  }, []);
+
+  const openAi = useCallback((it: ChangeItem) => {
+    setAiChangeId(it.id);
+    setAiOpen(true);
+  }, []);
+
+  const openTimeline = useCallback((it: ChangeItem) => {
+    setTimelineChangeId(it.id);
+    setTimelineOpen(true);
+  }, []);
+
+  const openAttachments = useCallback((it: ChangeItem) => {
+    setAttChangeId(it.id);
+    setAttOpen(true);
+  }, []);
+
   const handleCardDeleted = useCallback((deletedId: string) => {
     setItems((prev) => prev.filter((x) => safeStr(x.id).trim() !== deletedId));
   }, []);
@@ -763,11 +1647,14 @@ const flattened = lanes && typeof lanes === "object"
   useEffect(() => {
     if (autoOpenDoneRef.current) return;
     if (!items.length) return;
+
     const targetId = safeStr(initialOpenChangeId).trim();
     const targetPublic = safeStr(initialOpenPublicId).trim().toLowerCase();
     if (!targetId && !targetPublic) return;
+
     let found: ChangeItem | undefined;
     if (targetId) found = items.find((x) => safeStr(x.id).trim() === targetId);
+
     if (!found && targetPublic) {
       found = items.find((x) => safeStr((x as any)?.public_id).trim().toLowerCase() === targetPublic);
       if (!found) {
@@ -778,7 +1665,11 @@ const flattened = lanes && typeof lanes === "object"
         });
       }
     }
-    if (found) { autoOpenDoneRef.current = true; openEdit(found); }
+
+    if (found) {
+      autoOpenDoneRef.current = true;
+      openEdit(found);
+    }
   }, [items, initialOpenChangeId, initialOpenPublicId, openEdit]);
 
   const patchDeliveryStatus = useCallback(async (id: string, toLane: DeliveryLane) => {
@@ -802,83 +1693,140 @@ const flattened = lanes && typeof lanes === "object"
     return null;
   }
 
-  const onDragStart = useCallback((e: DragStartEvent) => { setActiveSortableId(String(e.active.id)); }, []);
+  const onDragStart = useCallback((e: DragStartEvent) => {
+    setActiveSortableId(String(e.active.id));
+  }, []);
 
-  const onDragEnd = useCallback(async (e: DragEndEvent) => {
-    setActiveSortableId(null);
-    const activeSortable = String(e.active?.id || "");
-    if (!activeSortable?.startsWith("card:")) return;
-    const activeId = activeSortable.slice("card:".length);
-    if (!activeId || savingIds[activeId]) return;
-    const it = items.find((x) => safeStr(x.id).trim() === activeId);
-    if (!it) return;
-    const targetLane = resolveDropLane(e.over);
-    if (!targetLane) return;
-    const fromLane = (safeStr(it.delivery_status).trim() as DeliveryLane) || "intake";
-    if (fromLane === targetLane) return;
-    if (isLocked(it)) { setErr("This change is locked during approval (submitted)."); return; }
-    const snapshot = items;
-    const nextToken = (savingSeqRef.current[activeId] || 0) + 1;
-    savingSeqRef.current[activeId] = nextToken;
-    setErr("");
-    setSavingIds((p) => ({ ...p, [activeId]: true }));
-    setItems((prev) => dedupeKeepLatest(prev.map((x) => safeStr(x.id).trim() === activeId ? { ...x, delivery_status: targetLane, updated_at: new Date().toISOString() } : x)));
-    try {
-      await patchDeliveryStatus(activeId, targetLane);
-      if (savingSeqRef.current[activeId] !== nextToken) return;
-      setSavingIds((p) => { const n = { ...p }; delete n[activeId]; return n; });
-    } catch (ex: any) {
-      if (savingSeqRef.current[activeId] !== nextToken) return;
-      setItems(snapshot);
-      setSavingIds((p) => { const n = { ...p }; delete n[activeId]; return n; });
-      setErr(safeStr(ex?.message) || "Move failed");
-    }
-  }, [items, savingIds, patchDeliveryStatus]);
+  const onDragEnd = useCallback(
+    async (e: DragEndEvent) => {
+      setActiveSortableId(null);
 
-  const submitForApproval = useCallback(async (it: ChangeItem) => {
-    try {
+      const activeSortable = String(e.active?.id || "");
+      if (!activeSortable?.startsWith("card:")) return;
+
+      const activeId = activeSortable.slice("card:".length);
+      if (!activeId || savingIds[activeId]) return;
+
+      const it = items.find((x) => safeStr(x.id).trim() === activeId);
+      if (!it) return;
+
+      const targetLane = resolveDropLane(e.over);
+      if (!targetLane) return;
+
+      const fromLane = (safeStr(it.delivery_status).trim() as DeliveryLane) || "intake";
+      if (fromLane === targetLane) return;
+
+      if (isLocked(it)) {
+        setErr("This change is locked during approval (submitted).");
+        return;
+      }
+
+      const snapshot = items;
+      const nextToken = (savingSeqRef.current[activeId] || 0) + 1;
+      savingSeqRef.current[activeId] = nextToken;
+
       setErr("");
-      if (safeStr(it.delivery_status).trim() !== "analysis") { setErr("Only changes in Analysis can be submitted for approval."); return; }
-      if (isLocked(it)) { setErr("Already submitted."); return; }
-      if (isDecided(it)) { setErr("Already decided."); return; }
-      await apiJson(`/api/change/${encodeURIComponent(it.id)}/submit`, { method: "POST" });
-      await fetchData();
-    } catch (e: any) {
-      setErr(safeStr(e?.message) || "Submit failed");
-    }
-  }, [fetchData]);
+      setSavingIds((p) => ({ ...p, [activeId]: true }));
+      setItems((prev) =>
+        dedupeKeepLatest(
+          prev.map((x) =>
+            safeStr(x.id).trim() === activeId
+              ? { ...x, delivery_status: targetLane, updated_at: new Date().toISOString() }
+              : x
+          )
+        )
+      );
+
+      try {
+        await patchDeliveryStatus(activeId, targetLane);
+        if (savingSeqRef.current[activeId] !== nextToken) return;
+        setSavingIds((p) => {
+          const n = { ...p };
+          delete n[activeId];
+          return n;
+        });
+      } catch (ex: any) {
+        if (savingSeqRef.current[activeId] !== nextToken) return;
+        setItems(snapshot);
+        setSavingIds((p) => {
+          const n = { ...p };
+          delete n[activeId];
+          return n;
+        });
+        setErr(safeStr(ex?.message) || "Move failed");
+      }
+    },
+    [items, savingIds, patchDeliveryStatus]
+  );
+
+  const submitForApproval = useCallback(
+    async (it: ChangeItem) => {
+      try {
+        setErr("");
+        if (safeStr(it.delivery_status).trim() !== "analysis") {
+          setErr("Only changes in Analysis can be submitted for approval.");
+          return;
+        }
+        if (isLocked(it)) {
+          setErr("Already submitted.");
+          return;
+        }
+        if (isDecided(it)) {
+          setErr("Already decided.");
+          return;
+        }
+        await apiJson(`/api/change/${encodeURIComponent(it.id)}/submit`, { method: "POST" });
+        await fetchData();
+      } catch (e: any) {
+        setErr(safeStr(e?.message) || "Submit failed");
+      }
+    },
+    [fetchData]
+  );
 
   const totalItems = items.length;
 
   return (
     <div className="kb-root">
-      <style>{BOARD_CSS}</style>
       <div className="kb-topbar">
         <div>
           <div className="kb-title">
             Change Board
-            {projectLabel ? <span style={{ color: "#9ba3bc", fontWeight: 500 }}> · {projectLabel}</span> : null}
+            {projectLabel ? <span style={{ color: "#94a3b8", fontWeight: 500 }}> · {projectLabel}</span> : null}
           </div>
           <div className="kb-sub">
             {totalItems} change{totalItems !== 1 ? "s" : ""} across {LANES.length} stages · drag to move
           </div>
           {wipWarning ? <div className="kb-wip-warn">{wipWarning}</div> : null}
         </div>
+
         <div className="kb-actions">
           <button type="button" className="kb-btn-ghost" onClick={fetchData} disabled={loading || !projectUuid}>
             {loading ? (
               <>
-                <svg style={{ animation: "spin 1s linear infinite" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  style={{ animation: "spin 1s linear infinite" }}
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <path d="M21 12a9 9 0 11-6.219-8.56" />
                 </svg>
                 <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
                 Loading…
               </>
-            ) : "Refresh"}
+            ) : (
+              "Refresh"
+            )}
           </button>
+
           <button type="button" className="kb-btn-primary" onClick={() => openCreate("intake")} disabled={!projectUuid}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
             New Change
           </button>
@@ -888,13 +1836,20 @@ const flattened = lanes && typeof lanes === "object"
       {err && (
         <div className="kb-err">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           {err}
         </div>
       )}
 
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+      >
         <div className="kb-board">
           {LANES.map((lane) => {
             const laneItems = laneMap[lane] || [];
@@ -908,36 +1863,43 @@ const flattened = lanes && typeof lanes === "object"
                 <div className="kb-col-top" style={{ background: conf.gradient }} />
                 <div className="kb-col-head">
                   <div className="kb-col-dot" style={{ background: conf.color }} />
-                  <div className="kb-col-title" style={{ color: conf.textColor }}>{conf.label}</div>
+                  <div className="kb-col-title" style={{ color: conf.textColor }}>
+                    {conf.label}
+                  </div>
                   <span className={`kb-col-count${isOver ? " kb-col-wip-over" : ""}`}>
-                    {laneItems.length}{isOver ? `/${limit}` : ""}
+                    {laneItems.length}
+                    {isOver ? `/${limit}` : ""}
                   </span>
-                  <button type="button" className="kb-col-add" onClick={() => openCreate(lane)} title={`New ${conf.label}`}>+</button>
+                  <button type="button" className="kb-col-add" onClick={() => openCreate(lane)} title={`New ${conf.label}`}>
+                    +
+                  </button>
                 </div>
 
                 <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
                   <LaneList lane={lane}>
                     {laneItems.length === 0 ? (
                       <div className="kb-empty">Drop changes here</div>
-                    ) : laneItems.map((item) => (
-                      <SortableCard
-                        key={item.id}
-                        lane={lane}
-                        item={item}
-                        saving={!!savingIds[item.id]}
-                        onClick={openEdit}
-                        onAi={openAi}
-                        onTimeline={openTimeline}
-                        onAttachments={openAttachments}
-                        onSubmit={submitForApproval}
-                        onDeleted={handleCardDeleted}
-                        showSubmit={
-                          safeStr(item.delivery_status).trim() === "analysis" &&
-                          !isLocked(item) &&
-                          !isDecided(item)
-                        }
-                      />
-                    ))}
+                    ) : (
+                      laneItems.map((item) => (
+                        <SortableCard
+                          key={item.id}
+                          lane={lane}
+                          item={item}
+                          saving={!!savingIds[item.id]}
+                          onClick={openEdit}
+                          onAi={openAi}
+                          onTimeline={openTimeline}
+                          onAttachments={openAttachments}
+                          onSubmit={submitForApproval}
+                          onDeleted={handleCardDeleted}
+                          showSubmit={
+                            safeStr(item.delivery_status).trim() === "analysis" &&
+                            !isLocked(item) &&
+                            !isDecided(item)
+                          }
+                        />
+                      ))
+                    )}
                   </LaneList>
                 </SortableContext>
               </div>
@@ -955,7 +1917,6 @@ const flattened = lanes && typeof lanes === "object"
         </DragOverlay>
       </DndContext>
 
-           {/* ── Create Change ── */}
       {createOpen ? (
         <ChangeCreateModal
           open={createOpen}
@@ -965,13 +1926,10 @@ const flattened = lanes && typeof lanes === "object"
           }}
           projectId={projectUuid}
           artifactId={artifactId ?? null}
-          initialStatus={
-            createLane === "intake" ? "new" : (createLane as any)
-          }
+          initialStatus={createLane === "intake" ? "new" : (createLane as any)}
         />
       ) : null}
 
-      {/* ── Edit Change ── */}
       {editOpen ? (
         <ChangeCreateModal
           open={editOpen}
@@ -990,7 +1948,6 @@ const flattened = lanes && typeof lanes === "object"
         />
       ) : null}
 
-      {/* ── AI Drawer ── */}
       {aiOpen ? (
         <ChangeAiDrawer
           open={aiOpen}
@@ -1001,7 +1958,6 @@ const flattened = lanes && typeof lanes === "object"
         />
       ) : null}
 
-      {/* ── Timeline ── */}
       {timelineOpen && timelineChangeId ? (
         <ChangeTimeline
           open={timelineOpen}
@@ -1012,7 +1968,6 @@ const flattened = lanes && typeof lanes === "object"
         />
       ) : null}
 
-      {/* ── Attachments ── */}
       {attOpen && attChangeId ? (
         <AttachmentsDrawer
           open={attOpen}
