@@ -71,7 +71,14 @@ function normalizePriorityToDb(p: unknown): "Low" | "Medium" | "High" | "Critica
   return "Medium";
 }
 
-const ALLOWED_DELIVERY = new Set(["intake", "analysis", "review", "in_progress", "implemented", "closed"]);
+const ALLOWED_DELIVERY = new Set([
+  "intake",
+  "analysis",
+  "review",
+  "in_progress",
+  "implemented",
+  "closed",
+]);
 
 function normalizeDeliveryStatus(x: unknown): string | null {
   const v = safeStr(x).trim().toLowerCase();
@@ -97,20 +104,31 @@ async function pickId(req: Request, ctx: Ctx | undefined, body: any): Promise<st
     const p = safeStr(params?.id).trim();
     if (!isBadIdString(p)) return p;
   }
+
   try {
     const pathname = new URL(req.url).pathname || "";
     const parts = pathname.split("/").filter(Boolean);
     const last = parts[parts.length - 1] || "";
+
     if (last.toLowerCase() !== "change" && !isBadIdString(last)) return last;
+
     const idx = parts.findIndex((x) => String(x).toLowerCase() === "change");
     if (idx !== -1 && parts[idx + 1]) {
       const candidate = safeStr(parts[idx + 1]).trim();
-      if (!isBadIdString(candidate) && candidate.toLowerCase() !== "change") return candidate;
+      if (!isBadIdString(candidate) && candidate.toLowerCase() !== "change") {
+        return candidate;
+      }
     }
   } catch {}
+
   const b = safeStr(body?.id ?? body?.change_id).trim();
   if (!isBadIdString(b)) return b;
+
   return null;
+}
+
+function resolveApprovalArtifactId(change: any): string {
+  return safeStr(change?.artifact_id).trim() || safeStr(change?.id).trim();
 }
 
 /* ── GET ── */
@@ -125,11 +143,23 @@ export async function GET(req: Request, ctx: Ctx) {
     // Single change
     {
       const { data: change, error: chErr } = await supabase
-        .from(TABLE).select("*").eq("id", id).maybeSingle();
+        .from(TABLE)
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
 
       if (chErr) {
-        if (isMissingRelation(chErr.message)) return err("Database table missing: change_requests", { status: 500, code: "missing_relation", extra: { table: TABLE } });
-        return err(chErr.message || "Failed to load change", { status: 500, code: "db_error" });
+        if (isMissingRelation(chErr.message)) {
+          return err("Database table missing: change_requests", {
+            status: 500,
+            code: "missing_relation",
+            extra: { table: TABLE },
+          });
+        }
+        return err(chErr.message || "Failed to load change", {
+          status: 500,
+          code: "db_error",
+        });
       }
 
       if (change) {
@@ -137,7 +167,9 @@ export async function GET(req: Request, ctx: Ctx) {
         if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
 
         const approvals = await getApprovalProgressForArtifact({
-          supabase, artifactId: change.id, actorUserId: user.id,
+          supabase,
+          artifactId: resolveApprovalArtifactId(change),
+          actorUserId: user.id,
         }).catch(() => null);
 
         return ok({ mode: "change", item: change, role, approvals });
@@ -146,12 +178,23 @@ export async function GET(req: Request, ctx: Ctx) {
 
     // Project scope
     let projectId: string | null = null;
+
     if (isUuid(id)) {
       projectId = id;
     } else {
       const { data: proj, error: projErr } = await supabase
-        .from("projects").select("id, project_code, title").eq("project_code", id).maybeSingle();
-      if (projErr) return err(projErr.message || "Failed to resolve project", { status: 500, code: "db_error" });
+        .from("projects")
+        .select("id, project_code, title")
+        .eq("project_code", id)
+        .maybeSingle();
+
+      if (projErr) {
+        return err(projErr.message || "Failed to resolve project", {
+          status: 500,
+          code: "db_error",
+        });
+      }
+
       projectId = proj?.id ?? null;
     }
 
@@ -160,8 +203,6 @@ export async function GET(req: Request, ctx: Ctx) {
     const role = await requireProjectRole(supabase, projectId, user.id);
     if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
 
-    // ✅ No deleted_at filter — column does not exist in schema
-    // ✅ No computeChangeAIFields — it's async and breaks sync .map()
     const { data: items, error: itemsErr } = await supabase
       .from(TABLE)
       .select("*")
@@ -169,15 +210,33 @@ export async function GET(req: Request, ctx: Ctx) {
       .order("created_at", { ascending: true });
 
     if (itemsErr) {
-      if (isMissingRelation(itemsErr.message)) return err("Database table missing: change_requests", { status: 500, code: "missing_relation", extra: { table: TABLE } });
-      return err(itemsErr.message || "Failed to load changes", { status: 500, code: "db_error" });
+      if (isMissingRelation(itemsErr.message)) {
+        return err("Database table missing: change_requests", {
+          status: 500,
+          code: "missing_relation",
+          extra: { table: TABLE },
+        });
+      }
+      return err(itemsErr.message || "Failed to load changes", {
+        status: 500,
+        code: "db_error",
+      });
     }
 
-    return ok({ mode: "project", project_id: projectId, role, can_edit: canEdit(role), items: items ?? [] });
+    return ok({
+      mode: "project",
+      project_id: projectId,
+      role,
+      can_edit: canEdit(role),
+      items: items ?? [],
+    });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
     const status = msg === "Unauthorized" ? 401 : 500;
-    return err(msg, { status, code: status === 401 ? "unauthorized" : "server_error" });
+    return err(msg, {
+      status,
+      code: status === 401 ? "unauthorized" : "server_error",
+    });
   }
 }
 
@@ -188,19 +247,36 @@ export async function POST(req: Request, ctx: Ctx) {
     const user = await requireUser(supabase);
 
     let body: any = {};
-    try { body = await req.json(); } catch { body = {}; }
+    try {
+      body = await req.json();
+    } catch {
+      body = {};
+    }
     if (!isObj(body)) body = {};
 
     const id = await pickId(req, ctx, body);
     if (!id) return err("Missing id", { status: 400, code: "missing_id" });
 
     const { data: existing, error: exErr } = await supabase
-      .from(TABLE).select("*").eq("id", id).maybeSingle();
+      .from(TABLE)
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
 
     if (exErr) {
-      if (isMissingRelation(exErr.message)) return err("Database table missing: change_requests", { status: 500, code: "missing_relation", extra: { table: TABLE } });
-      return err(exErr.message || "Failed to load change", { status: 500, code: "db_error" });
+      if (isMissingRelation(exErr.message)) {
+        return err("Database table missing: change_requests", {
+          status: 500,
+          code: "missing_relation",
+          extra: { table: TABLE },
+        });
+      }
+      return err(exErr.message || "Failed to load change", {
+        status: 500,
+        code: "db_error",
+      });
     }
+
     if (!existing) return err("Not found", { status: 404, code: "not_found" });
 
     const role = await requireProjectRole(supabase, existing.project_id, user.id);
@@ -210,52 +286,68 @@ export async function POST(req: Request, ctx: Ctx) {
     const patch: any = {};
 
     // ── Core fields ──
-    if (hasOwn(body, "title"))
+    if (hasOwn(body, "title")) {
       patch.title = clamp(safeStr(body.title), 140);
+    }
 
-    // description / summary — client sends both, accept either
-    if (hasOwn(body, "description"))
+    // description / summary
+    if (hasOwn(body, "description")) {
       patch.description = clamp(safeStr(body.description), 5000);
-    else if (hasOwn(body, "summary"))
+    } else if (hasOwn(body, "summary")) {
       patch.description = clamp(safeStr(body.summary), 5000);
+    }
 
-    if (hasOwn(body, "priority"))
+    if (hasOwn(body, "priority")) {
       patch.priority = normalizePriorityToDb(body.priority);
+    }
 
-    if (hasOwn(body, "tags"))
+    if (hasOwn(body, "tags")) {
       patch.tags = asTags(body.tags);
+    }
 
-    // ── Requester ── client sends requester_name
-    if (hasOwn(body, "requester_name"))
+    // ── Requester ──
+    if (hasOwn(body, "requester_name")) {
       patch.requester_name = clamp(safeStr(body.requester_name), 160);
-    else if (hasOwn(body, "requester"))
+    } else if (hasOwn(body, "requester")) {
       patch.requester_name = clamp(safeStr(body.requester), 160);
+    }
 
     // ── Proposed change / justification fields ──
-    if (hasOwn(body, "proposedChange"))
+    if (hasOwn(body, "proposedChange")) {
       patch.proposed_change = clamp(safeStr(body.proposedChange), 8000);
-    else if (hasOwn(body, "proposed_change"))
+    } else if (hasOwn(body, "proposed_change")) {
       patch.proposed_change = clamp(safeStr(body.proposed_change), 8000);
+    }
 
-    // Individual breakdown fields
-    const breakdown = ["justification", "financial", "schedule", "risks", "dependencies",
-                       "assumptions", "implementation_plan", "rollback_plan"] as const;
+    const breakdown = [
+      "justification",
+      "financial",
+      "schedule",
+      "risks",
+      "dependencies",
+      "assumptions",
+      "implementation_plan",
+      "rollback_plan",
+    ] as const;
+
     for (const field of breakdown) {
       const camel: Record<string, string> = {
         implementation_plan: "implementationPlan",
         rollback_plan: "rollbackPlan",
       };
+
       const clientKey = camel[field] ?? field;
-      if (hasOwn(body, clientKey))
+
+      if (hasOwn(body, clientKey)) {
         patch[field] = clamp(safeStr(body[clientKey]), 4000);
-      else if (hasOwn(body, field))
+      } else if (hasOwn(body, field)) {
         patch[field] = clamp(safeStr(body[field]), 4000);
+      }
     }
 
     // ── Impact analysis ──
-    // ai_cost and ai_schedule are integer columns in the schema.
-    // The risk descriptor text is stored only inside the impact_analysis JSONB blob.
     const ia = body.impactAnalysis ?? body.impact_analysis ?? null;
+
     if (isObj(ia)) {
       const days = Number(ia.days ?? 0);
       const cost = Number(ia.cost ?? 0);
@@ -264,12 +356,18 @@ export async function POST(req: Request, ctx: Ctx) {
       if (Number.isFinite(days)) patch.ai_schedule = days;
       if (Number.isFinite(cost)) patch.ai_cost = cost;
 
-      patch.impact_analysis = { days, cost, risk, highlights: ia.highlights ?? [] };
+      patch.impact_analysis = {
+        days,
+        cost,
+        risk,
+        highlights: ia.highlights ?? [],
+      };
     } else {
       if (hasOwn(body, "impact_cost") || hasOwn(body, "ai_cost")) {
         const n = Number(body.ai_cost ?? body.impact_cost);
         if (Number.isFinite(n)) patch.ai_cost = n;
       }
+
       if (hasOwn(body, "impact_days") || hasOwn(body, "ai_schedule")) {
         const n = Number(body.ai_schedule ?? body.impact_days);
         if (Number.isFinite(n)) patch.ai_schedule = n;
@@ -281,32 +379,46 @@ export async function POST(req: Request, ctx: Ctx) {
       const st = normalizeDeliveryStatus(body.stage);
       if (st) patch.stage = st;
     }
+
     if (hasOwn(body, "delivery_status")) {
       const st = normalizeDeliveryStatus(body.delivery_status);
       if (st) patch.delivery_status = st;
     }
+
     if (hasOwn(body, "status")) {
       const s = safeStr(body.status).trim();
       if (s) patch.status = clamp(s, 60);
     }
 
     // ── Owner ──
-    if (hasOwn(body, "owner_id"))    patch.owner_id    = safeStr(body.owner_id) || null;
+    if (hasOwn(body, "owner_id")) patch.owner_id = safeStr(body.owner_id) || null;
     if (hasOwn(body, "owner_label")) patch.owner_label = clamp(safeStr(body.owner_label), 120);
 
-    // If nothing changed, return existing
-    if (!Object.keys(patch).length) return ok({ item: existing });
+    if (!Object.keys(patch).length) {
+      const approvals = await getApprovalProgressForArtifact({
+        supabase,
+        artifactId: resolveApprovalArtifactId(existing),
+        actorUserId: user.id,
+      }).catch(() => null);
+
+      return ok({ item: existing, approvals });
+    }
 
     let updated: any = null;
     let upErr: any = null;
 
     ({ data: updated, error: upErr } = await supabase
-      .from(TABLE).update(patch).eq("id", existing.id).select("*").maybeSingle());
+      .from(TABLE)
+      .update(patch)
+      .eq("id", existing.id)
+      .select("*")
+      .maybeSingle());
 
     // If a column doesn't exist, strip it and retry once
     if (upErr) {
       const msg = safeStr(upErr.message).toLowerCase();
       const colMatch = msg.match(/column ["']?(\w+)["']? of relation/);
+
       if (colMatch?.[1]) {
         const badCol = colMatch[1];
         const fallbackPatch = { ...patch };
@@ -314,15 +426,29 @@ export async function POST(req: Request, ctx: Ctx) {
 
         if (Object.keys(fallbackPatch).length) {
           ({ data: updated, error: upErr } = await supabase
-            .from(TABLE).update(fallbackPatch).eq("id", existing.id).select("*").maybeSingle());
+            .from(TABLE)
+            .update(fallbackPatch)
+            .eq("id", existing.id)
+            .select("*")
+            .maybeSingle());
         }
       }
     }
 
-    if (upErr) return err(upErr.message || "Failed to update change", { status: 500, code: "db_error" });
-    if (!updated) return err("Failed to update change", { status: 500, code: "db_error" });
+    if (upErr) {
+      return err(upErr.message || "Failed to update change", {
+        status: 500,
+        code: "db_error",
+      });
+    }
 
-    // Audit (best-effort)
+    if (!updated) {
+      return err("Failed to update change", {
+        status: 500,
+        code: "db_error",
+      });
+    }
+
     try {
       await logChangeEvent(supabase, {
         projectId: existing.project_id,
@@ -338,14 +464,19 @@ export async function POST(req: Request, ctx: Ctx) {
     } catch {}
 
     const approvals = await getApprovalProgressForArtifact({
-      supabase, artifactId: existing.id, actorUserId: user.id,
+      supabase,
+      artifactId: resolveApprovalArtifactId(updated || existing),
+      actorUserId: user.id,
     }).catch(() => null);
 
     return ok({ item: updated, approvals });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
     const status = msg === "Unauthorized" ? 401 : 500;
-    return err(msg, { status, code: status === 401 ? "unauthorized" : "server_error" });
+    return err(msg, {
+      status,
+      code: status === 401 ? "unauthorized" : "server_error",
+    });
   }
 }
 
@@ -356,7 +487,10 @@ export async function PATCH(req: Request, ctx: Ctx) {
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
     const status = msg === "Unauthorized" ? 401 : 500;
-    return err(msg, { status, code: status === 401 ? "unauthorized" : "server_error" });
+    return err(msg, {
+      status,
+      code: status === 401 ? "unauthorized" : "server_error",
+    });
   }
 }
 
@@ -370,27 +504,48 @@ export async function DELETE(req: Request, ctx: Ctx) {
     if (!id) return err("Missing id", { status: 400, code: "missing_id" });
 
     const { data: existing, error: exErr } = await supabase
-      .from(TABLE).select("*").eq("id", id).maybeSingle();
+      .from(TABLE)
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
 
     if (exErr) {
-      if (isMissingRelation(exErr.message)) return err("Database table missing: change_requests", { status: 500, code: "missing_relation", extra: { table: TABLE } });
-      return err(exErr.message || "Failed to load change", { status: 500, code: "db_error" });
+      if (isMissingRelation(exErr.message)) {
+        return err("Database table missing: change_requests", {
+          status: 500,
+          code: "missing_relation",
+          extra: { table: TABLE },
+        });
+      }
+      return err(exErr.message || "Failed to load change", {
+        status: 500,
+        code: "db_error",
+      });
     }
+
     if (!existing) return err("Not found", { status: 404, code: "not_found" });
 
     const role = await requireProjectRole(supabase, existing.project_id, user.id);
     if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
     if (!canEdit(role)) return err("Forbidden", { status: 403, code: "forbidden" });
 
-    // ✅ Hard delete only — deleted_at column does not exist in schema
     const { error: hardErr } = await supabase.from(TABLE).delete().eq("id", existing.id);
-    if (hardErr) return err(hardErr.message || "Failed to delete change", { status: 500, code: "db_error" });
+    if (hardErr) {
+      return err(hardErr.message || "Failed to delete change", {
+        status: 500,
+        code: "db_error",
+      });
+    }
 
     try {
       await logChangeEvent(supabase, {
-        projectId: existing.project_id, changeRequestId: existing.id,
-        actorUserId: user.id, actorRole: role, eventType: "deleted",
-        note: "Change deleted", payload: {},
+        projectId: existing.project_id,
+        changeRequestId: existing.id,
+        actorUserId: user.id,
+        actorRole: role,
+        eventType: "deleted",
+        note: "Change deleted",
+        payload: {},
       });
     } catch {}
 
@@ -398,6 +553,9 @@ export async function DELETE(req: Request, ctx: Ctx) {
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
     const status = msg === "Unauthorized" ? 401 : 500;
-    return err(msg, { status, code: status === 401 ? "unauthorized" : "server_error" });
+    return err(msg, {
+      status,
+      code: status === 401 ? "unauthorized" : "server_error",
+    });
   }
 }
