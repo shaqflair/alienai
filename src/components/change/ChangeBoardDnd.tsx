@@ -289,7 +289,7 @@ const BOARD_CSS = `
   .kb-card-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; gap:8px; }
   .kb-card-id { font-family:'DM Mono',monospace; font-size:9.5px; font-weight:600; letter-spacing:0.08em; color:#7c85a2; background:#f3f4f8; padding:2px 7px; border-radius:5px; border:1px solid #e4e7f0; flex-shrink:0; }
   .kb-card-badges { display:flex; gap:5px; flex-wrap:wrap; flex:1; min-width:0; }
-  .kb-badge { display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600; padding:3px 8px 3px 6px; border-radius:7px; border:1px solid; letter-spacing:0.01em; white-space:nowrap; }
+  .kb-badge { display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600; padding:3px 8px 3px 7px; border-radius:6px; border:none; letter-spacing:0.01em; white-space:nowrap; }
   .kb-badge-prefix { font-size:8px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; opacity:0.55; font-family:'DM Mono',monospace; margin-right:2px; }
   .kb-drag-handle { width:22px; height:22px; display:flex; align-items:center; justify-content:center; border-radius:5px; background:transparent; border:none; color:#c4cade; cursor:grab; transition:background 0.1s, color 0.1s; flex-shrink:0; padding:0; }
   .kb-drag-handle:hover { background:#f0f1f8; color:#5a6080; }
@@ -511,14 +511,14 @@ function SortableCard({
             <span className="kb-card-id">{changeDisplay(item)}</span>
             <div className="kb-card-badges">
               {priConf && item.priority && (
-                <span className="kb-badge" style={{ color: priConf.color, background: priConf.bg, borderColor: priConf.border }}>
+                <span className="kb-badge" style={{ color: priConf.color, background: priConf.bg }}>
                   <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
                   <span style={{fontSize:"8px",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",opacity:0.55,fontFamily:"monospace",marginRight:"2px"}}>Priority</span>
                   {safeStr(item.priority)}
                 </span>
               )}
               {riskLabel && (
-                <span className="kb-badge" style={{ color: risk.text, background: risk.bg, borderColor: risk.border }}>
+                <span className="kb-badge" style={{ color: risk.text, background: risk.bg }}>
                   <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                   <span style={{fontSize:"8px",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",opacity:0.55,fontFamily:"monospace",marginRight:"2px"}}>Risk</span>
                   {riskLabel}
