@@ -1,4 +1,4 @@
-// src/components/change/ChangeBoardDnd.tsx
+﻿// src/components/change/ChangeBoardDnd.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -505,13 +505,13 @@ function SortableCard({
             <div className="kb-card-badges">
               {priConf && item.priority && (
                 <span className="kb-badge" style={{ color: priConf.color, background: priConf.bg, borderColor: priConf.border }}>
-                  <span className="kb-badge-dot" style={{ background: priConf.color }} />
+                  <span style={{ fontSize: "8px", fontWeight: 800, letterSpacing: "0.1em", opacity: 0.6, marginRight: "3px", textTransform: "uppercase" as const, fontFamily: "monospace" }}>Priority</span>
                   {safeStr(item.priority)}
                 </span>
               )}
               {riskLabel && (
                 <span className="kb-badge" style={{ color: risk.text, background: risk.bg, borderColor: risk.border }}>
-                  <span className="kb-badge-dot" style={{ background: risk.dot }} />
+                  <span style={{ fontSize: "8px", fontWeight: 800, letterSpacing: "0.1em", opacity: 0.6, marginRight: "3px", textTransform: "uppercase" as const, fontFamily: "monospace" }}>Risk</span>
                   {riskLabel}
                 </span>
               )}
