@@ -696,10 +696,20 @@ async function createChainAndStepsFromRules(
     };
   });
 
-  const stepIns = await supabase.from("artifact_approval_steps").upsert(stepRows, { onConflict: "chain_id,step_order", ignoreDuplicates: true }).select("id, step_order");
-  if (stepIns.error) throw new Error(safeStr(stepIns.error.message));
-
-  const insertedSteps = Array.isArray(stepIns.data) ? stepIns.data : [];
+  const stepIns = await supabase.from("artifact_approval_steps").insert(stepRows).select("id, step_order");
+  let insertedSteps: any[] = [];
+  if (stepIns.error) {
+    const msg = safeStr(stepIns.error.message).toLowerCase();
+    if (msg.includes("duplicate") || msg.includes("unique")) {
+      const fallback = await supabase.from("artifact_approval_steps").select("id, step_order").eq("chain_id", chainId).order("step_order", { ascending: true });
+      if (fallback.error) throw new Error(safeStr(fallback.error.message));
+      insertedSteps = Array.isArray(fallback.data) ? fallback.data : [];
+    } else {
+      throw new Error(safeStr(stepIns.error.message));
+    }
+  } else {
+    insertedSteps = Array.isArray(stepIns.data) ? stepIns.data : [];
+  }
   const stepIdByOrder = new Map<number, string>();
   for (const s of insertedSteps as any[]) stepIdByOrder.set(Number(s.step_order), String(s.id));
 
