@@ -35,6 +35,9 @@ importers:
       '@remotion/media':
         specifier: ^4.0.441
         version: 4.0.441(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
+      '@remotion/player':
+        specifier: ^4.0.441
+        version: 4.0.441(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
       '@sparticuz/chromium':
         specifier: ^143.0.4
         version: 143.0.4
@@ -6992,7 +6995,7 @@ snapshots:
       react-refresh: 0.18.0
       remotion: 4.0.441(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
       source-map: 0.7.3
-      style-loader: 4.0.0(webpack@5.105.0)
+      style-loader: 4.0.0(webpack@5.105.0(esbuild@0.25.0))
       webpack: 5.105.0(esbuild@0.25.0)
     transitivePeerDependencies:
       - '@swc/core'
@@ -10742,7 +10745,7 @@ snapshots:
     optionalDependencies:
       '@types/node': 20.19.37
 
-  style-loader@4.0.0(webpack@5.105.0):
+  style-loader@4.0.0(webpack@5.105.0(esbuild@0.25.0)):
     dependencies:
       webpack: 5.105.0(esbuild@0.25.0)
 
