@@ -1,7 +1,6 @@
 ﻿import React from "react";
 import {
   AbsoluteFill,
-  Audio,
   Img,
   Sequence,
   staticFile,
@@ -157,7 +156,7 @@ function GraphLayer({ frame, startFrame, connOp = 1 }: { frame: number; startFra
 function Badge({ text, color, frame, rf }: { text: string; color: string; frame: number; rf: number }) {
   const op = ease(frame, rf / FPS, rf / FPS + 0.5);
   return (
-    <div style={{ opacity: op, transform: `translateY(${interpolate(op, [0, 1], [10, 0])}px)`, display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.5)", border: `1.5px solid ${color}`, borderRadius: 100, padding: "9px 22px", fontSize: 17, fontWeight: 600, color, fontFamily: "system-ui", alignSelf: "flex-start", backdropFilter: "blur(8px)" }}>
+    <div style={{ opacity: op, transform: `translateY(${interpolate(op, [0, 1], [10, 0])}px)`, display: "inline-flex", alignItems: "center", gap: 8, background: color + "22", border: `1.5px solid ${color}`, borderRadius: 100, padding: "9px 22px", fontSize: 17, fontWeight: 600, color, fontFamily: "system-ui", alignSelf: "flex-start" }}>
       {text}
     </div>
   );
@@ -167,15 +166,15 @@ function Headline({ line1, line2, accent = C.purple, frame, rf, size = 58 }: { l
   const op = ease(frame, rf / FPS, rf / FPS + 0.7);
   return (
     <div style={{ opacity: op, transform: `translateY(${interpolate(op, [0, 1], [36, 0])}px)` }}>
-      <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: size, fontWeight: 800, color: "#ffffff", lineHeight: 1.08, letterSpacing: "-0.022em", textShadow: "0 2px 20px rgba(0,0,0,0.9), 0 0 40px rgba(0,0,0,0.8)" }}>{line1}</div>
-      {line2 && <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: size, fontWeight: 800, color: accent, lineHeight: 1.08, letterSpacing: "-0.022em", marginTop: 4, textShadow: "0 2px 20px rgba(0,0,0,0.9), 0 0 40px rgba(0,0,0,0.8)" }}>{line2}</div>}
+      <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: size, fontWeight: 800, color: C.text, lineHeight: 1.08, letterSpacing: "-0.022em" }}>{line1}</div>
+      {line2 && <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: size, fontWeight: 800, color: accent, lineHeight: 1.08, letterSpacing: "-0.022em", marginTop: 4 }}>{line2}</div>}
     </div>
   );
 }
 
 function Copy({ text, frame, rf }: { text: string; frame: number; rf: number }) {
   const op = ease(frame, rf / FPS, rf / FPS + 0.6);
-  return <p style={{ opacity: op, transform: `translateY(${interpolate(op, [0, 1], [14, 0])}px)`, fontFamily: "system-ui", fontSize: 20, color: "#e2e8f0", lineHeight: 1.6, maxWidth: 520, margin: 0, textShadow: "0 1px 12px rgba(0,0,0,0.95), 0 0 30px rgba(0,0,0,0.9)" }}>{text}</p>;
+  return <p style={{ opacity: op, transform: `translateY(${interpolate(op, [0, 1], [14, 0])}px)`, fontFamily: "system-ui", fontSize: 20, color: C.muted, lineHeight: 1.6, maxWidth: 520, margin: 0 }}>{text}</p>;
 }
 
 function Pill({ icon, value, label, color, frame, rf }: { icon: string; value: string; label: string; color: string; frame: number; rf: number }) {
@@ -192,22 +191,19 @@ function Pill({ icon, value, label, color, frame, rf }: { icon: string; value: s
 }
 
 function SplitScreen({ frame, src, badge, badgeColor, line1, line2, accent, pid, children }: { frame: number; src: string; badge?: string; badgeColor?: string; line1: string; line2?: string; accent?: string; pid: string; children?: React.ReactNode }) {
-  const imgOp = ease(frame, 0, 0.8);
-  const textY  = interpolate(frame, [0, 270], [0, -60], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const imgOp = ease(frame, 0.2, 1.1);
+  const sc    = sp(frame, 0, { stiffness: 40, damping: 20 });
   return (
-    <AbsoluteFill style={{ background: "#000" }}>
-      {/* Full bleed screenshot - tinted dark */}
-      <AbsoluteFill style={{ opacity: imgOp }}>
-        <Img src={staticFile(src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center", filter: "brightness(0.35) saturate(0.8)" }}/>
+    <AbsoluteFill style={{ background: C.bg }}>
+      <DarkBg opacity={0.4} pid={pid}/>
+      <AbsoluteFill style={{ left: "42%", opacity: imgOp, transform: `scale(${0.93 + sc * 0.07})`, borderRadius: "24px 0 0 24px", overflow: "hidden", boxShadow: "-40px 0 120px rgba(0,0,0,0.6)" }}>
+        <Img src={staticFile(src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top left" }}/>
+        <AbsoluteFill style={{ background: "linear-gradient(to right, rgba(6,9,15,0.97) 0%, rgba(6,9,15,0.3) 20%, transparent 45%)", pointerEvents: "none" }}/>
       </AbsoluteFill>
-      {/* Dark gradient overlays */}
-      <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.1) 40%, rgba(0,0,0,0.1) 60%, rgba(0,0,0,0.5) 100%)" }}/>
-      {/* Movie-style text scrolling top to bottom */}
-      <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 80 }}>
-        <div style={{ transform: `translateY(${textY}px)`, display: "flex", flexDirection: "column", alignItems: "center", gap: 18, textAlign: "center", maxWidth: 900, padding: "0 60px" }}>
-
+      <AbsoluteFill style={{ right: "58%", paddingLeft: 84, justifyContent: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
           {badge && badgeColor && <Badge text={badge} color={badgeColor} frame={frame} rf={f(0.3)}/>}
-          <Headline line1={line1} line2={line2} frame={frame} rf={f(0.5)} accent={accent} size={72}/>
+          <Headline line1={line1} line2={line2} frame={frame} rf={f(0.5)} accent={accent}/>
           {children}
         </div>
       </AbsoluteFill>
@@ -331,7 +327,7 @@ function AiAssessmentScene({ frame }: { frame: number }) {
       </AbsoluteFill>
 
       {/* Screenshot */}
-      <AbsoluteFill style={{ left: "44%", opacity: imgOp, transform: `scale(${0.93 + imgSc * 0.07})`, borderRadius: "24px 0 0 24px", overflow: "hidden", boxShadow: "none" }}>
+      <AbsoluteFill style={{ left: "44%", opacity: imgOp, transform: `scale(${0.93 + imgSc * 0.07})`, borderRadius: "24px 0 0 24px", overflow: "hidden", boxShadow: "-40px 0 120px rgba(0,0,0,0.65)" }}>
         <Img src={staticFile("/screenshots/ai-assessment.png")} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top left" }}/>
         <AbsoluteFill style={{ background: "linear-gradient(to right, rgba(6,9,15,0.98) 0%, rgba(6,9,15,0.35) 20%, transparent 45%)", pointerEvents: "none" }}/>
       </AbsoluteFill>
@@ -402,7 +398,6 @@ export const AlienaPromo90: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ background: C.bg }}>
-      <Audio src={staticFile("/audio/background.mp3")} volume={0.12} />
 
       {/* Scene 1: Intro */}
       <Sequence from={SCENES.intro.start} durationInFrames={SCENES.intro.dur}>
@@ -465,7 +460,7 @@ export const AlienaPromo90: React.FC = () => {
             <div style={{ display: "flex", flexDirection: "column", gap: 7, maxWidth: 510 }}>
               <RiskRow text="Vendor access not confirmed for go-live" level="HIGH" frame={lf} rf={f(1.8)}/>
               <RiskRow text="Programme scope creep from parallel workstream" level="HIGH" frame={lf} rf={f(2.2)}/>
-              <RiskRow text="Resource conflict — SZC project overlaps" level="MED" frame={lf} rf={f(2.6)}/>
+              <RiskRow text="Resource conflict — Aliena project overlaps" level="MED" frame={lf} rf={f(2.6)}/>
             </div>
           </SplitScreen>
         ); })()}
@@ -500,21 +495,21 @@ export const AlienaPromo90: React.FC = () => {
           const sc     = screens[idx];
           const imgOp  = ease(segLf, 0, 0.6);
           const scale  = 0.95 + sp(segLf, 0, { stiffness: 38, damping: 20 }) * 0.05;
-          const platTextY = interpolate(segLf, [0, 180], [0, -40], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
           return (
-            <AbsoluteFill style={{ background: "#000" }}>
-              <AbsoluteFill style={{ opacity: imgOp }}>
-                <Img src={staticFile(sc.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center", filter: "brightness(0.35) saturate(0.8)" }}/>
+            <AbsoluteFill style={{ background: C.bg }}>
+              <DarkBg pid="grd-plat"/>
+              <AbsoluteFill style={{ left: "40%", opacity: imgOp, transform: `scale(${scale})`, borderRadius: "24px 0 0 24px", overflow: "hidden" }}>
+                <Img src={staticFile(sc.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top left" }}/>
+                <AbsoluteFill style={{ background: "linear-gradient(to right, rgba(6,9,15,0.97) 0%, rgba(6,9,15,0.25) 18%, transparent 40%)" }}/>
               </AbsoluteFill>
-              <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.1) 40%, rgba(0,0,0,0.1) 60%, rgba(0,0,0,0.5) 100%)" }}/>
-              <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 80 }}>
-                <div style={{ transform: `translateY(${platTextY}px)`, display: "flex", flexDirection: "column", alignItems: "center", gap: 16, textAlign: "center", maxWidth: 900, padding: "0 60px" }}>
-                  <div style={{ display: "flex", gap: 7, opacity: ease(segLf, 0.2, 0.8) }}>
-                    {screens.map((_, i) => <div key={i} style={{ height: 4, borderRadius: 2, width: i === idx ? 30 : 11, background: i === idx ? sc.accent : "rgba(255,255,255,0.3)" }}/>)}
+              <AbsoluteFill style={{ right: "60%", paddingLeft: 84, justifyContent: "center" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  <div style={{ display: "flex", gap: 7 }}>
+                    {screens.map((_, i) => <div key={i} style={{ height: 4, borderRadius: 2, width: i === idx ? 30 : 11, background: i === idx ? sc.accent : C.dim }}/>)}
                   </div>
                   <div style={{ fontSize: 13, color: sc.accent, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", fontFamily: "system-ui", opacity: ease(segLf, 0.3, 1.1) }}>{sc.sub}</div>
-                  <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: 72, fontWeight: 800, color: "#ffffff", lineHeight: 1.08, letterSpacing: "-0.025em", opacity: ease(segLf, 0.4, 1.2), textShadow: "0 2px 20px rgba(0,0,0,0.95), 0 0 40px rgba(0,0,0,0.9)" }}>{sc.label}</div>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+                  <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: 50, fontWeight: 800, color: C.text, lineHeight: 1.08, letterSpacing: "-0.02em", opacity: ease(segLf, 0.4, 1.2) }}>{sc.label}</div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                     {sc.pills.map((p, i) => <Pill key={i} {...p} frame={segLf} rf={f(0.9 + i * 0.4)}/>)}
                   </div>
                 </div>
@@ -531,7 +526,7 @@ export const AlienaPromo90: React.FC = () => {
             <DarkBg pid="grd-ret"/>
             <AbsoluteFill style={{ opacity: ease(lf, 0, 1.5) }}><GraphLayer frame={lf} startFrame={0} connOp={1}/></AbsoluteFill>
             <AbsoluteFill style={{ justifyContent: "center", alignItems: "center" }}>
-              <div style={{ textAlign: "center", opacity: ease(lf, 2, 4), transform: `translateY(${interpolate(ease(lf, 2, 4), [0, 1], [28, 0])}px)`, background: "rgba(6,9,15,0.72)", padding: "46px 70px", borderRadius: 28, border: `1px solid ${C.border}` }}>
+              <div style={{ textAlign: "center", opacity: ease(lf, 2, 4), transform: `translateY(${interpolate(ease(lf, 2, 4), [0, 1], [28, 0])}px)`, background: "rgba(6,9,15,0.72)", backdropFilter: "blur(20px)", padding: "46px 70px", borderRadius: 28, border: `1px solid ${C.border}` }}>
                 <div style={{ fontSize: 74, fontWeight: 800, color: C.text, fontFamily: "'SF Pro Display', system-ui", letterSpacing: "-0.025em", lineHeight: 1.08 }}>Every signal.</div>
                 <div style={{ fontSize: 74, fontWeight: 800, color: C.purple, fontFamily: "'SF Pro Display', system-ui", letterSpacing: "-0.025em", lineHeight: 1.08 }}>One platform.</div>
                 <div style={{ fontSize: 18, color: C.muted, marginTop: 18, fontFamily: "system-ui", opacity: ease(lf, 3.5, 5) }}>Change · RAID · Schedule · Budget · AI · Approvals</div>
