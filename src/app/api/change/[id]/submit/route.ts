@@ -11,6 +11,7 @@ import {
   safeStr,
   logChangeEvent,
 } from "@/lib/change/server-helpers";
+import { ensureDedicatedArtifactIdForChangeRequest } from "@/lib/change/resolveDedicatedChangeArtifact";
 import { notifyFirstChangeStepApprovers } from "@/lib/server/notifications/approval-notifications";
 import { buildRuntimeApprovalChain } from "@/lib/server/approvals/runtime-chain-builder";
 
@@ -116,10 +117,6 @@ function hasArtifactIdMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "artifact_id");
 }
 
-function hasTitleMissingColumn(errMsg: string) {
-  return hasMissingColumn(errMsg, "title");
-}
-
 function isMissingRelation(errMsg: string) {
   const m = (errMsg || "").toLowerCase();
   return m.includes("does not exist") && m.includes("relation");
@@ -196,210 +193,6 @@ function normalizeArtifactType(
   }
 
   return lower;
-}
-
-/* =========================================================
-   artifact helpers
-========================================================= */
-
-async function loadChangeTitle(supabase: any, changeId: string): Promise<string> {
-  const first = await supabase
-    .from("change_requests")
-    .select("title")
-    .eq("id", changeId)
-    .maybeSingle();
-
-  if (!first.error) {
-    return safeStr((first.data as any)?.title).trim() || "Change Request";
-  }
-
-  if (hasTitleMissingColumn(safeStr(first.error?.message))) {
-    return "Change Request";
-  }
-
-  return "Change Request";
-}
-
-async function loadProjectOwnerForArtifact(supabase: any, projectId: string): Promise<string | null> {
-  const { data } = await supabase
-    .from("projects")
-    .select("created_by, owner_id, user_id")
-    .eq("id", projectId)
-    .maybeSingle();
-
-  return (
-    safeStr((data as any)?.created_by).trim() ||
-    safeStr((data as any)?.owner_id).trim() ||
-    safeStr((data as any)?.user_id).trim() ||
-    null
-  );
-}
-
-async function createDedicatedChangeArtifact(
-  supabase: any,
-  args: {
-    projectId: string;
-    userId: string;
-    changeId: string;
-    title: string;
-  }
-): Promise<string | null> {
-  const titleBase = safeStr(args.title).trim() || "Change Request";
-
-  const insertPayloads = [
-    {
-      project_id: args.projectId,
-      type: "change",
-      artifact_type: "change",
-      title: titleBase,
-      status: "draft",
-      user_id: args.userId,
-      is_current: true,
-      source_record_id: args.changeId,
-    },
-    {
-      project_id: args.projectId,
-      type: "change",
-      title: titleBase,
-      status: "draft",
-      user_id: args.userId,
-      is_current: true,
-    },
-    {
-      project_id: args.projectId,
-      type: "change_requests",
-      title: titleBase,
-      status: "draft",
-      user_id: args.userId,
-      is_current: true,
-    },
-  ];
-
-  for (const payload of insertPayloads) {
-    try {
-      const { data, error } = await supabase
-        .from("artifacts")
-        .insert(payload)
-        .select("id")
-        .single();
-
-      if (!error && data?.id) {
-        return String(data.id);
-      }
-    } catch {}
-  }
-
-  return null;
-}
-
-/**
- * IMPORTANT FIX:
- * A submitted change request must use a DEDICATED artifact row.
- * Using the shared "Change Requests" board artifact causes approval-chain collisions
- * because artifact_approval_steps is unique by artifact_id + step_order.
- */
-async function ensureDedicatedArtifactIdForChangeRequest(
-  supabase: any,
-  cr: any
-): Promise<string | null> {
-  const current = safeStr(cr?.artifact_id).trim();
-  const projectId = safeStr(cr?.project_id).trim();
-  const changeId = safeStr(cr?.id).trim();
-
-  if (!projectId || !changeId) return null;
-
-  // 1) if CR already has an artifact_id, prefer it
-  if (current) {
-    const { data: artifactRow, error } = await supabase
-      .from("artifacts")
-      .select("id, type, artifact_type, title, project_id")
-      .eq("id", current)
-      .maybeSingle();
-
-    if (!error && artifactRow?.id) {
-      const type = safeStr((artifactRow as any)?.type).trim().toLowerCase();
-      const artifactType = safeStr((artifactRow as any)?.artifact_type).trim().toLowerCase();
-
-      // dedicated artifact types are safe
-      if (type === "change" || artifactType === "change") {
-        return String(artifactRow.id);
-      }
-
-      // shared board artifact types are NOT safe for per-change approvals
-      // so we fall through and create a dedicated change artifact instead
-    }
-  }
-
-  // 2) try to find a previously created dedicated artifact for this change
-  const searchQueries = [
-    supabase
-      .from("artifacts")
-      .select("id, type, artifact_type, title, project_id, created_at")
-      .eq("project_id", projectId)
-      .eq("type", "change")
-      .order("created_at", { ascending: false })
-      .limit(20),
-
-    supabase
-      .from("artifacts")
-      .select("id, type, artifact_type, title, project_id, created_at")
-      .eq("project_id", projectId)
-      .eq("artifact_type", "change")
-      .order("created_at", { ascending: false })
-      .limit(20),
-  ];
-
-  const changeTitle = await loadChangeTitle(supabase, changeId);
-
-  for (const query of searchQueries) {
-    try {
-      const { data, error } = await query;
-      if (error) continue;
-
-      const found = (Array.isArray(data) ? data : []).find((row: any) => {
-        const t = safeStr(row?.title).trim().toLowerCase();
-        const expected = changeTitle.trim().toLowerCase();
-        return !!t && !!expected && t === expected;
-      });
-
-      if (found?.id) {
-        const resolved = String(found.id);
-
-        try {
-          await supabase.from("change_requests").update({ artifact_id: resolved }).eq("id", changeId);
-        } catch {}
-
-        return resolved;
-      }
-    } catch {}
-  }
-
-  // 3) create a dedicated artifact
-  const ownerUserId = await loadProjectOwnerForArtifact(supabase, projectId);
-  if (!ownerUserId) return null;
-
-  const createdId = await createDedicatedChangeArtifact(supabase, {
-    projectId,
-    userId: ownerUserId,
-    changeId,
-    title: changeTitle,
-  });
-
-  if (!createdId) return null;
-
-  // 4) attach it back to the change request when the column exists
-  try {
-    const attach = await supabase
-      .from("change_requests")
-      .update({ artifact_id: createdId })
-      .eq("id", changeId);
-
-    if (attach.error && !hasArtifactIdMissingColumn(safeStr(attach.error.message))) {
-      // swallow non-fatal
-    }
-  } catch {}
-
-  return createdId;
 }
 
 /* =========================================================
@@ -546,14 +339,25 @@ async function loadChangeNotificationContext(supabase: any, changeId: string) {
 ========================================================= */
 
 async function getOrganisationIdForProject(supabase: any, projectId: string): Promise<string | null> {
-  const first = await supabase.from("projects").select("organisation_id").eq("id", projectId).maybeSingle();
+  const first = await supabase
+    .from("projects")
+    .select("organisation_id")
+    .eq("id", projectId)
+    .maybeSingle();
+
   if (!first.error) {
     const orgId = (first.data as any)?.organisation_id;
     return orgId ? String(orgId) : null;
   }
+
   if (!hasOrganisationIdMissingColumn(safeStr(first.error?.message))) return null;
 
-  const second = await supabase.from("projects").select("organization_id").eq("id", projectId).maybeSingle();
+  const second = await supabase
+    .from("projects")
+    .select("organization_id")
+    .eq("id", projectId)
+    .maybeSingle();
+
   if (second.error) return null;
   const orgId = (second.data as any)?.organization_id;
   return orgId ? String(orgId) : null;
@@ -570,11 +374,17 @@ function extractCostFromImpactAnalysis(impact: any): number {
 }
 
 async function loadImpactCostForChange(supabase: any, changeId: string): Promise<number> {
-  const first = await supabase.from("change_requests").select("impact_analysis").eq("id", changeId).maybeSingle();
+  const first = await supabase
+    .from("change_requests")
+    .select("impact_analysis")
+    .eq("id", changeId)
+    .maybeSingle();
+
   if (!first.error) {
     const ia = (first.data as any)?.impact_analysis;
     return extractCostFromImpactAnalysis(ia);
   }
+
   if (hasImpactAnalysisMissingColumn(safeStr(first.error?.message))) return 0;
   return 0;
 }
@@ -610,7 +420,11 @@ async function updateArtifactSubmitted(
 }
 
 async function tryAttachApprovalChainIdToChange(supabase: any, changeId: string, chainId: string) {
-  const first = await supabase.from("change_requests").update({ approval_chain_id: chainId }).eq("id", changeId);
+  const first = await supabase
+    .from("change_requests")
+    .update({ approval_chain_id: chainId })
+    .eq("id", changeId);
+
   if (!first.error) return;
   if (hasApprovalChainIdMissingColumn(safeStr(first.error.message))) return;
 }
