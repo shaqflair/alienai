@@ -629,9 +629,28 @@ async function createChainAndStepsFromRules(
   }
 
   if (!rules.length) {
-    throw new Error(
-      `No active artifact_approver_rules configured for org/type. (org=${organisationId}, type=${desiredType}, amount=${amount})`
-    );
+    // Fallback: use all active organisation_approvers as step 1 approvers
+    const { data: orgApprovers, error: oaErr } = await supabase
+      .from("organisation_approvers")
+      .select("user_id")
+      .eq("organisation_id", organisationId)
+      .eq("is_active", true);
+    if (oaErr || !orgApprovers?.length) {
+      throw new Error(
+        `No active artifact_approver_rules configured for org/type. (org=${organisationId}, type=${desiredType}, amount=${amount})`
+      );
+    }
+    rules = orgApprovers.map((a: any) => ({
+      id: null,
+      step: 1,
+      approval_role: "Approver",
+      approver_user_id: String(a.user_id),
+      approval_group_id: null,
+      artifact_type: desiredType,
+      min_amount: null,
+      max_amount: null,
+    }));
+    chosenType = desiredType;
   }
 
   const byStep = new Map<number, RuleRow[]>();
