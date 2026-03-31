@@ -157,7 +157,7 @@ function GraphLayer({ frame, startFrame, connOp = 1 }: { frame: number; startFra
 function Badge({ text, color, frame, rf }: { text: string; color: string; frame: number; rf: number }) {
   const op = ease(frame, rf / FPS, rf / FPS + 0.5);
   return (
-    <div style={{ opacity: op, transform: `translateY(${interpolate(op, [0, 1], [10, 0])}px)`, display: "inline-flex", alignItems: "center", gap: 8, background: color + "22", border: `1.5px solid ${color}`, borderRadius: 100, padding: "9px 22px", fontSize: 17, fontWeight: 600, color, fontFamily: "system-ui", alignSelf: "flex-start" }}>
+    <div style={{ opacity: op, transform: `translateY(${interpolate(op, [0, 1], [10, 0])}px)`, display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.5)", border: `1.5px solid ${color}`, borderRadius: 100, padding: "9px 22px", fontSize: 17, fontWeight: 600, color, fontFamily: "system-ui", alignSelf: "flex-start", backdropFilter: "blur(8px)" }}>
       {text}
     </div>
   );
@@ -167,15 +167,15 @@ function Headline({ line1, line2, accent = C.purple, frame, rf, size = 58 }: { l
   const op = ease(frame, rf / FPS, rf / FPS + 0.7);
   return (
     <div style={{ opacity: op, transform: `translateY(${interpolate(op, [0, 1], [36, 0])}px)` }}>
-      <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: size, fontWeight: 800, color: C.text, lineHeight: 1.08, letterSpacing: "-0.022em" }}>{line1}</div>
-      {line2 && <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: size, fontWeight: 800, color: accent, lineHeight: 1.08, letterSpacing: "-0.022em", marginTop: 4 }}>{line2}</div>}
+      <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: size, fontWeight: 800, color: "#ffffff", lineHeight: 1.08, letterSpacing: "-0.022em", textShadow: "0 2px 20px rgba(0,0,0,0.9), 0 0 40px rgba(0,0,0,0.8)" }}>{line1}</div>
+      {line2 && <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: size, fontWeight: 800, color: accent, lineHeight: 1.08, letterSpacing: "-0.022em", marginTop: 4, textShadow: "0 2px 20px rgba(0,0,0,0.9), 0 0 40px rgba(0,0,0,0.8)" }}>{line2}</div>}
     </div>
   );
 }
 
 function Copy({ text, frame, rf }: { text: string; frame: number; rf: number }) {
   const op = ease(frame, rf / FPS, rf / FPS + 0.6);
-  return <p style={{ opacity: op, transform: `translateY(${interpolate(op, [0, 1], [14, 0])}px)`, fontFamily: "system-ui", fontSize: 20, color: C.muted, lineHeight: 1.6, maxWidth: 520, margin: 0 }}>{text}</p>;
+  return <p style={{ opacity: op, transform: `translateY(${interpolate(op, [0, 1], [14, 0])}px)`, fontFamily: "system-ui", fontSize: 20, color: "#e2e8f0", lineHeight: 1.6, maxWidth: 520, margin: 0, textShadow: "0 1px 12px rgba(0,0,0,0.95), 0 0 30px rgba(0,0,0,0.9)" }}>{text}</p>;
 }
 
 function Pill({ icon, value, label, color, frame, rf }: { icon: string; value: string; label: string; color: string; frame: number; rf: number }) {
@@ -201,7 +201,7 @@ function SplitScreen({ frame, src, badge, badgeColor, line1, line2, accent, pid,
         <Img src={staticFile(src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }}/>
       </AbsoluteFill>
       {/* Dark gradient overlays */}
-      <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.45) 35%, rgba(0,0,0,0.45) 65%, rgba(0,0,0,0.82) 100%)" }}/>
+      <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.55) 30%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.88) 100%)" }}/>
       {/* Movie-style text scrolling top to bottom */}
       <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 80 }}>
         <div style={{ transform: `translateY(${textY}px)`, display: "flex", flexDirection: "column", alignItems: "center", gap: 18, textAlign: "center", maxWidth: 900, padding: "0 60px" }}>
@@ -506,14 +506,14 @@ export const AlienaPromo90: React.FC = () => {
               <AbsoluteFill style={{ opacity: imgOp }}>
                 <Img src={staticFile(sc.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }}/>
               </AbsoluteFill>
-              <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.45) 35%, rgba(0,0,0,0.45) 65%, rgba(0,0,0,0.82) 100%)" }}/>
+              <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.55) 30%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.88) 100%)" }}/>
               <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 80 }}>
                 <div style={{ transform: `translateY(${platTextY}px)`, display: "flex", flexDirection: "column", alignItems: "center", gap: 16, textAlign: "center", maxWidth: 900, padding: "0 60px" }}>
                   <div style={{ display: "flex", gap: 7, opacity: ease(segLf, 0.2, 0.8) }}>
                     {screens.map((_, i) => <div key={i} style={{ height: 4, borderRadius: 2, width: i === idx ? 30 : 11, background: i === idx ? sc.accent : "rgba(255,255,255,0.3)" }}/>)}
                   </div>
                   <div style={{ fontSize: 13, color: sc.accent, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", fontFamily: "system-ui", opacity: ease(segLf, 0.3, 1.1) }}>{sc.sub}</div>
-                  <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: 72, fontWeight: 800, color: C.text, lineHeight: 1.08, letterSpacing: "-0.025em", opacity: ease(segLf, 0.4, 1.2) }}>{sc.label}</div>
+                  <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: 72, fontWeight: 800, color: "#ffffff", lineHeight: 1.08, letterSpacing: "-0.025em", opacity: ease(segLf, 0.4, 1.2), textShadow: "0 2px 20px rgba(0,0,0,0.95), 0 0 40px rgba(0,0,0,0.9)" }}>{sc.label}</div>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
                     {sc.pills.map((p, i) => <Pill key={i} {...p} frame={segLf} rf={f(0.9 + i * 0.4)}/>)}
                   </div>
