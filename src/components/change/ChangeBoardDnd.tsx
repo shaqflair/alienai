@@ -349,11 +349,12 @@ const BOARD_CSS = `
   .kb-overlay-title { font-size:12.5px; font-weight:600; color:#1a1d2e; line-height:1.45; }
 `;
 
-let cssInjected = false; // v2
 function injectCss() {
-  if (typeof document === "undefined" || cssInjected) return;
-  cssInjected = true;
+  if (typeof document === "undefined") return;
+  const id = "kb-board-css-v3";
+  if (document.getElementById(id)) return;
   const el = document.createElement("style");
+  el.id = id;
   el.textContent = BOARD_CSS;
   document.head.appendChild(el);
 }
