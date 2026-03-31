@@ -758,84 +758,47 @@ export default function ChangeAiDrawer({
     setBusy(true);
     setError("");
     try {
-      // Fetch the change row first so we have real content to analyse
-      const changeRes = await fetch(`/api/change/${encodeURIComponent(changeId)}`, { cache: "no-store" });
-      const changeJson = await changeRes.json().catch(() => ({}));
-      const row = changeJson?.item ?? changeJson?.data ?? changeJson ?? {};
-      const seq = Number(row?.seq);
-      if (Number.isFinite(seq) && seq > 0) setCrLabel(`CR${seq}`);
-      else if (row?.id) setCrLabel(`CR-${String(row.id).slice(0,6).toUpperCase()}`);
-
-      const json = await apiPost("/api/ai/draft-assist", {
-        projectId,
-        draft: {
-          mode:           "analysis",
-          changeId,
-          title:          safeStr(row?.title),
-          summary:        safeStr(row?.description ?? row?.summary),
-          justification:  safeStr(row?.justification),
-          financial:      safeStr(row?.financial),
-          schedule:       safeStr(row?.schedule),
-          risks:          safeStr(row?.risks),
-          dependencies:   safeStr(row?.dependencies),
-          assumptions:    safeStr(row?.assumptions),
-          implementation: safeStr(row?.implementation_plan ?? row?.implementationPlan),
-          rollback:       safeStr(row?.rollback_plan ?? row?.rollbackPlan),
-          priority:       safeStr(row?.priority),
-          status:         safeStr(row?.delivery_status),
-        },
+      // Call the real PM Impact Assessment — gpt-4o governance review
+      const res = await fetch("/api/ai/pm-assessment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, changeId }),
+        cache: "no-store",
       });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Assessment failed");
 
-      const item    = json?.item ?? json?.ai ?? json ?? {};
-      const impact  = row?.impact_analysis ?? {};
-      const days    = Number(impact?.days ?? 0) || 0;
-      const cost    = Number(impact?.cost ?? 0) || 0;
-      const riskTxt = safeStr(impact?.risk ?? "").trim();
+      const a = json.assessment;
+      const cr = json.cr ?? {};
+      const seq = Number(cr?.seq);
+      if (Number.isFinite(seq) && seq > 0) setCrLabel(`CR${seq}`);
+      else if (cr?.id) setCrLabel(`CR-${String(cr.id).slice(0,6).toUpperCase()}`);
 
-      const hasJust   = safeStr(item?.justification  ?? row?.justification).trim().length  > 20;
-      const hasFin    = safeStr(item?.financial       ?? row?.financial).trim().length      > 10;
-      const hasSched  = safeStr(item?.schedule        ?? row?.schedule).trim().length       > 10;
-      const hasRisks  = safeStr(item?.risks           ?? row?.risks).trim().length          > 10;
-      const hasImpact = days > 0 || cost > 0 || riskTxt.length > 5;
-      const hasImpl   = safeStr(item?.implementation  ?? row?.implementation_plan).trim().length > 20;
-
-      const checks = [hasJust, hasFin, hasSched, hasRisks, hasImpact, hasImpl];
-      const score  = Math.round((checks.filter(Boolean).length / checks.length) * 100);
-
-      function makeDim(text: string, label: string): DimensionScore {
-        if (!text?.trim()) {
-          return { rag: "unknown", score: 0, headline: label, detail: "Not captured yet — fill in the field and re-run.", actions: [`Complete the ${label.toLowerCase()} section`] };
-        }
-        const lower = text.toLowerCase();
-        const rag: RAG =
-          lower.includes("high") || lower.includes("critical") ? "red" :
-          lower.includes("medium") || lower.includes("moderate") ? "amber" :
-          "green";
-        return { rag, score: rag === "green" ? 82 : rag === "amber" ? 58 : 32, headline: label, detail: text.slice(0, 300), actions: [] };
+      function mapDim(d: any): DimensionScore {
+        return {
+          rag: (safeStr(d?.rag).toLowerCase() || "unknown") as RAG,
+          score: Number(d?.score ?? 0),
+          headline: safeStr(d?.headline),
+          detail: safeStr(d?.detail),
+          actions: Array.isArray(d?.actions) ? d.actions.map((x: any) => safeStr(x)) : [],
+        };
       }
 
       const raw = {
-        readiness_score:   score,
-        readiness_label:   score >= 75 ? "Ready" : score >= 50 ? "Needs Work" : "Not Ready",
-        recommendation:    score >= 75 ? "Approve" : score >= 50 ? "Approve with conditions" : "Request rework",
-        executive_summary: safeStr(item?.summary ?? row?.description ?? "").slice(0, 400),
-        schedule:   makeDim(safeStr(item?.schedule      ?? row?.schedule),        "Schedule Impact"),
-        cost:       makeDim(safeStr(item?.financial     ?? row?.financial),        "Financial Impact"),
-        risk:       makeDim(safeStr(item?.risks         ?? row?.risks),            "Risk Assessment"),
-        scope:      makeDim(safeStr(item?.justification ?? row?.justification),    "Scope & Justification"),
-        governance: makeDim(safeStr(item?.assumptions   ?? row?.assumptions),      "Governance & Compliance"),
-        blockers:     checks.some((c) => !c) ? [`${checks.filter((c) => !c).length} section(s) incomplete — fill before submitting`] : [],
-        strengths:    checks.filter(Boolean).length >= 4 ? ["Good coverage of key impact areas"] : [],
-        next_actions: [
-          !hasJust   && "Complete Business Justification",
-          !hasFin    && "Add Financial Impact",
-          !hasSched  && "Define Schedule Impact",
-          !hasRisks  && "Document Risks & Dependencies",
-          !hasImpl   && "Write Implementation Plan",
-          !hasImpact && "Run AI Impact scan to estimate days/cost",
-        ].filter(Boolean) as string[],
-        model:       safeStr(item?.model ?? "gpt-4o"),
-        analysed_at: new Date().toISOString(),
+        readiness_score:   Number(a.readiness_score ?? 0),
+        readiness_label:   safeStr(a.readiness_label),
+        recommendation:    safeStr(a.recommendation),
+        executive_summary: safeStr(a.executive_summary),
+        schedule:          mapDim(a.schedule),
+        cost:              mapDim(a.cost),
+        risk:              mapDim(a.risk),
+        scope:             mapDim(a.scope),
+        governance:        mapDim(a.governance),
+        blockers:          Array.isArray(a.blockers)     ? a.blockers.map((x: any) => safeStr(x))     : [],
+        strengths:         Array.isArray(a.strengths)    ? a.strengths.map((x: any) => safeStr(x))    : [],
+        next_actions:      Array.isArray(a.next_actions) ? a.next_actions.map((x: any) => safeStr(x)) : [],
+        model:             safeStr(a.model ?? json.model ?? "gpt-4o"),
+        analysed_at:       safeStr(json.analysed_at ?? new Date().toISOString()),
       };
 
       const parsed = parseAnalysis(raw);
