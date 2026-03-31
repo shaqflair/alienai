@@ -349,7 +349,7 @@ const BOARD_CSS = `
   .kb-overlay-title { font-size:12.5px; font-weight:600; color:#1a1d2e; line-height:1.45; }
 `;
 
-let cssInjected = false;
+let cssInjected = false; // v2
 function injectCss() {
   if (typeof document === "undefined" || cssInjected) return;
   cssInjected = true;
