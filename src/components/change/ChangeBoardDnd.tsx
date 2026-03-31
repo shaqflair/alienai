@@ -280,17 +280,17 @@ const BOARD_CSS = `
   .kb-empty { border:2px dashed #e2e5f0; border-radius:10px; padding:18px 14px; text-align:center; font-size:11.5px; color:#b0b7cc; font-weight:500; }
 
   @keyframes kb-card-in { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
-  .kb-card { background:#fff; border-radius:11px; border:1px solid #e4e7f0; box-shadow:0 1px 2px rgba(0,0,0,0.04),0 1px 4px rgba(0,0,0,0.03); transition:box-shadow 0.14s,transform 0.14s,border-color 0.14s; animation:kb-card-in 0.18s ease backwards; overflow:hidden; position:relative; }
-  .kb-card:hover { box-shadow:0 4px 14px rgba(0,0,0,0.08); border-color:#d0d5e8; transform:translateY(-1px); }
-  .kb-card.kb-saving { ring:1px solid rgba(99,102,241,0.3); }
+  .kb-card { background:#fff; border-radius:14px; border:1px solid #e4e7f0; box-shadow:0 1px 4px rgba(15,20,50,0.04),0 2px 8px rgba(15,20,50,0.03); transition:box-shadow 0.18s,transform 0.18s,border-color 0.18s; animation:kb-card-in 0.18s ease backwards; overflow:hidden; position:relative; }
+  .kb-card:hover { box-shadow:0 4px 20px rgba(15,20,50,0.09),0 2px 8px rgba(15,20,50,0.05); border-color:#c8cde0; transform:translateY(-2px); }
+  .kb-card.kb-saving { outline:1px solid rgba(99,102,241,0.3); }
   .kb-card.kb-locked { opacity:0.68; }
-  .kb-card-top { height:2.5px; width:100%; }
-  .kb-card-body { padding:12px 12px 11px; }
+  .kb-card-rail { position:absolute; top:0; left:0; bottom:0; width:3px; border-radius:14px 0 0 14px; }
+  .kb-card-body { padding:13px 13px 11px 17px; }
   .kb-card-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; gap:8px; }
-  .kb-card-id { font-family:'DM Mono',monospace; font-size:9.5px; font-weight:600; letter-spacing:0.07em; color:#8b91a7; background:#f4f5f9; padding:2px 7px; border-radius:5px; border:1px solid #e8eaf0; flex-shrink:0; }
-  .kb-card-badges { display:flex; gap:4px; flex-wrap:wrap; flex:1; min-width:0; }
-  .kb-badge { display:inline-flex; align-items:center; gap:3px; font-size:10px; font-weight:600; padding:2px 6px; border-radius:20px; border:1px solid; letter-spacing:0.01em; white-space:nowrap; }
-  .kb-badge-dot { width:4px; height:4px; border-radius:50%; flex-shrink:0; }
+  .kb-card-id { font-family:'DM Mono',monospace; font-size:9.5px; font-weight:600; letter-spacing:0.08em; color:#7c85a2; background:#f3f4f8; padding:2px 7px; border-radius:5px; border:1px solid #e4e7f0; flex-shrink:0; }
+  .kb-card-badges { display:flex; gap:5px; flex-wrap:wrap; flex:1; min-width:0; }
+  .kb-badge { display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600; padding:3px 8px 3px 6px; border-radius:7px; border:1px solid; letter-spacing:0.01em; white-space:nowrap; }
+  .kb-badge-prefix { font-size:8px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; opacity:0.55; font-family:'DM Mono',monospace; margin-right:2px; }
   .kb-drag-handle { width:22px; height:22px; display:flex; align-items:center; justify-content:center; border-radius:5px; background:transparent; border:none; color:#c4cade; cursor:grab; transition:background 0.1s, color 0.1s; flex-shrink:0; padding:0; }
   .kb-drag-handle:hover { background:#f0f1f8; color:#5a6080; }
   .kb-drag-handle:disabled { opacity:0.25; cursor:not-allowed; }
@@ -497,7 +497,7 @@ function SortableCard({
           />
         )}
 
-        <div className="kb-card-top" style={{ background: laneConf.gradient }} />
+        <div className="kb-card-rail" style={{ background: laneConf.gradient }} />
         <div className="kb-card-body">
           {/* Head */}
           <div className="kb-card-head">
@@ -505,13 +505,13 @@ function SortableCard({
             <div className="kb-card-badges">
               {priConf && item.priority && (
                 <span className="kb-badge" style={{ color: priConf.color, background: priConf.bg, borderColor: priConf.border }}>
-                  <span style={{ fontSize: "8px", fontWeight: 800, letterSpacing: "0.1em", opacity: 0.6, marginRight: "3px", textTransform: "uppercase" as const, fontFamily: "monospace" }}>Priority</span>
+                  <span className="kb-badge-dot" style={{ background: priConf.color }} />
                   {safeStr(item.priority)}
                 </span>
               )}
               {riskLabel && (
                 <span className="kb-badge" style={{ color: risk.text, background: risk.bg, borderColor: risk.border }}>
-                  <span style={{ fontSize: "8px", fontWeight: 800, letterSpacing: "0.1em", opacity: 0.6, marginRight: "3px", textTransform: "uppercase" as const, fontFamily: "monospace" }}>Risk</span>
+                  <span className="kb-badge-dot" style={{ background: risk.dot }} />
                   {riskLabel}
                 </span>
               )}
