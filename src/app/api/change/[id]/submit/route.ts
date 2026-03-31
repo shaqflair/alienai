@@ -696,7 +696,7 @@ async function createChainAndStepsFromRules(
     };
   });
 
-  const stepIns = await supabase.from("artifact_approval_steps").insert(stepRows).select("id, step_order");
+  const stepIns = await supabase.from("artifact_approval_steps").upsert(stepRows, { onConflict: "chain_id,step_order", ignoreDuplicates: true }).select("id, step_order");
   if (stepIns.error) throw new Error(safeStr(stepIns.error.message));
 
   const insertedSteps = Array.isArray(stepIns.data) ? stepIns.data : [];
