@@ -852,6 +852,7 @@ const flattened = lanes && typeof lanes === "object"
 
   return (
     <div className="kb-root">
+      <style>{BOARD_CSS}</style>
       <div className="kb-topbar">
         <div>
           <div className="kb-title">
