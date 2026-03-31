@@ -45,12 +45,19 @@ function hasMissingColumn(errMsg: string, col: string) {
   const m = (errMsg || "").toLowerCase();
   return m.includes("column") && m.includes(col.toLowerCase());
 }
+
 function hasDeliveryStatusMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "delivery_status");
 }
+
 function hasArtifactIdMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "artifact_id");
 }
+
+function hasTitleMissingColumn(errMsg: string) {
+  return hasMissingColumn(errMsg, "title");
+}
+
 function isMissingRelation(errMsg: string) {
   const m = (errMsg || "").toLowerCase();
   return m.includes("does not exist") && m.includes("relation");
@@ -80,7 +87,10 @@ function getRequestId(req: Request) {
   return h || randomUUID();
 }
 
-async function resolveOrganisationIdForProject(supabase: any, projectId: string): Promise<string | null> {
+async function resolveOrganisationIdForProject(
+  supabase: any,
+  projectId: string
+): Promise<string | null> {
   try {
     const { data, error } = await supabase
       .from("projects")
@@ -95,7 +105,11 @@ async function resolveOrganisationIdForProject(supabase: any, projectId: string)
   }
 }
 
-async function resolveActorName(supabase: any, userId: string, fallbackEmail?: string | null) {
+async function resolveActorName(
+  supabase: any,
+  userId: string,
+  fallbackEmail?: string | null
+) {
   try {
     const { data } = await supabase
       .from("profiles")
@@ -203,31 +217,205 @@ async function emitAiEvent(req: Request, body: any) {
   }
 }
 
-async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise<string | null> {
+async function loadChangeTitle(supabase: any, changeId: string): Promise<string> {
+  const first = await supabase
+    .from("change_requests")
+    .select("title")
+    .eq("id", changeId)
+    .maybeSingle();
+
+  if (!first.error) {
+    return safeStr((first.data as any)?.title).trim() || "Change Request";
+  }
+
+  if (hasTitleMissingColumn(safeStr(first.error?.message))) {
+    return "Change Request";
+  }
+
+  return "Change Request";
+}
+
+async function loadProjectOwnerForArtifact(
+  supabase: any,
+  projectId: string
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("projects")
+    .select("created_by, owner_id, user_id")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  return (
+    safeStr((data as any)?.created_by).trim() ||
+    safeStr((data as any)?.owner_id).trim() ||
+    safeStr((data as any)?.user_id).trim() ||
+    null
+  );
+}
+
+async function createDedicatedChangeArtifact(
+  supabase: any,
+  args: {
+    projectId: string;
+    userId: string;
+    changeId: string;
+    title: string;
+  }
+): Promise<string | null> {
+  const titleBase = safeStr(args.title).trim() || "Change Request";
+
+  const insertPayloads = [
+    {
+      project_id: args.projectId,
+      type: "change",
+      artifact_type: "change",
+      title: titleBase,
+      status: "draft",
+      user_id: args.userId,
+      is_current: true,
+      source_record_id: args.changeId,
+    },
+    {
+      project_id: args.projectId,
+      type: "change",
+      title: titleBase,
+      status: "draft",
+      user_id: args.userId,
+      is_current: true,
+    },
+    {
+      project_id: args.projectId,
+      type: "change_requests",
+      title: titleBase,
+      status: "draft",
+      user_id: args.userId,
+      is_current: true,
+    },
+  ];
+
+  for (const payload of insertPayloads) {
+    try {
+      const { data, error } = await supabase
+        .from("artifacts")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (!error && data?.id) {
+        return String(data.id);
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+/**
+ * IMPORTANT:
+ * Request-changes must resolve the dedicated per-change artifact,
+ * not a shared project-level change board artifact.
+ */
+async function ensureDedicatedArtifactIdForChangeRequest(
+  supabase: any,
+  cr: any
+): Promise<string | null> {
   const current = safeStr(cr?.artifact_id).trim();
-  if (current) return current;
-
   const projectId = safeStr(cr?.project_id).trim();
-  if (!projectId) return null;
+  const changeId = safeStr(cr?.id).trim();
 
-  const { data, error } = await supabase
-    .from("artifacts")
-    .select("id, type, is_current, created_at")
-    .eq("project_id", projectId)
-    .in("type", ["change_requests", "change_request", "change"])
-    .order("is_current", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(1);
+  if (!projectId || !changeId) return null;
 
-  if (error) return null;
-  const resolved = Array.isArray(data) && data[0]?.id ? String(data[0].id) : null;
-  if (!resolved) return null;
+  if (current) {
+    const { data: artifactRow, error } = await supabase
+      .from("artifacts")
+      .select("id, type, artifact_type, title, project_id")
+      .eq("id", current)
+      .maybeSingle();
+
+    if (!error && artifactRow?.id) {
+      const type = safeStr((artifactRow as any)?.type).trim().toLowerCase();
+      const artifactType = safeStr((artifactRow as any)?.artifact_type).trim().toLowerCase();
+
+      if (type === "change" || artifactType === "change") {
+        return String(artifactRow.id);
+      }
+    }
+  }
+
+  const changeTitle = await loadChangeTitle(supabase, changeId);
+
+  const searchQueries = [
+    supabase
+      .from("artifacts")
+      .select("id, type, artifact_type, title, project_id, created_at")
+      .eq("project_id", projectId)
+      .eq("type", "change")
+      .order("created_at", { ascending: false })
+      .limit(20),
+
+    supabase
+      .from("artifacts")
+      .select("id, type, artifact_type, title, project_id, created_at")
+      .eq("project_id", projectId)
+      .eq("artifact_type", "change")
+      .order("created_at", { ascending: false })
+      .limit(20),
+  ];
+
+  for (const query of searchQueries) {
+    try {
+      const { data, error } = await query;
+      if (error) continue;
+
+      const found = (Array.isArray(data) ? data : []).find((row: any) => {
+        const t = safeStr(row?.title).trim().toLowerCase();
+        const expected = changeTitle.trim().toLowerCase();
+        return !!t && !!expected && t === expected;
+      });
+
+      if (found?.id) {
+        const resolved = String(found.id);
+
+        try {
+          const attach = await supabase
+            .from("change_requests")
+            .update({ artifact_id: resolved })
+            .eq("id", changeId);
+
+          if (attach.error && !hasArtifactIdMissingColumn(safeStr(attach.error.message))) {
+            // swallow
+          }
+        } catch {}
+
+        return resolved;
+      }
+    } catch {}
+  }
+
+  const ownerUserId = await loadProjectOwnerForArtifact(supabase, projectId);
+  if (!ownerUserId) return null;
+
+  const createdId = await createDedicatedChangeArtifact(supabase, {
+    projectId,
+    userId: ownerUserId,
+    changeId,
+    title: changeTitle,
+  });
+
+  if (!createdId) return null;
 
   try {
-    await supabase.from("change_requests").update({ artifact_id: resolved }).eq("id", cr.id);
+    const attach = await supabase
+      .from("change_requests")
+      .update({ artifact_id: createdId })
+      .eq("id", changeId);
+
+    if (attach.error && !hasArtifactIdMissingColumn(safeStr(attach.error.message))) {
+      // swallow
+    }
   } catch {}
 
-  return resolved;
+  return createdId;
 }
 
 async function loadProjectForNotification(supabase: any, projectId: string) {
@@ -301,7 +489,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       if (needsRetry) {
         const secondLoad = await supabase
           .from("change_requests")
-          .select("id, project_id, status, decision_status")
+          .select("id, project_id, status, decision_status, artifact_id")
           .eq("id", id)
           .maybeSingle();
 
@@ -330,16 +518,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     }
 
     if (decisionStatus !== "submitted") {
-      return jsonErr(`Cannot request changes when decision_status=${decisionStatus || "(null)"}`, 409);
+      return jsonErr(
+        `Cannot request changes when decision_status=${decisionStatus || "(null)"}`,
+        409
+      );
     }
 
     if (!deliveryStatusMissing && fromLane && fromLane !== "review") {
-      return jsonErr(`Only changes in Review can be sent back for rework (current lane=${fromLane}).`, 409);
+      return jsonErr(
+        `Only changes in Review can be sent back for rework (current lane=${fromLane}).`,
+        409
+      );
     }
 
-    const artifactId = await ensureArtifactIdForChangeRequest(supabase, cr);
+    const artifactId = await ensureDedicatedArtifactIdForChangeRequest(supabase, cr);
     if (!artifactId) {
-      return jsonErr("Missing artifact_id (Change Requests artifact). Create/backfill the project artifact first.", 409);
+      return jsonErr(
+        "Missing dedicated artifact_id for this change request. Ensure submit created/linked a per-change artifact.",
+        409
+      );
     }
 
     const organisationId = await resolveOrganisationIdForProject(supabase, projectId);
@@ -358,11 +555,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       decision_role: safeStr(role),
       delivery_status: toLane,
       updated_at: now,
+      artifact_id: artifactId,
     };
 
     let patch: any = { ...patchBase, approver_id: user.id, approval_date: now };
 
-    const first = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
+    const first = await supabase
+      .from("change_requests")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
 
     let updatedRow: any = null;
 
@@ -370,6 +573,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       const msg = safeStr(first.error.message);
 
       if (hasDeliveryStatusMissingColumn(msg)) delete patch.delivery_status;
+      if (hasArtifactIdMissingColumn(msg)) delete patch.artifact_id;
       if (hasMissingColumn(msg, "approver_id")) delete patch.approver_id;
       if (hasMissingColumn(msg, "approval_date")) delete patch.approval_date;
       if (hasMissingColumn(msg, "decision_role")) delete patch.decision_role;
@@ -377,7 +581,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       if (hasMissingColumn(msg, "decision_by")) delete patch.decision_by;
       if (hasMissingColumn(msg, "decision_at")) delete patch.decision_at;
 
-      const second = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
+      const second = await supabase
+        .from("change_requests")
+        .update(patch)
+        .eq("id", id)
+        .select("*")
+        .single();
+
       if (second.error) throw second.error;
 
       updatedRow = second.data;
@@ -403,6 +613,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
             decision_status: { from: "submitted", to: "rework" },
             to_lane: "delivery_status" in patch ? toLane : null,
             delivery_status_missing: !("delivery_status" in patch),
+            artifact_id_missing: !("artifact_id" in patch),
             request_id: requestId,
           },
         } as any
@@ -420,6 +631,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       comment: note || null,
       payload: {
         source: "request_changes_route",
+        artifact_id: artifactId,
         lifecycle: { from: lifecycle || null, to: "analysis" },
         decision_status: { from: "submitted", to: "rework" },
         to_lane: "delivery_status" in patch ? toLane : null,
@@ -447,6 +659,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         from_lane: deliveryStatusMissing ? null : fromLane,
         to_lane: "delivery_status" in patch ? toLane : null,
         delivery_status_missing: !("delivery_status" in patch),
+        artifact_id_missing: !("artifact_id" in patch),
         source: "request_changes_route",
       },
     });
@@ -472,7 +685,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     }
 
     try {
-      const computed = await computeChangeAIFields({ supabase, projectId, changeRow: updatedRow });
+      const computed = await computeChangeAIFields({
+        supabase,
+        projectId,
+        changeRow: updatedRow,
+      });
+
       await supabase
         .from("change_requests")
         .update({
@@ -500,7 +718,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       },
     });
 
-    return jsonOk({ item: updatedRow, data: updatedRow });
+    return jsonOk({
+      item: updatedRow,
+      data: updatedRow,
+      artifact_id: artifactId,
+    });
   } catch (e: any) {
     console.error("[POST /api/change/:id/request-changes]", e);
     const msg = safeStr(e?.message) || "Unexpected error";
