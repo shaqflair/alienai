@@ -201,7 +201,7 @@ function SplitScreen({ frame, src, badge, badgeColor, line1, line2, accent, pid,
         <Img src={staticFile(src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }}/>
       </AbsoluteFill>
       {/* Dark gradient overlays */}
-      <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.1) 40%, rgba(0,0,0,0.1) 60%, rgba(0,0,0,0.75) 100%)" }}/>
+      <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.45) 35%, rgba(0,0,0,0.45) 65%, rgba(0,0,0,0.82) 100%)" }}/>
       {/* Movie-style text scrolling top to bottom */}
       <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 80 }}>
         <div style={{ transform: `translateY(${textY}px)`, display: "flex", flexDirection: "column", alignItems: "center", gap: 18, textAlign: "center", maxWidth: 900, padding: "0 60px" }}>
@@ -331,7 +331,7 @@ function AiAssessmentScene({ frame }: { frame: number }) {
       </AbsoluteFill>
 
       {/* Screenshot */}
-      <AbsoluteFill style={{ left: "44%", opacity: imgOp, transform: `scale(${0.93 + imgSc * 0.07})`, borderRadius: "24px 0 0 24px", overflow: "hidden", boxShadow: "-40px 0 120px rgba(0,0,0,0.65)" }}>
+      <AbsoluteFill style={{ left: "44%", opacity: imgOp, transform: `scale(${0.93 + imgSc * 0.07})`, borderRadius: "24px 0 0 24px", overflow: "hidden", boxShadow: "none" }}>
         <Img src={staticFile("/screenshots/ai-assessment.png")} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top left" }}/>
         <AbsoluteFill style={{ background: "linear-gradient(to right, rgba(6,9,15,0.98) 0%, rgba(6,9,15,0.35) 20%, transparent 45%)", pointerEvents: "none" }}/>
       </AbsoluteFill>
@@ -500,21 +500,21 @@ export const AlienaPromo90: React.FC = () => {
           const sc     = screens[idx];
           const imgOp  = ease(segLf, 0, 0.6);
           const scale  = 0.95 + sp(segLf, 0, { stiffness: 38, damping: 20 }) * 0.05;
+          const platTextY = interpolate(segLf, [0, 180], [0, -40], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
           return (
-            <AbsoluteFill style={{ background: C.bg }}>
-              <DarkBg pid="grd-plat"/>
-              <AbsoluteFill style={{ left: "40%", opacity: imgOp, transform: `scale(${scale})`, borderRadius: "24px 0 0 24px", overflow: "hidden" }}>
-                <Img src={staticFile(sc.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top left" }}/>
-                <AbsoluteFill style={{ background: "linear-gradient(to right, rgba(6,9,15,0.97) 0%, rgba(6,9,15,0.25) 18%, transparent 40%)" }}/>
+            <AbsoluteFill style={{ background: "#000" }}>
+              <AbsoluteFill style={{ opacity: imgOp }}>
+                <Img src={staticFile(sc.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }}/>
               </AbsoluteFill>
-              <AbsoluteFill style={{ right: "60%", paddingLeft: 84, justifyContent: "center" }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-                  <div style={{ display: "flex", gap: 7 }}>
-                    {screens.map((_, i) => <div key={i} style={{ height: 4, borderRadius: 2, width: i === idx ? 30 : 11, background: i === idx ? sc.accent : C.dim }}/>)}
+              <AbsoluteFill style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.45) 35%, rgba(0,0,0,0.45) 65%, rgba(0,0,0,0.82) 100%)" }}/>
+              <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 80 }}>
+                <div style={{ transform: `translateY(${platTextY}px)`, display: "flex", flexDirection: "column", alignItems: "center", gap: 16, textAlign: "center", maxWidth: 900, padding: "0 60px" }}>
+                  <div style={{ display: "flex", gap: 7, opacity: ease(segLf, 0.2, 0.8) }}>
+                    {screens.map((_, i) => <div key={i} style={{ height: 4, borderRadius: 2, width: i === idx ? 30 : 11, background: i === idx ? sc.accent : "rgba(255,255,255,0.3)" }}/>)}
                   </div>
                   <div style={{ fontSize: 13, color: sc.accent, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", fontFamily: "system-ui", opacity: ease(segLf, 0.3, 1.1) }}>{sc.sub}</div>
-                  <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: 50, fontWeight: 800, color: C.text, lineHeight: 1.08, letterSpacing: "-0.02em", opacity: ease(segLf, 0.4, 1.2) }}>{sc.label}</div>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ fontFamily: "'SF Pro Display', system-ui", fontSize: 72, fontWeight: 800, color: C.text, lineHeight: 1.08, letterSpacing: "-0.025em", opacity: ease(segLf, 0.4, 1.2) }}>{sc.label}</div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
                     {sc.pills.map((p, i) => <Pill key={i} {...p} frame={segLf} rf={f(0.9 + i * 0.4)}/>)}
                   </div>
                 </div>
@@ -531,7 +531,7 @@ export const AlienaPromo90: React.FC = () => {
             <DarkBg pid="grd-ret"/>
             <AbsoluteFill style={{ opacity: ease(lf, 0, 1.5) }}><GraphLayer frame={lf} startFrame={0} connOp={1}/></AbsoluteFill>
             <AbsoluteFill style={{ justifyContent: "center", alignItems: "center" }}>
-              <div style={{ textAlign: "center", opacity: ease(lf, 2, 4), transform: `translateY(${interpolate(ease(lf, 2, 4), [0, 1], [28, 0])}px)`, background: "rgba(6,9,15,0.72)", backdropFilter: "blur(20px)", padding: "46px 70px", borderRadius: 28, border: `1px solid ${C.border}` }}>
+              <div style={{ textAlign: "center", opacity: ease(lf, 2, 4), transform: `translateY(${interpolate(ease(lf, 2, 4), [0, 1], [28, 0])}px)`, background: "rgba(6,9,15,0.72)", padding: "46px 70px", borderRadius: 28, border: `1px solid ${C.border}` }}>
                 <div style={{ fontSize: 74, fontWeight: 800, color: C.text, fontFamily: "'SF Pro Display', system-ui", letterSpacing: "-0.025em", lineHeight: 1.08 }}>Every signal.</div>
                 <div style={{ fontSize: 74, fontWeight: 800, color: C.purple, fontFamily: "'SF Pro Display', system-ui", letterSpacing: "-0.025em", lineHeight: 1.08 }}>One platform.</div>
                 <div style={{ fontSize: 18, color: C.muted, marginTop: 18, fontFamily: "system-ui", opacity: ease(lf, 3.5, 5) }}>Change · RAID · Schedule · Budget · AI · Approvals</div>
