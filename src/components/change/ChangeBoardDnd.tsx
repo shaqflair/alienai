@@ -351,8 +351,14 @@ const BOARD_CSS = `
 
 function injectCss() {
   if (typeof document === "undefined") return;
-  const id = "kb-board-css-v3";
-  if (document.getElementById(id)) return;
+  const id = "kb-board-css-v4";
+  const existing = document.getElementById(id);
+  if (existing) { existing.textContent = BOARD_CSS; return; }
+  // Remove any old versions
+  ["kb-board-css-v1","kb-board-css-v2","kb-board-css-v3"].forEach(old => {
+    const el = document.getElementById(old);
+    if (el) el.remove();
+  });
   const el = document.createElement("style");
   el.id = id;
   el.textContent = BOARD_CSS;
