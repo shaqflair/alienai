@@ -1,5 +1,10 @@
 ﻿// src/app/api/portfolio/budget-phasing/route.ts
 // GET ?fyStart=4&fyYear=2026&fyMonths=12&scope=active|all&projectIds=id1,id2
+//
+// PM resolution mirrors getProjectManagerNameBestEffort from the artifact page:
+// 1. Look up project_members for PM role candidates
+// 2. Fall back to projects.project_manager_id
+// 3. Resolve profile name from profiles table
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -23,18 +28,25 @@ function currentMonthKey() {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
 }
 
+// Same display name logic as the artifact page — prefer name over email, strip domain if only email
 function displayName(profile: any): string {
   const full    = safeStr(profile?.full_name).trim();
   const display = safeStr(profile?.display_name).trim();
   const name    = safeStr(profile?.name).trim();
   const email   = safeStr(profile?.email).trim();
-  if (full && !full.includes("@")) return full;
+  if (full    && !full.includes("@"))    return full;
   if (display && !display.includes("@")) return display;
-  if (name && !name.includes("@")) return name;
-  // Fall back to email but shorten to just the local part if it's clearly an email
-  if (email.includes("@")) return email.split("@")[0];
+  if (name    && !name.includes("@"))    return name;
+  if (email.includes("@")) return email.split("@")[0]; // "alex.adupoku" not full email
   return email || "Unknown";
 }
+
+const PM_ROLE_CANDIDATES = [
+  "project_manager", "project manager", "pm",
+  "programme_manager", "program_manager",
+  "programme manager", "program manager",
+  "delivery_manager", "delivery manager",
+];
 
 export async function GET(req: Request) {
   try {
@@ -61,60 +73,88 @@ export async function GET(req: Request) {
     const { data: orgMem } = await supabase
       .from("organisation_members").select("organisation_id")
       .eq("user_id", auth.user.id).is("removed_at", null).limit(1).maybeSingle();
-
     const orgId = safeStr((orgMem as any)?.organisation_id);
     if (!orgId) return err("No organisation found", 404);
 
-    // 2. All projects — include department
+    // 2. All projects (include department + project_manager_id for fallback)
     let projQ = supabase
       .from("projects")
       .select("id, title, project_code, project_manager_id, department")
       .eq("organisation_id", orgId)
       .neq("resource_status", "pipeline");
     if (scope === "active") projQ = projQ.is("deleted_at", null);
-
     const { data: projectRows } = await projQ.order("title");
     const allProjects = (projectRows ?? []) as any[];
 
     const empty = { ok: true, fyStart, fyYear, numMonths, monthKeys, aggregatedLines: [], monthlyData: {}, projectCount: 0, projectsWithPlan: 0, allProjects: [], filteredProjectCount: 0 };
     if (!allProjects.length) return NextResponse.json(empty);
 
-    // 3. PM names — match on both id and user_id columns
-    const pmIds = [...new Set(allProjects.map((p: any) => safeStr(p.project_manager_id)).filter(Boolean))];
-    const pmNameById = new Map<string, string>();
+    const allProjectIds = allProjects.map((p: any) => safeStr(p.id));
 
-    if (pmIds.length) {
-      const orFilter = pmIds.flatMap(id => [`id.eq.${id}`, `user_id.eq.${id}`]).join(",");
+    // 3. PM resolution — same as artifact page getProjectManagerNameBestEffort
+    //    Step A: query project_members for PM role
+    const { data: pmMembers } = await supabase
+      .from("project_members")
+      .select("project_id, user_id, role")
+      .in("project_id", allProjectIds)
+      .eq("is_active", true)
+      .in("role", PM_ROLE_CANDIDATES);
+
+    // Step B: collect all user IDs to fetch profiles (PM members + project_manager_id fallbacks)
+    const pmMemberUserIds = [...new Set((pmMembers ?? []).map((m: any) => safeStr(m.user_id)).filter(Boolean))];
+    const fallbackPmIds   = [...new Set(allProjects.map((p: any) => safeStr(p.project_manager_id)).filter(Boolean))];
+    const allUserIds      = [...new Set([...pmMemberUserIds, ...fallbackPmIds])];
+
+    // Step C: fetch profiles
+    const profileByUserId = new Map<string, any>();
+    if (allUserIds.length) {
+      const orFilter = allUserIds.flatMap(id => [`id.eq.${id}`, `user_id.eq.${id}`]).join(",");
       const { data: profiles } = await supabase
         .from("profiles")
         .select("id, user_id, full_name, display_name, name, email")
         .or(orFilter);
-
       for (const p of (profiles ?? []) as any[]) {
-        const nm = displayName(p);
-        if (p.id)      pmNameById.set(safeStr(p.id),      nm);
-        if (p.user_id) pmNameById.set(safeStr(p.user_id), nm);
+        if (p.id)      profileByUserId.set(safeStr(p.id),      p);
+        if (p.user_id) profileByUserId.set(safeStr(p.user_id), p);
       }
     }
 
-    // Enriched project list for filter panel — include department
+    // Step D: map project_id → PM name (project_members wins, project_manager_id is fallback)
+    const pmNameByProjectId = new Map<string, string>();
+    for (const m of (pmMembers ?? []) as any[]) {
+      const pid = safeStr(m.project_id);
+      if (pmNameByProjectId.has(pid)) continue; // first match wins
+      const prof = profileByUserId.get(safeStr(m.user_id));
+      if (prof) pmNameByProjectId.set(pid, displayName(prof));
+    }
+    // Fallback via project_manager_id
+    for (const p of allProjects) {
+      const pid   = safeStr(p.id);
+      const pmId  = safeStr(p.project_manager_id);
+      if (pmNameByProjectId.has(pid) || !pmId) continue;
+      const prof = profileByUserId.get(pmId);
+      if (prof) pmNameByProjectId.set(pid, displayName(prof));
+    }
+
+    // 4. Enriched project list for filter panel
     const enrichedProjects = allProjects.map((p: any) => ({
       id:          safeStr(p.id),
       title:       safeStr(p.title) || "Untitled",
       projectCode: safeStr(p.project_code),
       department:  safeStr(p.department).trim() || "",
-      pmName:      pmNameById.get(safeStr(p.project_manager_id)) ?? "",
+      pmName:      pmNameByProjectId.get(safeStr(p.id)) ?? "",
     }));
 
-    // 4. Which projects to aggregate
-    const allIds     = allProjects.map((p: any) => safeStr(p.id));
-    const projectIds = filterIds.length ? allIds.filter((id: string) => filterIds.includes(id)) : allIds;
+    // 5. Which projects to aggregate
+    const projectIds = filterIds.length
+      ? allProjectIds.filter(id => filterIds.includes(id))
+      : allProjectIds;
 
     if (!projectIds.length) {
       return NextResponse.json({ ...empty, projectCount: allProjects.length, allProjects: enrichedProjects });
     }
 
-    // 5. Financial plans — no is_current filter, prefer approved
+    // 6. Financial plans — no is_current filter (plans can have is_current:false), prefer approved
     const { data: artifactRows } = await supabase
       .from("artifacts")
       .select("id, project_id, content_json, approval_status, type")
@@ -122,16 +162,16 @@ export async function GET(req: Request) {
       .ilike("type", "%financial%plan%");
 
     const artifactByProject = new Map<string, any>();
+    const rank = (s: string) => s === "approved" ? 3 : s === "submitted" ? 2 : 1;
     for (const a of (artifactRows ?? []) as any[]) {
       const pid = safeStr(a.project_id);
       const existing = artifactByProject.get(pid);
-      // Prefer: approved > submitted > draft; and newer updated_at
-      if (!existing) { artifactByProject.set(pid, a); continue; }
-      const rank = (s: string) => s === "approved" ? 3 : s === "submitted" ? 2 : 1;
-      if (rank(a.approval_status) > rank(existing.approval_status)) artifactByProject.set(pid, a);
+      if (!existing || rank(a.approval_status) > rank(existing.approval_status)) {
+        artifactByProject.set(pid, a);
+      }
     }
 
-    // 6. Aggregate by category
+    // 7. Aggregate monthly data by cost category
     const catTotals = new Map<string, Map<string, { budget: number; actual: number; forecast: number }>>();
     const catOrder  : string[] = [];
     const catSeen   = new Set<string>();
@@ -140,7 +180,6 @@ export async function GET(req: Request) {
     for (const id of projectIds) {
       const artifact = artifactByProject.get(id);
       if (!artifact?.content_json) continue;
-
       const cj      = artifact.content_json;
       const lines   = (Array.isArray(cj.cost_lines) ? cj.cost_lines : Array.isArray(cj.lines) ? cj.lines : []) as any[];
       const monthly = (cj.monthly_data ?? cj.monthlyData ?? {}) as Record<string, Record<string, any>>;
@@ -153,24 +192,24 @@ export async function GET(req: Request) {
         const display = raw || safeStr(line.category || "Uncategorised").trim() || "Uncategorised";
         const catKey  = display.toLowerCase();
         if (!catSeen.has(catKey)) { catSeen.add(catKey); catOrder.push(display); }
-        for (const [mk, raw2] of Object.entries(monthly[lineId] ?? {})) {
+        for (const [mk, entry] of Object.entries(monthly[lineId] ?? {})) {
           if (!monthSet.has(mk)) continue;
-          const entry = raw2 as any;
+          const e = entry as any;
           if (!catTotals.has(catKey)) catTotals.set(catKey, new Map());
           const m  = catTotals.get(catKey)!;
           const ex = m.get(mk) ?? { budget: 0, actual: 0, forecast: 0 };
           m.set(mk, {
-            budget:   ex.budget   + safeNum(entry?.budget   ?? entry?.budgetAmount   ?? 0),
-            actual:   ex.actual   + safeNum(entry?.actual   ?? entry?.actualAmount   ?? 0),
-            forecast: ex.forecast + safeNum(entry?.forecast ?? entry?.forecastAmount ?? 0),
+            budget:   ex.budget   + safeNum(e?.budget   ?? e?.budgetAmount   ?? 0),
+            actual:   ex.actual   + safeNum(e?.actual   ?? e?.actualAmount   ?? 0),
+            forecast: ex.forecast + safeNum(e?.forecast ?? e?.forecastAmount ?? 0),
           });
         }
       }
     }
 
-    // 7. Build output
+    // 8. Build output in FinancialPlanMonthlyView-compatible shape
     const aggregatedLines: { id: string; category: string; description: string }[] = [];
-    const monthlyData: Record<string, Record<string, { budget: number | ""; actual: number | ""; forecast: number | ""; locked: boolean }>> = {};
+    const monthlyData: Record<string, Record<string, { budget: number|""; actual: number|""; forecast: number|""; locked: boolean }>> = {};
 
     for (const display of catOrder) {
       const catKey = display.toLowerCase();
@@ -178,10 +217,10 @@ export async function GET(req: Request) {
       if (!catMap) continue;
       const id = `portfolio-${catKey.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
       aggregatedLines.push({ id, category: display, description: display });
-      const lineMonthly: Record<string, { budget: number | ""; actual: number | ""; forecast: number | ""; locked: boolean }> = {};
+      const lineMonthly: Record<string, { budget: number|""; actual: number|""; forecast: number|""; locked: boolean }> = {};
       for (const mk of monthKeys) {
         const e = catMap.get(mk);
-        lineMonthly[mk] = { budget: e?.budget || "", actual: e?.actual || "", forecast: e?.forecast || "", locked: mk < nowKey };
+        lineMonthly[mk] = { budget: e?.budget||"", actual: e?.actual||"", forecast: e?.forecast||"", locked: mk < nowKey };
       }
       monthlyData[id] = lineMonthly;
     }
