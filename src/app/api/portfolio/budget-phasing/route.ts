@@ -46,6 +46,10 @@ const PM_ROLE_CANDIDATES = [
   "programme_manager", "program_manager",
   "programme manager", "program manager",
   "delivery_manager", "delivery manager",
+  "lead project manager", "lead_project_manager",
+  "senior project manager", "senior_project_manager",
+  "principal project manager", "principal_project_manager",
+  "project lead", "project_lead",
 ];
 
 export async function GET(req: Request) {
@@ -93,12 +97,19 @@ export async function GET(req: Request) {
 
     // 3. PM resolution — same as artifact page getProjectManagerNameBestEffort
     //    Step A: query project_members for PM role
-    const { data: pmMembers } = await supabase
+    // Use ilike for PM role matching to catch variants like "Lead Project Manager"
+    // Fetch all active members then filter by PM-like roles client-side
+    const { data: allMembers } = await supabase
       .from("project_members")
       .select("project_id, user_id, role")
       .in("project_id", allProjectIds)
-      .eq("is_active", true)
-      .in("role", PM_ROLE_CANDIDATES);
+      .eq("is_active", true);
+
+    const PM_ROLE_KEYWORDS = ["project_manager", "project manager", "pm", "programme_manager", "program_manager", "delivery_manager", "lead project manager", "lead pm"];
+    const pmMembers = (allMembers ?? []).filter((m: any) => {
+      const role = safeStr(m.role).toLowerCase().trim();
+      return PM_ROLE_KEYWORDS.some(k => role === k || role.includes("project manager") || role.includes("programme manager") || role.includes("program manager") || role === "pm" || role.includes("delivery manager"));
+    });
 
     // Step B: collect all user IDs to fetch profiles (PM members + project_manager_id fallbacks)
     const pmMemberUserIds = [...new Set((pmMembers ?? []).map((m: any) => safeStr(m.user_id)).filter(Boolean))];
@@ -210,9 +221,14 @@ export async function GET(req: Request) {
       let lineActual = 0;
       for (const line of lines) {
         const lineData = monthly[safeStr(line.id)] ?? {};
-        for (const mk of monthKeys) {
-          // Include current month actuals (use <= not <)
-          if (mk <= nowKey) lineActual += safeNum(lineData[mk]?.actual ?? 0);
+        // Check both FY monthKeys AND all keys in the monthly data
+        // (in case the financial plan uses different key format)
+        const allMonthKeys = new Set([...monthKeys, ...Object.keys(lineData)]);
+        for (const mk of allMonthKeys) {
+          // Only include months within the FY and up to today
+          if (monthSet.has(mk) && mk <= nowKey) {
+            lineActual += safeNum(lineData[mk]?.actual ?? lineData[mk]?.actualAmount ?? 0);
+          }
         }
       }
       if (lineActual > 0) monthlyActualByProject.set(id, lineActual);
