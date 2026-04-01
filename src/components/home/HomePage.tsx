@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 // src/components/home/HomePage.tsx -- dashboard-summary single-effect version
-// ✅ Upgraded: Intelligence states, governance alerts, action-oriented KPIs
-// ✅ Schedule intelligence wired: dueSoon / nextMilestone / hasAny / insight / signals
+// âœ… Upgraded: Intelligence states, governance alerts, action-oriented KPIs
+// âœ… Schedule intelligence wired: dueSoon / nextMilestone / hasAny / insight / signals
 
 import React, {
   useCallback,
@@ -63,7 +63,7 @@ const ExecutiveBriefingCard = dynamic(
             </div>
             <div>
               <div className="font-black text-slate-900" style={{ letterSpacing: "-0.01em" }}>Executive Briefing</div>
-              <div className="mt-0.5 text-xs text-slate-400">AI-generated portfolio narrative · Ready</div>
+              <div className="mt-0.5 text-xs text-slate-400">AI-generated portfolio narrative Â· Ready</div>
             </div>
           </div>
         </div>
@@ -452,7 +452,7 @@ function ragDotColor(r: RagLetter) { return r === "G" ? "#22c55e" : r === "A" ? 
 function winTypeIcon(type: string): string {
   const t = (type ?? "").toLowerCase();
   if (t.includes("risk")) return "!";
-  if (t.includes("commercial") || t.includes("budget")) return "£";
+  if (t.includes("commercial") || t.includes("budget")) return "\u00A3";
   if (t.includes("learning") || t.includes("lesson")) return "L";
   if (t.includes("change") || t.includes("governance")) return "C";
   if (t.includes("milestone") || t.includes("delivery")) return "M";
@@ -587,9 +587,9 @@ function toDueDigestItemFromScheduleItem(x: ScheduleIntelligenceItem): DueDigest
 }
 
 function formatMoney(n: number): string {
-  if (n >= 1_000_000) return `£${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `£${Math.round(n / 1_000)}k`;
-  return `£${Math.round(n)}`;
+  if (n >= 1_000_000) return `Â£${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `Â£${Math.round(n / 1_000)}k`;
+  return `Â£${Math.round(n)}`;
 }
 
 /* --- Notification Bell ---------------------------------------------------- */
@@ -1053,12 +1053,12 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
               setBriefingData((prev: any) => {
                 if (!prev?.ok) return prev;
                 const sentiment = liveScore >= 85 ? "green" : liveScore >= 70 ? "amber" : "red";
-                const execSummary = liveScore >= 85 ? `Portfolio health is strong at ${liveScore}%. ${patchRag.g} project${patchRag.g !== 1 ? "s" : ""} green — delivery signals on track.` : liveScore >= 70 ? `Portfolio health is amber at ${liveScore}%. ${patchRag.a} project${patchRag.a !== 1 ? "s" : ""} need${patchRag.a === 1 ? "s" : ""} attention — monitor schedule and RAID signals.` : `Portfolio health is red at ${liveScore}%. ${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} require${patchRag.r === 1 ? "s" : ""} immediate review — schedule, RAID, and governance issues present.`;
+                const execSummary = liveScore >= 85 ? `Portfolio health is strong at ${liveScore}%. ${patchRag.g} project${patchRag.g !== 1 ? "s" : ""} green â€” delivery signals on track.` : liveScore >= 70 ? `Portfolio health is amber at ${liveScore}%. ${patchRag.a} project${patchRag.a !== 1 ? "s" : ""} need${patchRag.a === 1 ? "s" : ""} attention â€” monitor schedule and RAID signals.` : `Portfolio health is red at ${liveScore}%. ${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} require${patchRag.r === 1 ? "s" : ""} immediate review â€” schedule, RAID, and governance issues present.`;
                 const liveTalkingPoints = [`Portfolio mix is ${patchRag.g} green / ${patchRag.a} amber / ${patchRag.r} red.`, `Average health is ${liveScore}%.`, ...((prev.talking_points ?? []) as string[]).filter((tp: string) => !safeStr(tp).toLowerCase().includes("green") && !safeStr(tp).toLowerCase().includes("amber") && !safeStr(tp).toLowerCase().includes("red") && !safeStr(tp).toLowerCase().includes("health is") && !safeStr(tp).toLowerCase().includes("portfolio mix"))];
                 const patchedSections = (prev.sections ?? []).map((s: any) => {
                   if (s.id === "health") return { ...s, sentiment, body: `Average portfolio health is ${liveScore}%. Current mix: ${patchRag.g} green, ${patchRag.a} amber, ${patchRag.r} red.` };
                   if (s.id === "delivery" && sentiment === "red") return { ...s, sentiment: "red", body: `${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} ha${patchRag.r === 1 ? "s" : "ve"} overdue milestones. Schedule delivery requires immediate attention.` };
-                  if (s.id === "delivery" && sentiment === "amber") return { ...s, sentiment: "amber", body: `Delivery signals require monitoring — some milestones are approaching or past due dates.` };
+                  if (s.id === "delivery" && sentiment === "amber") return { ...s, sentiment: "amber", body: `Delivery signals require monitoring â€” some milestones are approaching or past due dates.` };
                   if (s.id === "finance") { const fpData = nextFp as any; const budget = fpData?.ok ? (fpData.portfolio?.totalBudget ?? fpData.portfolio?.total_budget ?? fpData.total_approved_budget ?? fpData.approved_budget ?? fpData.budget ?? null) : null; const spent = fpData?.ok ? (fpData.portfolio?.totalActual ?? fpData.portfolio?.total_actual ?? fpData.portfolio?.totalSpent ?? fpData.total_spent ?? fpData.actual_spent ?? fpData.spent ?? null) : null; const bNum = budget != null && Number.isFinite(Number(budget)) && Number(budget) > 0 ? Number(budget) : null; const sNum = spent != null && Number.isFinite(Number(spent)) && Number(spent) > 0 ? Number(spent) : null; const bStr = bNum != null ? formatMoney(bNum) : null; const sStr = sNum != null ? formatMoney(sNum) : null; const body = bStr ? `Total portfolio budget is ${bStr}.${sStr ? ` ${sStr} spent to date.` : " No actuals recorded yet."}` : s.body; return { ...s, body }; }
                   return s;
                 });
@@ -1089,7 +1089,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
 
   const raidCardSub = !raidPanel ? "Calculating risk signals..." :
     openRisksValue === 0 && openIssuesValue === 0 ? "No risks or issues detected this period" :
-    raidHighSeverity > 0 ? `${raidHighSeverity} high-impact · ${openIssuesValue} issue${openIssuesValue !== 1 ? "s" : ""} due` :
+    raidHighSeverity > 0 ? `${raidHighSeverity} high-impact Â· ${openIssuesValue} issue${openIssuesValue !== 1 ? "s" : ""} due` :
     `${openIssuesValue} issue${openIssuesValue !== 1 ? "s" : ""} due this period`;
 
   const fpHasData = fpSummary?.ok === true;
@@ -1097,7 +1097,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
   const fpVariancePct = fpHasData ? (fpSummary as any).variance_pct ?? fpPortfolioPre?.variance_pct ?? fpPortfolioPre?.variancePct ?? fpPortfolioPre?.variance : null;
   const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
   const fpRag = fpHasData ? (((fpSummary as any).rag || fpPortfolioPre?.rag) as RagLetter) ?? null : null;
-  const fpCurrency = fpHasData ? safeStr((fpSummary as any).currency || fpPortfolioPre?.currency).trim() || "£" : "£";
+  const fpCurrency = fpHasData ? safeStr((fpSummary as any).currency || fpPortfolioPre?.currency).trim() || "\u00A3" : "\u00A3";
   const fpPortfolio = fpPortfolioPre;
 
   const fpBudgetRaw = fpHasData ? (() => { const s = fpSummary as any; const p = fpPortfolio ?? {}; const nested = p.totalBudget ?? p.total_budget ?? p.approvedBudget ?? p.approved_budget ?? p.totalApprovedBudget ?? p.budgeted ?? p.budget; if (nested != null && Number(nested) > 0) return nested; const topLevel = s.total_approved_budget ?? s.approved_budget ?? s.total_budget ?? s.budget_total ?? s.budgeted ?? s.total_budgeted ?? s.budget ?? s.plan_budget ?? s.total_plan_budget ?? s.approved; if (topLevel != null) return topLevel; for (const [k, v] of Object.entries(s)) { const kl = k.toLowerCase(); if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v; } for (const [k, v] of Object.entries(p)) { const kl = k.toLowerCase(); if ((kl.includes("budget") || kl.includes("approved")) && Number.isFinite(Number(v)) && Number(v) > 0) return v; } return undefined; })() : undefined;
@@ -1114,7 +1114,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
 
   const fpValueLabel = fpTotalBudget != null ? formatBudget(fpTotalBudget, fpCurrency) : fpLoading ? "..." : "No data";
   const fpSubLabel = fpHasData
-    ? fpTotalSpent != null ? `${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` · ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}` : `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "needs monitoring" : "over budget"}`
+    ? fpTotalSpent != null ? `${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` Â· ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}` : `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "needs monitoring" : "over budget"}`
     : fpLoading ? "Loading financial plans..." : "No approved financial plans";
   const fpTrendLabel = fpVarianceNum != null && fpVarianceNum !== 0 ? `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%` : undefined;
 
@@ -1147,13 +1147,13 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
   const milestoneKpiSub = milestonesDueLive == null
     ? "Loading schedule intelligence..."
     : !scheduleHasAny
-      ? "No milestones defined — schedule visibility limited"
+      ? "No milestones defined â€” schedule visibility limited"
       : scheduleHasOverdue
-        ? `${scheduleOverdueCount} overdue · schedule risk detected`
+        ? `${scheduleOverdueCount} overdue Â· schedule risk detected`
         : milestonesDueLive > 0
           ? `${milestonesDueLive} due in next ${windowDays === "all" ? "60" : windowDays} days`
           : scheduleNextMilestone
-            ? `Next: ${scheduleNextMilestone.title}${nextMilestoneDays != null ? ` · ${nextMilestoneDays > 0 ? `${nextMilestoneDays}d` : "due soon"}` : ""}`
+            ? `Next: ${scheduleNextMilestone.title}${nextMilestoneDays != null ? ` Â· ${nextMilestoneDays > 0 ? `${nextMilestoneDays}d` : "due soon"}` : ""}`
             : `No milestones due in next ${windowDays === "all" ? "60" : windowDays} days`;
 
   const milestoneKpiColorKey =
@@ -1194,7 +1194,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600"><Layers className="h-4 w-4 text-white" /></div>
               <div className="flex items-baseline gap-2.5">
                 <span className="text-base font-bold text-gray-900">Organisation Portfolio</span>
-                <span className="hidden text-xs text-gray-400 md:block">Enterprise project portfolio overview{filtersActive ? ` · filtered (${activeProjectCountLabel})` : ""}</span>
+                <span className="hidden text-xs text-gray-400 md:block">Enterprise project portfolio overview{filtersActive ? ` Â· filtered (${activeProjectCountLabel})` : ""}</span>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -1230,10 +1230,10 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                 <span className="font-semibold text-gray-700">Active filters:</span>{" "}
                 <span className="truncate">
                   {urlFilters.q ? `q="${urlFilters.q}" ` : ""}
-                  {urlFilters.projectId?.length ?? 0 ? `· Projects ${urlFilters.projectId!.length} ` : ""}
-                  {urlFilters.projectCode?.length ?? 0 ? `· Codes ${urlFilters.projectCode!.length} ` : ""}
-                  {urlFilters.projectManagerId?.length ?? 0 ? `· PM ${urlFilters.projectManagerId!.length} ` : ""}
-                  {urlFilters.department?.length ?? 0 ? `· Dept ${urlFilters.department!.length} ` : ""}
+                  {urlFilters.projectId?.length ?? 0 ? `Â· Projects ${urlFilters.projectId!.length} ` : ""}
+                  {urlFilters.projectCode?.length ?? 0 ? `Â· Codes ${urlFilters.projectCode!.length} ` : ""}
+                  {urlFilters.projectManagerId?.length ?? 0 ? `Â· PM ${urlFilters.projectManagerId!.length} ` : ""}
+                  {urlFilters.department?.length ?? 0 ? `Â· Dept ${urlFilters.department!.length} ` : ""}
                 </span>
               </div>
               <button onClick={clearFilters} className="rounded-xl bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-200 hover:text-gray-900">Clear all</button>
@@ -1254,7 +1254,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
               <div className="mb-2 flex items-start justify-between">
                 <div>
                   <h3 className="font-semibold text-gray-900">Resource Activity</h3>
-                  <p className="mt-0.5 text-xs text-gray-400">Week-on-week capacity vs demand (FTE) — {windowDays === "all" ? "60" : windowDays} days</p>
+                  <p className="mt-0.5 text-xs text-gray-400">Week-on-week capacity vs demand (FTE) â€” {windowDays === "all" ? "60" : windowDays} days</p>
                 </div>
                 <div className="mt-1 flex items-center gap-4 text-xs text-gray-400">
                   <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#93c5fd" }} />Capacity</span>
@@ -1307,13 +1307,13 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                     <Flame className="h-4 w-4 text-orange-500" />
                     <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-orange-500">Live Signals</div>
                   </div>
-                  <h3 className="mt-1 text-base font-semibold text-gray-900">Governance Alerts · Next {dueWindowDays} days</h3>
+                  <h3 className="mt-1 text-base font-semibold text-gray-900">Governance Alerts Â· Next {dueWindowDays} days</h3>
                 </div>
                 <button onClick={() => router.push(appendFiltersToUrl(`/insights?days=${numericWindowDays}`, urlFilters))} className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1">View all <ChevronRight className="h-3 w-3" /></button>
               </div>
               {governanceAllClear ? (
                 <div className="rounded-xl border border-green-100 bg-green-50/60 px-4 py-3 text-sm font-medium text-green-700">
-                  ✅ No governance alerts — portfolio posture is stable for the next {dueWindowDays} days
+                  âœ… No governance alerts â€” portfolio posture is stable for the next {dueWindowDays} days
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -1400,7 +1400,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                     <>
                     {scheduleInsightSummary && (
 <div className={["rounded-xl border px-4 py-3 text-sm font-medium", scheduleCardToneClasses].join(" ")} style={{ color: "#374151" }}> 
- {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days — next milestone scheduled ahead.`}
+ {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days â€” next milestone scheduled ahead.`}
 </div>)}                      {allDueItems.map((it, i) => (
                         <MilestoneCard key={`${it.title}-${i}`} item={it} onClick={() => { const href = safeStr(it?.link).trim(); if (href && !href.includes("/raid") && !href.includes("/risks")) router.push(href); else router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters)); }} />
                       ))}
@@ -1408,14 +1408,14 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                   ) : !scheduleHasAny ? (
                     <div className="space-y-3 py-4 text-center">
                       <AlertTriangle className="mx-auto h-7 w-7 text-amber-300" />
-                      <p className="text-sm text-gray-500">No milestones defined — schedule visibility limited</p>
+                      <p className="text-sm text-gray-500">No milestones defined â€” schedule visibility limited</p>
                       <p className="text-xs text-gray-400">Add milestones to track delivery progress and upcoming commitments</p>
                       <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))} className="text-xs font-medium text-blue-600 hover:text-blue-700">Open schedule</button>
                     </div>
                   ) : scheduleNextMilestone ? (
                     <div className="space-y-3">
                       <div className={["rounded-xl border px-4 py-3 text-sm font-medium", scheduleCardToneClasses].join(" ")} style={{ color: "#374151" }}>
-                        {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days — next milestone scheduled ahead.`}
+                        {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days â€” next milestone scheduled ahead.`}
                       </div>
                       <div className="rounded-xl border border-gray-100 bg-white p-4">
                         <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-gray-400">Next milestone</div>
@@ -1430,7 +1430,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                   ) : (
                     <div className="py-8 text-center">
                       <CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-gray-200" />
-                      <p className="text-sm text-gray-400">{activeProjects.length === 0 ? "No active projects in scope" : `No milestones due in the next ${dueWindowDays} days — schedule on track`}</p>
+                      <p className="text-sm text-gray-400">{activeProjects.length === 0 ? "No active projects in scope" : `No milestones due in the next ${dueWindowDays} days â€” schedule on track`}</p>
                       <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))} className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-700">View milestone list</button>
                     </div>
                   )}
