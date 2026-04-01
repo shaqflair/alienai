@@ -173,6 +173,65 @@ export async function GET(req: Request) {
       }
     }
 
+    // 6b. FY-scoped actual spend — sum from TWO sources and take the higher:
+    //   1. monthly_data.actual in the financial plan (populated from timesheet sync)
+    //   2. project_spend table (direct spend entries)
+    //   This ensures we capture actuals regardless of which mechanism was used.
+
+    // Source 1: project_spend table filtered by FY date range
+    const fyStartDate = `${fyYear}-${String(fyStart).padStart(2, "0")}-01`;
+    const fyEndMonth  = monthKeys[monthKeys.length - 1];
+    const [fyEndYear, fyEndMo] = fyEndMonth.split("-").map(Number);
+    // Use today as the end date for actuals so current month spend is included
+    const today       = new Date();
+    const fyEndDate   = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+
+    const { data: spendRows } = await supabase
+      .from("project_spend")
+      .select("project_id, amount, spend_date")
+      .in("project_id", projectIds)
+      .gte("spend_date", fyStartDate)
+      .lte("spend_date", fyEndDate);
+
+    const spendByProject = new Map<string, number>();
+    for (const row of (spendRows ?? []) as any[]) {
+      const pid = safeStr(row.project_id);
+      spendByProject.set(pid, (spendByProject.get(pid) ?? 0) + safeNum(row.amount));
+    }
+
+    // Source 2: monthly_data.actual from financial plans (from timesheet sync)
+    const monthlyActualByProject = new Map<string, number>();
+    for (const id of projectIds) {
+      const artifact = artifactByProject.get(id);
+      if (!artifact?.content_json) continue;
+      const cj      = artifact.content_json;
+      const lines   = (Array.isArray(cj.cost_lines) ? cj.cost_lines : Array.isArray(cj.lines) ? cj.lines : []) as any[];
+      const monthly = (cj.monthly_data ?? cj.monthlyData ?? {}) as Record<string, Record<string, any>>;
+      let lineActual = 0;
+      for (const line of lines) {
+        const lineData = monthly[safeStr(line.id)] ?? {};
+        for (const mk of monthKeys) {
+          // Include current month actuals (use <= not <)
+          if (mk <= nowKey) lineActual += safeNum(lineData[mk]?.actual ?? 0);
+        }
+      }
+      if (lineActual > 0) monthlyActualByProject.set(id, lineActual);
+    }
+
+    // Combine: use monthly_data actual if present (more granular), else project_spend
+    const fyActualByProject = new Map<string, number>();
+    let totalFyActual = 0;
+    for (const id of projectIds) {
+      const fromMonthly = monthlyActualByProject.get(id) ?? 0;
+      const fromSpend   = spendByProject.get(id) ?? 0;
+      // Take the higher of the two — they should be the same source but just in case
+      const actual = Math.max(fromMonthly, fromSpend);
+      if (actual > 0) {
+        fyActualByProject.set(id, actual);
+        totalFyActual += actual;
+      }
+    }
+
     // 7. Aggregate monthly data by cost category
     const catTotals = new Map<string, Map<string, { budget: number; actual: number; forecast: number }>>();
     const catOrder  : string[] = [];
@@ -270,6 +329,12 @@ export async function GET(req: Request) {
       }
     }
 
+    // Enrich allProjects with FY-scoped actual for the project rows
+    const enrichedProjectsWithActual = enrichedProjects.map((p: any) => ({
+      ...p,
+      fyActual: fyActualByProject.get(p.id) ?? 0,
+    }));
+
     return NextResponse.json({
       ok: true, fyStart, fyYear, numMonths, monthKeys,
       aggregatedLines, monthlyData,
@@ -278,9 +343,11 @@ export async function GET(req: Request) {
       projectsInFyCount: projectsInFy.size,
       filteredProjectCount: projectIds.length,
       scope,
-      allProjects: enrichedProjects,
+      allProjects: enrichedProjectsWithActual,
       totalApprovedBudget,
       approvedBudgetByProject,
+      totalFyActual,
+      fyActualByProject: Object.fromEntries(fyActualByProject),
     });
   } catch (e: any) {
     console.error("[portfolio/budget-phasing]", e);
