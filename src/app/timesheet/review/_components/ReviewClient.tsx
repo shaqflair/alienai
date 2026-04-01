@@ -2,7 +2,7 @@
 // FILE: src/app/timesheet/review/_components/ReviewClient.tsx
 
 import { useState, useTransition } from "react";
-import type { ReviewTimesheetRow } from "../page";
+import type { ReviewTimesheetRow, ReviewEntryRow } from "../page";
 import { reviewTimesheetAction } from "../../actions";
 
 function fmtDate(iso: string | null): string {
@@ -15,14 +15,28 @@ function fmtDate(iso: string | null): string {
 function fmtWeek(iso: string): string {
   const end = new Date(iso);
   end.setUTCDate(end.getUTCDate() + 6);
-  return `${fmtDate(iso)} - ${fmtDate(end.toISOString().slice(0, 10))}`;
+  return `${fmtDate(iso)} \u2013 ${fmtDate(end.toISOString().slice(0, 10))}`;
+}
+
+function fmtDay(iso: string): string {
+  if (!iso) return "--";
+  return new Date(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 }
 
 const STATUS_META: Record<string, { label: string; colour: string; bg: string }> = {
-  draft:     { label: "Draft",     colour: "#64748b", bg: "rgba(100,116,139,0.1)" },
+  draft:      { label: "Draft",      colour: "#64748b", bg: "rgba(100,116,139,0.1)" },
   submitted: { label: "Submitted", colour: "#d97706", bg: "rgba(245,158,11,0.1)"  },
   approved:  { label: "Approved",  colour: "#059669", bg: "rgba(16,185,129,0.1)"  },
   rejected:  { label: "Rejected",  colour: "#dc2626", bg: "rgba(239,68,68,0.1)"   },
+};
+
+const NON_PROJECT_LABELS: Record<string, string> = {
+  annual_leave:    "Annual Leave",
+  sick_leave:      "Sick Leave",
+  public_holiday:  "Public Holiday",
+  training:        "Training",
+  internal:        "Internal / Admin",
+  other:           "Other",
 };
 
 function Badge({ status }: { status: string }) {
@@ -36,10 +50,101 @@ function Badge({ status }: { status: string }) {
   );
 }
 
+function EntryTable({ entries }: { entries: ReviewEntryRow[] }) {
+  if (entries.length === 0) {
+    return (
+      <p style={{ fontSize: "12px", color: "#94a3b8", fontStyle: "italic", margin: "8px 0" }}>
+        No entries recorded this week.
+      </p>
+    );
+  }
+
+  // Group by project/category
+  const grouped = new Map<string, { label: string; code: string | null; entries: ReviewEntryRow[] }>();
+  for (const e of entries) {
+    const key = e.projectId ?? e.nonProjectCategory ?? "other";
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        label: e.projectTitle ?? NON_PROJECT_LABELS[e.nonProjectCategory ?? ""] ?? e.nonProjectCategory ?? "Other",
+        code:  e.projectCode ?? null,
+        entries: [],
+      });
+    }
+    grouped.get(key)!.entries.push(e);
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "12px" }}>
+      {[...grouped.values()].map((group, gi) => {
+        const groupTotal = group.entries.reduce((s, e) => s + e.hours, 0);
+        return (
+          <div key={gi} style={{
+            border: "1px solid #e2e8f0", borderRadius: "8px", overflow: "hidden",
+          }}>
+            {/* Project header */}
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "8px 12px", background: "#f8fafc",
+              borderBottom: "1px solid #e2e8f0",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{
+                  width: 8, height: 8, borderRadius: "50%",
+                  background: group.code ? "#0e7490" : "#94a3b8",
+                }} />
+                <span style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a" }}>
+                  {group.label}
+                </span>
+                {group.code && (
+                  <span style={{
+                    fontSize: "9px", fontWeight: 700, color: "#0e7490",
+                    background: "rgba(14,116,144,0.08)", padding: "1px 6px",
+                    borderRadius: "4px", border: "1px solid rgba(14,116,144,0.2)",
+                    fontFamily: "monospace",
+                  }}>{group.code}</span>
+                )}
+              </div>
+              <span style={{ fontSize: "12px", fontWeight: 800, color: "#0f172a" }}>
+                {groupTotal}h
+              </span>
+            </div>
+
+            {/* Day rows */}
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#fafafa" }}>
+                  <th style={{ padding: "5px 12px", textAlign: "left", fontSize: "9px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #f1f5f9" }}>Date</th>
+                  <th style={{ padding: "5px 8px",  textAlign: "right", fontSize: "9px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #f1f5f9", width: "50px" }}>Hours</th>
+                  <th style={{ padding: "5px 12px", textAlign: "left",  fontSize: "9px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #f1f5f9" }}>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.entries.map((e, ei) => (
+                  <tr key={e.id} style={{ borderBottom: ei < group.entries.length - 1 ? "1px solid #f1f5f9" : "none" }}>
+                    <td style={{ padding: "7px 12px", fontSize: "11px", color: "#475569", whiteSpace: "nowrap" }}>
+                      {fmtDay(e.workDate)}
+                    </td>
+                    <td style={{ padding: "7px 8px", fontSize: "12px", fontWeight: 700, color: "#0f172a", textAlign: "right" }}>
+                      {e.hours}h
+                    </td>
+                    <td style={{ padding: "7px 12px", fontSize: "11px", color: e.description ? "#475569" : "#cbd5e1", fontStyle: e.description ? "normal" : "italic" }}>
+                      {e.description ?? "No description"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ReviewRow({ row, onDone }: { row: ReviewTimesheetRow; onDone: (id: string, status: string) => void }) {
   const [note,    setNote]    = useState(row.reviewerNote ?? "");
   const [open,    setOpen]    = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
+  const [error,    setError]   = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function doAction(action: "approve" | "reject") {
@@ -72,7 +177,6 @@ function ReviewRow({ row, onDone }: { row: ReviewTimesheetRow; onDone: (id: stri
         padding: "14px 16px", flexWrap: "wrap",
         cursor: "pointer",
       }} onClick={() => setOpen(o => !o)}>
-        {/* Avatar */}
         <div style={{
           width: 32, height: 32, borderRadius: "50%",
           background: "rgba(14,116,144,0.12)", color: "#0e7490",
@@ -112,20 +216,20 @@ function ReviewRow({ row, onDone }: { row: ReviewTimesheetRow; onDone: (id: stri
           >
             CSV
           </a>
-          <span style={{ fontSize: "16px", color: "#94a3b8" }}>{open ? "v" : ">"}</span>
+          <span style={{ fontSize: "14px", color: "#94a3b8", transform: open ? "rotate(90deg)" : "none", display: "inline-block", transition: "transform 0.15s" }}>&#8250;</span>
         </div>
       </div>
 
-      {/* Expanded review panel */}
+      {/* Expanded panel */}
       {open && (
         <div style={{
           borderTop: "1px solid #f1f5f9",
-          padding: "14px 16px",
+          padding: "16px",
           background: "#fafafa",
         }}>
           {error && (
             <div style={{
-              padding: "8px 12px", borderRadius: "7px", marginBottom: "10px",
+              padding: "8px 12px", borderRadius: "7px", marginBottom: "12px",
               background: "rgba(239,68,68,0.08)", border: "1.5px solid rgba(239,68,68,0.2)",
               color: "#dc2626", fontSize: "12px",
             }}>{error}</div>
@@ -133,7 +237,7 @@ function ReviewRow({ row, onDone }: { row: ReviewTimesheetRow; onDone: (id: stri
 
           {row.reviewerNote && row.status !== "submitted" && (
             <div style={{
-              padding: "8px 12px", borderRadius: "7px", marginBottom: "10px",
+              padding: "8px 12px", borderRadius: "7px", marginBottom: "12px",
               background: "rgba(100,116,139,0.06)", border: "1.5px solid #f1f5f9",
               fontSize: "12px", color: "#475569",
             }}>
@@ -141,8 +245,20 @@ function ReviewRow({ row, onDone }: { row: ReviewTimesheetRow; onDone: (id: stri
             </div>
           )}
 
+          {/* Entry breakdown */}
+          <div style={{ marginBottom: "16px" }}>
+            <div style={{
+              fontSize: "10px", fontWeight: 800, color: "#94a3b8",
+              textTransform: "uppercase", letterSpacing: "0.06em",
+              marginBottom: "10px",
+            }}>
+              Time breakdown — {row.entries.length} entr{row.entries.length !== 1 ? "ies" : "y"}
+            </div>
+            <EntryTable entries={row.entries} />
+          </div>
+
           {canReview && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid #e2e8f0", paddingTop: "14px" }}>
               <div>
                 <label style={{
                   fontSize: "10px", fontWeight: 800, color: "#94a3b8",
@@ -197,11 +313,13 @@ function ReviewRow({ row, onDone }: { row: ReviewTimesheetRow; onDone: (id: stri
 }
 
 export default function ReviewClient({
-  rows: initial, statusFilter, exportAllUrl,
+  rows: initial, statusFilter, exportAllUrl, isAdmin, reviewerName,
 }: {
   rows:          ReviewTimesheetRow[];
   statusFilter: string;
   exportAllUrl: string;
+  isAdmin:      boolean;
+  reviewerName: string;
 }) {
   const [rows, setRows] = useState<ReviewTimesheetRow[]>(initial);
 
@@ -210,7 +328,6 @@ export default function ReviewClient({
   }
 
   const filters = ["submitted", "approved", "rejected", "all"];
-
   const pendingCount = rows.filter(r => r.status === "submitted").length;
 
   return (
@@ -278,7 +395,6 @@ export default function ReviewClient({
           })}
         </div>
 
-        {/* List */}
         {rows.length === 0 ? (
           <div style={{
             padding: "48px 0", textAlign: "center",

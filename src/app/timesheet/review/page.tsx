@@ -1,5 +1,4 @@
-﻿// FILE: src/app/timesheet/review/page.tsx
-import "server-only";
+﻿import "server-only";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
@@ -9,6 +8,17 @@ export const dynamic  = "force-dynamic";
 export const metadata = { title: "Review Timesheets | Aliena" };
 
 function safeStr(x: unknown): string { return typeof x === "string" ? x : ""; }
+
+export type ReviewEntryRow = {
+  id:                  string;
+  workDate:            string;
+  hours:               number;
+  description:         string | null;
+  projectId:           string | null;
+  projectTitle:        string | null;
+  projectCode:         string | null;
+  nonProjectCategory:  string | null;
+};
 
 export type ReviewTimesheetRow = {
   id:               string;
@@ -21,6 +31,7 @@ export type ReviewTimesheetRow = {
   userId:           string;
   reviewerNote:     string | null;
   isMyDirectReport: boolean;
+  entries:          ReviewEntryRow[];
 };
 
 export default async function TimesheetReviewPage({
@@ -47,7 +58,6 @@ export default async function TimesheetReviewPage({
   const myRole  = safeStr(mem?.role).toLowerCase();
   const isAdmin = myRole === "admin" || myRole === "owner";
 
-  // Check if I am a line manager for anyone
   const { data: directReports } = await supabase
     .from("profiles")
     .select("user_id")
@@ -63,7 +73,12 @@ export default async function TimesheetReviewPage({
 
   let tsQuery = supabase
     .from("timesheets")
-    .select(`id, week_start_date, status, submitted_at, reviewer_note, user_id, weekly_timesheet_entries(hours)`)
+    .select(`
+      id, week_start_date, status, submitted_at, reviewer_note, user_id,
+      weekly_timesheet_entries(
+        id, work_date, hours, description, project_id, non_project_category
+      )
+    `)
     .eq("organisation_id", organisationId)
     .order("submitted_at", { ascending: false })
     .limit(200);
@@ -72,6 +87,22 @@ export default async function TimesheetReviewPage({
   if (!isAdmin && isLineManager) tsQuery = tsQuery.in("user_id", [...directReportIds]);
 
   const { data: timesheets } = await tsQuery;
+
+  // Collect all project IDs to look up titles
+  const allProjectIds = new Set<string>();
+  for (const t of timesheets ?? []) {
+    for (const e of (t as any).weekly_timesheet_entries ?? []) {
+      if (e.project_id) allProjectIds.add(e.project_id);
+    }
+  }
+  const projectsById = new Map<string, { title: string; project_code: string | null }>();
+  if (allProjectIds.size > 0) {
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("id, title, project_code")
+      .in("id", [...allProjectIds]);
+    (projects ?? []).forEach((p: any) => projectsById.set(String(p.id), { title: p.title, project_code: p.project_code ?? null }));
+  }
 
   const userIds = [...new Set((timesheets ?? []).map((t: any) => safeStr(t.user_id)))];
   const profilesById = new Map<string, any>();
@@ -85,8 +116,26 @@ export default async function TimesheetReviewPage({
 
   const rows: ReviewTimesheetRow[] = (timesheets ?? []).map((t: any) => {
     const profile    = profilesById.get(safeStr(t.user_id)) ?? {};
-    const totalHours = ((t.weekly_timesheet_entries ?? []) as any[])
-      .reduce((sum: number, e: any) => sum + (Number(e.hours) || 0), 0);
+    const rawEntries = (t.weekly_timesheet_entries ?? []) as any[];
+    const totalHours = rawEntries.reduce((sum: number, e: any) => sum + (Number(e.hours) || 0), 0);
+
+    const entries: ReviewEntryRow[] = rawEntries
+      .filter((e: any) => Number(e.hours) > 0)
+      .sort((a: any, b: any) => safeStr(a.work_date).localeCompare(safeStr(b.work_date)))
+      .map((e: any) => {
+        const proj = e.project_id ? projectsById.get(String(e.project_id)) : null;
+        return {
+          id:                  safeStr(e.id),
+          workDate:            safeStr(e.work_date),
+          hours:               Number(e.hours) || 0,
+          description:         e.description ?? null,
+          projectId:           e.project_id ?? null,
+          projectTitle:        proj?.title ?? null,
+          projectCode:         proj?.project_code ?? null,
+          nonProjectCategory: e.non_project_category ?? null,
+        };
+      });
+
     return {
       id:               safeStr(t.id),
       weekStart:        safeStr(t.week_start_date),
@@ -98,6 +147,7 @@ export default async function TimesheetReviewPage({
       userId:           safeStr(t.user_id),
       reviewerNote:     t.reviewer_note ?? null,
       isMyDirectReport: directReportIds.has(safeStr(t.user_id)),
+      entries,
     };
   });
 
@@ -115,7 +165,3 @@ export default async function TimesheetReviewPage({
     />
   );
 }
-
-
-
-
