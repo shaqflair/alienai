@@ -176,13 +176,54 @@ export default function BudgetClient() {
     setLoad(true);
     try {
       const scope = viewMode === "fy" ? "all" : "active";
-      const r = await fetch(`/api/portfolio/financial-plan-summary?scope=${scope}`, { cache: "no-store" });
-      const j = await r.json();
-      setData(j);
+
+      if (viewMode === "fy") {
+        // FY mode: fetch from phasing API which is FY-aware, derive KPIs from monthly totals
+        const [summaryRes, phasingRes] = await Promise.all([
+          fetch(`/api/portfolio/financial-plan-summary?scope=${scope}`, { cache: "no-store" }),
+          fetch(`/api/portfolio/budget-phasing?fyStart=${overviewFyStart}&fyYear=${overviewFyYear}&fyMonths=12&scope=${scope}`, { cache: "no-store" }),
+        ]);
+        const summary = await summaryRes.json();
+        const phasing = await phasingRes.json();
+
+        if (phasing.ok && phasing.aggregatedLines?.length > 0) {
+          // Derive totals from FY phasing data
+          let fyBudget = 0, fyForecast = 0, fyActual = 0;
+          for (const line of phasing.aggregatedLines) {
+            const lineData = phasing.monthlyData?.[line.id] ?? {};
+            for (const entry of Object.values(lineData) as any[]) {
+              fyBudget   += Number(entry?.budget   || 0);
+              fyForecast += Number(entry?.forecast || 0);
+              fyActual   += Number(entry?.actual   || 0);
+            }
+          }
+          // Merge: use FY-aware totals for portfolio KPIs, keep per-project rows from summary
+          setData({
+            ...summary,
+            ok: true,
+            portfolio: {
+              ...(summary.portfolio ?? {}),
+              totalBudget:   fyBudget,
+              totalForecast: fyForecast,
+              totalActual:   fyActual,
+              totalVariance: fyForecast - fyBudget,
+              projectCount:  phasing.projectCount,
+              withPlanCount: phasing.projectsWithPlan,
+            },
+          });
+        } else {
+          setData(summary);
+        }
+      } else {
+        // Live mode: use summary API directly (all-time totals for active projects)
+        const r = await fetch(`/api/portfolio/financial-plan-summary?scope=${scope}`, { cache: "no-store" });
+        const j = await r.json();
+        setData(j);
+      }
     } catch (e: any) {
       setData({ ok: false, error: e?.message, portfolio: { totalBudget: 0, totalForecast: 0, totalActual: 0, totalVariance: 0, projectCount: 0, withPlanCount: 0 }, projects: [] });
     } finally { setLoad(false); }
-  }, [viewMode]);
+  }, [viewMode, overviewFyYear, overviewFyStart]);
 
   useEffect(() => { load(); }, [load]);
 
