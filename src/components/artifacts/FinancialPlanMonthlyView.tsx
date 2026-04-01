@@ -69,7 +69,6 @@ export function buildQuarters(keys: MonthKey[], fyStart: number) {
 
 const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-// FIX 1: Preserve negative sign — -£500 renders as -£500, not £500
 function fmt(n: number | "" | null | undefined, sym: string): string {
   if (n === "" || n == null || isNaN(Number(n))) return "--";
   const v    = Number(n);
@@ -80,7 +79,6 @@ function fmt(n: number | "" | null | undefined, sym: string): string {
   return `${sign}${sym}${abs}`;
 }
 
-// FIX 1: Preserve negative sign — -£12,876 renders as -£12.9k, not £12.9k
 function fmtK(n: number | "" | null | undefined, sym: string): string {
   if (n === "" || n == null || isNaN(Number(n))) return "--";
   const v    = Number(n);
@@ -91,14 +89,8 @@ function fmtK(n: number | "" | null | undefined, sym: string): string {
   return `${sign}${sym}${(abs / 1000).toFixed(1)}k`;
 }
 
-// FIX 2: Grand Total footer uses this formatter.
-// Using the same fmtK rounding (1dp) for BOTH the per-month cells AND the TOTAL FCT
-// column means the displayed values are internally consistent — you can verify that
-// the month columns sum to the total shown on the right.
-// Previously fmtK rounded each cell independently while the total used a different
-// function, causing apparent mismatches like £12.9k × 6 ≠ £88.6k.
 function fmtGrand(n: number | "" | null | undefined, sym: string): string {
-  return fmtK(n, sym); // consistent 1dp rounding throughout the footer
+  return fmtK(n, sym);
 }
 
 function emptyEntry(): MonthlyEntry {
@@ -111,22 +103,43 @@ function currentMonthKey(): MonthKey {
 }
 
 function isCurrentMonth(mk: MonthKey) { return mk === currentMonthKey(); }
-function isPastMonth(mk: MonthKey) { return mk < currentMonthKey(); }
+function isPastMonth(mk: MonthKey)    { return mk < currentMonthKey(); }
 
-// FIX 2: No Math.abs — negative forecast values correctly subtract from totals
+// A month's actual is HARD LOCKED once more than 4 weeks (28 days) have passed
+// since the last day of that month. This gives a grace period for manual entry.
+const GRACE_PERIOD_DAYS = 28;
+function isHardLocked(mk: MonthKey): boolean {
+  const [y, m] = mk.split("-").map(Number);
+  // Last day of month mk
+  const lastDay = new Date(y, m, 0); // day 0 of next month = last day of mk
+  const now     = new Date();
+  const diffMs  = now.getTime() - lastDay.getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  return diffDays > GRACE_PERIOD_DAYS;
+}
+
+// Days remaining in grace period (for UI hint)
+function graceRemainingDays(mk: MonthKey): number {
+  const [y, m] = mk.split("-").map(Number);
+  const lastDay  = new Date(y, m, 0);
+  const now      = new Date();
+  const diffDays = (now.getTime() - lastDay.getTime()) / (1000 * 60 * 60 * 24);
+  return Math.max(0, Math.ceil(GRACE_PERIOD_DAYS - diffDays));
+}
+
 function sumMonths(lines: CostLine[], md: MonthlyData, months: MonthKey[], field: "budget" | "actual" | "forecast"): number {
   return lines.reduce((s, l) => s + months.reduce((ms, mk) => ms + (Number(md[l.id]?.[mk]?.[field]) || 0), 0), 0);
 }
 
-function MoneyInput({ value, onChange, sym, locked, highlight }: {
+function MoneyInput({ value, onChange, sym, locked, highlight, title }: {
   value: number | ""; onChange: (v: number | "") => void;
-  sym: string; locked: boolean; highlight?: "blue" | "green" | "red" | "gray";
+  sym: string; locked: boolean; highlight?: "blue" | "green" | "red" | "gray"; title?: string;
 }) {
   const colorMap: Record<string, string> = { blue: P.navy, green: P.green, red: P.red, gray: P.textSm };
   const color = colorMap[highlight ?? "gray"];
   if (locked) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 3, padding: "5px 6px", fontFamily: P.mono, fontSize: 10, color }}>
+      <div title={title} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 3, padding: "5px 6px", fontFamily: P.mono, fontSize: 10, color }}>
         <Lock style={{ width: 8, height: 8, opacity: 0.4, flexShrink: 0 }} />
         <span style={{ fontVariantNumeric: "tabular-nums" }}>{value !== "" ? fmtK(value, sym) : "--"}</span>
       </div>
@@ -135,6 +148,7 @@ function MoneyInput({ value, onChange, sym, locked, highlight }: {
   return (
     <input type="number" value={value}
       onChange={e => onChange(e.target.value === "" ? "" : Number(e.target.value))}
+      title={title}
       style={{ width: "100%", textAlign: "right", fontSize: 10, fontFamily: P.mono, color, padding: "5px 6px", background: "transparent", border: "none", outline: "none", fontVariantNumeric: "tabular-nums" }}
       onFocus={e => { e.currentTarget.style.outline = `1px solid ${P.navy}`; e.currentTarget.style.background = "#EEF4FA"; }}
       onBlur={e => { e.currentTarget.style.outline = "none"; e.currentTarget.style.background = "transparent"; }}
@@ -215,20 +229,18 @@ export default function FinancialPlanMonthlyView({
     });
   }, [monthlyData, onMonthlyDataChange]);
 
-  // FIX 2: sumMonths preserves sign, so negative forecast rows subtract correctly
   const monthTotals = useMemo(() => {
     const result: Record<MonthKey, { budget: number; actual: number; forecast: number }> = {};
     for (const mk of monthKeys) {
       result[mk] = {
         budget:   sumMonths(lines, monthlyData, [mk], "budget"),
-        actual:   isPastMonth(mk) ? sumMonths(lines, monthlyData, [mk], "actual") : 0,
+        actual:   isPastMonth(mk) || isCurrentMonth(mk) ? sumMonths(lines, monthlyData, [mk], "actual") : 0,
         forecast: sumMonths(lines, monthlyData, [mk], "forecast"),
       };
     }
     return result;
   }, [monthKeys, monthlyData, lines]);
 
-  // Raw sums — sign preserved, no Math.abs
   const grandTotalForecast = visibleMonths.reduce((s, mk) => s + (monthTotals[mk]?.forecast ?? 0), 0);
   const grandTotalBudget   = visibleMonths.reduce((s, mk) => s + (monthTotals[mk]?.budget ?? 0), 0);
 
@@ -293,6 +305,17 @@ export default function FinancialPlanMonthlyView({
         </div>
       </div>
 
+      {/* -- Actuals legend -- */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: P.violetLt, border: `1px solid #C0B0E0`, fontFamily: P.mono, fontSize: 10, color: P.violet }}>
+        <Lock style={{ width: 11, height: 11, flexShrink: 0 }} />
+        <span>
+          <strong>People actuals</strong> are auto-populated from approved timesheets and locked.
+          <span style={{ marginLeft: 12, color: P.amber }}>
+            <strong>Tools &amp; other actuals</strong> are editable for {GRACE_PERIOD_DAYS} days after month-end, then locked.
+          </span>
+        </span>
+      </div>
+
       {/* -- Quarter filter buttons -- */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
         <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", marginRight: 4 }}>Filter:</span>
@@ -345,6 +368,11 @@ export default function FinancialPlanMonthlyView({
                 {DURATION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             )},
+            { label: "Grace Period", control: (
+              <div style={{ fontFamily: P.mono, fontSize: 11, color: P.textMd, padding: "5px 8px", border: `1px solid ${P.border}`, background: "#F4F4F2" }}>
+                {GRACE_PERIOD_DAYS} days after month-end
+              </div>
+            )},
           ].map(({ label, control }) => (
             <div key={label}>
               <div style={{ fontFamily: P.mono, fontSize: 8, letterSpacing: "0.1em", textTransform: "uppercase", color: P.textSm, marginBottom: 5 }}>{label}</div>
@@ -358,7 +386,10 @@ export default function FinancialPlanMonthlyView({
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
         {[
           { bg: "#EEF4F9", bc: "#A0BAD0", l: "Budget" },
-          ...(viewMode === "full" ? [{ bg: P.violetLt, bc: "#C0B0E0", l: "Actual (locked)" }] : []),
+          ...(viewMode === "full" ? [
+            { bg: P.violetLt, bc: "#C0B0E0", l: "Actual — locked (timesheets)" },
+            { bg: "#FFF8F0", bc: "#E0C080", l: "Actual — grace period" },
+          ] : []),
           { bg: P.greenLt, bc: "#A0D0B8", l: "Forecast" },
           { bg: P.redLt, bc: "#F0B0AA", l: "Over budget" },
         ].map(({ bg, bc, l }) => (
@@ -401,18 +432,31 @@ export default function FinancialPlanMonthlyView({
             <tr style={{ background: "#F7F7F5" }}>
               <th style={{ position: "sticky", left: 0, zIndex: 30, background: "#F7F7F5", padding: "4px 10px", borderRight: `1px solid ${P.borderMd}`, borderBottom: `1px solid ${P.border}` }} />
               {visibleMonths.map(mk => {
-                const month = Number(mk.split("-")[1]);
-                const year  = Number(mk.split("-")[0]);
+                const month     = Number(mk.split("-")[1]);
+                const year      = Number(mk.split("-")[0]);
                 const isCurrent = isCurrentMonth(mk);
                 const isPast    = isPastMonth(mk);
+                const hardLocked = isHardLocked(mk);
+                const graceLeft  = !hardLocked && isPast ? graceRemainingDays(mk) : 0;
                 return (
-                  <th key={mk} colSpan={colsPerMonth} style={{ padding: "5px 4px", textAlign: "center", borderRight: `1px solid ${P.border}`, borderBottom: `1px solid ${P.border}`, background: isCurrent ? "#E8F0F8" : isPast ? "#F9F9F7" : "#F7F7F5", opacity: isPast && !isCurrent ? 0.8 : 1 }}>
+                  <th key={mk} colSpan={colsPerMonth} style={{ padding: "5px 4px", textAlign: "center", borderRight: `1px solid ${P.border}`, borderBottom: `1px solid ${P.border}`, background: isCurrent ? "#E8F0F8" : isPast ? "#F9F9F7" : "#F7F7F5", opacity: hardLocked && !isCurrent ? 0.75 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
                       {isCurrent && <span style={{ width: 5, height: 5, borderRadius: "50%", background: P.navy, boxShadow: `0 0 0 2px ${P.navyLt}`, display: "inline-block", flexShrink: 0 }} />}
                       <span style={{ fontFamily: P.mono, fontSize: 10, fontWeight: isCurrent ? 600 : 400, color: isCurrent ? P.navy : P.text }}>{MONTH_SHORT[month - 1]}</span>
                       <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>{String(year).slice(2)}</span>
                       <InlineMonthFlag monthKey={mk} signals={signals} />
                     </div>
+                    {/* Grace period indicator */}
+                    {isPast && !hardLocked && graceLeft > 0 && (
+                      <div style={{ fontFamily: P.mono, fontSize: 7, color: P.amber, marginTop: 2, opacity: 0.8 }}>
+                        {graceLeft}d grace
+                      </div>
+                    )}
+                    {isPast && hardLocked && (
+                      <div style={{ fontFamily: P.mono, fontSize: 7, color: P.textSm, marginTop: 2, opacity: 0.6 }}>
+                        locked
+                      </div>
+                    )}
                   </th>
                 );
               })}
@@ -441,12 +485,14 @@ export default function FinancialPlanMonthlyView({
 
           <tbody>
             {lines.map((line, li) => {
-              // FIX 2: raw sum, sign preserved — negative forecast rows reduce the total correctly
               const lineFctTotal = visibleMonths.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.forecast) || 0), 0);
               const lineBudTotal = visibleMonths.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.budget) || 0), 0);
               const isOver = lineBudTotal > 0 && lineFctTotal > lineBudTotal;
               const isNeg  = lineFctTotal < 0;
               const rowBg  = li % 2 === 0 ? P.surface : "#FAFAF8";
+
+              // People category: actuals always locked (from timesheets)
+              const isPeopleLine = line.category === "people";
 
               return (
                 <tr key={line.id} style={{ background: rowBg, borderBottom: `1px solid ${P.border}` }}>
@@ -454,22 +500,63 @@ export default function FinancialPlanMonthlyView({
                     <span style={{ fontFamily: P.sans, fontSize: 11, fontWeight: 500, color: P.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>
                       {line.description || <span style={{ fontStyle: "italic", color: P.textSm }}>{line.category}</span>}
                     </span>
-                    <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>{line.category}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>{line.category}</span>
+                      {isPeopleLine && (
+                        <span style={{ fontFamily: P.mono, fontSize: 7, color: P.violet, background: P.violetLt, padding: "1px 4px", border: `1px solid #C0B0E0` }}>
+                          TIMESHEET
+                        </span>
+                      )}
+                    </div>
                   </td>
                   {visibleMonths.flatMap(mk => {
-                    const e      = monthlyData[line.id]?.[mk] ?? emptyEntry();
-                    const locked = isPastMonth(mk);
-                    const fOver  = e.budget && Number(e.forecast) > Number(e.budget);
+                    const e = monthlyData[line.id]?.[mk] ?? emptyEntry();
+                    const past       = isPastMonth(mk);
+                    const hardLocked = isHardLocked(mk);
+                    const graceLeft  = !hardLocked && past ? graceRemainingDays(mk) : 0;
+
+                    // Actual locking rules:
+                    // - People: ALWAYS locked (populated from timesheets via applyActualsToMonthlyData)
+                    // - Others: editable during grace period, hard-locked after 4 weeks
+                    const actualLocked =
+                      readOnly ||
+                      isPeopleLine ||           // timesheets own this
+                      (past && hardLocked);     // grace period expired
+
+                    const actualBg = isPeopleLine
+                      ? (li % 2 === 0 ? P.violetLt : "#EEE8F8")     // violet = from timesheets
+                      : past && !hardLocked
+                        ? (li % 2 === 0 ? "#FFF8F0" : "#FFF3E0")    // amber tint = grace period
+                        : past && hardLocked
+                          ? "#F9F9F7"                                  // grey = hard locked
+                          : (li % 2 === 0 ? "#F9F7FF" : "#F3EFF8");  // future = light violet
+
+                    const actualTitle = isPeopleLine
+                      ? "Locked — populated automatically from approved timesheets"
+                      : hardLocked && past
+                        ? "Locked — grace period of 28 days has passed"
+                        : past && !hardLocked
+                          ? `Editable — ${graceLeft} day${graceLeft !== 1 ? "s" : ""} remaining in grace period`
+                          : undefined;
+
+                    const fOver = e.budget && Number(e.forecast) > Number(e.budget);
                     const cols = viewMode === "full"
                       ? [
                           <td key={`${mk}-b`} style={{ borderBottom: `1px solid ${P.border}`, background: "#F2F8FF", minWidth: 52 }}>
                             <MoneyInput value={e.budget} onChange={v => updateEntry(line.id, mk, { budget: v })} sym={sym} locked={readOnly} highlight="blue" />
                           </td>,
-                          <td key={`${mk}-a`} style={{ borderBottom: `1px solid ${P.border}`, background: "#F9F7FF", minWidth: 52 }}>
-                            <MoneyInput value={e.actual} onChange={v => updateEntry(line.id, mk, { actual: v })} sym={sym} locked={locked || readOnly} highlight="gray" />
+                          <td key={`${mk}-a`} style={{ borderBottom: `1px solid ${P.border}`, background: actualBg, minWidth: 52 }}>
+                            <MoneyInput
+                              value={e.actual}
+                              onChange={v => updateEntry(line.id, mk, { actual: v })}
+                              sym={sym}
+                              locked={actualLocked}
+                              highlight={isPeopleLine ? "gray" : past && !hardLocked ? "blue" : "gray"}
+                              title={actualTitle}
+                            />
                           </td>,
                           <td key={`${mk}-f`} style={{ borderBottom: `1px solid ${P.border}`, borderRight: `1px solid ${P.border}`, minWidth: 52, background: fOver ? "#FDF5F4" : "#F3FAF6" }}>
-                            <MoneyInput value={e.forecast} onChange={v => updateEntry(line.id, mk, { forecast: v })} sym={sym} locked={locked || readOnly} highlight={fOver ? "red" : "green"} />
+                            <MoneyInput value={e.forecast} onChange={v => updateEntry(line.id, mk, { forecast: v })} sym={sym} locked={readOnly} highlight={fOver ? "red" : "green"} />
                           </td>,
                         ]
                       : [
@@ -477,12 +564,11 @@ export default function FinancialPlanMonthlyView({
                             <MoneyInput value={e.budget} onChange={v => updateEntry(line.id, mk, { budget: v })} sym={sym} locked={readOnly} highlight="blue" />
                           </td>,
                           <td key={`${mk}-f`} style={{ borderBottom: `1px solid ${P.border}`, borderRight: `1px solid ${P.border}`, minWidth: 58, background: fOver ? "#FDF5F4" : "#F3FAF6" }}>
-                            <MoneyInput value={e.forecast} onChange={v => updateEntry(line.id, mk, { forecast: v })} sym={sym} locked={locked || readOnly} highlight={fOver ? "red" : "green"} />
+                            <MoneyInput value={e.forecast} onChange={v => updateEntry(line.id, mk, { forecast: v })} sym={sym} locked={readOnly} highlight={fOver ? "red" : "green"} />
                           </td>,
                         ];
                     return cols;
                   })}
-                  {/* FIX 1: colour red when negative; FIX 2: fmtK used consistently */}
                   <td style={{ position: "sticky", right: 0, zIndex: 10, padding: "5px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: isNeg ? P.red : isOver ? P.red : lineFctTotal > 0 ? P.green : P.textSm, background: rowBg, borderLeft: `1px solid ${P.border}`, borderBottom: `1px solid ${P.border}`, fontVariantNumeric: "tabular-nums" }}>
                     {lineFctTotal !== 0 ? fmtK(lineFctTotal, sym) : "--"}
                   </td>
@@ -491,12 +577,6 @@ export default function FinancialPlanMonthlyView({
             })}
           </tbody>
 
-          {/* FIX 2: Grand Total footer.
-              Per-month FCT cells now use fmtGrand() (= fmtK, 1dp rounding).
-              Grand TOTAL FCT also uses fmtGrand() with the same raw sum.
-              Result: every value in the footer row uses identical rounding, so
-              the per-month column values visibly add up to the TOTAL FCT figure.
-              FIX 1: negative totals rendered in red with correct sign prefix. */}
           <tfoot style={{ position: "sticky", bottom: 0, zIndex: 20 }}>
             <tr style={{ background: "#EAEAE7", borderTop: `2px solid ${P.borderMd}` }}>
               <td style={{ position: "sticky", left: 0, zIndex: 30, padding: "7px 10px", background: "#EAEAE7", borderRight: `1px solid ${P.borderMd}`, fontFamily: P.mono, fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.textMd }}>
@@ -535,42 +615,38 @@ export default function FinancialPlanMonthlyView({
         </table>
       </div>
 
-
       {/* -- Movement strips -- */}
       {visibleMonths.length > 0 && (
         <div style={{ border: `1px solid #E0D8B0`, background: "#FDFAF2", padding: "10px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-
           <div>
             <div style={{ fontFamily: P.mono, fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.amber, marginBottom: 6 }}>
               Forecast Revision (vs last saved)
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
               {baselineMonthlyData ? (
-                <>
-                  {(() => {
-                    const changed = visibleMonths.filter(mk => {
-                      const curr = sumMonths(lines, monthlyData, [mk], "forecast");
-                      const base = sumMonths(lines, baselineMonthlyData, [mk], "forecast");
-                      return curr !== base;
-                    });
-                    if (changed.length === 0) {
-                      return <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, fontStyle: "italic" }}>No changes since last save</span>;
-                    }
-                    return changed.map(mk => {
-                      const curr = sumMonths(lines, monthlyData, [mk], "forecast");
-                      const base = sumMonths(lines, baselineMonthlyData, [mk], "forecast");
-                      const mv = curr - base;
-                      const [y, m] = mk.split("-");
-                      const up = mv > 0;
-                      return (
-                        <div key={mk} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", background: up ? P.redLt : P.greenLt, border: `1px solid ${up ? "#F0B0AA" : "#A0D0B8"}`, fontFamily: P.mono, fontSize: 10 }}>
-                          <span style={{ color: P.textSm }}>{MONTH_SHORT[Number(m) - 1]} {y.slice(2)}</span>
-                          <span style={{ fontWeight: 600, color: up ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>{up ? "+" : "-"}{fmtK(Math.abs(mv), sym)}</span>
-                        </div>
-                      );
-                    });
-                  })()}
-                </>
+                (() => {
+                  const changed = visibleMonths.filter(mk => {
+                    const curr = sumMonths(lines, monthlyData, [mk], "forecast");
+                    const base = sumMonths(lines, baselineMonthlyData, [mk], "forecast");
+                    return curr !== base;
+                  });
+                  if (changed.length === 0) {
+                    return <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, fontStyle: "italic" }}>No changes since last save</span>;
+                  }
+                  return changed.map(mk => {
+                    const curr = sumMonths(lines, monthlyData, [mk], "forecast");
+                    const base = sumMonths(lines, baselineMonthlyData, [mk], "forecast");
+                    const mv = curr - base;
+                    const [y, m] = mk.split("-");
+                    const up = mv > 0;
+                    return (
+                      <div key={mk} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", background: up ? P.redLt : P.greenLt, border: `1px solid ${up ? "#F0B0AA" : "#A0D0B8"}`, fontFamily: P.mono, fontSize: 10 }}>
+                        <span style={{ color: P.textSm }}>{MONTH_SHORT[Number(m) - 1]} {y.slice(2)}</span>
+                        <span style={{ fontWeight: 600, color: up ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>{up ? "+" : "-"}{fmtK(Math.abs(mv), sym)}</span>
+                      </div>
+                    );
+                  });
+                })()
               ) : (
                 <span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, fontStyle: "italic" }}>Save the plan once to enable revision tracking</span>
               )}
@@ -590,19 +666,16 @@ export default function FinancialPlanMonthlyView({
                 if (!bud && !fct) return null;
                 const gap = fct - bud;
                 const [y, m] = mk.split("-");
-                const over = gap > 0;
+                const over  = gap > 0;
                 const under = gap < 0;
-                const neutral = gap === 0;
                 return (
                   <div key={mk} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", background: over ? P.redLt : under ? P.greenLt : "#F4F4F2", border: `1px solid ${over ? "#F0B0AA" : under ? "#A0D0B8" : P.border}`, fontFamily: P.mono, fontSize: 10 }}>
                     <span style={{ color: P.textSm }}>{MONTH_SHORT[Number(m) - 1]} {y.slice(2)}</span>
-                    {neutral ? (
+                    {gap === 0 ? (
                       <span style={{ color: P.textSm, fontWeight: 500 }}>on budget</span>
                     ) : (
                       <>
-                        <span style={{ fontWeight: 600, color: over ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>
-                          {over ? "+" : "-"}{fmtK(Math.abs(gap), sym)}
-                        </span>
+                        <span style={{ fontWeight: 600, color: over ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>{over ? "+" : "-"}{fmtK(Math.abs(gap), sym)}</span>
                         <span style={{ fontSize: 9, color: P.textSm }}>{over ? "over" : "under"}</span>
                       </>
                     )}
@@ -614,7 +687,6 @@ export default function FinancialPlanMonthlyView({
               )}
             </div>
           </div>
-
         </div>
       )}
 
@@ -623,7 +695,7 @@ export default function FinancialPlanMonthlyView({
         {visibleQuarters.map(q => {
           const qMonths   = q.months.filter(mk => visibleMonths.includes(mk));
           const qBudget   = sumMonths(lines, monthlyData, qMonths, "budget");
-          const qActual   = sumMonths(lines, monthlyData, qMonths.filter(isPastMonth), "actual");
+          const qActual   = sumMonths(lines, monthlyData, qMonths.filter(mk => isPastMonth(mk) || isCurrentMonth(mk)), "actual");
           const qForecast = sumMonths(lines, monthlyData, qMonths, "forecast");
           const qVariance = qBudget ? qForecast - qBudget : 0;
           const qUtil     = qBudget ? Math.round((qForecast / qBudget) * 100) : null;
@@ -633,8 +705,7 @@ export default function FinancialPlanMonthlyView({
           return (
             <div key={q.label} style={{ border: `1px solid ${hasCrit ? "#F0B0AA" : over ? "#E0C080" : P.border}`, background: hasCrit ? P.redLt : over ? P.amberLt : P.surface, padding: "10px 12px" }}>
               <div style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: hasCrit ? P.red : over ? P.amber : P.navy, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
-                {q.label}
-                {hasCrit && <span style={{ marginLeft: 6, color: P.red }}>!</span>}
+                {q.label}{hasCrit && <span style={{ marginLeft: 6, color: P.red }}>!</span>}
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontFamily: P.mono, fontSize: 10 }}>
                 <span style={{ color: P.textSm }}>Budget <strong style={{ color: P.navy }}>{fmt(qBudget, sym)}</strong></span>
@@ -643,10 +714,7 @@ export default function FinancialPlanMonthlyView({
               </div>
               {qBudget > 0 && (
                 <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 9 }}>
-                  {over
-                    ? <TrendingUp style={{ width: 10, height: 10, color: P.red }} />
-                    : <TrendingDown style={{ width: 10, height: 10, color: P.green }} />
-                  }
+                  {over ? <TrendingUp style={{ width: 10, height: 10, color: P.red }} /> : <TrendingDown style={{ width: 10, height: 10, color: P.green }} />}
                   <span style={{ color: over ? P.red : P.green, fontWeight: 600 }}>
                     {over ? "+" : ""}{fmt(qVariance, sym)} ({over ? "+" : ""}{(qForecast && qBudget ? ((qForecast - qBudget) / qBudget * 100).toFixed(1) : "0")}%)
                   </span>
@@ -660,4 +728,3 @@ export default function FinancialPlanMonthlyView({
     </div>
   );
 }
-
