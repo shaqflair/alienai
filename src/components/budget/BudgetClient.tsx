@@ -196,19 +196,23 @@ export default function BudgetClient() {
           fyBudget = phasing.totalApprovedBudget;
         }
 
-        // Forecast & Actual come from monthly phasing data for the selected FY
+        // Forecast from monthly phasing; Actual from project_spend filtered by FY dates
         if (phasing.ok && phasing.aggregatedLines?.length > 0) {
           for (const line of phasing.aggregatedLines) {
             const lineData = phasing.monthlyData?.[line.id] ?? {};
             for (const entry of Object.values(lineData) as any[]) {
               fyForecast += Number(entry?.forecast || 0);
-              fyActual   += Number(entry?.actual   || 0);
             }
           }
+        }
+        // Use FY-scoped actual from project_spend (same source as live snapshot)
+        if (phasing.ok && typeof phasing.totalFyActual === "number") {
+          fyActual = phasing.totalFyActual;
         }
 
         // projectsInFyCount = projects with actual phasing data in this specific FY
         const projectsInFy = phasing.projectsInFyCount ?? 0;
+        const fyActualByProject = phasing.fyActualByProject ?? {};
         setData({
           ...summary,
           ok: true,
@@ -223,6 +227,7 @@ export default function BudgetClient() {
           },
           projects: hasPhasing ? (summary.projects ?? []) : [],
           _noFyData: !hasPhasing,
+          _fyActualByProject: fyActualByProject,
         });
       } else {
         // Live mode: use summary API directly (all-time totals for active projects)
@@ -476,7 +481,8 @@ export default function BudgetClient() {
                             const rag   = p.hasFinancialPlan ? varRag(p.totals.variance, p.totals.budget) : "N";
                             const brag  = burnRag(p.totals.burnPct);
                             const rc    = RC[rag];
-                            const utilPct = p.totals.budget > 0 ? Math.round((p.totals.actual / p.totals.budget) * 100) : null;
+                            const rowActual = viewMode === "fy" ? ((data as any)?._fyActualByProject?.[p.projectId] ?? 0) : p.totals.actual;
+                            const utilPct = p.totals.budget > 0 ? Math.round((rowActual / p.totals.budget) * 100) : null;
                             const varPct  = p.totals.budget > 0 ? ((p.totals.variance / p.totals.budget) * 100) : null;
                             const isOver  = p.totals.variance > 0;
                             const isUnder = p.totals.variance < 0;
@@ -497,8 +503,12 @@ export default function BudgetClient() {
                                 <td style={TD}>
                                   {p.hasFinancialPlan ? (
                                     <div>
-                                      <Mono size={12} color="#0e7490" weight={500}>{fmt(p.totals.actual)}</Mono>
-                                      {viewMode === "fy" && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink5, marginTop: 2 }}>all-time</div>}
+                                      <Mono size={12} color="#0e7490" weight={500}>
+                                        {viewMode === "fy"
+                                          ? fmt((data as any)?._fyActualByProject?.[p.projectId] ?? 0)
+                                          : fmt(p.totals.actual)}
+                                      </Mono>
+                                      {viewMode === "fy" && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink5, marginTop: 2 }}>FY actual</div>}
                                     </div>
                                   ) : <Mono size={12} color={T.ink4}>--</Mono>}
                                 </td>
