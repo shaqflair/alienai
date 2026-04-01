@@ -207,17 +207,19 @@ export default function BudgetClient() {
           }
         }
 
+        // projectsInFyCount = projects with actual phasing data in this specific FY
+        const projectsInFy = phasing.projectsInFyCount ?? 0;
         setData({
           ...summary,
           ok: true,
           portfolio: {
             ...(summary.portfolio ?? {}),
-            totalBudget:   fyBudget,
-            totalForecast: fyForecast,
-            totalActual:   fyActual,
+            totalBudget:   fyBudget,   // approved budget for projects active in this FY
+            totalForecast: fyForecast, // forecast from monthly phasing for this FY
+            totalActual:   fyActual,   // actual from monthly phasing for this FY
             totalVariance: fyForecast - fyBudget,
             projectCount:  phasing.projectCount ?? summary.portfolio?.projectCount ?? 0,
-            withPlanCount: phasing.projectsWithPlan ?? 0,
+            withPlanCount: projectsInFy,
           },
           projects: hasPhasing ? (summary.projects ?? []) : [],
           _noFyData: !hasPhasing,
@@ -492,7 +494,14 @@ export default function BudgetClient() {
                                 </td>
                                 <td style={TD}><Mono size={12} color={T.ink3} weight={500}>{p.hasFinancialPlan ? fmt(p.totals.budget) : "--"}</Mono></td>
                                 <td style={TD}><Mono size={12} color={T.ink3} weight={500}>{p.hasFinancialPlan ? fmt(p.totals.forecast) : "--"}</Mono></td>
-                                <td style={TD}><Mono size={12} color="#0e7490" weight={500}>{p.hasFinancialPlan ? fmt(p.totals.actual) : "--"}</Mono></td>
+                                <td style={TD}>
+                                  {p.hasFinancialPlan ? (
+                                    <div>
+                                      <Mono size={12} color="#0e7490" weight={500}>{fmt(p.totals.actual)}</Mono>
+                                      {viewMode === "fy" && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink5, marginTop: 2 }}>all-time</div>}
+                                    </div>
+                                  ) : <Mono size={12} color={T.ink4}>--</Mono>}
+                                </td>
                                 <td style={TD}>
                                   {utilPct !== null ? (
                                     <Mono size={11} color={utilPct > 90 ? "#7f1d1d" : utilPct > 75 ? "#78350f" : T.ink3} weight={600}>{utilPct}%</Mono>

@@ -1,4 +1,4 @@
-// src/app/api/portfolio/budget-phasing/route.ts
+﻿// src/app/api/portfolio/budget-phasing/route.ts
 // GET ?fyStart=4&fyYear=2026&fyMonths=12&scope=active|all&projectIds=id1,id2
 //
 // PM resolution mirrors getProjectManagerNameBestEffort from the artifact page:
@@ -227,11 +227,33 @@ export async function GET(req: Request) {
       monthlyData[id] = lineMonthly;
     }
 
-    // Calculate total approved budget from financial plan artifacts
-    // This is the governance-approved ceiling, not the sum of monthly budget cells
+    // Calculate total approved budget — only for projects that have phasing data in this FY
+    // A project "exists" in this FY if it has at least one non-zero monthly entry in monthKeys
+    const projectsInFy = new Set<string>();
+    for (const id of projectIds) {
+      const artifact = artifactByProject.get(id);
+      if (!artifact?.content_json) continue;
+      const cj      = artifact.content_json;
+      const lines   = (Array.isArray(cj.cost_lines) ? cj.cost_lines : Array.isArray(cj.lines) ? cj.lines : []) as any[];
+      const monthly = (cj.monthly_data ?? cj.monthlyData ?? {}) as Record<string, Record<string, any>>;
+      let hasDataInFy = false;
+      for (const line of lines) {
+        const lineData = monthly[safeStr(line.id)] ?? {};
+        for (const mk of monthKeys) {
+          const e = lineData[mk];
+          if (!e) continue;
+          const hasSomething = safeNum(e?.budget) > 0 || safeNum(e?.forecast) > 0 || safeNum(e?.actual) > 0;
+          if (hasSomething) { hasDataInFy = true; break; }
+        }
+        if (hasDataInFy) break;
+      }
+      if (hasDataInFy) projectsInFy.add(id);
+    }
+
     let totalApprovedBudget = 0;
     const approvedBudgetByProject: Record<string, number> = {};
-    for (const id of projectIds) {
+    for (const id of projectsInFy) {
+      // Only count budget for projects active in this FY
       const artifact = artifactByProject.get(id);
       const cj = artifact?.content_json;
       const approved = safeNum(cj?.total_approved_budget ?? 0);
@@ -239,7 +261,6 @@ export async function GET(req: Request) {
         approvedBudgetByProject[id] = approved;
         totalApprovedBudget += approved;
       } else {
-        // Fall back to projects.budget_amount if no financial plan approved budget
         const proj = allProjects.find((p: any) => safeStr(p.id) === id);
         const fallback = safeNum(proj?.budget_amount ?? 0);
         if (fallback > 0) {
@@ -252,8 +273,11 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true, fyStart, fyYear, numMonths, monthKeys,
       aggregatedLines, monthlyData,
-      projectCount: allProjects.length, projectsWithPlan,
-      filteredProjectCount: projectIds.length, scope,
+      projectCount: allProjects.length,
+      projectsWithPlan,
+      projectsInFyCount: projectsInFy.size,
+      filteredProjectCount: projectIds.length,
+      scope,
       allProjects: enrichedProjects,
       totalApprovedBudget,
       approvedBudgetByProject,
