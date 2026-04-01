@@ -64,9 +64,10 @@ const T = {
 function fmt(n: number): string {
   if (!Number.isFinite(n)) return "--";
   const abs = Math.abs(n);
-  if (abs >= 1_000_000) return "\u00A3" + (n / 1_000_000).toFixed(1) + "M";
-  if (abs >= 1000) return "\u00A3" + (n / 1000).toFixed(0) + "K";
-  return "\u00A3" + n.toFixed(0);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1_000_000) return sign + "\u00A3" + (abs / 1_000_000).toFixed(2) + "M";
+  // Show exact figure with commas — no rounding to K
+  return sign + "\u00A3" + abs.toLocaleString("en-GB", { maximumFractionDigits: 0 });
 }
 
 function fmtPct(n: number): string {
