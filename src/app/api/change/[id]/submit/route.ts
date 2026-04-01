@@ -432,6 +432,11 @@ async function tryAttachApprovalChainIdToChange(supabase: any, changeId: string,
   if (hasApprovalChainIdMissingColumn(safeStr(first.error.message))) return;
 }
 
+/**
+ * Concurrency-safe claim using ONLY valid decision_status values.
+ * We temporarily claim by moving to "submitted", which is allowed by DB constraint.
+ * The chain builder is idempotent, so retries can safely reuse the active chain.
+ */
 async function claimChangeForSubmission(
   supabase: any,
   args: {
@@ -443,7 +448,7 @@ async function claimChangeForSubmission(
   }
 ) {
   const patch: any = {
-    decision_status: "submitting",
+    decision_status: "submitted",
     updated_at: args.nowIso,
   };
 
@@ -453,10 +458,15 @@ async function claimChangeForSubmission(
     .eq("id", args.changeId);
 
   const currentDecision = safeStr(args.currentDecisionStatus).trim().toLowerCase();
-  if (!currentDecision) {
-    query = query.is("decision_status", null);
+
+  if (!currentDecision || currentDecision === "draft") {
+    if (currentDecision === "draft") {
+      query = query.eq("decision_status", "draft");
+    } else {
+      query = query.is("decision_status", null);
+    }
   } else {
-    query = query.eq("decision_status", currentDecision);
+    return false;
   }
 
   if (!args.deliveryStatusMissing) {
@@ -475,31 +485,6 @@ async function claimChangeForSubmission(
   }
 
   return !!data;
-}
-
-async function releaseSubmissionClaim(
-  supabase: any,
-  args: {
-    changeId: string;
-    restoreDecisionStatus: string | null;
-  }
-) {
-  const restore = safeStr(args.restoreDecisionStatus).trim().toLowerCase();
-
-  const patch: any = {
-    updated_at: new Date().toISOString(),
-    decision_status: restore || null,
-  };
-
-  try {
-    await supabase
-      .from("change_requests")
-      .update(patch)
-      .eq("id", args.changeId)
-      .eq("decision_status", "submitting");
-  } catch {
-    // swallow
-  }
 }
 
 /* =========================================================
@@ -576,11 +561,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       return jsonErr("This change is already decided", 400);
     }
 
-    if (decision === "submitted" || decision === "submitting") {
+    if (decision === "submitted") {
       return jsonOk({
         item: { ...cr, delivery_status: cr?.delivery_status ?? null },
         data: cr,
-        already: decision,
+        already: "submitted",
       });
     }
 
@@ -627,45 +612,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       const latestRow = (latest.data as ChangeRow | null) || cr;
       const latestDecision = safeStr((latestRow as any)?.decision_status).trim().toLowerCase();
 
-      if (latestDecision === "submitted" || latestDecision === "submitting") {
+      if (latestDecision === "submitted") {
         return jsonOk({
           item: {
             ...latestRow,
             delivery_status: (latestRow as any)?.delivery_status ?? null,
           },
           data: latestRow,
-          already: latestDecision,
+          already: "submitted",
         });
       }
 
       return jsonErr("Another submission is already in progress for this change.", 409);
     }
 
-    let chainId = "";
-    let chosenType = "";
+    const built = await buildRuntimeApprovalChain(supabase, {
+      organisationId,
+      projectId,
+      artifactId,
+      actorId: user.id,
+      amount,
+      artifactType: normalizeArtifactType("change"),
+    });
 
-    try {
-      const built = await buildRuntimeApprovalChain(supabase, {
-        organisationId,
-        projectId,
-        artifactId,
-        actorId: user.id,
-        amount,
-        artifactType: normalizeArtifactType("change"),
-      });
+    const chainId = safeStr(built.chainId).trim();
+    const chosenType = safeStr(built.chosenType).trim();
 
-      chainId = safeStr(built.chainId).trim();
-      chosenType = safeStr(built.chosenType).trim();
-
-      if (!chainId) {
-        throw new Error("Approval chain build returned no chain id.");
-      }
-    } catch (builderErr: any) {
-      await releaseSubmissionClaim(supabase, {
-        changeId,
-        restoreDecisionStatus: decision || null,
-      });
-      throw builderErr;
+    if (!chainId) {
+      throw new Error("Approval chain build returned no chain id.");
     }
 
     const firstStep = await getFirstPendingStepSummary(supabase, chainId);
@@ -688,7 +662,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       .from("change_requests")
       .update(patch)
       .eq("id", changeId)
-      .eq("decision_status", "submitting")
+      .eq("decision_status", "submitted")
       .select("id, project_id, artifact_id, status, delivery_status, decision_status")
       .maybeSingle();
 
@@ -708,24 +682,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         .from("change_requests")
         .update(patch)
         .eq("id", changeId)
-        .eq("decision_status", "submitting")
+        .eq("decision_status", "submitted")
         .select("id, project_id, artifact_id, status, decision_status")
         .maybeSingle();
 
       if (secondUpdate.error) {
-        await releaseSubmissionClaim(supabase, {
-          changeId,
-          restoreDecisionStatus: decision || null,
-        });
         throw new Error(secondUpdate.error.message);
       }
 
       updated = secondUpdate.data as ChangeRow | null;
     } else if (firstUpdate.error) {
-      await releaseSubmissionClaim(supabase, {
-        changeId,
-        restoreDecisionStatus: decision || null,
-      });
       throw new Error(firstUpdate.error.message);
     }
 
