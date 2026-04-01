@@ -6,9 +6,11 @@ import {
   sb,
   requireUser,
   requireProjectRole,
-  isOwner,
   safeStr,
   logChangeEvent,
+  requireApproverForPendingArtifactStep,
+  recordArtifactApprovalDecision,
+  recomputeApprovalState,
 } from "@/lib/change/server-helpers";
 import { ensureDedicatedArtifactIdForChangeRequest } from "@/lib/change/resolveDedicatedChangeArtifact";
 import { computeChangeAIFields } from "@/lib/change/ai-compute";
@@ -249,6 +251,67 @@ async function loadChangeNotificationContext(supabase: any, changeId: string) {
   }
 }
 
+async function syncArtifactReworkState(
+  supabase: any,
+  args: {
+    artifactId: string;
+    chainId: string;
+    actorUserId: string;
+    nowIso: string;
+  }
+) {
+  const patch1: any = {
+    approval_chain_id: args.chainId,
+    approval_status: "changes_requested",
+    status: "draft",
+    is_locked: false,
+    rejected_at: null,
+    rejected_by: null,
+    approved_at: null,
+    approved_by: null,
+    updated_at: args.nowIso,
+  };
+
+  const first = await supabase.from("artifacts").update(patch1).eq("id", args.artifactId);
+  if (!first.error) return;
+
+  const patch2: any = {
+    approval_chain_id: args.chainId,
+    approval_status: "changes_requested",
+    is_locked: false,
+    updated_at: args.nowIso,
+  };
+
+  const second = await supabase.from("artifacts").update(patch2).eq("id", args.artifactId);
+  if (second.error) {
+    throw new Error(`artifacts rework patch failed: ${second.error.message}`);
+  }
+}
+
+async function closeReworkApprovalChainIfPossible(
+  supabase: any,
+  args: { chainId: string; nowIso: string }
+) {
+  const patch1: any = {
+    status: "changes_requested",
+    is_active: false,
+    updated_at: args.nowIso,
+  };
+
+  const first = await supabase.from("approval_chains").update(patch1).eq("id", args.chainId);
+  if (!first.error) return;
+
+  const patch2: any = {
+    status: "changes_requested",
+    is_active: false,
+  };
+
+  const second = await supabase.from("approval_chains").update(patch2).eq("id", args.chainId);
+  if (second.error) {
+    throw new Error(`approval_chains rework patch failed: ${second.error.message}`);
+  }
+}
+
 /**
  * POST /api/change/:id/request-changes
  * Body: { note?: string }
@@ -271,7 +334,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const firstLoad = await supabase
       .from("change_requests")
-      .select("id, project_id, status, decision_status, delivery_status, artifact_id")
+      .select("id, project_id, status, decision_status, delivery_status, artifact_id, title")
       .eq("id", id)
       .maybeSingle();
 
@@ -285,7 +348,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       if (needsRetry) {
         const secondLoad = await supabase
           .from("change_requests")
-          .select("id, project_id, status, decision_status, artifact_id")
+          .select("id, project_id, status, decision_status, artifact_id, title")
           .eq("id", id)
           .maybeSingle();
 
@@ -307,10 +370,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const role = await requireProjectRole(supabase, projectId, user.id);
     if (!role) return jsonErr("Forbidden", 403);
-    if (!isOwner(role)) return jsonErr("Forbidden", 403);
 
     if (decisionStatus === "rework") {
       return jsonOk({ item: cr, data: cr, already: "rework" });
+    }
+
+    if (decisionStatus === "approved") {
+      return jsonErr("Cannot request changes from an approved change request.", 409);
+    }
+
+    if (decisionStatus === "rejected") {
+      return jsonErr("Cannot request changes from a rejected change request.", 409);
     }
 
     if (decisionStatus !== "submitted") {
@@ -339,22 +409,100 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const actorEmail = safeStr((user as any)?.email ?? "").trim() || null;
     const actorName = await resolveActorName(supabase, user.id, actorEmail);
 
+    let pending: any;
+    let onBehalfOf: string | null = null;
+
+    try {
+      const res = await requireApproverForPendingArtifactStep({
+        supabase,
+        artifactId,
+        actorUserId: user.id,
+      });
+      pending = res.pending;
+      onBehalfOf = res.onBehalfOf;
+    } catch (e: any) {
+      const msg = safeStr(e?.message);
+      if (msg === "Approval engine not available") return jsonErr(msg, 409);
+      if (msg === "No pending approval step found.") return jsonErr(msg, 409);
+      if (msg === "Forbidden") return jsonErr("Forbidden", 403);
+      throw e;
+    }
+
+    const effectiveApproverUserId = onBehalfOf ?? user.id;
+    const actorRoleLabel = onBehalfOf ? "delegate_approver" : "approver";
+
+    await recordArtifactApprovalDecision({
+      supabase,
+      chainId: pending.chainId,
+      stepId: pending.stepId,
+      approverUserId: effectiveApproverUserId,
+      actorUserId: user.id,
+      decision: "changes_requested",
+      reason: note || null,
+    });
+
+    const state = await recomputeApprovalState({
+      supabase,
+      artifactId,
+      chainId: pending.chainId,
+      stepId: pending.stepId,
+    });
+
     const now = new Date().toISOString();
     const toLane = "analysis";
+
+    await insertApprovalEvent(supabase, {
+      organisation_id: organisationId,
+      project_id: projectId,
+      artifact_id: artifactId,
+      change_id: id,
+      step_id: pending.stepId,
+      action_type: "requested_changes_step",
+      actor_user_id: user.id,
+      actor_name: actorName,
+      actor_role: actorRoleLabel,
+      comment: note || null,
+      meta: {
+        at: now,
+        request_id: requestId,
+        chain_id: pending.chainId,
+        step: {
+          id: pending.stepId,
+          order: pending.stepOrder ?? null,
+          name: pending.stepName ?? null,
+        },
+        delegated_for: onBehalfOf || null,
+        effective_approver: effectiveApproverUserId,
+        chain_status: state.chainStatus,
+        step_status: state.stepStatus,
+      },
+    });
+
+    await closeReworkApprovalChainIfPossible(supabase, {
+      chainId: pending.chainId,
+      nowIso: now,
+    });
+
+    await syncArtifactReworkState(supabase, {
+      artifactId,
+      chainId: pending.chainId,
+      actorUserId: effectiveApproverUserId,
+      nowIso: now,
+    });
 
     const patchBase: any = {
       status: "analysis",
       decision_status: "rework",
       decision_rationale: note || null,
-      decision_by: user.id,
+      decision_by: effectiveApproverUserId,
       decision_at: now,
-      decision_role: safeStr(role),
+      decision_role: onBehalfOf ? "delegate_final" : "chain_final",
       delivery_status: toLane,
       updated_at: now,
       artifact_id: artifactId,
     };
 
-    let patch: any = { ...patchBase, approver_id: user.id, approval_date: now };
+    let patch: any = { ...patchBase, approver_id: effectiveApproverUserId, approval_date: now };
 
     const first = await supabase
       .from("change_requests")
@@ -407,9 +555,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
           payload: {
             lifecycle: { from: lifecycle || null, to: "analysis" },
             decision_status: { from: "submitted", to: "rework" },
+            from_lane: deliveryStatusMissing ? null : fromLane,
             to_lane: "delivery_status" in patch ? toLane : null,
             delivery_status_missing: !("delivery_status" in patch),
             artifact_id_missing: !("artifact_id" in patch),
+            chain_id: pending.chainId,
+            step_id: pending.stepId,
             request_id: requestId,
           },
         } as any
@@ -428,6 +579,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       payload: {
         source: "request_changes_route",
         artifact_id: artifactId,
+        chain_id: pending.chainId,
+        step_id: pending.stepId,
         lifecycle: { from: lifecycle || null, to: "analysis" },
         decision_status: { from: "submitted", to: "rework" },
         to_lane: "delivery_status" in patch ? toLane : null,
@@ -441,21 +594,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       project_id: projectId,
       artifact_id: artifactId,
       change_id: id,
-      step_id: null,
+      step_id: pending.stepId,
       action_type: "requested_changes_final",
       actor_user_id: user.id,
       actor_name: actorName,
-      actor_role: safeStr(role),
+      actor_role: onBehalfOf ? "delegate_final" : safeStr(role),
       comment: note || null,
       meta: {
         at: now,
         request_id: requestId,
+        chain_id: pending.chainId,
+        step_id: pending.stepId,
         lifecycle: { from: lifecycle || null, to: "analysis" },
         decision_status: { from: "submitted", to: "rework" },
         from_lane: deliveryStatusMissing ? null : fromLane,
         to_lane: "delivery_status" in patch ? toLane : null,
         delivery_status_missing: !("delivery_status" in patch),
         artifact_id_missing: !("artifact_id" in patch),
+        delegated_for: onBehalfOf || null,
+        effective_approver: effectiveApproverUserId,
         source: "request_changes_route",
       },
     });
@@ -474,6 +631,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
           projectFallbackRef: projectId,
           requestedByName: actorName ?? actorEmail ?? null,
           reason: note || null,
+          projectId,
         });
       }
     } catch (notifyErr) {
@@ -510,6 +668,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         change_id: id,
         action: "request_changes",
         decision_status: "rework",
+        chain_id: pending.chainId,
         request_id: requestId,
       },
     });
@@ -522,7 +681,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
   } catch (e: any) {
     console.error("[POST /api/change/:id/request-changes]", e);
     const msg = safeStr(e?.message) || "Unexpected error";
-    const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : 500;
+    const status =
+      msg === "Unauthorized"
+        ? 401
+        : msg === "Forbidden"
+          ? 403
+          : msg === "Approval engine not available"
+            ? 409
+            : msg === "No pending approval step found."
+              ? 409
+              : 500;
     return jsonErr(msg, status);
   }
 }
