@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/budget-phasing/route.ts
+// src/app/api/portfolio/budget-phasing/route.ts
 // GET ?fyStart=4&fyYear=2026&fyMonths=12&scope=active|all&projectIds=id1,id2
 //
 // PM resolution mirrors getProjectManagerNameBestEffort from the artifact page:
@@ -79,7 +79,7 @@ export async function GET(req: Request) {
     // 2. All projects (include department + project_manager_id for fallback)
     let projQ = supabase
       .from("projects")
-      .select("id, title, project_code, project_manager_id, department")
+      .select("id, title, project_code, project_manager_id, department, budget_amount")
       .eq("organisation_id", orgId)
       .neq("resource_status", "pipeline");
     if (scope === "active") projQ = projQ.is("deleted_at", null);
@@ -143,6 +143,8 @@ export async function GET(req: Request) {
       projectCode: safeStr(p.project_code),
       department:  safeStr(p.department).trim() || "",
       pmName:      pmNameByProjectId.get(safeStr(p.id)) ?? "",
+      // budget_amount from projects table as a fallback
+      projectBudget: safeNum(p.budget_amount),
     }));
 
     // 5. Which projects to aggregate
@@ -225,12 +227,36 @@ export async function GET(req: Request) {
       monthlyData[id] = lineMonthly;
     }
 
+    // Calculate total approved budget from financial plan artifacts
+    // This is the governance-approved ceiling, not the sum of monthly budget cells
+    let totalApprovedBudget = 0;
+    const approvedBudgetByProject: Record<string, number> = {};
+    for (const id of projectIds) {
+      const artifact = artifactByProject.get(id);
+      const cj = artifact?.content_json;
+      const approved = safeNum(cj?.total_approved_budget ?? 0);
+      if (approved > 0) {
+        approvedBudgetByProject[id] = approved;
+        totalApprovedBudget += approved;
+      } else {
+        // Fall back to projects.budget_amount if no financial plan approved budget
+        const proj = allProjects.find((p: any) => safeStr(p.id) === id);
+        const fallback = safeNum(proj?.budget_amount ?? 0);
+        if (fallback > 0) {
+          approvedBudgetByProject[id] = fallback;
+          totalApprovedBudget += fallback;
+        }
+      }
+    }
+
     return NextResponse.json({
       ok: true, fyStart, fyYear, numMonths, monthKeys,
       aggregatedLines, monthlyData,
       projectCount: allProjects.length, projectsWithPlan,
       filteredProjectCount: projectIds.length, scope,
       allProjects: enrichedProjects,
+      totalApprovedBudget,
+      approvedBudgetByProject,
     });
   } catch (e: any) {
     console.error("[portfolio/budget-phasing]", e);

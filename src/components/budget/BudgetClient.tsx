@@ -167,8 +167,8 @@ export default function BudgetClient() {
   const [mounted,   setMount]     = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [viewMode,  setViewMode]  = useState<ViewMode>("live");
-  const [overviewFyYear,  setOverviewFyYear]  = useState(() => { const now = new Date(); return now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1; });
-  const [overviewFyStart, setOverviewFyStart] = useState(4);
+  const [sharedFyYear,  setSharedFyYear]  = useState(() => { const now = new Date(); return now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1; });
+  const [sharedFyStart, setSharedFyStart] = useState(4);
 
   useEffect(() => { setMount(true); }, []);
 
@@ -176,54 +176,13 @@ export default function BudgetClient() {
     setLoad(true);
     try {
       const scope = viewMode === "fy" ? "all" : "active";
-
-      if (viewMode === "fy") {
-        // FY mode: fetch from phasing API which is FY-aware, derive KPIs from monthly totals
-        const [summaryRes, phasingRes] = await Promise.all([
-          fetch(`/api/portfolio/financial-plan-summary?scope=${scope}`, { cache: "no-store" }),
-          fetch(`/api/portfolio/budget-phasing?fyStart=${overviewFyStart}&fyYear=${overviewFyYear}&fyMonths=12&scope=${scope}`, { cache: "no-store" }),
-        ]);
-        const summary = await summaryRes.json();
-        const phasing = await phasingRes.json();
-
-        if (phasing.ok && phasing.aggregatedLines?.length > 0) {
-          // Derive totals from FY phasing data
-          let fyBudget = 0, fyForecast = 0, fyActual = 0;
-          for (const line of phasing.aggregatedLines) {
-            const lineData = phasing.monthlyData?.[line.id] ?? {};
-            for (const entry of Object.values(lineData) as any[]) {
-              fyBudget   += Number(entry?.budget   || 0);
-              fyForecast += Number(entry?.forecast || 0);
-              fyActual   += Number(entry?.actual   || 0);
-            }
-          }
-          // Merge: use FY-aware totals for portfolio KPIs, keep per-project rows from summary
-          setData({
-            ...summary,
-            ok: true,
-            portfolio: {
-              ...(summary.portfolio ?? {}),
-              totalBudget:   fyBudget,
-              totalForecast: fyForecast,
-              totalActual:   fyActual,
-              totalVariance: fyForecast - fyBudget,
-              projectCount:  phasing.projectCount,
-              withPlanCount: phasing.projectsWithPlan,
-            },
-          });
-        } else {
-          setData(summary);
-        }
-      } else {
-        // Live mode: use summary API directly (all-time totals for active projects)
-        const r = await fetch(`/api/portfolio/financial-plan-summary?scope=${scope}`, { cache: "no-store" });
-        const j = await r.json();
-        setData(j);
-      }
+      const r = await fetch(`/api/portfolio/financial-plan-summary?scope=${scope}`, { cache: "no-store" });
+      const j = await r.json();
+      setData(j);
     } catch (e: any) {
       setData({ ok: false, error: e?.message, portfolio: { totalBudget: 0, totalForecast: 0, totalActual: 0, totalVariance: 0, projectCount: 0, withPlanCount: 0 }, projects: [] });
     } finally { setLoad(false); }
-  }, [viewMode, overviewFyYear, overviewFyStart]);
+  }, [viewMode]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -246,7 +205,7 @@ export default function BudgetClient() {
   const varColor = varIsOver ? "#7f1d1d" : varIsUnder ? "#14532d" : T.ink;
   const varNote  = varIsUnder ? "Forecast below budget — verify scope is intact" : varIsOver ? "Requires executive attention" : "";
 
-  const fyLabel = overviewFyStart === 1 ? String(overviewFyYear) : `${overviewFyYear}/${String(overviewFyYear + 1).slice(2)}`;
+  const fyLabel = sharedFyStart === 1 ? String(sharedFyYear) : `${sharedFyYear}/${String(sharedFyYear + 1).slice(2)}`;
 
   const filtered = useMemo(() => {
     let list = [...projects];
@@ -297,26 +256,15 @@ export default function BudgetClient() {
                   Financial health across the portfolio — forecast variance, burn rate and delivery exposure.
                 </p>
               </div>
-              {/* View mode + FY selector */}
+              {/* View mode toggle */}
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
                 <Mono size={9} color={T.ink5}>Portfolio view</Mono>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ display: "flex", border: `1px solid ${T.hr}`, background: T.surface }}>
-                    {([["live", "Live snapshot"], ["fy", "Financial year"]] as const).map(([m, l]) => (
-                      <button key={m} onClick={() => setViewMode(m)} style={{ padding: "7px 16px", fontFamily: T.mono, fontSize: 10, fontWeight: viewMode === m ? 600 : 400, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", background: viewMode === m ? T.ink : "transparent", color: viewMode === m ? "#fff" : T.ink3, border: "none" }}>
-                        {l}
-                      </button>
-                    ))}
-                  </div>
-                  <select value={overviewFyStart} onChange={e => setOverviewFyStart(Number(e.target.value))} style={{ padding: "6px 8px", fontFamily: T.mono, fontSize: 10, border: `1px solid ${T.hr}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
-                    <option value={4}>Apr – Mar</option>
-                    <option value={1}>Jan – Dec</option>
-                    <option value={7}>Jul – Jun</option>
-                    <option value={10}>Oct – Sep</option>
-                  </select>
-                  <select value={overviewFyYear} onChange={e => setOverviewFyYear(Number(e.target.value))} style={{ padding: "6px 8px", fontFamily: T.mono, fontSize: 10, border: `1px solid ${T.hr}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
-                    {(() => { const now = new Date(); const cur = now.getMonth() + 1 >= overviewFyStart ? now.getFullYear() : now.getFullYear() - 1; return [cur+1, cur, cur-1, cur-2].map(y => <option key={y} value={y}>FY {overviewFyStart === 1 ? y : `${y}/${String(y+1).slice(2)}`}</option>); })()}
-                  </select>
+                <div style={{ display: "flex", border: `1px solid ${T.hr}`, background: T.surface }}>
+                  {([["live", "Live snapshot"], ["fy", "Financial year"]] as const).map(([m, l]) => (
+                    <button key={m} onClick={() => setViewMode(m)} style={{ padding: "7px 16px", fontFamily: T.mono, fontSize: 10, fontWeight: viewMode === m ? 600 : 400, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", background: viewMode === m ? T.ink : "transparent", color: viewMode === m ? "#fff" : T.ink3, border: "none" }}>
+                      {l}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -551,7 +499,7 @@ export default function BudgetClient() {
           {/* MONTHLY PHASING TAB */}
           {activeTab === "phasing" && (
             <div style={{ animation: "fadeUp 0.3s ease both" }}>
-              <PortfolioMonthlyPhasing />
+              <PortfolioMonthlyPhasing fyYear={sharedFyYear} fyStart={sharedFyStart} onFyChange={(year, start) => { setSharedFyYear(year); setSharedFyStart(start); }} />
             </div>
           )}
 
