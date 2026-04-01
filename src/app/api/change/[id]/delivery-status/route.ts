@@ -30,7 +30,10 @@ function ok(data: any, status = 200) {
 }
 
 function err(message: string, status = 400, extra?: any) {
-  const res = NextResponse.json({ ok: false, error: message, ...(extra ? { extra } : {}) }, { status });
+  const res = NextResponse.json(
+    { ok: false, error: message, ...(extra ? { extra } : {}) },
+    { status }
+  );
   res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
@@ -57,7 +60,14 @@ function hasMissingColumn(errMsg: string, col: string) {
   return m.includes("column") && m.includes(col.toLowerCase());
 }
 
-const ALLOWED_DELIVERY = new Set(["intake", "analysis", "review", "in_progress", "implemented", "closed"]);
+const ALLOWED_DELIVERY = new Set([
+  "intake",
+  "analysis",
+  "review",
+  "in_progress",
+  "implemented",
+  "closed",
+]);
 
 function normalizeDeliveryStatus(x: unknown): string | null {
   const v = safeStr(x).trim().toLowerCase();
@@ -85,10 +95,30 @@ function containsBlockedGovernanceFields(body: any) {
     "rejectedAt",
     "rejected_by",
     "rejectedBy",
+    "approval_status",
+    "approvalStatus",
+    "approval_chain_id",
+    "approvalChainId",
   ];
   return blockedKeys.some((k) => hasOwn(body, k));
 }
 
+/**
+ * Governance-aligned lane movement:
+ *
+ * draft / analysis / rework:
+ *   intake <-> analysis only
+ *
+ * submitted:
+ *   locked in review
+ *
+ * approved:
+ *   review <-> in_progress <-> implemented <-> closed
+ *   plus limited backwards move by one step for correction
+ *
+ * rejected:
+ *   no lane moves
+ */
 function canMoveDelivery(args: { decision: string; from: string; to: string }) {
   const decision = (args.decision || "").toLowerCase();
   const from = (args.from || "intake").toLowerCase();
@@ -96,16 +126,16 @@ function canMoveDelivery(args: { decision: string; from: string; to: string }) {
 
   if (!to || from === to) return true;
 
-  if (decision === "submitted") return false;
+  if (decision === "submitted") {
+    return false;
+  }
 
-  if (!decision || decision === "draft" || decision === "rework") {
-    const allowed = new Set(["intake", "analysis"]);
-    return allowed.has(from) && allowed.has(to);
+  if (!decision || decision === "draft" || decision === "analysis" || decision === "rework") {
+    const planning = new Set(["intake", "analysis"]);
+    return planning.has(from) && planning.has(to);
   }
 
   if (decision === "approved") {
-    if (from === "analysis" && to === "review") return true;
-
     const order = ["review", "in_progress", "implemented", "closed"];
     const iFrom = order.indexOf(from);
     const iTo = order.indexOf(to);
@@ -113,7 +143,9 @@ function canMoveDelivery(args: { decision: string; from: string; to: string }) {
     return iTo === iFrom + 1 || iTo === iFrom - 1;
   }
 
-  if (decision === "rejected") return false;
+  if (decision === "rejected") {
+    return false;
+  }
 
   return false;
 }
@@ -136,11 +168,17 @@ export async function GET(_req: Request, ctx: Ctx) {
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const { data: cr, error: crErr } = await supabase.from(TABLE).select("*").eq("id", id).maybeSingle();
+    const { data: cr, error: crErr } = await supabase
+      .from(TABLE)
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
 
     if (crErr) {
       if (hasMissingColumn(safeStr(crErr.message), "delivery_status")) {
-        return err("delivery_status column not available yet on this environment.", 409, { column: "delivery_status" });
+        return err("delivery_status column not available yet on this environment.", 409, {
+          column: "delivery_status",
+        });
       }
       return err("Failed to fetch change request", 500, crErr);
     }
@@ -187,13 +225,15 @@ export async function POST(req: Request, ctx: Ctx) {
 
     const { data: cr, error: crErr } = await supabase
       .from(TABLE)
-      .select("id, project_id, decision_status, delivery_status")
+      .select("id, project_id, status, decision_status, delivery_status")
       .eq("id", id)
       .maybeSingle();
 
     if (crErr) {
       if (hasMissingColumn(safeStr(crErr.message), "delivery_status")) {
-        return err("delivery_status column not available yet on this environment.", 409, { column: "delivery_status" });
+        return err("delivery_status column not available yet on this environment.", 409, {
+          column: "delivery_status",
+        });
       }
       return err("Failed to fetch change request", 500, crErr);
     }
@@ -208,11 +248,18 @@ export async function POST(req: Request, ctx: Ctx) {
     if (!canEdit(role)) return err("Forbidden", 403);
 
     if (decisionStatus === "submitted") {
-      return err("This change is locked awaiting decision. Approve/reject/request changes first.", 409);
+      return err(
+        "This change is locked awaiting decision. Approve, reject, or request changes first.",
+        409
+      );
     }
 
     if (!canMoveDelivery({ decision: decisionStatus, from, to })) {
-      return err("Governance enforced: lane move not allowed for this change state.", 409);
+      return err("Governance enforced: lane move not allowed for this change state.", 409, {
+        decision_status: decisionStatus || null,
+        from,
+        to,
+      });
     }
 
     const now = new Date().toISOString();
@@ -226,7 +273,9 @@ export async function POST(req: Request, ctx: Ctx) {
 
     if (updErr) {
       if (hasMissingColumn(safeStr(updErr.message), "delivery_status")) {
-        return err("delivery_status column not available yet on this environment.", 409, { column: "delivery_status" });
+        return err("delivery_status column not available yet on this environment.", 409, {
+          column: "delivery_status",
+        });
       }
       return err("Update failed", 500, updErr);
     }
@@ -244,6 +293,10 @@ export async function POST(req: Request, ctx: Ctx) {
           fromValue: from,
           toValue: to,
           note: "Delivery lane updated",
+          payload: {
+            source: "delivery_status_route",
+            decision_status: decisionStatus || null,
+          },
         } as any
       );
     } catch {}
@@ -258,7 +311,10 @@ export async function POST(req: Request, ctx: Ctx) {
         actor_user_id: user.id,
         actor_role: String(role ?? ""),
         comment: null,
-        payload: { source: "delivery_status_route" },
+        payload: {
+          source: "delivery_status_route",
+          decision_status: decisionStatus || null,
+        },
       });
     } catch {}
 
