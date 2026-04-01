@@ -343,6 +343,67 @@ async function loadChangeNotificationContext(supabase: any, changeId: string) {
   }
 }
 
+async function syncArtifactFinalApproval(
+  supabase: any,
+  args: {
+    artifactId: string;
+    chainId: string;
+    approverUserId: string;
+    nowIso: string;
+  }
+) {
+  const patch1: any = {
+    approval_chain_id: args.chainId,
+    approval_status: "approved",
+    status: "approved",
+    is_locked: false,
+    approved_at: args.nowIso,
+    approved_by: args.approverUserId,
+    rejected_at: null,
+    rejected_by: null,
+  };
+
+  const first = await supabase.from("artifacts").update(patch1).eq("id", args.artifactId);
+  if (!first.error) return;
+
+  const patch2: any = {
+    approval_chain_id: args.chainId,
+    approval_status: "approved",
+    approved_at: args.nowIso,
+    approved_by: args.approverUserId,
+    is_locked: false,
+  };
+
+  const second = await supabase.from("artifacts").update(patch2).eq("id", args.artifactId);
+  if (second.error) {
+    throw new Error(`artifacts final-approval patch failed: ${second.error.message}`);
+  }
+}
+
+async function closeApprovalChainIfPossible(
+  supabase: any,
+  args: { chainId: string; nowIso: string }
+) {
+  const patch1: any = {
+    status: "approved",
+    is_active: false,
+    updated_at: args.nowIso,
+  };
+
+  const first = await supabase.from("approval_chains").update(patch1).eq("id", args.chainId);
+  if (!first.error) return;
+
+  const patch2: any = {
+    status: "approved",
+    is_active: false,
+  };
+
+  const second = await supabase.from("approval_chains").update(patch2).eq("id", args.chainId);
+  if (second.error) {
+    throw new Error(`approval_chains final patch failed: ${second.error.message}`);
+  }
+}
+
 /* =========================================================
    Route
 ========================================================= */
@@ -367,7 +428,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     const firstLoad = await supabase
       .from("change_requests")
-      .select("id, project_id, status, delivery_status, decision_status, artifact_id")
+      .select("id, project_id, status, delivery_status, decision_status, artifact_id, title")
       .eq("id", id)
       .maybeSingle();
 
@@ -380,7 +441,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       if (deliveryStatusMissing) {
         const secondLoad = await supabase
           .from("change_requests")
-          .select("id, project_id, status, decision_status, artifact_id")
+          .select("id, project_id, status, decision_status, artifact_id, title")
           .eq("id", id)
           .maybeSingle();
         if (secondLoad.error) throw secondLoad.error;
@@ -581,6 +642,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           project: projectForNotification,
           projectFallbackRef: projectId,
           approvedByName: actorName ?? actorEmail ?? null,
+          projectId,
         });
       } catch (notifyErr) {
         console.error("[POST /api/change/:id/approve] next-step notification failed:", notifyErr);
@@ -622,8 +684,20 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     const toLane = "in_progress";
 
+    await closeApprovalChainIfPossible(supabase, {
+      chainId: pending.chainId,
+      nowIso: now,
+    });
+
+    await syncArtifactFinalApproval(supabase, {
+      artifactId,
+      chainId: pending.chainId,
+      approverUserId: effectiveApproverUserId,
+      nowIso: now,
+    });
+
     const patchBase: any = {
-      status: "in_progress",
+      status: "approved",
       decision_status: "approved",
       decision_rationale: note || null,
       decision_by: effectiveApproverUserId,
@@ -769,6 +843,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
             project: projectForNotification,
             projectFallbackRef: projectId,
             approvedByName: actorName ?? actorEmail ?? null,
+            projectId,
           });
         }
       } catch (notifyErr) {
@@ -897,6 +972,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           project: projectForNotification,
           projectFallbackRef: projectId,
           approvedByName: actorName ?? actorEmail ?? null,
+          projectId,
         });
       }
     } catch (notifyErr) {
