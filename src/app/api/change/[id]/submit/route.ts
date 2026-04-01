@@ -8,7 +8,6 @@ import {
   requireUser,
   requireProjectRole,
   canEdit,
-  safeStr,
   logChangeEvent,
 } from "@/lib/change/server-helpers";
 import { ensureDedicatedArtifactIdForChangeRequest } from "@/lib/change/resolveDedicatedChangeArtifact";
@@ -42,6 +41,10 @@ function jsonErr(error: string, status = 400, meta?: any) {
 /* =========================================================
    local helpers
 ========================================================= */
+
+function safeStr(x: unknown): string {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
 
 function isBadIdString(x: string) {
   const v = safeStr(x).trim().toLowerCase();
