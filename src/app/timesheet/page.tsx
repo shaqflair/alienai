@@ -202,7 +202,7 @@ export default async function TimesheetPage({
     .from("timesheets")
     .select(`
       id, status, week_start_date, reviewer_note,
-      timesheet_entries(id, project_id, non_project_category, work_date, hours, description)
+      timesheet_entries(id, project_id, non_project_category, work_date, hours)
     `)
     .eq("organisation_id", organisationId)
     .eq("user_id", user.id)
@@ -215,7 +215,7 @@ export default async function TimesheetPage({
     nonProjectCategory: e.non_project_category ?? null,
     workDate:           safeStr(e.work_date),
     hours:              Number(e.hours) || 0,
-    description:        e.description ?? null,
+    description:        null,
   }));
 
   const timesheetData: TimesheetData = {
