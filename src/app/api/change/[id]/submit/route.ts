@@ -432,6 +432,76 @@ async function tryAttachApprovalChainIdToChange(supabase: any, changeId: string,
   if (hasApprovalChainIdMissingColumn(safeStr(first.error.message))) return;
 }
 
+async function claimChangeForSubmission(
+  supabase: any,
+  args: {
+    changeId: string;
+    nowIso: string;
+    currentDecisionStatus: string | null;
+    deliveryStatusMissing: boolean;
+    currentLane: string | null;
+  }
+) {
+  const patch: any = {
+    decision_status: "submitting",
+    updated_at: args.nowIso,
+  };
+
+  let query = supabase
+    .from("change_requests")
+    .update(patch)
+    .eq("id", args.changeId);
+
+  const currentDecision = safeStr(args.currentDecisionStatus).trim().toLowerCase();
+  if (!currentDecision) {
+    query = query.is("decision_status", null);
+  } else {
+    query = query.eq("decision_status", currentDecision);
+  }
+
+  if (!args.deliveryStatusMissing) {
+    const lane = safeStr(args.currentLane).trim().toLowerCase();
+    if (lane) {
+      query = query.eq("delivery_status", lane);
+    }
+  }
+
+  const { data, error } = await query
+    .select("id, decision_status, delivery_status")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to claim change for submission: ${error.message}`);
+  }
+
+  return !!data;
+}
+
+async function releaseSubmissionClaim(
+  supabase: any,
+  args: {
+    changeId: string;
+    restoreDecisionStatus: string | null;
+  }
+) {
+  const restore = safeStr(args.restoreDecisionStatus).trim().toLowerCase();
+
+  const patch: any = {
+    updated_at: new Date().toISOString(),
+    decision_status: restore || null,
+  };
+
+  try {
+    await supabase
+      .from("change_requests")
+      .update(patch)
+      .eq("id", args.changeId)
+      .eq("decision_status", "submitting");
+  } catch {
+    // swallow
+  }
+}
+
 /* =========================================================
    Route
 ========================================================= */
@@ -506,11 +576,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       return jsonErr("This change is already decided", 400);
     }
 
-    if (decision === "submitted") {
+    if (decision === "submitted" || decision === "submitting") {
       return jsonOk({
         item: { ...cr, delivery_status: cr?.delivery_status ?? null },
         data: cr,
-        already: "submitted",
+        already: decision,
       });
     }
 
@@ -539,14 +609,64 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const amount = await loadImpactCostForChange(supabase, changeId);
 
-    const { chainId, chosenType } = await buildRuntimeApprovalChain(supabase, {
-      organisationId,
-      projectId,
-      artifactId,
-      actorId: user.id,
-      amount,
-      artifactType: normalizeArtifactType("change"),
+    const claimed = await claimChangeForSubmission(supabase, {
+      changeId,
+      nowIso: now,
+      currentDecisionStatus: decision || null,
+      deliveryStatusMissing,
+      currentLane: fromLane,
     });
+
+    if (!claimed) {
+      const latest = await supabase
+        .from("change_requests")
+        .select("id, project_id, artifact_id, status, delivery_status, decision_status")
+        .eq("id", changeId)
+        .maybeSingle();
+
+      const latestRow = (latest.data as ChangeRow | null) || cr;
+      const latestDecision = safeStr((latestRow as any)?.decision_status).trim().toLowerCase();
+
+      if (latestDecision === "submitted" || latestDecision === "submitting") {
+        return jsonOk({
+          item: {
+            ...latestRow,
+            delivery_status: (latestRow as any)?.delivery_status ?? null,
+          },
+          data: latestRow,
+          already: latestDecision,
+        });
+      }
+
+      return jsonErr("Another submission is already in progress for this change.", 409);
+    }
+
+    let chainId = "";
+    let chosenType = "";
+
+    try {
+      const built = await buildRuntimeApprovalChain(supabase, {
+        organisationId,
+        projectId,
+        artifactId,
+        actorId: user.id,
+        amount,
+        artifactType: normalizeArtifactType("change"),
+      });
+
+      chainId = safeStr(built.chainId).trim();
+      chosenType = safeStr(built.chosenType).trim();
+
+      if (!chainId) {
+        throw new Error("Approval chain build returned no chain id.");
+      }
+    } catch (builderErr: any) {
+      await releaseSubmissionClaim(supabase, {
+        changeId,
+        restoreDecisionStatus: decision || null,
+      });
+      throw builderErr;
+    }
 
     const firstStep = await getFirstPendingStepSummary(supabase, chainId);
 
@@ -568,6 +688,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       .from("change_requests")
       .update(patch)
       .eq("id", changeId)
+      .eq("decision_status", "submitting")
       .select("id, project_id, artifact_id, status, delivery_status, decision_status")
       .maybeSingle();
 
@@ -587,12 +708,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         .from("change_requests")
         .update(patch)
         .eq("id", changeId)
+        .eq("decision_status", "submitting")
         .select("id, project_id, artifact_id, status, decision_status")
         .maybeSingle();
 
-      if (secondUpdate.error) throw new Error(secondUpdate.error.message);
+      if (secondUpdate.error) {
+        await releaseSubmissionClaim(supabase, {
+          changeId,
+          restoreDecisionStatus: decision || null,
+        });
+        throw new Error(secondUpdate.error.message);
+      }
+
       updated = secondUpdate.data as ChangeRow | null;
     } else if (firstUpdate.error) {
+      await releaseSubmissionClaim(supabase, {
+        changeId,
+        restoreDecisionStatus: decision || null,
+      });
       throw new Error(firstUpdate.error.message);
     }
 
@@ -697,6 +830,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       ...resultItem,
       artifact_id: safeStr((resultItem as any)?.artifact_id).trim() || artifactId,
       delivery_status: resultItem?.delivery_status ?? null,
+      decision_status: "submitted",
     };
 
     return jsonOk({

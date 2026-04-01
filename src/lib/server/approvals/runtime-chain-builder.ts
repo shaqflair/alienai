@@ -72,11 +72,6 @@ function inBand(amount: number, min: number, max: number | null) {
   return minOk && maxOk;
 }
 
-/**
- * Guard for duplicate / concurrent submit-clicks or drag-trigger spam.
- * This does NOT replace a DB transaction, but it makes the builder idempotent-ish
- * at app level by detecting an already-built active runtime chain after cleanup/build.
- */
 function normalizeStepName(n: number) {
   return `Step ${n}`;
 }
@@ -112,11 +107,6 @@ function dedupeApprovers(rows: StepApprover[]) {
 
 /**
  * FIX: Correctly compute min_approvals based on mode.
- *
- * - "all"    → every assigned approver must approve
- * - "any"    → just 1 is enough
- * - "serial" → 1 is enough because serial steps are acted one-by-one
- * - other    → respect explicit templateMinApprovals, clamped to actual approver count
  */
 function resolveMinApprovals(
   mode: string,
@@ -205,6 +195,12 @@ type ExistingChainState = {
   runtimeStepCount: number;
 };
 
+type ExistingRuntimeBundle = {
+  chainId: string | null;
+  runtimeStepIds: string[];
+  runtimeStepCount: number;
+};
+
 type LogicalStepPlan = {
   logicalStepNo: number;
   normalizedOrder: number;
@@ -272,15 +268,6 @@ async function loadRulesForArtifact(
   );
 }
 
-/**
- * Load governance template steps to get the intended mode + min_approvals.
- * Non-fatal: if unavailable, we fall back to sensible defaults.
- *
- * Priority:
- * 1) approval_steps filtered by organisation_id + artifact_type when columns exist
- * 2) approval_steps filtered by organisation_id only
- * 3) approval_steps global active template
- */
 async function loadGovernanceStepSettings(
   supabase: SupabaseClient,
   organisationId: string,
@@ -339,15 +326,6 @@ async function loadGovernanceStepSettings(
   return out;
 }
 
-/**
- * FIX:
- * Resolve BOTH valid group member shapes:
- * - approval_group_members.user_id
- * - approval_group_members.approver_id -> organisation_approvers
- *
- * Also carry email so runtime approver rows can still be created
- * even when only email is available.
- */
 async function expandApprovalGroupMembers(
   supabase: SupabaseClient,
   groupId: string
@@ -417,11 +395,6 @@ async function expandApprovalGroupMembers(
   return dedupeApprovers(collected);
 }
 
-/**
- * FIX:
- * Do not assume profiles.id = auth.users.id.
- * Use organisation_approvers as the canonical enrichment source for approvers.
- */
 async function getApproverEmailsByUserIds(
   supabase: SupabaseClient,
   organisationId: string,
@@ -776,7 +749,7 @@ async function loadExistingActiveRuntimeState(
     throw new Error(`approval_chains active lookup failed: ${chainErr.message}`);
   }
 
-  const chainId = safeStr(activeChain?.id).trim() || null;
+  const chainId = safeStr((activeChain as any)?.id).trim() || null;
   if (!chainId) {
     return { chainId: null, runtimeStepCount: 0 };
   }
@@ -794,6 +767,50 @@ async function loadExistingActiveRuntimeState(
   return {
     chainId,
     runtimeStepCount: safeNum(count, 0),
+  };
+}
+
+async function loadExistingActiveRuntimeBundle(
+  supabase: SupabaseClient,
+  artifactId: string
+): Promise<ExistingRuntimeBundle> {
+  const { data: activeChain, error: chainErr } = await supabase
+    .from("approval_chains")
+    .select("id")
+    .eq("artifact_id", artifactId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (chainErr) {
+    throw new Error(`approval_chains active lookup failed: ${chainErr.message}`);
+  }
+
+  const chainId = safeStr((activeChain as any)?.id).trim() || null;
+  if (!chainId) {
+    return { chainId: null, runtimeStepIds: [], runtimeStepCount: 0 };
+  }
+
+  const { data: stepRows, error: stepErr } = await supabase
+    .from("artifact_approval_steps")
+    .select("id")
+    .eq("artifact_id", artifactId)
+    .eq("chain_id", chainId)
+    .order("step_order", { ascending: true });
+
+  if (stepErr) {
+    throw new Error(`artifact_approval_steps active lookup failed: ${stepErr.message}`);
+  }
+
+  const runtimeStepIds = (Array.isArray(stepRows) ? stepRows : [])
+    .map((r: any) => safeStr(r?.id).trim())
+    .filter(Boolean);
+
+  return {
+    chainId,
+    runtimeStepIds,
+    runtimeStepCount: runtimeStepIds.length,
   };
 }
 
@@ -847,7 +864,21 @@ export async function buildRuntimeApprovalChain(
   const amount = Number(args.amount ?? 0) || 0;
   const desiredType = normalizeArtifactType(args.artifactType);
 
-  // 0. Detect pre-existing active runtime state for guard / diagnostics.
+  // Early idempotent reuse:
+  // if another request already built an active runtime chain for this artifact,
+  // reuse it instead of rebuilding and risking duplicate step inserts.
+  const existingReady = await loadExistingActiveRuntimeBundle(supabase, args.artifactId);
+  if (existingReady.chainId && existingReady.runtimeStepCount > 0) {
+    return {
+      chainId: existingReady.chainId,
+      stepIds: existingReady.runtimeStepIds,
+      chosenType: desiredType,
+      logicalSteps: existingReady.runtimeStepCount,
+      replacedExistingActiveChain: false,
+    };
+  }
+
+  // Diagnostics before writes
   const existingBefore = await loadExistingActiveRuntimeState(supabase, args.artifactId);
 
   // 1. Resolve rules
