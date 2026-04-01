@@ -391,5 +391,57 @@ export async function reviewTimesheetAction(formData: FormData) {
 
   revalidatePath("/timesheet");
   revalidatePath("/timesheet/review");
+
+  // Bridge: when approved, sync hours -> financial plan timesheet_entries
+  if (action === "approve") {
+    try {
+      const { data: weekEntries } = await sb
+        .from("weekly_timesheet_entries")
+        .select("project_id, work_date, hours")
+        .eq("timesheet_id", timesheetId)
+        .gt("hours", 0);
+      if (weekEntries && weekEntries.length > 0) {
+        const grouped = new Map<string, { project_id: string; month_key: string; total_days: number }>();
+        for (const e of weekEntries) {
+          if (!e.project_id) continue;
+          const mk  = String(e.work_date).slice(0, 7);
+          const key = `${e.project_id}__${mk}`;
+          if (!grouped.has(key)) grouped.set(key, { project_id: e.project_id, month_key: mk, total_days: 0 });
+          grouped.get(key)!.total_days += Number(e.hours) / 8;
+        }
+        const projectIds = [...new Set([...grouped.values()].map((g) => g.project_id))];
+        for (const projectId of projectIds) {
+          const { data: artifact } = await sb
+            .from("artifacts")
+            .select("id, content_json")
+            .eq("project_id", projectId)
+            .eq("artifact_type", "financial_plan")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (!artifact) continue;
+          const resources = (artifact.content_json as any)?.resources ?? [];
+          const matched   = resources.find((r: any) => r.user_id === String(ts.user_id));
+          if (!matched) continue;
+          const upserts = [...grouped.values()]
+            .filter((g) => g.project_id === projectId)
+            .map((g) => ({
+              project_id:    g.project_id,
+              resource_id:   String(matched.id),
+              month_key:     g.month_key,
+              approved_days: Math.round(g.total_days * 100) / 100,
+              status:        "approved",
+              approved_at:   new Date().toISOString(),
+              approved_by:   user.id,
+            }));
+          if (upserts.length > 0) {
+            await sb.from("timesheet_entries")
+              .upsert(upserts, { onConflict: "project_id,resource_id,month_key" });
+          }
+        }
+      }
+    } catch { /* silent */ }
+  }
+
   return { status: newStatus };
 }
