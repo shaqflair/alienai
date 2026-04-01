@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 // src/components/portfolio/PortfolioMonthlyPhasing.tsx
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -201,17 +201,9 @@ function ProjectFilterPanel({ projects, selected, onChange }: {
 }
 
 /* ── Main component ── */
-export default function PortfolioMonthlyPhasing({
-  fyYear: initialFyYear,
-  fyStart: initialFyStart,
-  onFyChange,
-}: {
-  fyYear?: number;
-  fyStart?: number;
-  onFyChange?: (year: number, start: number) => void;
-} = {}) {
-  const [fyStart,   setFyStart]   = useState(initialFyStart ?? 4);
-  const [fyYear,    setFyYear]    = useState(() => initialFyYear ?? (new Date().getMonth()+1>=4?new Date().getFullYear():new Date().getFullYear()-1));
+export default function PortfolioMonthlyPhasing() {
+  const [fyStart,   setFyStart]   = useState(4);
+  const [fyYear,    setFyYear]    = useState(() => { const now=new Date(); return now.getMonth()+1>=4?now.getFullYear():now.getFullYear()-1; });
   const [numMonths, setNumMonths] = useState(12);
   const [scope,     setScope]     = useState<"active"|"all">("active");
   const [viewMode,  setViewMode]  = useState<ViewMode>("full");
@@ -290,7 +282,7 @@ export default function PortfolioMonthlyPhasing({
           <select value={fyStart} onChange={e=>setFyStart(Number(e.target.value))} style={selStyle}>
             {FY_START_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <select value={fyYear} onChange={e=>{const v=Number(e.target.value);setFyYear(v);onFyChange?.(v,fyStart);}} style={selStyle}>
+          <select value={fyYear} onChange={e=>setFyYear(Number(e.target.value))} style={selStyle}>
             {fyYearOptions(fyStart).map(y=><option key={y} value={y}>FY {fyLabel(y,fyStart)}</option>)}
           </select>
           <select value={numMonths} onChange={e=>setNumMonths(Number(e.target.value))} style={selStyle}>
