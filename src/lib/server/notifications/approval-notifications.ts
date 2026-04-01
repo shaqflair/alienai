@@ -19,7 +19,7 @@ function safeStr(x: unknown) {
 
 function toProjectRef(project: any, fallback: string) {
   const raw = safeStr(project?.project_code).trim();
-  if (raw) return raw; // use project_code as-is (e.g. "PRJ-100")
+  if (raw) return raw;
   return fallback;
 }
 
@@ -30,21 +30,27 @@ async function getProfileMap(
   const map = new Map<string, { name: string | null; email: string | null }>();
   const ids = Array.from(new Set(userIds.map((x) => safeStr(x).trim()).filter(Boolean)));
   if (!ids.length) return map;
+
   const { data: profiles, error } = await supabase
     .from("profiles")
     .select("id, user_id, full_name, name, email")
     .or(ids.map((id) => `id.eq.${id},user_id.eq.${id}`).join(","));
+
   if (error || !profiles) return map;
+
   for (const p of profiles) {
     const key1 = safeStr((p as any)?.id).trim();
     const key2 = safeStr((p as any)?.user_id).trim();
     const name =
       safeStr((p as any)?.full_name).trim() ||
-            safeStr((p as any)?.name).trim() || null;
+      safeStr((p as any)?.name).trim() ||
+      null;
     const email = safeStr((p as any)?.email).trim() || null;
+
     if (key1) map.set(key1, { name, email });
     if (key2) map.set(key2, { name, email });
   }
+
   return map;
 }
 
@@ -68,47 +74,148 @@ async function getStepApprovers(
     .from("approval_step_approvers")
     .select("user_id, email")
     .eq("step_id", stepId);
+
   if (error) throw new Error(`Approval step approvers lookup failed: ${error.message}`);
-  return Array.isArray(data) ? (data as Array<{ user_id: string | null; email: string | null }>) : [];
+
+  return Array.isArray(data)
+    ? (data as Array<{ user_id: string | null; email: string | null }>)
+    : [];
 }
 
-async function getFirstArtifactStepId(supabase: SupabaseClient, artifactId: string): Promise<string | null> {
+async function getFirstArtifactStepId(
+  supabase: SupabaseClient,
+  artifactId: string
+): Promise<string | null> {
   const { data, error } = await supabase
-    .from("artifact_approval_steps").select("id")
-    .eq("artifact_id", artifactId).eq("step_order", 1).maybeSingle();
+    .from("artifact_approval_steps")
+    .select("id")
+    .eq("artifact_id", artifactId)
+    .eq("step_order", 1)
+    .maybeSingle();
+
   if (error) throw new Error(`First approval step lookup failed: ${error.message}`);
-  return safeStr(data?.id).trim() || null;
+  return safeStr((data as any)?.id).trim() || null;
 }
 
-async function getNextArtifactPendingStepId(supabase: SupabaseClient, artifactId: string): Promise<string | null> {
+async function getNextArtifactPendingStepId(
+  supabase: SupabaseClient,
+  artifactId: string
+): Promise<string | null> {
   const { data, error } = await supabase
-    .from("artifact_approval_steps").select("id, step_order, status")
-    .eq("artifact_id", artifactId).in("status", ["pending","active"])
-    .order("step_order", { ascending: true }).limit(1).maybeSingle();
+    .from("artifact_approval_steps")
+    .select("id, step_order, status")
+    .eq("artifact_id", artifactId)
+    .in("status", ["pending", "active"])
+    .order("step_order", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
   if (error) throw new Error(`Next approval step lookup failed: ${error.message}`);
-  return safeStr(data?.id).trim() || null;
+  return safeStr((data as any)?.id).trim() || null;
 }
 
-async function getFirstChangeStepId(supabase: SupabaseClient, changeId: string): Promise<string | null> {
+/**
+ * CHANGE NOTIFICATION FIX:
+ * Runtime approval steps are linked to the dedicated artifact_id, not the change id.
+ * So for change notifications, resolve the change row first, then use:
+ *   - artifact_id when present
+ *   - approval_chain_id fallback when needed
+ */
+async function getChangeApprovalContext(
+  supabase: SupabaseClient,
+  changeId: string
+): Promise<{ artifactId: string | null; chainId: string | null }> {
   const { data, error } = await supabase
-    .from("artifact_approval_steps").select("id")
-    .eq("artifact_id", changeId).eq("step_order", 1).maybeSingle();
-  if (error) throw new Error(`First change approval step lookup failed: ${error.message}`);
-  return safeStr(data?.id).trim() || null;
+    .from("change_requests")
+    .select("artifact_id, approval_chain_id")
+    .eq("id", changeId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Change approval context lookup failed: ${error.message}`);
+  }
+
+  return {
+    artifactId: safeStr((data as any)?.artifact_id).trim() || null,
+    chainId: safeStr((data as any)?.approval_chain_id).trim() || null,
+  };
 }
 
-async function getNextChangePendingStepId(supabase: SupabaseClient, changeId: string): Promise<string | null> {
-  const { data, error } = await supabase
-    .from("artifact_approval_steps").select("id, step_order, status")
-    .eq("artifact_id", changeId).eq("status", "pending")
-    .order("step_order", { ascending: true }).limit(1).maybeSingle();
-  if (error) throw new Error(`Next change approval step lookup failed: ${error.message}`);
-  return safeStr(data?.id).trim() || null;
+async function getFirstChangeStepId(
+  supabase: SupabaseClient,
+  changeId: string
+): Promise<string | null> {
+  const ctx = await getChangeApprovalContext(supabase, changeId);
+
+  if (ctx.artifactId) {
+    const { data, error } = await supabase
+      .from("artifact_approval_steps")
+      .select("id")
+      .eq("artifact_id", ctx.artifactId)
+      .eq("step_order", 1)
+      .order("step_order", { ascending: true })
+      .maybeSingle();
+
+    if (error) throw new Error(`First change approval step lookup failed: ${error.message}`);
+    return safeStr((data as any)?.id).trim() || null;
+  }
+
+  if (ctx.chainId) {
+    const { data, error } = await supabase
+      .from("artifact_approval_steps")
+      .select("id")
+      .eq("chain_id", ctx.chainId)
+      .eq("step_order", 1)
+      .order("step_order", { ascending: true })
+      .maybeSingle();
+
+    if (error) throw new Error(`First change approval step lookup by chain failed: ${error.message}`);
+    return safeStr((data as any)?.id).trim() || null;
+  }
+
+  return null;
+}
+
+async function getNextChangePendingStepId(
+  supabase: SupabaseClient,
+  changeId: string
+): Promise<string | null> {
+  const ctx = await getChangeApprovalContext(supabase, changeId);
+
+  if (ctx.artifactId) {
+    const { data, error } = await supabase
+      .from("artifact_approval_steps")
+      .select("id, step_order, status")
+      .eq("artifact_id", ctx.artifactId)
+      .eq("status", "pending")
+      .order("step_order", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw new Error(`Next change approval step lookup failed: ${error.message}`);
+    return safeStr((data as any)?.id).trim() || null;
+  }
+
+  if (ctx.chainId) {
+    const { data, error } = await supabase
+      .from("artifact_approval_steps")
+      .select("id, step_order, status")
+      .eq("chain_id", ctx.chainId)
+      .eq("status", "pending")
+      .order("step_order", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw new Error(`Next change approval step lookup by chain failed: ${error.message}`);
+    return safeStr((data as any)?.id).trim() || null;
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
 // DB notification writer - inserts into notifications table
-// Uses admin client to bypass RLS (notifications are written for other users)
+// Uses admin client to bypass RLS
 // ---------------------------------------------------------------------------
 async function writeNotification(
   _supabase: SupabaseClient,
@@ -134,7 +241,7 @@ async function writeNotification(
       created_at: new Date().toISOString(),
     });
   } catch (_) {
-    // Non-blocking -- never fail the main action over a notification insert
+    // non-blocking
   }
 }
 
@@ -311,6 +418,7 @@ export async function notifyArtifactChangesRequested(
   });
 
   if (!to) return;
+
   await sendChangesRequestedEmail({
     to,
     recipientName: author?.name ?? null,
@@ -362,6 +470,7 @@ export async function notifyArtifactFullyApproved(
   });
 
   if (!to) return;
+
   await sendArtifactApprovedEmail({
     to,
     recipientName: author?.name ?? null,
@@ -415,6 +524,7 @@ export async function notifyArtifactRejected(
   });
 
   if (!to) return;
+
   await sendArtifactRejectedEmail({
     to,
     recipientName: author?.name ?? null,
@@ -601,6 +711,7 @@ export async function notifyChangeChangesRequested(
   });
 
   if (!to) return;
+
   await sendChangeChangesRequestedEmail({
     to,
     recipientName: author?.name ?? null,
@@ -652,6 +763,7 @@ export async function notifyChangeFullyApproved(
   });
 
   if (!to) return;
+
   await sendChangeApprovedEmail({
     to,
     recipientName: author?.name ?? null,
@@ -705,6 +817,7 @@ export async function notifyChangeRejected(
   });
 
   if (!to) return;
+
   await sendChangeRejectedEmail({
     to,
     recipientName: author?.name ?? null,
