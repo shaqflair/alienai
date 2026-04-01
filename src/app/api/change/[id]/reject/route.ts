@@ -313,6 +313,67 @@ async function loadChangeNotificationContext(supabase: any, changeId: string) {
   }
 }
 
+async function syncArtifactFinalRejection(
+  supabase: any,
+  args: {
+    artifactId: string;
+    chainId: string;
+    approverUserId: string;
+    nowIso: string;
+  }
+) {
+  const patch1: any = {
+    approval_chain_id: args.chainId,
+    approval_status: "rejected",
+    status: "rejected",
+    is_locked: false,
+    rejected_at: args.nowIso,
+    rejected_by: args.approverUserId,
+    approved_at: null,
+    approved_by: null,
+  };
+
+  const first = await supabase.from("artifacts").update(patch1).eq("id", args.artifactId);
+  if (!first.error) return;
+
+  const patch2: any = {
+    approval_chain_id: args.chainId,
+    approval_status: "rejected",
+    rejected_at: args.nowIso,
+    rejected_by: args.approverUserId,
+    is_locked: false,
+  };
+
+  const second = await supabase.from("artifacts").update(patch2).eq("id", args.artifactId);
+  if (second.error) {
+    throw new Error(`artifacts final-rejection patch failed: ${second.error.message}`);
+  }
+}
+
+async function closeRejectedApprovalChainIfPossible(
+  supabase: any,
+  args: { chainId: string; nowIso: string }
+) {
+  const patch1: any = {
+    status: "rejected",
+    is_active: false,
+    updated_at: args.nowIso,
+  };
+
+  const first = await supabase.from("approval_chains").update(patch1).eq("id", args.chainId);
+  if (!first.error) return;
+
+  const patch2: any = {
+    status: "rejected",
+    is_active: false,
+  };
+
+  const second = await supabase.from("approval_chains").update(patch2).eq("id", args.chainId);
+  if (second.error) {
+    throw new Error(`approval_chains rejection patch failed: ${second.error.message}`);
+  }
+}
+
 /* =========================================================
    Route
 ========================================================= */
@@ -336,7 +397,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const firstLoad = await supabase
       .from("change_requests")
-      .select("id, project_id, status, delivery_status, decision_status, artifact_id")
+      .select("id, project_id, status, delivery_status, decision_status, artifact_id, title")
       .eq("id", id)
       .maybeSingle();
 
@@ -349,7 +410,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       if (deliveryStatusMissing) {
         const secondLoad = await supabase
           .from("change_requests")
-          .select("id, project_id, status, decision_status, artifact_id")
+          .select("id, project_id, status, decision_status, artifact_id, title")
           .eq("id", id)
           .maybeSingle();
         if (secondLoad.error) throw secondLoad.error;
@@ -497,6 +558,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       },
     });
 
+    await closeRejectedApprovalChainIfPossible(supabase, {
+      chainId: pending.chainId,
+      nowIso: now,
+    });
+
+    await syncArtifactFinalRejection(supabase, {
+      artifactId,
+      chainId: pending.chainId,
+      approverUserId: effectiveApproverUserId,
+      nowIso: now,
+    });
+
     const patchBase: any = {
       status: "rejected",
       decision_status: "rejected",
@@ -506,6 +579,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       decision_role: onBehalfOf ? "delegate_final" : "chain_final",
       delivery_status: toLane,
       updated_at: now,
+      artifact_id: artifactId,
     };
 
     let patch: any = { ...patchBase, approver_id: effectiveApproverUserId, approval_date: now };
@@ -521,6 +595,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       const msg = safeStr(first.error.message);
 
       if (hasDeliveryStatusMissingColumn(msg)) delete patch.delivery_status;
+      if (hasMissingColumn(msg, "artifact_id")) delete patch.artifact_id;
       if (hasMissingColumn(msg, "approver_id")) delete patch.approver_id;
       if (hasMissingColumn(msg, "approval_date")) delete patch.approval_date;
       if (hasMissingColumn(msg, "decision_role")) delete patch.decision_role;
@@ -551,9 +626,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
             chain_id: pending.chainId,
             step_id: pending.stepId,
             delegated_for: onBehalfOf || null,
-            to_lane: toLane,
+            to_lane: "delivery_status" in patch ? toLane : null,
             chain_status: state.chainStatus,
             effective_approver: effectiveApproverUserId,
+            artifact_id_missing: !("artifact_id" in patch),
             delivery_status_missing: !("delivery_status" in patch),
             request_id: requestId,
           },
@@ -640,6 +716,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
             projectFallbackRef: projectId,
             rejectedByName: actorName ?? actorEmail ?? null,
             reason: note || null,
+            projectId,
           });
         }
       } catch (notifyErr) {
@@ -768,6 +845,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
           projectFallbackRef: projectId,
           rejectedByName: actorName ?? actorEmail ?? null,
           reason: note || null,
+          projectId,
         });
       }
     } catch (notifyErr) {
