@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/timesheet/review/_components/ReviewClient.tsx
 
 import { useState, useTransition } from "react";
@@ -24,7 +24,7 @@ function fmtDay(iso: string): string {
 }
 
 const STATUS_META: Record<string, { label: string; colour: string; bg: string }> = {
-  draft:      { label: "Draft",      colour: "#64748b", bg: "rgba(100,116,139,0.1)" },
+  draft:     { label: "Draft",     colour: "#64748b", bg: "rgba(100,116,139,0.1)" },
   submitted: { label: "Submitted", colour: "#d97706", bg: "rgba(245,158,11,0.1)"  },
   approved:  { label: "Approved",  colour: "#059669", bg: "rgba(16,185,129,0.1)"  },
   rejected:  { label: "Rejected",  colour: "#dc2626", bg: "rgba(239,68,68,0.1)"   },
@@ -144,7 +144,7 @@ function EntryTable({ entries }: { entries: ReviewEntryRow[] }) {
 function ReviewRow({ row, onDone }: { row: ReviewTimesheetRow; onDone: (id: string, status: string) => void }) {
   const [note,    setNote]    = useState(row.reviewerNote ?? "");
   const [open,    setOpen]    = useState(false);
-  const [error,    setError]   = useState<string | null>(null);
+  const [error,   setError]   = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function doAction(action: "approve" | "reject") {
@@ -315,7 +315,7 @@ function ReviewRow({ row, onDone }: { row: ReviewTimesheetRow; onDone: (id: stri
 export default function ReviewClient({
   rows: initial, statusFilter, exportAllUrl, isAdmin, reviewerName,
 }: {
-  rows:          ReviewTimesheetRow[];
+  rows:         ReviewTimesheetRow[];
   statusFilter: string;
   exportAllUrl: string;
   isAdmin:      boolean;

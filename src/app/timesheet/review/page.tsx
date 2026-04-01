@@ -1,4 +1,5 @@
-﻿import "server-only";
+// FILE: src/app/timesheet/review/page.tsx
+import "server-only";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
@@ -125,13 +126,13 @@ export default async function TimesheetReviewPage({
       .map((e: any) => {
         const proj = e.project_id ? projectsById.get(String(e.project_id)) : null;
         return {
-          id:                  safeStr(e.id),
-          workDate:            safeStr(e.work_date),
-          hours:               Number(e.hours) || 0,
-          description:         e.description ?? null,
-          projectId:           e.project_id ?? null,
-          projectTitle:        proj?.title ?? null,
-          projectCode:         proj?.project_code ?? null,
+          id:                 safeStr(e.id),
+          workDate:           safeStr(e.work_date),
+          hours:              Number(e.hours) || 0,
+          description:        e.description ?? null,
+          projectId:          e.project_id ?? null,
+          projectTitle:       proj?.title ?? null,
+          projectCode:        proj?.project_code ?? null,
           nonProjectCategory: e.non_project_category ?? null,
         };
       });
