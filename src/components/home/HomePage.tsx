@@ -587,9 +587,9 @@ function toDueDigestItemFromScheduleItem(x: ScheduleIntelligenceItem): DueDigest
 }
 
 function formatMoney(n: number): string {
-  if (n >= 1_000_000) return `Â£${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `Â£${Math.round(n / 1_000)}k`;
-  return `Â£${Math.round(n)}`;
+  if (n >= 1_000_000) return `u{00A3}${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `u{00A3}${Math.round(n / 1_000)}k`;
+  return `u{00A3}${Math.round(n)}`;
 }
 
 /* --- Notification Bell ---------------------------------------------------- */
@@ -1254,7 +1254,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
               <div className="mb-2 flex items-start justify-between">
                 <div>
                   <h3 className="font-semibold text-gray-900">Resource Activity</h3>
-                  <p className="mt-0.5 text-xs text-gray-400">Week-on-week capacity vs demand (FTE) â€” {windowDays === "all" ? "60" : windowDays} days</p>
+                  <p className="mt-0.5 text-xs text-gray-400">Week-on-week capacity vs demand (FTE) · FY 2026/27 â€” {windowDays === "all" ? "60" : windowDays} days</p>
                 </div>
                 <div className="mt-1 flex items-center gap-4 text-xs text-gray-400">
                   <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#93c5fd" }} />Capacity</span>
