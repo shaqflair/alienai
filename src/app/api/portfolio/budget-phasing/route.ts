@@ -1,5 +1,5 @@
 ﻿// src/app/api/portfolio/budget-phasing/route.ts
-// GET ?fyStart=4&fyYear=2025&fyMonths=12&scope=active|all&projectIds=id1,id2
+// GET ?fyStart=4&fyYear=2026&fyMonths=12&scope=active|all&projectIds=id1,id2
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -30,11 +30,12 @@ export async function GET(req: Request) {
     if (!auth?.user) return err("Unauthorized", 401);
 
     const url       = new URL(req.url);
-    const fyStart   = Math.max(1, Math.min(12, parseInt(url.searchParams.get("fyStart")  ?? "4",  10)));
+    const fyStart   = Math.max(1, Math.min(12, parseInt(url.searchParams.get("fyStart") ?? "4", 10)));
     const rawMonths = parseInt(url.searchParams.get("fyMonths") ?? "12", 10);
     const numMonths = [12, 18, 24, 36].includes(rawMonths) ? rawMonths : 12;
     const nowYear   = new Date().getFullYear();
     const nowMonth  = new Date().getMonth() + 1;
+    // Current FY: if we're in or past the FY start month, we're in that year's FY
     const defaultFy = nowMonth >= fyStart ? nowYear : nowYear - 1;
     const fyYear    = parseInt(url.searchParams.get("fyYear") ?? String(defaultFy), 10);
     const scope     = url.searchParams.get("scope") ?? "active";
@@ -73,7 +74,7 @@ export async function GET(req: Request) {
         .select("id, user_id, full_name, display_name, name, email").or(orFilter);
       for (const p of (profiles ?? []) as any[]) {
         const name = safeStr(p.full_name || p.display_name || p.name || p.email).trim();
-        if (p.id      && name) pmNameById.set(safeStr(p.id),      name);
+        if (p.id      && name) pmNameById.set(safeStr(p.id), name);
         if (p.user_id && name) pmNameById.set(safeStr(p.user_id), name);
       }
     }
@@ -93,15 +94,31 @@ export async function GET(req: Request) {
       return NextResponse.json({ ...empty, projectCount: allProjects.length, allProjects: enrichedProjects });
     }
 
-    // 5. Financial plans
+    // 5. Financial plans — use ilike to handle FINANCIAL_PLAN or financial_plan
     const { data: artifactRows } = await supabase
-      .from("artifacts").select("id, project_id, content_json, approval_status")
-      .in("project_id", projectIds).eq("type", "financial_plan").eq("is_current", true);
+      .from("artifacts")
+      .select("id, project_id, content_json, approval_status, type")
+      .in("project_id", projectIds)
+      .ilike("type", "financial_plan")
+      .eq("is_current", true);
 
+    // Also fetch any that might be stored differently
+    const { data: artifactRows2 } = await supabase
+      .from("artifacts")
+      .select("id, project_id, content_json, approval_status, type")
+      .in("project_id", projectIds)
+      .ilike("type", "%financial%plan%")
+      .eq("is_current", true);
+
+    const allArtifacts = [...(artifactRows ?? []), ...(artifactRows2 ?? [])];
+
+    // Deduplicate and prefer approved
     const artifactByProject = new Map<string, any>();
-    for (const a of (artifactRows ?? []) as any[]) {
+    for (const a of allArtifacts as any[]) {
       const pid = safeStr(a.project_id);
-      if (!artifactByProject.has(pid) || a.approval_status === "approved") artifactByProject.set(pid, a);
+      if (!artifactByProject.has(pid) || a.approval_status === "approved") {
+        artifactByProject.set(pid, a);
+      }
     }
 
     // 6. Aggregate by category
@@ -113,20 +130,27 @@ export async function GET(req: Request) {
     for (const id of projectIds) {
       const artifact = artifactByProject.get(id);
       if (!artifact?.content_json) continue;
-      projectsWithPlan++;
 
-      const cj      = artifact.content_json;
-      const lines   = (Array.isArray(cj.lines) ? cj.lines : Array.isArray(cj.cost_lines) ? cj.cost_lines : []) as any[];
-      const monthly = (cj.monthlyData ?? cj.monthly_data ?? {}) as Record<string, Record<string, any>>;
+      const cj = artifact.content_json;
+      // Support both key names used across versions
+      const lines   = (Array.isArray(cj.cost_lines) ? cj.cost_lines : Array.isArray(cj.lines) ? cj.lines : []) as any[];
+      const monthly = (cj.monthly_data ?? cj.monthlyData ?? {}) as Record<string, Record<string, any>>;
+
+      if (!lines.length && !Object.keys(monthly).length) continue;
+      projectsWithPlan++;
 
       for (const line of lines) {
         const lineId  = safeStr(line.id);
-        const display = safeStr(line.description || line.category || "Uncategorised").trim() || "Uncategorised";
+        // Use description if set, otherwise fall back to category label
+        const raw     = safeStr(line.description || "").trim();
+        const display = raw || safeStr(line.category || "Uncategorised").trim() || "Uncategorised";
         const catKey  = display.toLowerCase();
         if (!catSeen.has(catKey)) { catSeen.add(catKey); catOrder.push(display); }
-        for (const [mk, raw] of Object.entries(monthly[lineId] ?? {})) {
+
+        const lineData = monthly[lineId] ?? {};
+        for (const [mk, raw2] of Object.entries(lineData)) {
           if (!monthSet.has(mk)) continue;
-          const entry = raw as any;
+          const entry = raw2 as any;
           if (!catTotals.has(catKey)) catTotals.set(catKey, new Map());
           const m  = catTotals.get(catKey)!;
           const ex = m.get(mk) ?? { budget: 0, actual: 0, forecast: 0 };
@@ -152,12 +176,25 @@ export async function GET(req: Request) {
       const lineMonthly: Record<string, { budget: number | ""; actual: number | ""; forecast: number | ""; locked: boolean }> = {};
       for (const mk of monthKeys) {
         const e = catMap.get(mk);
-        lineMonthly[mk] = { budget: e?.budget || "", actual: e?.actual || "", forecast: e?.forecast || "", locked: mk < nowKey };
+        lineMonthly[mk] = {
+          budget:   e?.budget   || "",
+          actual:   e?.actual   || "",
+          forecast: e?.forecast || "",
+          locked:   mk < nowKey,
+        };
       }
       monthlyData[id] = lineMonthly;
     }
 
-    return NextResponse.json({ ok: true, fyStart, fyYear, numMonths, monthKeys, aggregatedLines, monthlyData, projectCount: allProjects.length, projectsWithPlan, filteredProjectCount: projectIds.length, scope, allProjects: enrichedProjects });
+    return NextResponse.json({
+      ok: true, fyStart, fyYear, numMonths, monthKeys,
+      aggregatedLines, monthlyData,
+      projectCount: allProjects.length,
+      projectsWithPlan,
+      filteredProjectCount: projectIds.length,
+      scope,
+      allProjects: enrichedProjects,
+    });
   } catch (e: any) {
     console.error("[portfolio/budget-phasing]", e);
     return err(String(e?.message ?? "Unknown error"), 500);
