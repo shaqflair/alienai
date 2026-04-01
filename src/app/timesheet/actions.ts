@@ -171,10 +171,10 @@ export async function saveTimesheetEntriesAction(formData: FormData) {
     });
   }
 
-  await sb.from("timesheet_entries").delete().eq("timesheet_id", timesheetId);
+  await sb.from("weekly_timesheet_entries").delete().eq("timesheet_id", timesheetId);
   const toInsert = entries.filter(e => e.hours > 0);
   if (toInsert.length > 0) {
-    const { error } = await sb.from("timesheet_entries").insert(toInsert);
+    const { error } = await sb.from("weekly_timesheet_entries").insert(toInsert);
     if (error) throw new Error(error.message);
   }
 

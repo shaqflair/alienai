@@ -57,9 +57,9 @@ export async function GET(req: Request) {
     .from("timesheets")
     .select(`
       id, week_start_date, status, submitted_at, reviewed_at, reviewer_note,
-      timesheet_entries (
+      weekly_timesheet_entries (
         id, work_date, hours, description,
-        projects:projects!timesheet_entries_project_id_fkey(title, project_code)
+        projects:projects!weekly_timesheet_entries_project_id_fkey(title, project_code)
       )
     `)
     .eq("organisation_id", String(orgId))
@@ -125,3 +125,4 @@ export async function GET(req: Request) {
     },
   });
 }
+

@@ -63,7 +63,7 @@ export default async function TimesheetReviewPage({
 
   let tsQuery = supabase
     .from("timesheets")
-    .select(`id, week_start_date, status, submitted_at, reviewer_note, user_id, timesheet_entries(hours)`)
+    .select(`id, week_start_date, status, submitted_at, reviewer_note, user_id, weekly_timesheet_entries(hours)`)
     .eq("organisation_id", organisationId)
     .order("submitted_at", { ascending: false })
     .limit(200);
@@ -85,7 +85,7 @@ export default async function TimesheetReviewPage({
 
   const rows: ReviewTimesheetRow[] = (timesheets ?? []).map((t: any) => {
     const profile    = profilesById.get(safeStr(t.user_id)) ?? {};
-    const totalHours = ((t.timesheet_entries ?? []) as any[])
+    const totalHours = ((t.weekly_timesheet_entries ?? []) as any[])
       .reduce((sum: number, e: any) => sum + (Number(e.hours) || 0), 0);
     return {
       id:               safeStr(t.id),
@@ -115,4 +115,5 @@ export default async function TimesheetReviewPage({
     />
   );
 }
+
 

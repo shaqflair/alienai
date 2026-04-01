@@ -202,7 +202,7 @@ export default async function TimesheetPage({
     .from("timesheets")
     .select(`
       id, status, week_start_date, reviewer_note,
-      timesheet_entries(id, project_id, non_project_category, work_date, hours)
+      weekly_timesheet_entries(id, project_id, non_project_category, work_date, hours)
     `)
     .eq("organisation_id", organisationId)
     .eq("user_id", user.id)
@@ -270,3 +270,4 @@ export default async function TimesheetPage({
     />
   );
 }
+
