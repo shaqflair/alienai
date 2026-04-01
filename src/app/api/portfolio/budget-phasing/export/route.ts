@@ -1,441 +1,452 @@
-﻿// GET /api/portfolio/budget-phasing/export?fy=2025&fyStart=4&scope=active|all
+﻿// src/app/api/portfolio/budget-phasing/export/route.ts
+// GET ?fyStart=4&fyYear=2026&fyMonths=12&scope=active|all&projectIds=id1,id2
 //
-// Exports portfolio monthly phasing as a formatted XLSX file.
+// Exports the SAME data as the screen — cost categories as rows, months as columns.
+// Format matches FinancialPlanMonthlyView: BUD / ACT / FCT per month, totals column.
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
-function err(msg: string, status = 400) {
-  return NextResponse.json({ ok: false, error: msg }, { status });
-}
+function safeNum(v: any): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+function safeStr(v: any): string { return typeof v === "string" ? v : v == null ? "" : String(v); }
 
-function safeNum(v: any, fallback = 0): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function safeStr(v: any): string {
-  return typeof v === "string" ? v : v == null ? "" : String(v);
-}
-
-function buildFyMonths(fyStart: number, fyYear: number) {
-  const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const months = [];
-  for (let i = 0; i < 12; i++) {
-    const month = ((fyStart - 1 + i) % 12) + 1;
-    const year = fyYear + Math.floor((fyStart - 1 + i) / 12);
-    months.push({ year, month, label: `${MONTH_NAMES[month - 1]} ${String(year).slice(2)}` });
+function buildMonthKeys(fyStart: number, fyYear: number, numMonths: number): string[] {
+  const keys: string[] = [];
+  let month = fyStart, year = fyYear;
+  for (let i = 0; i < numMonths; i++) {
+    keys.push(`${year}-${String(month).padStart(2, "0")}`);
+    if (++month > 12) { month = 1; year++; }
   }
-  return months;
+  return keys;
 }
 
-function buildMonthIndex(fyMonths: ReturnType<typeof buildFyMonths>) {
-  const map = new Map<string, number>();
-  fyMonths.forEach(({ year, month }, i) => {
-    map.set(`${year}-${String(month).padStart(2, "0")}`, i);
-  });
-  return map;
+function currentMonthKey() {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function colLetter(n: number): string {
+  let r = "";
+  while (n > 0) { const rem = (n - 1) % 26; r = String.fromCharCode(65 + rem) + r; n = Math.floor((n - 1) / 26); }
+  return r;
+}
+
+function monthLabel(mk: string): string {
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const [y, m] = mk.split("-");
+  return `${MONTHS[Number(m) - 1]} ${String(y).slice(2)}`;
+}
+
+function fyLabel(fyYear: number, fyStart: number): string {
+  return fyStart === 1 ? String(fyYear) : `${fyYear}/${String(fyYear + 1).slice(2)}`;
+}
+
+const PM_ROLE_CANDIDATES = [
+  "project_manager","project manager","pm",
+  "programme_manager","program_manager","programme manager","program manager",
+  "delivery_manager","delivery manager",
+];
+
+function displayName(profile: any): string {
+  const full = safeStr(profile?.full_name).trim();
+  const disp = safeStr(profile?.display_name).trim();
+  const name = safeStr(profile?.name).trim();
+  const email= safeStr(profile?.email).trim();
+  if (full && !full.includes("@")) return full;
+  if (disp && !disp.includes("@")) return disp;
+  if (name && !name.includes("@")) return name;
+  return email.includes("@") ? email.split("@")[0] : email || "Unknown";
 }
 
 export async function GET(req: Request) {
   try {
     const supabase = await createClient();
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return err("Unauthorized", 401);
+    if (!auth?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const url = new URL(req.url);
-    const fyStart = Math.max(1, Math.min(12, parseInt(url.searchParams.get("fyStart") ?? "4", 10)));
-    const nowYear = new Date().getFullYear();
-    const nowMonth = new Date().getMonth() + 1;
-    const defaultFyYear = nowMonth >= fyStart ? nowYear : nowYear - 1;
-    const fyYear = parseInt(url.searchParams.get("fy") ?? String(defaultFyYear), 10);
-    const scope = url.searchParams.get("scope") ?? "active";
+    const url       = new URL(req.url);
+    const fyStart   = Math.max(1, Math.min(12, parseInt(url.searchParams.get("fyStart") ?? "4", 10)));
+    const rawMonths = parseInt(url.searchParams.get("fyMonths") ?? "12", 10);
+    const numMonths = [12,18,24,36].includes(rawMonths) ? rawMonths : 12;
+    const nowYear   = new Date().getFullYear();
+    const nowMonth  = new Date().getMonth() + 1;
+    const defaultFy = nowMonth >= fyStart ? nowYear : nowYear - 1;
+    const fyYear    = parseInt(url.searchParams.get("fyYear") ?? String(defaultFy), 10);
+    const scope     = url.searchParams.get("scope") ?? "active";
+    const filterIds = (url.searchParams.get("projectIds") ?? "").split(",").map(s => s.trim()).filter(Boolean);
 
-    const fyMonths = buildFyMonths(fyStart, fyYear);
-    const monthIndex = buildMonthIndex(fyMonths);
-    const fyEndYear = fyMonths[11].year;
-    const fyLabel = fyStart === 1
-      ? String(fyYear)
-      : `${fyYear}/${String(fyEndYear).slice(2)}`;
+    const monthKeys = buildMonthKeys(fyStart, fyYear, numMonths);
+    const monthSet  = new Set(monthKeys);
+    const nowKey    = currentMonthKey();
+    const fy        = fyLabel(fyYear, fyStart);
+    const scopeLabel= scope === "all" ? "All projects (active + archived)" : "Active projects only";
 
-    const fyStart_date = `${fyYear}-${String(fyStart).padStart(2, "0")}-01`;
-    const fyEnd_month = fyMonths[11].month;
-    const fyEnd_year = fyMonths[11].year;
-    const fyEnd_date = `${fyEnd_year}-${String(fyEnd_month).padStart(2, "0")}-${new Date(fyEnd_year, fyEnd_month, 0).getDate()}`;
-
-    // Fetch org
+    // Organisation
     const { data: orgMem } = await supabase
-      .from("organisation_members")
-      .select("organisation_id")
-      .eq("user_id", auth.user.id)
-      .is("removed_at", null)
-      .limit(1)
-      .maybeSingle();
-
+      .from("organisation_members").select("organisation_id")
+      .eq("user_id", auth.user.id).is("removed_at", null).limit(1).maybeSingle();
     const orgId = safeStr((orgMem as any)?.organisation_id);
-    if (!orgId) return err("No organisation found", 404);
+    if (!orgId) return NextResponse.json({ error: "No organisation" }, { status: 404 });
 
-    // Fetch projects
-    let projectQuery = supabase
-      .from("projects")
-      .select("id, title, project_code, budget_amount, resource_status, deleted_at")
-      .eq("organisation_id", orgId)
-      .neq("resource_status", "pipeline");
+    // Projects
+    let projQ = supabase.from("projects").select("id, title, project_code, project_manager_id, department")
+      .eq("organisation_id", orgId).neq("resource_status", "pipeline");
+    if (scope === "active") projQ = projQ.is("deleted_at", null);
+    const { data: projectRows } = await projQ.order("title");
+    const allProjects = (projectRows ?? []) as any[];
+    const allProjectIds = allProjects.map((p: any) => safeStr(p.id));
 
-    if (scope === "active") projectQuery = projectQuery.is("deleted_at", null);
+    // PM names
+    const { data: pmMembers } = await supabase.from("project_members")
+      .select("project_id, user_id, role").in("project_id", allProjectIds)
+      .eq("is_active", true).in("role", PM_ROLE_CANDIDATES);
+    const pmUserIds   = [...new Set((pmMembers ?? []).map((m: any) => safeStr(m.user_id)).filter(Boolean))];
+    const fallbackIds = [...new Set(allProjects.map((p: any) => safeStr(p.project_manager_id)).filter(Boolean))];
+    const allUserIds  = [...new Set([...pmUserIds, ...fallbackIds])];
+    const profileById = new Map<string, any>();
+    if (allUserIds.length) {
+      const orFilter = allUserIds.flatMap(id => [`id.eq.${id}`,`user_id.eq.${id}`]).join(",");
+      const { data: profiles } = await supabase.from("profiles")
+        .select("id, user_id, full_name, display_name, name, email").or(orFilter);
+      for (const p of (profiles ?? []) as any[]) {
+        if (p.id)      profileById.set(safeStr(p.id), p);
+        if (p.user_id) profileById.set(safeStr(p.user_id), p);
+      }
+    }
+    const pmNameByProject = new Map<string, string>();
+    for (const m of (pmMembers ?? []) as any[]) {
+      const pid = safeStr(m.project_id);
+      if (!pmNameByProject.has(pid)) {
+        const prof = profileById.get(safeStr(m.user_id));
+        if (prof) pmNameByProject.set(pid, displayName(prof));
+      }
+    }
+    for (const p of allProjects) {
+      const pid = safeStr(p.id), pmId = safeStr(p.project_manager_id);
+      if (!pmNameByProject.has(pid) && pmId) {
+        const prof = profileById.get(pmId);
+        if (prof) pmNameByProject.set(pid, displayName(prof));
+      }
+    }
 
-    const { data: projectRows } = await projectQuery.order("title");
-    const projects = (projectRows ?? []) as any[];
+    // Which projects to aggregate
+    const projectIds = filterIds.length ? allProjectIds.filter(id => filterIds.includes(id)) : allProjectIds;
 
-    // Fetch financial plans
-    const projectIds = projects.map((p: any) => p.id);
-    const { data: artifactRows } = await supabase
-      .from("artifacts")
-      .select("id, project_id, content_json, approval_status, is_current")
-      .in("project_id", projectIds)
-      .eq("type", "financial_plan")
-      .eq("is_current", true);
-
+    // Financial plans
+    const { data: artifactRows } = await supabase.from("artifacts")
+      .select("id, project_id, content_json, approval_status, type")
+      .in("project_id", projectIds).ilike("type", "%financial%plan%");
+    const rank = (s: string) => s === "approved" ? 3 : s === "submitted" ? 2 : 1;
     const artifactByProject = new Map<string, any>();
     for (const a of (artifactRows ?? []) as any[]) {
-      const pid = safeStr(a.project_id);
-      if (!artifactByProject.has(pid) || a.approval_status === "approved") {
-        artifactByProject.set(pid, a);
-      }
+      const pid = safeStr(a.project_id), ex = artifactByProject.get(pid);
+      if (!ex || rank(a.approval_status) > rank(ex.approval_status)) artifactByProject.set(pid, a);
     }
 
-    // Fetch actuals
-    const { data: spendRows } = await supabase
-      .from("project_spend")
-      .select("project_id, amount, spend_date")
-      .in("project_id", projectIds)
-      .gte("spend_date", fyStart_date)
-      .lte("spend_date", fyEnd_date);
+    // Aggregate by category (same logic as the GET route)
+    const catTotals = new Map<string, Map<string, { budget: number; actual: number; forecast: number }>>();
+    const catOrder  : string[] = [];
+    const catSeen   = new Set<string>();
+    let projectsWithPlan = 0;
 
-    const actualsByProject = new Map<string, Map<string, number>>();
-    for (const row of (spendRows ?? []) as any[]) {
-      const pid = safeStr(row.project_id);
-      const dateStr = safeStr(row.spend_date).slice(0, 7);
-      const amount = safeNum(row.amount);
-      if (!actualsByProject.has(pid)) actualsByProject.set(pid, new Map());
-      const m = actualsByProject.get(pid)!;
-      m.set(dateStr, (m.get(dateStr) ?? 0) + amount);
-    }
-
-    // Build project rows data
-    const projectData = projects.map((proj: any) => {
-      const artifact = artifactByProject.get(proj.id);
-      const budget = safeNum(proj.budget_amount);
-      const monthlyBudget = budget / 12;
-      const forecast = new Array(12).fill(0);
-      const actual = new Array(12).fill(0);
-      const budgetArr = new Array(12).fill(monthlyBudget);
-
-      if (artifact?.content_json) {
-        const cj = artifact.content_json;
-        const lines: any[] = Array.isArray(cj.lines) ? cj.lines : [];
-        const monthlyData: Record<string, Record<string, any>> = cj.monthlyData ?? cj.monthly_data ?? {};
-        for (const line of lines) {
-          const lineId = safeStr(line.id);
-          const lineMonthly = monthlyData[lineId] ?? {};
-          for (const [monthKey, entry] of Object.entries(lineMonthly)) {
-            const idx = monthIndex.get(monthKey);
-            if (idx === undefined) continue;
-            forecast[idx] += safeNum((entry as any)?.forecast ?? 0);
-          }
+    for (const id of projectIds) {
+      const artifact = artifactByProject.get(id);
+      if (!artifact?.content_json) continue;
+      const cj      = artifact.content_json;
+      const lines   = (Array.isArray(cj.cost_lines) ? cj.cost_lines : Array.isArray(cj.lines) ? cj.lines : []) as any[];
+      const monthly = (cj.monthly_data ?? cj.monthlyData ?? {}) as Record<string, Record<string, any>>;
+      if (!lines.length && !Object.keys(monthly).length) continue;
+      projectsWithPlan++;
+      for (const line of lines) {
+        const lineId  = safeStr(line.id);
+        const raw     = safeStr(line.description || "").trim();
+        const display = raw || safeStr(line.category || "Uncategorised").trim() || "Uncategorised";
+        const catKey  = display.toLowerCase();
+        if (!catSeen.has(catKey)) { catSeen.add(catKey); catOrder.push(display); }
+        for (const [mk, entry] of Object.entries(monthly[lineId] ?? {})) {
+          if (!monthSet.has(mk)) continue;
+          const e = entry as any;
+          if (!catTotals.has(catKey)) catTotals.set(catKey, new Map());
+          const m = catTotals.get(catKey)!, ex = m.get(mk) ?? { budget: 0, actual: 0, forecast: 0 };
+          m.set(mk, {
+            budget:   ex.budget   + safeNum(e?.budget   ?? e?.budgetAmount   ?? 0),
+            actual:   ex.actual   + safeNum(e?.actual   ?? e?.actualAmount   ?? 0),
+            forecast: ex.forecast + safeNum(e?.forecast ?? e?.forecastAmount ?? 0),
+          });
         }
       }
+    }
 
-      const projectActuals = actualsByProject.get(proj.id) ?? new Map<string, number>();
-      for (const [monthKey, amount] of projectActuals) {
-        const idx = monthIndex.get(monthKey);
-        if (idx !== undefined) actual[idx] = amount;
+    // Build rows (same shape as screen)
+    const aggLines = catOrder.map(display => {
+      const catKey = display.toLowerCase();
+      const catMap = catTotals.get(catKey)!;
+      const monthData: Record<string, { budget: number; actual: number; forecast: number }> = {};
+      for (const mk of monthKeys) {
+        const e = catMap?.get(mk) ?? { budget: 0, actual: 0, forecast: 0 };
+        monthData[mk] = e;
       }
-
-      return {
-        title: safeStr(proj.title) || "Untitled",
-        code: safeStr(proj.project_code),
-        budget,
-        forecast,
-        actual,
-        budgetArr,
-        variance: forecast.map((f, i) => f - budgetArr[i]),
-      };
+      return { description: display, monthData };
     });
 
-    // Build XLSX using ExcelJS (available in Next.js env via npm)
+    // ── Build XLSX ──────────────────────────────────────────────────────────
     const ExcelJS = await import("exceljs");
     const wb = new ExcelJS.default.Workbook();
-    wb.creator = "Aliena PMO";
-    wb.created = new Date();
+    wb.creator = "Aliena PMO"; wb.created = new Date();
 
-    // -- Sheet 1: Portfolio Phasing ------------------------------------------
     const ws = wb.addWorksheet("Portfolio Phasing");
 
-    // Styles
-    const headerFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A1A1A" } };
-    const subHeaderFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F5F0" } };
-    const totalsFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8E8E0" } };
-    const negativeFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF0F0" } };
-    const positiveFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FFF4" } };
+    // Color palette matching the screen
+    const NAVY   = "FF1B3652";
+    const GREEN  = "FF2A6E47";
+    const VIOLET = "FF4A3A7A";
+    const RED    = "FFB83A2E";
+    const GREY   = "FF6B7280";
+    const WHITE  = "FFFFFFFF";
+    const BLACK  = "FF0D0D0B";
 
+    const headerFill  = (argb: string): ExcelJS.Fill => ({ type: "pattern", pattern: "solid", fgColor: { argb } });
     const gbpFmt = '£#,##0;(£#,##0);"-"';
-    const gbpFmtK = '£#,##0,"k";(£#,##0,"k");"-"';
 
     // Row 1: Title
-    ws.mergeCells("A1:B1");
-    const titleCell = ws.getCell("A1");
-    titleCell.value = `Portfolio Monthly Phasing -- FY ${fyLabel}`;
-    titleCell.font = { name: "Arial", size: 14, bold: true, color: { argb: "FF1A1A1A" } };
+    ws.mergeCells(1, 1, 1, 2 + monthKeys.length * 3 + 3);
+    const titleCell = ws.getCell(1, 1);
+    titleCell.value = `Portfolio Monthly Phasing — FY ${fy}`;
+    titleCell.font  = { name: "Arial", size: 13, bold: true, color: { argb: BLACK } };
     titleCell.alignment = { horizontal: "left", vertical: "middle" };
-    ws.getRow(1).height = 28;
+    ws.getRow(1).height = 26;
 
-    ws.mergeCells(`C1:${colLetter(2 + fyMonths.length * 4)}1`);
-    const scopeCell = ws.getCell("C1");
-    scopeCell.value = `Scope: ${scope === "all" ? "All projects (active + archived)" : "Active projects only"}  |  Generated: ${new Date().toLocaleDateString("en-GB")}`;
-    scopeCell.font = { name: "Arial", size: 10, color: { argb: "FF888888" } };
-    scopeCell.alignment = { horizontal: "right", vertical: "middle" };
+    // Row 2: Meta
+    ws.mergeCells(2, 1, 2, 2 + monthKeys.length * 3 + 3);
+    const metaCell = ws.getCell(2, 1);
+    metaCell.value = `${scopeLabel}  |  ${projectsWithPlan}/${projectIds.length} projects with plan  |  Generated: ${new Date().toLocaleDateString("en-GB")}`;
+    metaCell.font  = { name: "Arial", size: 9, color: { argb: GREY } };
+    metaCell.alignment = { horizontal: "left", vertical: "middle" };
+    ws.getRow(2).height = 16;
 
-    // Row 2: Month group headers
-    ws.getRow(2).height = 20;
-    const r2 = ws.getRow(2);
-    r2.getCell(1).value = "Project";
-    r2.getCell(2).value = "Code";
+    // Row 3: Month group headers — DARK NAVY per month group (3 cols each), then TOTAL (3 cols)
+    ws.getRow(3).height = 18;
+    ws.getCell(3, 1).value = "Cost Category";
+    ws.getCell(3, 1).font  = { name: "Arial", size: 9, bold: true, color: { argb: WHITE } };
+    ws.getCell(3, 1).fill  = headerFill(NAVY);
+    ws.getCell(3, 1).alignment = { horizontal: "left", vertical: "middle" };
+
+    ws.getCell(3, 2).value = "";
+    ws.getCell(3, 2).fill  = headerFill(NAVY);
 
     let col = 3;
-    for (const m of fyMonths) {
-      ws.mergeCells(2, col, 2, col + 3);
-      const cell = ws.getCell(2, col);
-      cell.value = m.label;
-      cell.font = { name: "Arial", size: 9, bold: true, color: { argb: "FFFFFFFF" } };
-      cell.fill = headerFill;
+    for (const mk of monthKeys) {
+      ws.mergeCells(3, col, 3, col + 2);
+      const cell = ws.getCell(3, col);
+      cell.value = monthLabel(mk);
+      cell.font  = { name: "Arial", size: 9, bold: true, color: { argb: WHITE } };
+      cell.fill  = headerFill(NAVY);
       cell.alignment = { horizontal: "center", vertical: "middle" };
-      col += 4;
+      col += 3;
     }
-    // Totals group header
-    ws.mergeCells(2, col, 2, col + 3);
-    const totHdr = ws.getCell(2, col);
+    // FY Total header
+    ws.mergeCells(3, col, 3, col + 2);
+    const totHdr = ws.getCell(3, col);
     totHdr.value = "FY Total";
-    totHdr.font = { name: "Arial", size: 9, bold: true, color: { argb: "FFFFFFFF" } };
-    totHdr.fill = headerFill;
+    totHdr.font  = { name: "Arial", size: 9, bold: true, color: { argb: WHITE } };
+    totHdr.fill  = headerFill("FF111111");
     totHdr.alignment = { horizontal: "center", vertical: "middle" };
 
-    // Row 3: Sub-column headers (Forecast, Actual, Budget, Variance) x 12 months + totals
-    ws.getRow(3).height = 16;
-    const r3 = ws.getRow(3);
-    r3.getCell(1).value = "";
-    r3.getCell(2).value = "";
+    // Row 4: Sub-column headers BUD / ACT / FCT per month
+    ws.getRow(4).height = 14;
+    ws.getCell(4, 1).value = "";
+    ws.getCell(4, 1).fill  = headerFill("FFF5F5F0");
+    ws.getCell(4, 2).value = "";
+    ws.getCell(4, 2).fill  = headerFill("FFF5F5F0");
 
     col = 3;
-    const subCols = ["Forecast", "Actual", "Budget", "Variance"];
-    const subColColors = ["FF2563EB", "FF059669", "FF6B7280", "FFDC2626"];
+    const SUB_LABELS = ["BUD", "ACT", "FCT"];
+    const SUB_COLORS = [NAVY, VIOLET, GREEN];
+    const SUB_BG     = ["FFEEF4F9", "FFF4F2FB", "FFF0F7F3"];
 
-    for (let m = 0; m < fyMonths.length; m++) {
-      for (let s = 0; s < 4; s++) {
-        const cell = ws.getCell(3, col);
-        cell.value = subCols[s];
-        cell.font = { name: "Arial", size: 7, bold: true, color: { argb: subColColors[s] } };
-        cell.fill = subHeaderFill;
-        cell.alignment = { horizontal: "center", vertical: "middle" };
+    for (let m = 0; m < monthKeys.length; m++) {
+      for (let s = 0; s < 3; s++) {
+        const cell = ws.getCell(4, col);
+        cell.value = SUB_LABELS[s];
+        cell.font  = { name: "Arial", size: 7, bold: true, color: { argb: SUB_COLORS[s] } };
+        cell.fill  = headerFill(SUB_BG[s]);
+        cell.alignment = { horizontal: "center" };
         col++;
       }
     }
-    for (let s = 0; s < 4; s++) {
-      const cell = ws.getCell(3, col);
-      cell.value = subCols[s];
-      cell.font = { name: "Arial", size: 7, bold: true, color: { argb: subColColors[s] } };
-      cell.fill = totalsFill;
-      cell.alignment = { horizontal: "center", vertical: "middle" };
+    // Total sub-headers
+    for (let s = 0; s < 3; s++) {
+      const cell = ws.getCell(4, col);
+      cell.value = SUB_LABELS[s];
+      cell.font  = { name: "Arial", size: 7, bold: true, color: { argb: SUB_COLORS[s] } };
+      cell.fill  = headerFill("FFE8E8E0");
+      cell.alignment = { horizontal: "center" };
       col++;
     }
 
-    // Style header rows
-    [1, 2, 3].forEach(rowNo => {
-      const row = ws.getRow(rowNo);
-      row.eachCell(cell => {
-        cell.border = {
-          bottom: { style: "thin", color: { argb: "FFCCCCCC" } },
-        };
+    // Style header border
+    [3, 4].forEach(row => {
+      ws.getRow(row).eachCell(cell => {
+        cell.border = { bottom: { style: "thin", color: { argb: "FFCCCCCC" } } };
       });
     });
 
-    // Data rows
-    const dataStartRow = 4;
-    let currentRow = dataStartRow;
+    // Data rows — cost categories
+    const dataStart = 5;
+    let currentRow  = dataStart;
 
-    for (const proj of projectData) {
-      const row = ws.getRow(currentRow);
-      row.height = 15;
+    for (const { description, monthData } of aggLines) {
+      const row   = ws.getRow(currentRow);
+      row.height  = 14;
+      const rowBg = currentRow % 2 === 0 ? "FFFAFAF8" : "FFFFFFFF";
 
-      row.getCell(1).value = proj.title;
-      row.getCell(1).font = { name: "Arial", size: 9, bold: true };
+      row.getCell(1).value = description;
+      row.getCell(1).font  = { name: "Arial", size: 9, bold: true, color: { argb: BLACK } };
+      row.getCell(1).fill  = headerFill(rowBg);
+      row.getCell(2).fill  = headerFill(rowBg);
 
-      row.getCell(2).value = proj.code;
-      row.getCell(2).font = { name: "Arial", size: 9, color: { argb: "FF888888" } };
+      let c = 3;
+      let totBud = 0, totAct = 0, totFct = 0;
 
-      col = 3;
-      for (let m = 0; m < 12; m++) {
-        const fc = proj.forecast[m];
-        const ac = proj.actual[m];
-        const bd = proj.budgetArr[m];
-        const vr = proj.variance[m];
+      for (const mk of monthKeys) {
+        const e   = monthData[mk] ?? { budget: 0, actual: 0, forecast: 0 };
+        const isPast = mk < nowKey;
+        const vals = [e.budget, isPast ? e.actual : 0, e.forecast];
+        totBud += e.budget; totAct += isPast ? e.actual : 0; totFct += e.forecast;
 
-        const vals = [fc, ac, bd, vr];
-        for (let s = 0; s < 4; s++) {
-          const cell = row.getCell(col);
-          cell.value = vals[s];
-          cell.numFmt = gbpFmt;
-          cell.font = { name: "Arial", size: 8 };
+        for (let s = 0; s < 3; s++) {
+          const cell = row.getCell(c);
+          cell.value    = vals[s] || null;
+          cell.numFmt   = gbpFmt;
+          cell.font     = { name: "Arial", size: 8 };
+          cell.fill     = headerFill(vals[s] === 0 ? rowBg : SUB_BG[s]);
           cell.alignment = { horizontal: "right" };
-          if (s === 3 && vals[s] < 0) {
-            cell.fill = negativeFill;
-            cell.font = { name: "Arial", size: 8, color: { argb: "FFDC2626" } };
-          }
-          col++;
+          c++;
         }
       }
 
       // Row totals
-      const tfc = proj.forecast.reduce((a: number, b: number) => a + b, 0);
-      const tac = proj.actual.reduce((a: number, b: number) => a + b, 0);
-      const tbd = proj.budget;
-      const tvr = tfc - tbd;
-      const totVals = [tfc, tac, tbd, tvr];
-      for (let s = 0; s < 4; s++) {
-        const cell = row.getCell(col);
-        cell.value = totVals[s];
-        cell.numFmt = gbpFmtK;
-        cell.font = { name: "Arial", size: 8, bold: true };
-        cell.fill = totalsFill;
+      const totVals = [totBud, totAct, totFct];
+      for (let s = 0; s < 3; s++) {
+        const cell = row.getCell(c);
+        cell.value    = totVals[s] || null;
+        cell.numFmt   = gbpFmt;
+        cell.font     = { name: "Arial", size: 8, bold: true };
+        cell.fill     = headerFill("FFE8E8E0");
         cell.alignment = { horizontal: "right" };
-        if (s === 3 && totVals[s] < 0) {
-          cell.fill = negativeFill;
-          cell.font = { name: "Arial", size: 8, bold: true, color: { argb: "FFDC2626" } };
-        } else if (s === 3 && totVals[s] >= 0) {
-          cell.fill = positiveFill;
-          cell.font = { name: "Arial", size: 8, bold: true, color: { argb: "FF059669" } };
-        }
-        col++;
+        c++;
       }
 
-      row.eachCell(cell => {
-        cell.border = {
-          bottom: { style: "hair", color: { argb: "FFEEEEEE" } },
-        };
-      });
-
+      row.eachCell(cell => { cell.border = { bottom: { style: "hair", color: { argb: "FFEEEEEE" } } }; });
       currentRow++;
     }
 
     // Portfolio Totals row
-    const totRow = ws.getRow(currentRow);
-    totRow.height = 18;
+    const totRow   = ws.getRow(currentRow);
+    totRow.height  = 18;
     totRow.getCell(1).value = "Portfolio Total";
-    totRow.getCell(1).font = { name: "Arial", size: 9, bold: true };
-    totRow.getCell(2).value = "";
+    totRow.getCell(1).font  = { name: "Arial", size: 9, bold: true, color: { argb: WHITE } };
+    totRow.getCell(1).fill  = headerFill(NAVY);
+    totRow.getCell(2).fill  = headerFill(NAVY);
 
-    col = 3;
-    // Sum each sub-column across all projects using Excel formulas
-    const totalProjects = projectData.length;
-
-    for (let m = 0; m < 12; m++) {
-      for (let s = 0; s < 4; s++) {
-        const colIdx = 3 + m * 4 + s;
-        const startRow = dataStartRow;
-        const endRow = dataStartRow + totalProjects - 1;
-        const colL = colLetter(colIdx);
-        const cell = totRow.getCell(col);
-        cell.value = totalProjects > 0 ? { formula: `SUM(${colL}${startRow}:${colL}${endRow})` } : 0;
-        cell.numFmt = gbpFmt;
-        cell.font = { name: "Arial", size: 8, bold: true };
-        cell.fill = totalsFill;
-        cell.alignment = { horizontal: "right" };
-        if (s === 3) {
-          // Variance gets conditional color via formula (we'll just style it dark)
-          cell.font = { name: "Arial", size: 8, bold: true, color: { argb: "FF1A1A1A" } };
+    let c2 = 3;
+    for (let mi = 0; mi < monthKeys.length; mi++) {
+      const mk    = monthKeys[mi];
+      const isPast = mk < nowKey;
+      const colStart = 3 + mi * 3;
+      const subLabels = ["budget", "actual", "forecast"] as const;
+      for (let s = 0; s < 3; s++) {
+        const cell  = totRow.getCell(c2);
+        const colL  = colLetter(colStart + s);
+        const hasFc = s === 1 && !isPast; // actual in future = 0
+        if (aggLines.length > 0 && !hasFc) {
+          cell.value = { formula: `SUM(${colL}${dataStart}:${colL}${dataStart + aggLines.length - 1})` };
+        } else {
+          cell.value = 0;
         }
-        col++;
+        cell.numFmt    = gbpFmt;
+        cell.font      = { name: "Arial", size: 8, bold: true, color: { argb: WHITE } };
+        cell.fill      = headerFill(NAVY);
+        cell.alignment = { horizontal: "right" };
+        c2++;
       }
     }
-
-    // Grand total
-    for (let s = 0; s < 4; s++) {
-      const colIdx = 3 + 12 * 4 + s;
-      const colL = colLetter(colIdx);
-      const startRow = dataStartRow;
-      const endRow = dataStartRow + totalProjects - 1;
-      const cell = totRow.getCell(col);
-      cell.value = totalProjects > 0 ? { formula: `SUM(${colL}${startRow}:${colL}${endRow})` } : 0;
-      cell.numFmt = gbpFmtK;
-      cell.font = { name: "Arial", size: 9, bold: true };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A1A1A" } };
-      cell.font = { name: "Arial", size: 8, bold: true, color: { argb: "FFFFFFFF" } };
+    // Grand totals
+    for (let s = 0; s < 3; s++) {
+      const colStart = 3 + monthKeys.length * 3 + s;
+      const colL     = colLetter(colStart);
+      const cell     = totRow.getCell(c2);
+      cell.value     = aggLines.length > 0 ? { formula: `SUM(${colL}${dataStart}:${colL}${dataStart + aggLines.length - 1})` } : 0;
+      cell.numFmt    = gbpFmt;
+      cell.font      = { name: "Arial", size: 9, bold: true, color: { argb: WHITE } };
+      cell.fill      = headerFill("FF111111");
       cell.alignment = { horizontal: "right" };
-      col++;
+      c2++;
     }
-
-    totRow.eachCell(cell => {
-      cell.border = {
-        top: { style: "medium", color: { argb: "FF1A1A1A" } },
-        bottom: { style: "medium", color: { argb: "FF1A1A1A" } },
-      };
-    });
+    totRow.eachCell(cell => { cell.border = { top: { style: "medium", color: { argb: NAVY } } }; });
 
     // Column widths
-    ws.getColumn(1).width = 28;
-    ws.getColumn(2).width = 10;
-    for (let i = 3; i <= 2 + (fyMonths.length + 1) * 4; i++) {
-      ws.getColumn(i).width = 9;
-    }
+    ws.getColumn(1).width = 26;
+    ws.getColumn(2).width = 2;
+    for (let i = 3; i <= 2 + (monthKeys.length + 1) * 3; i++) ws.getColumn(i).width = 9;
 
-    // Freeze panes: freeze project + code columns
-    ws.views = [{ state: "frozen", xSplit: 2, ySplit: 3, activeCell: "C4" }];
+    // Freeze: category column + row headers
+    ws.views = [{ state: "frozen", xSplit: 2, ySplit: 4, activeCell: "C5" }];
 
-    // -- Sheet 2: Summary ----------------------------------------------------
-    const wsSummary = wb.addWorksheet("Summary");
-
-    const summaryHeaders = ["Project", "Code", "Budget", "Total Forecast", "Total Actual", "Variance (£)", "Variance (%)", "Burn Rate (%)", "Status"];
-    const summaryRow1 = wsSummary.addRow(["Portfolio Budget Summary -- FY " + fyLabel]);
-    summaryRow1.getCell(1).font = { name: "Arial", size: 12, bold: true };
+    // ── Sheet 2: Summary by project ────────────────────────────────────────
+    const wsSummary = wb.addWorksheet("Project Summary");
+    wsSummary.addRow([`Portfolio Budget Summary — FY ${fy}`]).getCell(1).font = { name: "Arial", size: 12, bold: true };
+    wsSummary.addRow([scopeLabel]).getCell(1).font = { name: "Arial", size: 9, color: { argb: GREY } };
     wsSummary.addRow([]);
 
-    const hdrRow = wsSummary.addRow(summaryHeaders);
-    hdrRow.eachCell(cell => {
-      cell.font = { name: "Arial", size: 9, bold: true, color: { argb: "FFFFFFFF" } };
-      cell.fill = headerFill;
+    const sumHdrs = ["Project", "Code", "PM", "Department", "Budget FCT", "Total FCT", "Total ACT", "Variance (£)", "Utilisation %"];
+    const hRow = wsSummary.addRow(sumHdrs);
+    hRow.eachCell(cell => {
+      cell.font  = { name: "Arial", size: 9, bold: true, color: { argb: WHITE } };
+      cell.fill  = headerFill(NAVY);
       cell.alignment = { horizontal: "center" };
-      cell.border = { bottom: { style: "thin", color: { argb: "FFFFFFFF" } } };
     });
 
-    for (const proj of projectData) {
-      const tfc = proj.forecast.reduce((a: number, b: number) => a + b, 0);
-      const tac = proj.actual.reduce((a: number, b: number) => a + b, 0);
-      const tvr = tfc - proj.budget;
-      const vrPct = proj.budget > 0 ? tvr / proj.budget : 0;
-      const burnPct = proj.budget > 0 ? tac / proj.budget : 0;
-      const status = tvr > proj.budget * 0.1 ? "Over Budget" : tvr < -(proj.budget * 0.1) ? "Under Forecast" : "On Track";
+    for (const id of projectIds) {
+      const proj    = allProjects.find((p: any) => safeStr(p.id) === id);
+      if (!proj) continue;
+      const artifact = artifactByProject.get(id);
+      const cj       = artifact?.content_json;
+      const lines    = cj ? (Array.isArray(cj.cost_lines) ? cj.cost_lines : Array.isArray(cj.lines) ? cj.lines : []) : [];
+      const monthly  = cj ? (cj.monthly_data ?? cj.monthlyData ?? {}) : {};
 
-      const dr = wsSummary.addRow([proj.title, proj.code, proj.budget, tfc, tac, tvr, vrPct, burnPct, status]);
-      dr.getCell(3).numFmt = gbpFmt;
-      dr.getCell(4).numFmt = gbpFmt;
+      let totBud = 0, totFct = 0, totAct = 0;
+      for (const line of lines as any[]) {
+        const lineData = (monthly as any)[safeStr(line.id)] ?? {};
+        for (const [mk, e] of Object.entries(lineData) as [string, any][]) {
+          if (!monthSet.has(mk)) continue;
+          totBud += safeNum(e?.budget   ?? 0);
+          totFct += safeNum(e?.forecast ?? 0);
+          if (mk < nowKey) totAct += safeNum(e?.actual ?? 0);
+        }
+      }
+
+      const variance = totFct - totBud;
+      const utilPct  = totBud > 0 ? totAct / totBud : null;
+      const pmName   = pmNameByProject.get(id) ?? "";
+      const dept     = safeStr(proj.department).trim();
+      const code     = safeStr(proj.project_code) ? `PRJ-${proj.project_code}` : "";
+
+      const dr = wsSummary.addRow([proj.title, code, pmName, dept, totBud, totFct, totAct, variance, utilPct]);
       dr.getCell(5).numFmt = gbpFmt;
       dr.getCell(6).numFmt = gbpFmt;
-      dr.getCell(7).numFmt = "0.0%";
-      dr.getCell(8).numFmt = "0.0%";
-
-      const statusColor = status === "Over Budget" ? "FFDC2626" : status === "On Track" ? "FF059669" : "FFD97706";
-      dr.getCell(9).font = { name: "Arial", size: 9, bold: true, color: { argb: statusColor } };
-      dr.eachCell(cell => { cell.font = cell.font ?? { name: "Arial", size: 9 }; });
-      dr.eachCell(cell => { cell.border = { bottom: { style: "hair", color: { argb: "FFEEEEEE" } } }; });
+      dr.getCell(7).numFmt = gbpFmt;
+      dr.getCell(8).numFmt = gbpFmt;
+      dr.getCell(9).numFmt = "0.0%";
+      dr.getCell(8).font   = { name: "Arial", size: 9, color: { argb: variance > 0 ? RED : GREEN } };
+      dr.eachCell(cell => { cell.font = cell.font.color ? cell.font : { name: "Arial", size: 9 }; cell.border = { bottom: { style: "hair", color: { argb: "FFEEEEEE" } } }; });
     }
 
-    [28, 10, 12, 14, 12, 12, 11, 11, 12].forEach((w, i) => {
-      wsSummary.getColumn(i + 1).width = w;
-    });
+    [22, 10, 18, 16, 12, 12, 12, 12, 12].forEach((w, i) => { wsSummary.getColumn(i + 1).width = w; });
 
     // Serialize
-    const buffer = await wb.xlsx.writeBuffer();
-    const filename = `portfolio-phasing-fy${fyLabel.replace("/", "-")}.xlsx`;
+    const buffer   = await wb.xlsx.writeBuffer();
+    const filename = `portfolio-phasing-fy${fy.replace("/", "-")}.xlsx`;
 
     return new NextResponse(Buffer.from(buffer), {
       status: 200,
@@ -446,18 +457,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (e: any) {
-    console.error("[portfolio/budget-phasing/export]", e);
-    return err(String(e?.message ?? e ?? "Export failed"), 500);
+    console.error("[budget-phasing/export]", e);
+    return NextResponse.json({ error: String(e?.message ?? "Export failed") }, { status: 500 });
   }
-}
-
-function colLetter(colIndex: number): string {
-  let result = "";
-  let n = colIndex;
-  while (n > 0) {
-    const rem = (n - 1) % 26;
-    result = String.fromCharCode(65 + rem) + result;
-    n = Math.floor((n - 1) / 26);
-  }
-  return result;
 }
