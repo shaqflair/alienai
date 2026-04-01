@@ -167,6 +167,8 @@ export default function BudgetClient() {
   const [mounted,   setMount]     = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [viewMode,  setViewMode]  = useState<ViewMode>("live");
+  const [sharedFyYear,  setSharedFyYear]  = useState(() => { const now = new Date(); return now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1; });
+  const [sharedFyStart, setSharedFyStart] = useState(4);
 
   useEffect(() => { setMount(true); }, []);
 
@@ -203,7 +205,7 @@ export default function BudgetClient() {
   const varColor = varIsOver ? "#7f1d1d" : varIsUnder ? "#14532d" : T.ink;
   const varNote  = varIsUnder ? "Forecast below budget — verify scope is intact" : varIsOver ? "Requires executive attention" : "";
 
-  const fyLabel = "2026/27"; // TODO: derive from FY config
+  const fyLabel = sharedFyStart === 1 ? String(sharedFyYear) : `${sharedFyYear}/${String(sharedFyYear + 1).slice(2)}`;
 
   const filtered = useMemo(() => {
     let list = [...projects];
@@ -497,7 +499,7 @@ export default function BudgetClient() {
           {/* MONTHLY PHASING TAB */}
           {activeTab === "phasing" && (
             <div style={{ animation: "fadeUp 0.3s ease both" }}>
-              <PortfolioMonthlyPhasing />
+              <PortfolioMonthlyPhasing fyYear={sharedFyYear} fyStart={sharedFyStart} onFyChange={(year, start) => { setSharedFyYear(year); setSharedFyStart(start); }} />
             </div>
           )}
 
