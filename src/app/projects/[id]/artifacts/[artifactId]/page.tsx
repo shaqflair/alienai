@@ -541,7 +541,7 @@ export default async function ArtifactDetailPage({
     "use server";
     if (!projectUuid || !canEditByRole) return;
 
-    const blocked = statusLower === "submitted" || statusLower === "approved" || statusLower === "rejected";
+    const blocked = statusLower === "submitted" || statusLower === "rejected";
     if (blocked) return;
 
     let errMsg: string | null = null;
@@ -946,7 +946,7 @@ export default async function ArtifactDetailPage({
               </form>
             )}
 
-            {!isCurrent && canEditByRole && (
+            {!isCurrent && canEditByRole && (charterMode || closureMode) && (
               <form action={makeCurrentAction}>
                 <button type="submit" className="af-btn">Make current</button>
               </form>
