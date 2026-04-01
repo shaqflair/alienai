@@ -1524,8 +1524,8 @@ export default function FinancialPlanEditor({
   const resources = content.resources ?? [];
   const invoices  = content.invoices  ?? [];
 
-  const actualsByLine       = useMemo(() => computeActuals(resources, timesheetEntries), [resources, timesheetEntries]);
-  const actualTotalsPerLine = useMemo(() => computeActualTotalsPerLine(resources, timesheetEntries), [resources, timesheetEntries]);
+  const actualsByLine       = useMemo(() => computeActuals(resources, timesheetEntries, lines), [resources, timesheetEntries, lines]);
+  const actualTotalsPerLine = useMemo(() => computeActualTotalsPerLine(resources, timesheetEntries, lines), [resources, timesheetEntries, lines]);
   const linesWithActuals    = useMemo(() => applyActualsToCostLines(lines, actualTotalsPerLine), [lines, actualTotalsPerLine]);
 
   const totalApprovedDays = useMemo(() => {
