@@ -214,9 +214,16 @@ export default function BudgetClient() {
             }
           }
         }
-        // Use FY-scoped actual from project_spend (same source as live snapshot)
+        // Use FY-scoped actual from project_spend + monthly_data
         if (phasing.ok && typeof phasing.totalFyActual === "number") {
           fyActual = phasing.totalFyActual;
+        }
+        // If FY-scoped actual is still 0, fall back to all-time actual from
+        // the summary API — actuals may be entered in months before FY start
+        if (fyActual === 0 && summary?.ok) {
+          const sumPort = (summary as any).portfolio ?? {};
+          const allTimeActual = sumPort.totalActual ?? sumPort.total_actual ?? sumPort.totalSpent ?? (summary as any).total_spent ?? (summary as any).actual_spent ?? 0;
+          if (Number(allTimeActual) > 0) fyActual = Number(allTimeActual);
         }
 
         // projectsInFyCount = projects with actual phasing data in this specific FY
