@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // src/components/portfolio/PortfolioMonthlyPhasing.tsx
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
