@@ -1,5 +1,6 @@
 ﻿"use client";
 // src/components/portfolio/PortfolioMonthlyPhasing.tsx
+import { useOrgFy } from "@/hooks/useOrgFy";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TrendingUp, TrendingDown, Download, RefreshCw, Archive, Search, X, ChevronDown, Users, Building2 } from "lucide-react";
@@ -202,8 +203,18 @@ function ProjectFilterPanel({ projects, selected, onChange }: {
 
 /* ── Main component ── */
 export default function PortfolioMonthlyPhasing() {
+  const orgFy = useOrgFy();
   const [fyStart,   setFyStart]   = useState(4);
   const [fyYear,    setFyYear]    = useState(() => { const now=new Date(); return now.getMonth()+1>=4?now.getFullYear():now.getFullYear()-1; });
+  const [fyInitialised, setFyInitialised] = useState(false);
+  // Once org FY loads, set defaults if user hasn't changed them
+  useEffect(() => {
+    if (!orgFy.loading && !fyInitialised) {
+      setFyStart(orgFy.fyStartMonth);
+      setFyYear(orgFy.fyYear);
+      setFyInitialised(true);
+    }
+  }, [orgFy.loading, orgFy.fyStartMonth, orgFy.fyYear, fyInitialised]);
   const [numMonths, setNumMonths] = useState(12);
   const [scope,     setScope]     = useState<"active"|"all">("active");
   const [viewMode,  setViewMode]  = useState<ViewMode>("full");

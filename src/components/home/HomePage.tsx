@@ -1,8 +1,9 @@
 ﻿"use client";
+import { useOrgFy } from "@/hooks/useOrgFy";
 
 // src/components/home/HomePage.tsx -- dashboard-summary single-effect version
-// âœ… Upgraded: Intelligence states, governance alerts, action-oriented KPIs
-// âœ… Schedule intelligence wired: dueSoon / nextMilestone / hasAny / insight / signals
+// ✅ Upgraded: Intelligence states, governance alerts, action-oriented KPIs
+// ✅ Schedule intelligence wired: dueSoon / nextMilestone / hasAny / insight / signals
 
 import React, {
   useCallback,
@@ -63,7 +64,7 @@ const ExecutiveBriefingCard = dynamic(
             </div>
             <div>
               <div className="font-black text-slate-900" style={{ letterSpacing: "-0.01em" }}>Executive Briefing</div>
-              <div className="mt-0.5 text-xs text-slate-400">AI-generated portfolio narrative \u00B7 Ready</div>
+              <div className="mt-0.5 text-xs text-slate-400">AI-generated portfolio narrative · Ready</div>
             </div>
           </div>
         </div>
@@ -498,22 +499,9 @@ function normalizeWins(input: any): RecentWin[] { if (Array.isArray(input)) retu
 function normalizeScheduleIntelligence(input: any): ScheduleIntelligence {
   const src = input && typeof input === "object" ? input : null;
   if (!src) {
-    return {
-      ok: true,
-      dueSoon: [],
-      nextMilestone: null,
-      totalMilestones: 0,
-      hasAny: false,
-      signals: { hasOverdue: false, overdueCount: 0, atRiskCount: 0 },
-      insight: { summary: "", tone: "neutral" },
-      count: 0,
-    };
+    return { ok: true, dueSoon: [], nextMilestone: null, totalMilestones: 0, hasAny: false, signals: { hasOverdue: false, overdueCount: 0, atRiskCount: 0 }, insight: { summary: "", tone: "neutral" }, count: 0 };
   }
-
-  const dueSoonRaw = Array.isArray(src?.dueSoon)
-    ? src.dueSoon
-    : [];
-
+  const dueSoonRaw = Array.isArray(src?.dueSoon) ? src.dueSoon : [];
   const dueSoon: ScheduleIntelligenceItem[] = dueSoonRaw.map((m: any) => ({
     id: safeStr(m?.id).trim(),
     title: safeStr(m?.title || m?.name).trim() || "Milestone",
@@ -523,42 +511,24 @@ function normalizeScheduleIntelligence(input: any): ScheduleIntelligence {
     project_code: safeStr(m?.project_code || m?.projectCode).trim() || null,
     status: safeStr(m?.status).trim() || null,
   })).filter((m) => m.title && m.date);
-
   const nextRaw = src?.nextMilestone ?? null;
-  const nextMilestone: ScheduleIntelligenceItem | null = nextRaw
-    ? {
-        id: safeStr(nextRaw?.id).trim(),
-        title: safeStr(nextRaw?.title || nextRaw?.name).trim() || "Milestone",
-        date: safeStr(nextRaw?.date || nextRaw?.due_date || nextRaw?.dueDate).trim(),
-        project_id: safeStr(nextRaw?.project_id || nextRaw?.projectId).trim(),
-        project_title: safeStr(nextRaw?.project_title || nextRaw?.projectTitle).trim() || null,
-        project_code: safeStr(nextRaw?.project_code || nextRaw?.projectCode).trim() || null,
-        status: safeStr(nextRaw?.status).trim() || null,
-      }
-    : null;
-
+  const nextMilestone: ScheduleIntelligenceItem | null = nextRaw ? {
+    id: safeStr(nextRaw?.id).trim(),
+    title: safeStr(nextRaw?.title || nextRaw?.name).trim() || "Milestone",
+    date: safeStr(nextRaw?.date || nextRaw?.due_date || nextRaw?.dueDate).trim(),
+    project_id: safeStr(nextRaw?.project_id || nextRaw?.projectId).trim(),
+    project_title: safeStr(nextRaw?.project_title || nextRaw?.projectTitle).trim() || null,
+    project_code: safeStr(nextRaw?.project_code || nextRaw?.projectCode).trim() || null,
+    status: safeStr(nextRaw?.status).trim() || null,
+  } : null;
   const count = num(src?.count, dueSoon.length);
   const totalMilestones = num(src?.totalMilestones, 0);
   const hasAny = typeof src?.hasAny === "boolean" ? src.hasAny : totalMilestones > 0 || dueSoon.length > 0 || Boolean(nextMilestone);
-
   return {
-    ok: src?.ok !== false,
-    windowDays: num(src?.windowDays, 0),
-    dueSoon,
-    nextMilestone,
-    totalMilestones,
-    hasAny,
-    signals: {
-      hasOverdue: Boolean(src?.signals?.hasOverdue),
-      overdueCount: num(src?.signals?.overdueCount, 0),
-      atRiskCount: num(src?.signals?.atRiskCount, 0),
-    },
-    insight: {
-      summary: safeStr(src?.insight?.summary).trim(),
-      tone: (safeStr(src?.insight?.tone).trim().toLowerCase() || "neutral") as ScheduleTone,
-    },
-    meta: src?.meta ?? null,
-    count,
+    ok: src?.ok !== false, windowDays: num(src?.windowDays, 0), dueSoon, nextMilestone, totalMilestones, hasAny,
+    signals: { hasOverdue: Boolean(src?.signals?.hasOverdue), overdueCount: num(src?.signals?.overdueCount, 0), atRiskCount: num(src?.signals?.atRiskCount, 0) },
+    insight: { summary: safeStr(src?.insight?.summary).trim(), tone: (safeStr(src?.insight?.tone).trim().toLowerCase() || "neutral") as ScheduleTone },
+    meta: src?.meta ?? null, count,
   };
 }
 
@@ -570,26 +540,13 @@ function normalizeMilestonesDueCount(input: any): number | null {
 }
 
 function toDueDigestItemFromScheduleItem(x: ScheduleIntelligenceItem): DueDigestItem {
-  return {
-    itemType: "milestone",
-    title: x.title,
-    dueDate: x.date || null,
-    status: x.status || null,
-    ownerLabel: null,
-    ownerEmail: null,
-    link: null,
-    meta: {
-      project_code: x.project_code || null,
-      project_name: x.project_title || null,
-      project_id: x.project_id || null,
-    },
-  };
+  return { itemType: "milestone", title: x.title, dueDate: x.date || null, status: x.status || null, ownerLabel: null, ownerEmail: null, link: null, meta: { project_code: x.project_code || null, project_name: x.project_title || null, project_id: x.project_id || null } };
 }
 
 function formatMoney(n: number): string {
-  if (n >= 1_000_000) return `u{00A3}${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `u{00A3}${Math.round(n / 1_000)}k`;
-  return `u{00A3}${Math.round(n)}`;
+  if (n >= 1_000_000) return `\u00A3${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `\u00A3${Math.round(n / 1_000)}k`;
+  return `\u00A3${Math.round(n)}`;
 }
 
 /* --- Notification Bell ---------------------------------------------------- */
@@ -784,9 +741,9 @@ const ProjectRow = memo(function ProjectRow({ p, ragMap }: { p: any; ragMap: Map
       <div className="group/rag relative shrink-0" onClick={(e) => e.stopPropagation()}>
         <div className="h-3 w-3 cursor-help rounded-full ring-2 ring-transparent group-hover/rag:ring-offset-1" style={{ background: dotColor, boxShadow: `0 0 0 2px ${dotColor}22` }} />
         <div className="pointer-events-none absolute left-5 top-1/2 z-50 w-64 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-3 text-left opacity-0 transition-opacity duration-150 group-hover/rag:opacity-100" style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.13)" }}>
-          <div className="mb-1.5 flex items-center gap-2"><div className="h-3 w-3 shrink-0 rounded-full" style={{ background: dotColor }} /><span className="text-xs font-bold text-gray-900">{ragLabel}{health != null ? ` -- ${health}%` : ""}</span></div>
+          <div className="mb-1.5 flex items-center gap-2"><div className="h-3 w-3 shrink-0 rounded-full" style={{ background: dotColor }} /><span className="text-xs font-bold text-gray-900">{ragLabel}{health != null ? ` \u2014 ${health}%` : ""}</span></div>
           <p className="text-[11px] leading-relaxed text-gray-500">{ragLogic}</p>
-          <div className="mt-2 border-t border-gray-100 pt-2 text-[10px] text-gray-400">Thresholds: <span className="font-semibold text-green-600">Green &gt;= 85%</span> - <span className="font-semibold text-amber-600">Amber 70-84%</span> - <span className="font-semibold text-red-500">Red &lt; 70%</span></div>
+          <div className="mt-2 border-t border-gray-100 pt-2 text-[10px] text-gray-400">Thresholds: <span className="font-semibold text-green-600">Green &gt;= 85%</span> \u00B7 <span className="font-semibold text-amber-600">Amber 70-84%</span> \u00B7 <span className="font-semibold text-red-500">Red &lt; 70%</span></div>
         </div>
       </div>
       <div className="min-w-0 flex-1">
@@ -999,6 +956,9 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
   const [dashboardScope, setDashboardScope] = useState<DashboardScope | null>(null);
   const [activeProjectsLive, setActiveProjectsLive] = useState<DashboardActiveProject[]>([]);
 
+  // Org FY config — drives Budget Health label dynamically
+  const orgFy = useOrgFy();
+
   const projectOptions = useMemo<ProjectOption[]>(() => (Array.isArray(projects) ? projects : []).map((p: any) => ({ id: String(p?.id || "").trim(), name: safeStr(p?.title || "Project").trim(), code: projectCodeLabel(p?.project_code) || null })).filter((p) => p.id).sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name)), [projects]);
   const pmOptions = useMemo(() => { const map = new Map<string, string>(); for (const p of (Array.isArray(projects) ? projects : []) as any[]) { const name = safeStr(p?.project_manager || p?.pm_name || p?.manager_name || p?.project_manager_name || p?.manager || p?.pm || p?.owner_name).trim(); const id = safeStr(p?.project_manager_id || p?.pm_user_id || p?.manager_id || p?.project_manager_user_id || p?.owner_id).trim(); if (!name) continue; map.set(id || name, name); } return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)); }, [projects]);
   const deptOptions = useMemo(() => { const set = new Set<string>(); for (const p of (Array.isArray(projects) ? projects : []) as any[]) { const d = safeStr(p?.department).trim(); if (d) set.add(d); } return Array.from(set).sort((a, b) => a.localeCompare(b)).map((d) => ({ value: d, label: d })); }, [projects]);
@@ -1053,12 +1013,12 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
               setBriefingData((prev: any) => {
                 if (!prev?.ok) return prev;
                 const sentiment = liveScore >= 85 ? "green" : liveScore >= 70 ? "amber" : "red";
-                const execSummary = liveScore >= 85 ? `Portfolio health is strong at ${liveScore}%. ${patchRag.g} project${patchRag.g !== 1 ? "s" : ""} green â€” delivery signals on track.` : liveScore >= 70 ? `Portfolio health is amber at ${liveScore}%. ${patchRag.a} project${patchRag.a !== 1 ? "s" : ""} need${patchRag.a === 1 ? "s" : ""} attention â€” monitor schedule and RAID signals.` : `Portfolio health is red at ${liveScore}%. ${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} require${patchRag.r === 1 ? "s" : ""} immediate review â€” schedule, RAID, and governance issues present.`;
+                const execSummary = liveScore >= 85 ? `Portfolio health is strong at ${liveScore}%. ${patchRag.g} project${patchRag.g !== 1 ? "s" : ""} green \u2014 delivery signals on track.` : liveScore >= 70 ? `Portfolio health is amber at ${liveScore}%. ${patchRag.a} project${patchRag.a !== 1 ? "s" : ""} need${patchRag.a === 1 ? "s" : ""} attention \u2014 monitor schedule and RAID signals.` : `Portfolio health is red at ${liveScore}%. ${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} require${patchRag.r === 1 ? "s" : ""} immediate review \u2014 schedule, RAID, and governance issues present.`;
                 const liveTalkingPoints = [`Portfolio mix is ${patchRag.g} green / ${patchRag.a} amber / ${patchRag.r} red.`, `Average health is ${liveScore}%.`, ...((prev.talking_points ?? []) as string[]).filter((tp: string) => !safeStr(tp).toLowerCase().includes("green") && !safeStr(tp).toLowerCase().includes("amber") && !safeStr(tp).toLowerCase().includes("red") && !safeStr(tp).toLowerCase().includes("health is") && !safeStr(tp).toLowerCase().includes("portfolio mix"))];
                 const patchedSections = (prev.sections ?? []).map((s: any) => {
                   if (s.id === "health") return { ...s, sentiment, body: `Average portfolio health is ${liveScore}%. Current mix: ${patchRag.g} green, ${patchRag.a} amber, ${patchRag.r} red.` };
                   if (s.id === "delivery" && sentiment === "red") return { ...s, sentiment: "red", body: `${patchRag.r} project${patchRag.r !== 1 ? "s" : ""} ha${patchRag.r === 1 ? "s" : "ve"} overdue milestones. Schedule delivery requires immediate attention.` };
-                  if (s.id === "delivery" && sentiment === "amber") return { ...s, sentiment: "amber", body: `Delivery signals require monitoring â€” some milestones are approaching or past due dates.` };
+                  if (s.id === "delivery" && sentiment === "amber") return { ...s, sentiment: "amber", body: `Delivery signals require monitoring \u2014 some milestones are approaching or past due dates.` };
                   if (s.id === "finance") { const fpData = nextFp as any; const budget = fpData?.ok ? (fpData.portfolio?.totalBudget ?? fpData.portfolio?.total_budget ?? fpData.total_approved_budget ?? fpData.approved_budget ?? fpData.budget ?? null) : null; const spent = fpData?.ok ? (fpData.portfolio?.totalActual ?? fpData.portfolio?.total_actual ?? fpData.portfolio?.totalSpent ?? fpData.total_spent ?? fpData.actual_spent ?? fpData.spent ?? null) : null; const bNum = budget != null && Number.isFinite(Number(budget)) && Number(budget) > 0 ? Number(budget) : null; const sNum = spent != null && Number.isFinite(Number(spent)) && Number(spent) > 0 ? Number(spent) : null; const bStr = bNum != null ? formatMoney(bNum) : null; const sStr = sNum != null ? formatMoney(sNum) : null; const body = bStr ? `Total portfolio budget is ${bStr}.${sStr ? ` ${sStr} spent to date.` : " No actuals recorded yet."}` : s.body; return { ...s, body }; }
                   return s;
                 });
@@ -1113,8 +1073,11 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
   }
 
   const fpValueLabel = fpTotalBudget != null ? formatBudget(fpTotalBudget, fpCurrency) : fpLoading ? "..." : "No data";
+  // Budget Health sub-label: shows current org FY + spent + variance
   const fpSubLabel = fpHasData
-    ? fpTotalSpent != null ? `${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` \u00B7 ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}` : `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "needs monitoring" : "over budget"}`
+    ? fpTotalSpent != null
+      ? `FY ${orgFy.fyLabel} \u00B7 ${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` \u00B7 ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}`
+      : `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "needs monitoring" : "over budget"}`
     : fpLoading ? "Loading financial plans..." : "No approved financial plans";
   const fpTrendLabel = fpVarianceNum != null && fpVarianceNum !== 0 ? `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%` : undefined;
 
@@ -1147,7 +1110,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
   const milestoneKpiSub = milestonesDueLive == null
     ? "Loading schedule intelligence..."
     : !scheduleHasAny
-      ? "No milestones defined â€” schedule visibility limited"
+      ? "No milestones defined \u2014 schedule visibility limited"
       : scheduleHasOverdue
         ? `${scheduleOverdueCount} overdue \u00B7 schedule risk detected`
         : milestonesDueLive > 0
@@ -1157,20 +1120,14 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
             : `No milestones due in next ${windowDays === "all" ? "60" : windowDays} days`;
 
   const milestoneKpiColorKey =
-    !scheduleHasAny
-      ? "amber"
-      : scheduleHasOverdue
-        ? "red"
-        : milestonesDueLive && milestonesDueLive > 0
-          ? "blue"
-          : "green";
+    !scheduleHasAny ? "amber" :
+    scheduleHasOverdue ? "red" :
+    milestonesDueLive && milestonesDueLive > 0 ? "blue" : "green";
 
   const scheduleCardToneClasses =
-    scheduleInsightTone === "warning"
-      ? "border-amber-100 bg-amber-50/50"
-      : scheduleInsightTone === "positive"
-        ? "border-green-100 bg-green-50/50"
-        : "border-blue-100 bg-blue-50/50";
+    scheduleInsightTone === "warning" ? "border-amber-100 bg-amber-50/50" :
+    scheduleInsightTone === "positive" ? "border-green-100 bg-green-50/50" :
+    "border-blue-100 bg-blue-50/50";
 
   if (!ok) {
     return (
@@ -1254,7 +1211,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
               <div className="mb-2 flex items-start justify-between">
                 <div>
                   <h3 className="font-semibold text-gray-900">Resource Activity</h3>
-                  <p className="mt-0.5 text-xs text-gray-400">Week-on-week capacity vs demand (FTE) â€” {windowDays === "all" ? "60" : windowDays} days</p>
+                  <p className="mt-0.5 text-xs text-gray-400">Week-on-week capacity vs demand (FTE) \u2014 {windowDays === "all" ? "60" : windowDays} days</p>
                 </div>
                 <div className="mt-1 flex items-center gap-4 text-xs text-gray-400">
                   <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#93c5fd" }} />Capacity</span>
@@ -1313,7 +1270,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
               </div>
               {governanceAllClear ? (
                 <div className="rounded-xl border border-green-100 bg-green-50/60 px-4 py-3 text-sm font-medium text-green-700">
-                  âœ… No governance alerts â€” portfolio posture is stable for the next {dueWindowDays} days
+                  \u2705 No governance alerts \u2014 portfolio posture is stable for the next {dueWindowDays} days
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -1346,7 +1303,11 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                     <button onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))} className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700">View all <ChevronRight className="h-3 w-3" /></button>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
-                    {([{ rag: "G" as RagLetter, count: displayRagCounts.g, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, label: "Green", threshold: ">= 85% health", from: "#f0fdf4", border: "#dcfce7" }, { rag: "A" as RagLetter, count: displayRagCounts.a, icon: <AlertTriangle className="h-4 w-4 text-amber-600" />, label: "Amber", threshold: "70-84% health", from: "#fffbeb", border: "#fef3c7" }, { rag: "R" as RagLetter, count: displayRagCounts.r, icon: <AlertTriangle className="h-4 w-4 text-red-500" />, label: "Red", threshold: "< 70% health", from: "#fef2f2", border: "#fecaca" }]).map(({ rag: r, count, icon, label, threshold, from, border }) => {
+                    {([
+                      { rag: "G" as RagLetter, count: displayRagCounts.g, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, label: "Green", threshold: ">= 85% health", from: "#f0fdf4", border: "#dcfce7" },
+                      { rag: "A" as RagLetter, count: displayRagCounts.a, icon: <AlertTriangle className="h-4 w-4 text-amber-600" />, label: "Amber", threshold: "70-84% health", from: "#fffbeb", border: "#fef3c7" },
+                      { rag: "R" as RagLetter, count: displayRagCounts.r, icon: <AlertTriangle className="h-4 w-4 text-red-500" />, label: "Red", threshold: "< 70% health", from: "#fef2f2", border: "#fecaca" }
+                    ]).map(({ rag: r, count, icon, label, threshold, from, border }) => {
                       const total = displayRagCounts.g + displayRagCounts.a + displayRagCounts.r;
                       return (
                         <div key={r} className="cursor-pointer rounded-xl p-4 transition-all hover:brightness-[0.97]" style={{ background: from, border: `1px solid ${border}` }} onClick={() => router.push(appendFiltersToUrl(`/insights?rag=${r}&days=${numericWindowDays}`, urlFilters))}>
@@ -1398,24 +1359,26 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                     Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 animate-pulse rounded-xl bg-gray-50" />)
                   ) : scheduleDueSoon.length > 0 ? (
                     <>
-                    {scheduleInsightSummary && (
-<div className={["rounded-xl border px-4 py-3 text-sm font-medium", scheduleCardToneClasses].join(" ")} style={{ color: "#374151" }}> 
- {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days â€” next milestone scheduled ahead.`}
-</div>)}                      {allDueItems.map((it, i) => (
+                      {scheduleInsightSummary && (
+                        <div className={["rounded-xl border px-4 py-3 text-sm font-medium", scheduleCardToneClasses].join(" ")} style={{ color: "#374151" }}>
+                          {scheduleInsightSummary}
+                        </div>
+                      )}
+                      {allDueItems.map((it, i) => (
                         <MilestoneCard key={`${it.title}-${i}`} item={it} onClick={() => { const href = safeStr(it?.link).trim(); if (href && !href.includes("/raid") && !href.includes("/risks")) router.push(href); else router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters)); }} />
                       ))}
                     </>
                   ) : !scheduleHasAny ? (
                     <div className="space-y-3 py-4 text-center">
                       <AlertTriangle className="mx-auto h-7 w-7 text-amber-300" />
-                      <p className="text-sm text-gray-500">No milestones defined â€” schedule visibility limited</p>
+                      <p className="text-sm text-gray-500">No milestones defined \u2014 schedule visibility limited</p>
                       <p className="text-xs text-gray-400">Add milestones to track delivery progress and upcoming commitments</p>
                       <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))} className="text-xs font-medium text-blue-600 hover:text-blue-700">Open schedule</button>
                     </div>
                   ) : scheduleNextMilestone ? (
                     <div className="space-y-3">
                       <div className={["rounded-xl border px-4 py-3 text-sm font-medium", scheduleCardToneClasses].join(" ")} style={{ color: "#374151" }}>
-                        {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days â€” next milestone scheduled ahead.`}
+                        {scheduleInsightSummary || `No milestones due in the next ${dueWindowDays} days \u2014 next milestone scheduled ahead.`}
                       </div>
                       <div className="rounded-xl border border-gray-100 bg-white p-4">
                         <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-gray-400">Next milestone</div>
@@ -1430,7 +1393,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                   ) : (
                     <div className="py-8 text-center">
                       <CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-gray-200" />
-                      <p className="text-sm text-gray-400">{activeProjects.length === 0 ? "No active projects in scope" : `No milestones due in the next ${dueWindowDays} days â€” schedule on track`}</p>
+                      <p className="text-sm text-gray-400">{activeProjects.length === 0 ? "No active projects in scope" : `No milestones due in the next ${dueWindowDays} days \u2014 schedule on track`}</p>
                       <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))} className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-700">View milestone list</button>
                     </div>
                   )}
@@ -1472,4 +1435,3 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
     </LazyMotion>
   );
 }
-

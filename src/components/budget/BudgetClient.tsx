@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useOrgFy } from "@/hooks/useOrgFy";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 
@@ -167,8 +168,16 @@ export default function BudgetClient() {
   const [mounted,   setMount]     = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [viewMode,  setViewMode]  = useState<ViewMode>("live");
-  const [overviewFyYear,  setOverviewFyYear]  = useState(() => { const now = new Date(); return now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1; });
-  const [overviewFyStart, setOverviewFyStart] = useState(4);
+  const orgFy = useOrgFy();
+  const [overviewFyYear,  setOverviewFyYear]  = useState<number | null>(null);
+  const [overviewFyStart, setOverviewFyStart] = useState<number | null>(null);
+  // Once org FY loads, initialise selectors if not yet set by user
+  useEffect(() => {
+    if (!orgFy.loading && overviewFyYear === null) setOverviewFyYear(orgFy.fyYear);
+    if (!orgFy.loading && overviewFyStart === null) setOverviewFyStart(orgFy.fyStartMonth);
+  }, [orgFy.loading, orgFy.fyYear, orgFy.fyStartMonth]);
+  const effectiveFyYear  = overviewFyYear  ?? orgFy.fyYear;
+  const effectiveFyStart = overviewFyStart ?? orgFy.fyStartMonth;
 
   useEffect(() => { setMount(true); }, []);
 
@@ -181,7 +190,7 @@ export default function BudgetClient() {
         // FY mode: fetch from phasing API which is FY-aware, derive KPIs from monthly totals
         const [summaryRes, phasingRes] = await Promise.all([
           fetch(`/api/portfolio/financial-plan-summary?scope=${scope}`, { cache: "no-store" }),
-          fetch(`/api/portfolio/budget-phasing?fyStart=${overviewFyStart}&fyYear=${overviewFyYear}&fyMonths=12&scope=${scope}`, { cache: "no-store" }),
+          fetch(`/api/portfolio/budget-phasing?fyStart=${effectiveFyStart}&fyYear=${effectiveFyYear}&fyMonths=12&scope=${scope}`, { cache: "no-store" }),
         ]);
         const summary = await summaryRes.json();
         const phasing = await phasingRes.json();
@@ -238,7 +247,7 @@ export default function BudgetClient() {
     } catch (e: any) {
       setData({ ok: false, error: e?.message, portfolio: { totalBudget: 0, totalForecast: 0, totalActual: 0, totalVariance: 0, projectCount: 0, withPlanCount: 0 }, projects: [] });
     } finally { setLoad(false); }
-  }, [viewMode, overviewFyYear, overviewFyStart]);
+  }, [viewMode, effectiveFyYear, effectiveFyStart]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -261,7 +270,7 @@ export default function BudgetClient() {
   const varColor = varIsOver ? "#7f1d1d" : varIsUnder ? "#14532d" : T.ink;
   const varNote  = varIsUnder ? "Forecast below budget — verify scope is intact" : varIsOver ? "Requires executive attention" : "";
 
-  const fyLabel = overviewFyStart === 1 ? String(overviewFyYear) : `${overviewFyYear}/${String(overviewFyYear + 1).slice(2)}`;
+  const fyLabel = effectiveFyStart === 1 ? String(effectiveFyYear) : `${effectiveFyYear}/${String(effectiveFyYear + 1).slice(2)}`;
 
   const filtered = useMemo(() => {
     let list = [...projects];
@@ -323,14 +332,14 @@ export default function BudgetClient() {
                       </button>
                     ))}
                   </div>
-                  <select value={overviewFyStart} onChange={e => setOverviewFyStart(Number(e.target.value))} style={{ padding: "6px 8px", fontFamily: T.mono, fontSize: 10, border: `1px solid ${T.hr}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
+                  <select value={effectiveFyStart} onChange={e => setOverviewFyStart(Number(e.target.value))} style={{ padding: "6px 8px", fontFamily: T.mono, fontSize: 10, border: `1px solid ${T.hr}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
                     <option value={4}>Apr – Mar</option>
                     <option value={1}>Jan – Dec</option>
                     <option value={7}>Jul – Jun</option>
                     <option value={10}>Oct – Sep</option>
                   </select>
-                  <select value={overviewFyYear} onChange={e => setOverviewFyYear(Number(e.target.value))} style={{ padding: "6px 8px", fontFamily: T.mono, fontSize: 10, border: `1px solid ${T.hr}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
-                    {(() => { const now = new Date(); const cur = now.getMonth() + 1 >= overviewFyStart ? now.getFullYear() : now.getFullYear() - 1; return [cur+1, cur, cur-1, cur-2].map(y => <option key={y} value={y}>FY {overviewFyStart === 1 ? y : `${y}/${String(y+1).slice(2)}`}</option>); })()}
+                  <select value={effectiveFyYear} onChange={e => setOverviewFyYear(Number(e.target.value))} style={{ padding: "6px 8px", fontFamily: T.mono, fontSize: 10, border: `1px solid ${T.hr}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
+                    {(() => { const now = new Date(); const cur = now.getMonth() + 1 >= effectiveFyStart ? now.getFullYear() : now.getFullYear() - 1; return [cur+1, cur, cur-1, cur-2].map(y => <option key={y} value={y}>FY {effectiveFyStart === 1 ? y : `${y}/${String(y+1).slice(2)}`}</option>); })()}
                   </select>
                 </div>
               </div>
