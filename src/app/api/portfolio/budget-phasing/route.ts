@@ -99,16 +99,14 @@ export async function GET(req: Request) {
       .from("artifacts")
       .select("id, project_id, content_json, approval_status, type")
       .in("project_id", projectIds)
-      .ilike("type", "financial_plan")
-      .eq("is_current", true);
+      .ilike("type", "financial_plan");
 
     // Also fetch any that might be stored differently
     const { data: artifactRows2 } = await supabase
       .from("artifacts")
       .select("id, project_id, content_json, approval_status, type")
       .in("project_id", projectIds)
-      .ilike("type", "%financial%plan%")
-      .eq("is_current", true);
+      .ilike("type", "%financial%plan%");
 
     const allArtifacts = [...(artifactRows ?? []), ...(artifactRows2 ?? [])];
 
