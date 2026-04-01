@@ -1,13 +1,13 @@
-"use client";
+﻿"use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 
-// Lazy-load the phasing component — it's heavy and not needed on initial render
+// Lazy-load the phasing component â€” it's heavy and not needed on initial render
 const PortfolioMonthlyPhasing = dynamic(
   () => import("@/components/portfolio/PortfolioMonthlyPhasing"),
-  { ssr: false, loading: () => <div style={{ padding: 64, textAlign: "center", color: "#a8a29e", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>LOADING PHASING DATA…</div> }
+  { ssr: false, loading: () => <div style={{ padding: 64, textAlign: "center", color: "#a8a29e", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>LOADING PHASING DATAâ€¦</div> }
 );
 
 const FONT_URL =
@@ -164,7 +164,7 @@ function nowUK() {
     .replace(",", "");
 }
 
-/* ─── Tab button ───────────────────────────────────────────────── */
+/* â”€â”€â”€ Tab button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function TabBtn({ label, active, onClick, badge }: { label: string; active: boolean; onClick: () => void; badge?: string }) {
   return (
     <button
@@ -204,7 +204,7 @@ function TabBtn({ label, active, onClick, badge }: { label: string; active: bool
   );
 }
 
-/* ─── Main component ───────────────────────────────────────────── */
+/* â”€â”€â”€ Main component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 export default function BudgetClient() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoad] = useState(true);
@@ -231,7 +231,7 @@ export default function BudgetClient() {
 
   useEffect(() => { load(); }, [load]);
 
-  const projects = (data?.projects ?? []).filter(
+  const projects = (data?.projects ?? []).filter((p) => !!p?.totals).filter(
     (p) => String((p as any).status ?? "").toLowerCase() !== "pipeline"
   );
   const port = data?.portfolio;
@@ -274,14 +274,14 @@ export default function BudgetClient() {
       <div style={{ minHeight: "100vh", background: T.bg, fontFamily: T.mono, opacity: mounted ? 1 : 0, transition: "opacity 0.35s" }}>
         <div style={{ maxWidth: 1360, margin: "0 auto", padding: "40px 40px 100px" }}>
 
-          {/* ── Header ── */}
+          {/* â”€â”€ Header â”€â”€ */}
           <div style={{ borderBottom: `2px solid ${T.ink}`, paddingBottom: 22, marginBottom: 0, animation: "fadeUp 0.4s ease both" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <Link href="/home" style={{ fontFamily: T.mono, fontSize: 10, color: T.ink4, textDecoration: "none", letterSpacing: "0.08em" }}>
                   {"<- PORTFOLIO INTELLIGENCE"}
                 </Link>
-                <span style={{ color: T.ink5 }}>{" · "}</span>
+                <span style={{ color: T.ink5 }}>{" Â· "}</span>
                 <Cap>BUDGET REGISTER</Cap>
               </div>
               <Mono size={10} color={T.ink5}>{nowUK()}</Mono>
@@ -309,13 +309,13 @@ export default function BudgetClient() {
             </div>
           </div>
 
-          {/* ── Tab bar ── */}
+          {/* â”€â”€ Tab bar â”€â”€ */}
           <div style={{ display: "flex", borderBottom: `1px solid ${T.hr}`, marginBottom: 24, gap: 0 }}>
             <TabBtn label="Overview" active={activeTab === "overview"} onClick={() => setActiveTab("overview")} badge={String(projects.length)} />
             <TabBtn label="Monthly Phasing" active={activeTab === "phasing"} onClick={() => setActiveTab("phasing")} />
           </div>
 
-          {/* ── OVERVIEW TAB ── */}
+          {/* â”€â”€ OVERVIEW TAB â”€â”€ */}
           {activeTab === "overview" && (
             <>
               {!loading && port && (
@@ -461,7 +461,7 @@ export default function BudgetClient() {
             </>
           )}
 
-          {/* ── MONTHLY PHASING TAB ── */}
+          {/* â”€â”€ MONTHLY PHASING TAB â”€â”€ */}
           {activeTab === "phasing" && (
             <div style={{ animation: "fadeUp 0.3s ease both" }}>
               <PortfolioMonthlyPhasing />
