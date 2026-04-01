@@ -63,7 +63,7 @@ export default async function TimesheetReviewPage({
 
   let tsQuery = supabase
     .from("timesheets")
-    .select(`id, week_start_date, status, submitted_at, reviewer_note, user_id, weekly_timesheet_entries(hours)`)
+    .select(`id, week_start_date, status, submitted_at, reviewer_note, user_id, weekly_weekly_timesheet_entries(hours)`)
     .eq("organisation_id", organisationId)
     .order("submitted_at", { ascending: false })
     .limit(200);
@@ -115,5 +115,6 @@ export default async function TimesheetReviewPage({
     />
   );
 }
+
 
 
