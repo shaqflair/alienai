@@ -1,792 +1,543 @@
 ﻿"use client";
 // src/components/portfolio/PortfolioMonthlyPhasing.tsx
-// Portfolio-wide monthly phasing matrix — matching the financial plan format.
-// Shows Forecast / Actual / Budget / Variance per month per project.
+// Same format as FinancialPlanMonthlyView — read-only, aggregated by cost category.
+// Includes filter by project name, code and PM.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Download,
-  ChevronDown,
-  ChevronRight,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  RefreshCw,
-  Calendar,
-  Archive,
-  Filter,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TrendingUp, TrendingDown, Download, RefreshCw, Archive, Search, X, ChevronDown, Users } from "lucide-react";
 
-/* ─────────────────────────────────────────────────────── types */
+const P = {
+  bg: "#F7F7F5", surface: "#FFFFFF", border: "#E3E3DF", borderMd: "#C8C8C4",
+  text: "#0D0D0B", textMd: "#4A4A46", textSm: "#8A8A84",
+  navy: "#1B3652", navyLt: "#EBF0F5",
+  red: "#B83A2E", redLt: "#FDF2F1",
+  green: "#2A6E47", greenLt: "#F0F7F3",
+  amber: "#8A5B1A", amberLt: "#FDF6EC",
+  violet: "#4A3A7A", violetLt: "#F4F2FB",
+  mono: "'DM Mono', 'Courier New', monospace",
+  sans: "'DM Sans', system-ui, sans-serif",
+} as const;
 
-interface FyMonth { year: number; month: number; label: string }
+const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const FY_START_OPTIONS = [{ value:4, label:"Apr – Mar (UK)" }, { value:1, label:"Jan – Dec" }, { value:7, label:"Jul – Jun" }, { value:10, label:"Oct – Sep" }];
+const DURATION_OPTIONS = [{ value:12, label:"12 months" }, { value:18, label:"18 months" }, { value:24, label:"24 months" }, { value:36, label:"36 months" }];
 
-interface ProjectPhasing {
-  id: string;
-  title: string;
-  projectCode: string;
-  resourceStatus: string;
-  isArchived: boolean;
-  hasPlan: boolean;
-  budget: number;
-  forecast: number[];
-  actual: number[];
-  budgetArr: number[];
-  variance: number[];
-  totals: { forecast: number; actual: number; budget: number; variance: number };
+type MonthKey    = string;
+type MonthlyEntry= { budget: number|""; actual: number|""; forecast: number|""; locked: boolean };
+type MonthlyData = Record<string, Record<MonthKey, MonthlyEntry>>;
+type AggLine     = { id: string; category: string; description: string };
+type ViewMode    = "full" | "bud_fct";
+type Project     = { id: string; title: string; projectCode: string; pmName: string };
+
+interface PhasingResponse {
+  ok: boolean; fyStart: number; fyYear: number; numMonths: number;
+  monthKeys: MonthKey[]; aggregatedLines: AggLine[]; monthlyData: MonthlyData;
+  projectCount: number; projectsWithPlan: number; filteredProjectCount: number;
+  scope: string; allProjects: Project[]; error?: string;
 }
 
-interface PhasingData {
-  ok: boolean;
-  fyYear: number;
-  fyStart: number;
-  fyMonths: FyMonth[];
-  projects: ProjectPhasing[];
-  totals: {
-    forecast: number[];
-    actual: number[];
-    budget: number[];
-    variance: number[];
-    totals: { forecast: number; actual: number; budget: number; variance: number };
-  };
+const SYM = "£";
+function fmt(n: number|""|null|undefined): string {
+  if (n===""||n==null||isNaN(Number(n))) return "--";
+  const v=Number(n), sign=v<0?"-":"", abs=Math.abs(v);
+  if (abs>=1_000_000) return `${sign}${SYM}${(abs/1_000_000).toFixed(1)}M`;
+  if (abs>=1000) return `${sign}${SYM}${abs.toLocaleString("en-GB",{maximumFractionDigits:0})}`;
+  return `${sign}${SYM}${abs}`;
+}
+function fmtK(n: number|""|null|undefined): string {
+  if (n===""||n==null||isNaN(Number(n))) return "--";
+  const v=Number(n); if(v===0) return "--";
+  const sign=v<0?"-":"", abs=Math.abs(v);
+  if (abs>=1_000_000) return `${sign}${SYM}${(abs/1_000_000).toFixed(1)}M`;
+  return `${sign}${SYM}${(abs/1000).toFixed(1)}k`;
 }
 
-/* ─────────────────────────────────────────────────────── config */
-
-const FY_START_OPTIONS = [
-  { value: 4,  label: "Apr–Mar (UK)" },
-  { value: 1,  label: "Jan–Dec" },
-  { value: 7,  label: "Jul–Jun" },
-  { value: 10, label: "Oct–Sep" },
-];
-
-function fyLabel(fyYear: number, fyStart: number): string {
-  if (fyStart === 1) return String(fyYear);
-  const endYear = fyYear + 1;
-  return `${fyYear}/${String(endYear).slice(2)}`;
-}
-
-function fyYearOptions(fyStart: number): number[] {
-  const now = new Date();
-  const nowYear = now.getFullYear();
-  const nowMonth = now.getMonth() + 1;
-  const currentFy = nowMonth >= fyStart ? nowYear : nowYear - 1;
-  return [currentFy + 1, currentFy, currentFy - 1, currentFy - 2, currentFy - 3];
-}
-
-/* ─────────────────────────────────────────────────────── formatters */
-
-function fmt(v: number, showK = false): string {
-  if (!Number.isFinite(v)) return "—";
-  const abs = Math.abs(v);
-  const sign = v < 0 ? "-" : "";
-  if (showK) {
-    return `${sign}£${(abs / 1000).toFixed(abs >= 10000 ? 0 : 1)}k`;
+function buildQuarters(keys: MonthKey[], fyStart: number) {
+  const qs: { label: string; months: MonthKey[] }[] = [];
+  for (let i=0; i<keys.length; i+=3) {
+    const slice=keys.slice(i,i+3); if(!slice.length) break;
+    const [y,m]=slice[0].split("-").map(Number);
+    const fyY=m>=fyStart?y:y-1;
+    qs.push({ label:`Q${Math.floor(i/3)+1} FY${fyY}/${String(fyY+1).slice(2)}`, months:slice });
   }
-  if (abs === 0) return "—";
-  return `${sign}£${abs.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
+  return qs;
 }
-
-function fmtPct(v: number, total: number): string {
-  if (!total || !Number.isFinite(v / total)) return "";
-  const pct = (v / total) * 100;
-  return `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}%`;
+function currentMonthKey() { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; }
+function isCurrentMonth(mk: MonthKey) { return mk===currentMonthKey(); }
+function isPastMonth(mk: MonthKey)    { return mk<currentMonthKey(); }
+function sumLines(lines: AggLine[], md: MonthlyData, months: MonthKey[], field: "budget"|"actual"|"forecast"): number {
+  return lines.reduce((s,l)=>s+months.reduce((ms,mk)=>ms+(Number(md[l.id]?.[mk]?.[field])||0),0),0);
 }
+function fyYearOptions(fyStart: number): number[] {
+  const now=new Date(), cur=now.getMonth()+1>=fyStart?now.getFullYear():now.getFullYear()-1;
+  return [cur+1,cur,cur-1,cur-2];
+}
+function fyLabel(fyYear: number, fyStart: number) { return fyStart===1?String(fyYear):`${fyYear}/${String(fyYear+1).slice(2)}`; }
 
-/* ─────────────────────────────────────────────────────── sub-components */
+const thBase: React.CSSProperties = { padding:"3px 4px", textAlign:"right", fontFamily:P.mono, fontSize:8, fontWeight:500, letterSpacing:"0.08em", textTransform:"uppercase", borderBottom:`1px solid ${P.borderMd}` };
+const selStyle: React.CSSProperties = { border:`1px solid ${P.border}`, background:P.surface, fontFamily:P.mono, fontSize:10, color:P.text, padding:"5px 8px", outline:"none", cursor:"pointer" };
 
-const METRIC_COLORS = {
-  forecast: { text: "#2563EB", bg: "#EFF6FF" },
-  actual:   { text: "#059669", bg: "#F0FDF4" },
-  budget:   { text: "#6B7280", bg: "#F9FAFB" },
-  variance: { textPos: "#059669", textNeg: "#DC2626", bgPos: "#F0FDF4", bgNeg: "#FFF0F0" },
-};
+/* ── Project Filter Panel ───────────────────────────────────────── */
+function ProjectFilterPanel({
+  projects, selected, onChange,
+}: { projects: Project[]; selected: Set<string>; onChange: (s: Set<string>) => void }) {
+  const [search, setSearch] = useState("");
+  const [open, setOpen]     = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
 
-type Metric = "forecast" | "actual" | "budget" | "variance";
-const METRICS: Metric[] = ["forecast", "actual", "budget", "variance"];
-const METRIC_LABELS: Record<Metric, string> = {
-  forecast: "FCT",
-  actual: "ACT",
-  budget: "BDG",
-  variance: "VAR",
-};
+  useEffect(() => {
+    function handle(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
 
-function MonthCell({ value, metric, isTotal = false }: { value: number; metric: Metric; isTotal?: boolean }) {
-  const isVariance = metric === "variance";
-  const isPos = value >= 0;
-
-  const color = isVariance
-    ? (isPos ? METRIC_COLORS.variance.textPos : METRIC_COLORS.variance.textNeg)
-    : METRIC_COLORS[metric].text;
-
-  const bg = isVariance
-    ? (isPos ? METRIC_COLORS.variance.bgPos : METRIC_COLORS.variance.bgNeg)
-    : isTotal ? "#F0F0E8" : "transparent";
-
-  return (
-    <td
-      style={{
-        padding: "3px 6px",
-        textAlign: "right",
-        fontSize: 11,
-        fontVariantNumeric: "tabular-nums",
-        color,
-        background: bg,
-        fontWeight: isTotal ? 600 : 400,
-        whiteSpace: "nowrap",
-        borderRight: metric === "variance" ? "1px solid #E5E5DC" : undefined,
-        minWidth: 70,
-      }}
-    >
-      {fmt(value, isTotal)}
-    </td>
+  const q = search.trim().toLowerCase();
+  const filtered = projects.filter(p =>
+    !q ||
+    p.title.toLowerCase().includes(q) ||
+    p.projectCode.toLowerCase().includes(q) ||
+    p.pmName.toLowerCase().includes(q)
   );
-}
 
-function MonthGroupHeader({ month }: { month: FyMonth }) {
-  return (
-    <th
-      colSpan={4}
-      style={{
-        padding: "6px 4px",
-        textAlign: "center",
-        fontSize: 10,
-        fontWeight: 700,
-        background: "#1A1A1A",
-        color: "#FFFFFF",
-        borderRight: "1px solid #333",
-        whiteSpace: "nowrap",
-        letterSpacing: "0.05em",
-      }}
-    >
-      {month.label}
-    </th>
-  );
-}
+  const allSelected = selected.size === 0 || selected.size === projects.length;
+  const label = allSelected
+    ? `All projects (${projects.length})`
+    : `${selected.size} of ${projects.length} selected`;
 
-function MetricSubHeader({ metric }: { metric: Metric }) {
-  const colors = METRIC_COLORS[metric as keyof typeof METRIC_COLORS] as any;
-  return (
-    <th
-      style={{
-        padding: "4px 6px",
-        textAlign: "center",
-        fontSize: 9,
-        fontWeight: 700,
-        background: "#F5F5F0",
-        color: colors.text ?? colors.textPos,
-        borderRight: metric === "variance" ? "1px solid #E5E5DC" : "none",
-        minWidth: 70,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {METRIC_LABELS[metric]}
-    </th>
-  );
-}
+  function toggleAll() { onChange(new Set()); }
+  function toggle(id: string) {
+    const next = new Set(selected.size === 0 ? projects.map(p => p.id) : selected);
+    next.has(id) ? next.delete(id) : next.add(id);
+    if (next.size === projects.length) onChange(new Set()); else onChange(next);
+  }
 
-/* ─────────────────────────────────────────────────────── project row */
-
-function ProjectRow({
-  proj,
-  fyMonths,
-  expanded,
-  onToggle,
-}: {
-  proj: ProjectPhasing;
-  fyMonths: FyMonth[];
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const hasData = proj.hasPlan;
-  const varColor = proj.totals.variance >= 0 ? "#059669" : "#DC2626";
+  // Group by PM
+  const pmGroups = useMemo(() => {
+    const map = new Map<string, Project[]>();
+    for (const p of filtered) {
+      const pm = p.pmName || "No PM assigned";
+      if (!map.has(pm)) map.set(pm, []);
+      map.get(pm)!.push(p);
+    }
+    return [...map.entries()].sort((a,b) => a[0].localeCompare(b[0]));
+  }, [filtered]);
 
   return (
-    <>
-      <tr
-        style={{
-          cursor: "pointer",
-          background: expanded ? "#FAFAF5" : "white",
-          borderBottom: "1px solid #EEEEEE",
-        }}
-        onClick={onToggle}
+    <div ref={ref} style={{ position:"relative" }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{ display:"flex", alignItems:"center", gap:6, padding:"5px 10px", border:`1px solid ${P.border}`, background: !allSelected ? P.navyLt : P.bg, color: !allSelected ? P.navy : P.textMd, fontFamily:P.mono, fontSize:9, letterSpacing:"0.06em", textTransform:"uppercase", cursor:"pointer", whiteSpace:"nowrap" }}
       >
-        {/* Sticky project name */}
-        <td
-          style={{
-            position: "sticky",
-            left: 0,
-            background: expanded ? "#FAFAF5" : "white",
-            zIndex: 2,
-            padding: "8px 10px",
-            minWidth: 220,
-            maxWidth: 220,
-            borderRight: "2px solid #E5E5DC",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ color: "#9CA3AF", flexShrink: 0 }}>
-              {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            </span>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 12, color: "#1A1A1A", lineHeight: 1.3 }}>
-                {proj.title}
-                {proj.isArchived && (
-                  <span style={{ marginLeft: 6, fontSize: 9, color: "#9CA3AF", fontWeight: 400 }}>ARCHIVED</span>
-                )}
-              </div>
-              <div style={{ fontSize: 10, color: "#9CA3AF", fontWeight: 500 }}>{proj.projectCode}</div>
-            </div>
-          </div>
-        </td>
+        <Users size={11} />
+        {label}
+        <ChevronDown size={10} style={{ transform: open?"rotate(180deg)":"none", transition:"transform 0.15s" }} />
+      </button>
 
-        {/* Collapsed summary: show total variance and spark */}
-        {!expanded && (
-          <>
-            <td style={{ padding: "6px 10px", fontSize: 11, color: "#6B7280", textAlign: "right", minWidth: 90 }}>
-              {fmt(proj.totals.budget, true)}
-            </td>
-            <td style={{ padding: "6px 10px", fontSize: 11, color: METRIC_COLORS.forecast.text, textAlign: "right", minWidth: 90 }}>
-              {fmt(proj.totals.forecast, true)}
-            </td>
-            <td style={{ padding: "6px 10px", fontSize: 11, color: METRIC_COLORS.actual.text, textAlign: "right", minWidth: 90 }}>
-              {fmt(proj.totals.actual, true)}
-            </td>
-            <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, color: varColor, textAlign: "right", minWidth: 90 }}>
-              {fmt(proj.totals.variance, true)}
-              <span style={{ fontSize: 9, fontWeight: 400, marginLeft: 4, color: varColor }}>
-                {fmtPct(proj.totals.variance, proj.totals.budget)}
-              </span>
-            </td>
-            <td style={{ padding: "6px 10px", textAlign: "right" }}>
-              {proj.totals.variance >= 0
-                ? <TrendingUp size={12} color="#059669" />
-                : <TrendingDown size={12} color="#DC2626" />}
-            </td>
-            {/* Fill remaining month columns with empty */}
-            {fyMonths.slice(1).map((_, i) => (
-              <td key={i} colSpan={4} style={{ borderRight: "1px solid #E5E5DC" }} />
-            ))}
-          </>
-        )}
-
-        {/* Expanded: show all month cells */}
-        {expanded && fyMonths.map((_, mi) => (
-          METRICS.map(metric => (
-            <MonthCell
-              key={`${mi}-${metric}`}
-              value={metric === "forecast" ? proj.forecast[mi]
-                : metric === "actual" ? proj.actual[mi]
-                : metric === "budget" ? proj.budgetArr[mi]
-                : proj.variance[mi]}
-              metric={metric}
+      {open && (
+        <div style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:100, background:P.surface, border:`1px solid ${P.borderMd}`, boxShadow:"0 4px 16px rgba(0,0,0,0.12)", width:320, maxHeight:420, display:"flex", flexDirection:"column" }}>
+          {/* Search */}
+          <div style={{ padding:"8px 10px", borderBottom:`1px solid ${P.border}`, display:"flex", alignItems:"center", gap:6 }}>
+            <Search size={12} color={P.textSm} />
+            <input
+              autoFocus
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search by name, code or PM…"
+              style={{ flex:1, border:"none", outline:"none", fontFamily:P.mono, fontSize:10, color:P.text, background:"transparent" }}
             />
-          ))
-        ))}
+            {search && <button onClick={() => setSearch("")} style={{ border:"none", background:"none", cursor:"pointer", padding:0, color:P.textSm }}><X size={11} /></button>}
+          </div>
 
-        {/* Row total */}
-        {expanded && METRICS.map(metric => (
-          <MonthCell
-            key={`total-${metric}`}
-            value={metric === "forecast" ? proj.totals.forecast
-              : metric === "actual" ? proj.totals.actual
-              : metric === "budget" ? proj.totals.budget
-              : proj.totals.variance}
-            metric={metric}
-            isTotal
-          />
-        ))}
-      </tr>
-    </>
-  );
-}
+          {/* All projects toggle */}
+          <div style={{ padding:"6px 10px", borderBottom:`1px solid ${P.border}` }}>
+            <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", fontFamily:P.mono, fontSize:9, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", color:P.navy }}>
+              <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ accentColor:P.navy }} />
+              All projects
+            </label>
+          </div>
 
-/* ─────────────────────────────────────────────────────── totals row */
+          {/* Grouped list */}
+          <div style={{ overflowY:"auto", flex:1 }}>
+            {pmGroups.map(([pm, projs]) => (
+              <div key={pm}>
+                <div style={{ padding:"5px 10px 3px", fontFamily:P.mono, fontSize:8, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", color:P.textSm, background:"#F5F5F2", borderBottom:`1px solid ${P.border}` }}>
+                  {pm}
+                </div>
+                {projs.map(p => {
+                  const isChecked = allSelected || selected.has(p.id);
+                  return (
+                    <label key={p.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 10px 6px 16px", cursor:"pointer", borderBottom:`1px solid ${P.border}`, background: isChecked ? "#FAFAF8" : P.surface }}>
+                      <input type="checkbox" checked={isChecked} onChange={() => toggle(p.id)} style={{ accentColor:P.navy, flexShrink:0 }} />
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontFamily:P.sans, fontSize:11, fontWeight:500, color:P.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.title}</div>
+                        {p.projectCode && <div style={{ fontFamily:P.mono, fontSize:9, color:P.textSm }}>{p.projectCode}</div>}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <div style={{ padding:"20px 10px", textAlign:"center", fontFamily:P.mono, fontSize:10, color:P.textSm }}>No projects match</div>
+            )}
+          </div>
 
-function TotalsRow({ data, fyMonths }: { data: PhasingData; fyMonths: FyMonth[] }) {
-  return (
-    <tr style={{ background: "#1A1A1A", position: "sticky", bottom: 0, zIndex: 3 }}>
-      <td
-        style={{
-          position: "sticky",
-          left: 0,
-          background: "#1A1A1A",
-          zIndex: 4,
-          padding: "8px 10px",
-          fontWeight: 700,
-          fontSize: 12,
-          color: "white",
-          minWidth: 220,
-          borderRight: "2px solid #444",
-        }}
-      >
-        Portfolio Total
-      </td>
-      {fyMonths.map((_, mi) =>
-        METRICS.map(metric => {
-          const val = metric === "forecast" ? data.totals.forecast[mi]
-            : metric === "actual" ? data.totals.actual[mi]
-            : metric === "budget" ? data.totals.budget[mi]
-            : data.totals.variance[mi];
-          const isVariance = metric === "variance";
-          const color = isVariance
-            ? (val >= 0 ? "#34D399" : "#F87171")
-            : metric === "forecast" ? "#93C5FD"
-            : metric === "actual" ? "#6EE7B7"
-            : "#9CA3AF";
-          return (
-            <td
-              key={`tot-${mi}-${metric}`}
-              style={{
-                padding: "6px 6px",
-                textAlign: "right",
-                fontSize: 10,
-                fontVariantNumeric: "tabular-nums",
-                color,
-                fontWeight: 600,
-                borderRight: metric === "variance" ? "1px solid #333" : undefined,
-                whiteSpace: "nowrap",
-              }}
-            >
-              {fmt(val)}
-            </td>
-          );
-        })
+          {/* Clear footer */}
+          {!allSelected && (
+            <div style={{ padding:"6px 10px", borderTop:`1px solid ${P.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span style={{ fontFamily:P.mono, fontSize:9, color:P.textSm }}>{selected.size} selected</span>
+              <button onClick={() => onChange(new Set())} style={{ fontFamily:P.mono, fontSize:9, color:P.navy, background:"none", border:"none", cursor:"pointer", textDecoration:"underline" }}>Clear filter</button>
+            </div>
+          )}
+        </div>
       )}
-      {METRICS.map(metric => {
-        const val = metric === "forecast" ? data.totals.totals.forecast
-          : metric === "actual" ? data.totals.totals.actual
-          : metric === "budget" ? data.totals.totals.budget
-          : data.totals.totals.variance;
-        const isVariance = metric === "variance";
-        const color = isVariance ? (val >= 0 ? "#34D399" : "#F87171") : "white";
-        return (
-          <td
-            key={`grand-${metric}`}
-            style={{
-              padding: "6px 8px",
-              textAlign: "right",
-              fontSize: 11,
-              fontVariantNumeric: "tabular-nums",
-              color,
-              fontWeight: 700,
-              background: "#111",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {fmt(val, true)}
-          </td>
-        );
-      })}
-    </tr>
+    </div>
   );
 }
 
-/* ─────────────────────────────────────────────────────── main component */
-
+/* ── Main component ─────────────────────────────────────────────── */
 export default function PortfolioMonthlyPhasing() {
-  const [fyStart, setFyStart] = useState(4);
-  const [fyYear, setFyYear] = useState<number>(() => {
-    const now = new Date();
-    return now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1;
-  });
-  const [scope, setScope] = useState<"active" | "all">("active");
-  const [data, setData] = useState<PhasingData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [fyStart,   setFyStart]   = useState(4);
+  const [fyYear,    setFyYear]    = useState(() => { const now=new Date(); return now.getMonth()+1>=4?now.getFullYear():now.getFullYear()-1; });
+  const [numMonths, setNumMonths] = useState(12);
+  const [scope,     setScope]     = useState<"active"|"all">("active");
+  const [viewMode,  setViewMode]  = useState<ViewMode>("full");
+  const [data,      setData]      = useState<PhasingResponse|null>(null);
+  const [loading,   setLoading]   = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [allExpanded, setAllExpanded] = useState(false);
+  const [activeQs,  setActiveQs]  = useState<Set<string>|null>(null);
+  const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
-      const res = await fetch(
-        `/api/portfolio/budget-phasing?fy=${fyYear}&fyStart=${fyStart}&scope=${scope}`,
-        { cache: "no-store" }
-      );
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error ?? "Failed to load");
-      setData(json);
-      // Auto-expand if few projects
-      if (json.projects.length <= 5) {
-        setExpandedProjects(new Set(json.projects.map((p: any) => p.id)));
-        setAllExpanded(true);
-      }
+      const ids = selectedProjects.size > 0 ? `&projectIds=${[...selectedProjects].join(",")}` : "";
+      const r   = await fetch(`/api/portfolio/budget-phasing?fyStart=${fyStart}&fyYear=${fyYear}&fyMonths=${numMonths}&scope=${scope}${ids}`, { cache:"no-store" });
+      const j   = await r.json();
+      setData(j);
+      setActiveQs(null);
     } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [fyYear, fyStart, scope]);
+      setData({ ok:false, error:e.message, fyStart, fyYear, numMonths, monthKeys:[], aggregatedLines:[], monthlyData:{}, projectCount:0, projectsWithPlan:0, filteredProjectCount:0, scope, allProjects:[] });
+    } finally { setLoading(false); }
+  }, [fyStart, fyYear, numMonths, scope, selectedProjects]);
 
   useEffect(() => { load(); }, [load]);
 
-  const toggleProject = useCallback((id: string) => {
-    setExpandedProjects(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+  const monthKeys      = data?.monthKeys ?? [];
+  const lines          = data?.aggregatedLines ?? [];
+  const md             = data?.monthlyData ?? {};
+  const allProjects    = data?.allProjects ?? [];
+
+  const quarters       = useMemo(() => buildQuarters(monthKeys, fyStart), [monthKeys, fyStart]);
+  const visibleMonths  = useMemo(() => {
+    if (!activeQs || activeQs.size===0) return monthKeys;
+    return quarters.filter(q => activeQs.has(q.label)).flatMap(q => q.months);
+  }, [activeQs, monthKeys, quarters]);
+  const visibleQuarters = quarters.filter(q => q.months.some(mk => visibleMonths.includes(mk)));
+  const colsPerMonth    = viewMode==="full"?3:2;
+
+  const toggleQuarter = useCallback((label: string) => {
+    setActiveQs(prev => {
+      const current=prev??new Set(quarters.map(q=>q.label));
+      const next=new Set(current);
+      next.has(label)&&next.size===1?null:next.has(label)?next.delete(label):next.add(label);
+      if (next.has(label)) next.delete(label); else next.add(label);
+      if (next.size===0||next.size===quarters.length) return null;
       return next;
     });
-  }, []);
+  }, [quarters]);
 
-  const toggleAll = useCallback(() => {
-    if (!data) return;
-    if (allExpanded) {
-      setExpandedProjects(new Set());
-      setAllExpanded(false);
-    } else {
-      setExpandedProjects(new Set(data.projects.map(p => p.id)));
-      setAllExpanded(true);
+  const monthTotals = useMemo(() => {
+    const result: Record<MonthKey,{budget:number;actual:number;forecast:number}> = {};
+    for (const mk of monthKeys) {
+      result[mk] = {
+        budget:   sumLines(lines, md, [mk], "budget"),
+        actual:   isPastMonth(mk)?sumLines(lines, md, [mk], "actual"):0,
+        forecast: sumLines(lines, md, [mk], "forecast"),
+      };
     }
-  }, [data, allExpanded]);
+    return result;
+  }, [monthKeys, md, lines]);
+
+  const grandForecast = visibleMonths.reduce((s,mk)=>s+(monthTotals[mk]?.forecast??0),0);
+  const grandBudget   = visibleMonths.reduce((s,mk)=>s+(monthTotals[mk]?.budget??0),0);
 
   const handleExport = useCallback(async () => {
     setExporting(true);
     try {
-      const res = await fetch(
-        `/api/portfolio/budget-phasing/export?fy=${fyYear}&fyStart=${fyStart}&scope=${scope}`
-      );
-      if (!res.ok) throw new Error("Export failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `portfolio-phasing-fy${fyLabel(fyYear, fyStart).replace("/", "-")}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e: any) {
-      alert("Export failed: " + e.message);
-    } finally {
-      setExporting(false);
-    }
-  }, [fyYear, fyStart, scope]);
+      const ids = selectedProjects.size>0?`&projectIds=${[...selectedProjects].join(",")}`:"";
+      const r   = await fetch(`/api/portfolio/budget-phasing/export?fyStart=${fyStart}&fyYear=${fyYear}&fyMonths=${numMonths}&scope=${scope}${ids}`);
+      if (!r.ok) throw new Error("Export failed");
+      const blob=await r.blob(), url=URL.createObjectURL(blob), a=document.createElement("a");
+      a.href=url; a.download=`portfolio-phasing-fy${fyLabel(fyYear,fyStart).replace("/","-")}.xlsx`; a.click(); URL.revokeObjectURL(url);
+    } catch(e: any) { alert("Export failed: "+e.message); }
+    finally { setExporting(false); }
+  }, [fyStart, fyYear, numMonths, scope, selectedProjects]);
 
-  const yearOptions = fyYearOptions(fyStart);
-  const fyMonths = data?.fyMonths ?? [];
+  const allSelected = selectedProjects.size===0;
+  const filterActive = !allSelected;
 
   return (
-    <div style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
-      {/* Toolbar */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: "12px 0 16px",
-          flexWrap: "wrap",
-        }}
-      >
-        {/* FY Start selector */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <Calendar size={13} color="#9CA3AF" />
-          <select
-            value={fyStart}
-            onChange={e => setFyStart(Number(e.target.value))}
-            style={selectStyle}
-          >
-            {FY_START_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
+    <div style={{ display:"flex", flexDirection:"column", gap:12, fontFamily:P.sans }}>
+
+      {/* ── Toolbar row 1: FY config + project filter + export ── */}
+      <div style={{ display:"flex", flexWrap:"wrap", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+          <select value={fyStart} onChange={e=>{setFyStart(Number(e.target.value));}} style={selStyle}>
+            {FY_START_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
+          <select value={fyYear} onChange={e=>setFyYear(Number(e.target.value))} style={selStyle}>
+            {fyYearOptions(fyStart).map(y=><option key={y} value={y}>FY {fyLabel(y,fyStart)}</option>)}
+          </select>
+          <select value={numMonths} onChange={e=>setNumMonths(Number(e.target.value))} style={selStyle}>
+            {DURATION_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+
+          {/* Scope */}
+          <div style={{ display:"flex", border:`1px solid ${P.border}` }}>
+            {(["active","all"] as const).map(s=>(
+              <button key={s} onClick={()=>setScope(s)} style={{ padding:"5px 10px", fontFamily:P.mono, fontSize:9, letterSpacing:"0.06em", textTransform:"uppercase", cursor:"pointer", background:scope===s?P.navy:P.bg, color:scope===s?"#FFF":P.textMd, border:"none", display:"flex", alignItems:"center", gap:4 }}>
+                {s==="all"&&<Archive size={10}/>}
+                {s==="active"?"Active only":"Incl. closed"}
+              </button>
+            ))}
+          </div>
+
+          {/* Project filter */}
+          {allProjects.length > 0 && (
+            <ProjectFilterPanel
+              projects={allProjects}
+              selected={selectedProjects}
+              onChange={setSelectedProjects}
+            />
+          )}
+
+          <button onClick={load} style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 10px", border:`1px solid ${P.border}`, background:P.bg, color:P.textMd, fontFamily:P.mono, fontSize:9, letterSpacing:"0.06em", textTransform:"uppercase", cursor:"pointer" }}>
+            <RefreshCw size={11} style={{ animation:loading?"spin 1s linear infinite":"none" }}/>
+          </button>
         </div>
 
-        {/* FY Year selector */}
-        <select
-          value={fyYear}
-          onChange={e => setFyYear(Number(e.target.value))}
-          style={selectStyle}
-        >
-          {yearOptions.map(y => (
-            <option key={y} value={y}>FY {fyLabel(y, fyStart)}</option>
-          ))}
-        </select>
-
-        {/* Scope toggle */}
-        <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: "1px solid #E5E5DC" }}>
-          {(["active", "all"] as const).map(s => (
-            <button
-              key={s}
-              onClick={() => setScope(s)}
-              style={{
-                padding: "5px 12px",
-                fontSize: 11,
-                fontWeight: 500,
-                border: "none",
-                cursor: "pointer",
-                background: scope === s ? "#1A1A1A" : "white",
-                color: scope === s ? "white" : "#6B7280",
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-              }}
-            >
-              {s === "all" && <Archive size={11} />}
-              {s === "active" ? "Active only" : "All incl. closed"}
-            </button>
-          ))}
+        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+          {data && (
+            <span style={{ fontFamily:P.mono, fontSize:9, color: filterActive?P.navy:P.textSm }}>
+              {filterActive?`${data.filteredProjectCount} projects selected`:`${data.projectsWithPlan}/${data.projectCount} with plan`}
+            </span>
+          )}
+          <div style={{ display:"flex", border:`1px solid ${P.border}` }}>
+            {(["full","bud_fct"] as ViewMode[]).map(m=>(
+              <button key={m} onClick={()=>setViewMode(m)} style={{ padding:"5px 10px", fontFamily:P.mono, fontSize:9, letterSpacing:"0.06em", textTransform:"uppercase", cursor:"pointer", background:viewMode===m?P.navy:P.bg, color:viewMode===m?"#FFF":P.textMd, border:"none" }}>
+                {m==="full"?"Bud + Act + Fct":"Bud + Fct only"}
+              </button>
+            ))}
+          </div>
+          <button onClick={handleExport} disabled={exporting||!data?.ok} style={{ display:"flex", alignItems:"center", gap:5, padding:"5px 12px", border:`1px solid ${P.border}`, background:P.navy, color:"#FFF", fontFamily:P.mono, fontSize:9, letterSpacing:"0.06em", textTransform:"uppercase", cursor:"pointer", opacity:exporting?0.7:1 }}>
+            <Download size={11}/>{exporting?"Exporting…":"Export XLSX"}
+          </button>
         </div>
-
-        {/* Refresh */}
-        <button onClick={load} style={iconBtnStyle} title="Refresh">
-          <RefreshCw size={13} style={{ animation: loading ? "spin 1s linear infinite" : "none" }} />
-        </button>
-
-        <div style={{ flex: 1 }} />
-
-        {/* Expand/collapse all */}
-        <button onClick={toggleAll} style={textBtnStyle}>
-          <Filter size={11} />
-          {allExpanded ? "Collapse all" : "Expand all"}
-        </button>
-
-        {/* Export */}
-        <button
-          onClick={handleExport}
-          disabled={exporting || !data}
-          style={{
-            ...textBtnStyle,
-            background: "#1A1A1A",
-            color: "white",
-            padding: "6px 14px",
-            borderRadius: 6,
-            opacity: exporting ? 0.7 : 1,
-          }}
-        >
-          <Download size={12} />
-          {exporting ? "Exporting…" : "Export XLSX"}
-        </button>
       </div>
 
-      {/* Summary KPIs */}
-      {data && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
-          {[
-            { label: "Total Budget", value: data.totals.totals.budget, color: "#6B7280" },
-            { label: "Total Forecast", value: data.totals.totals.forecast, color: "#2563EB" },
-            { label: "Total Actual", value: data.totals.totals.actual, color: "#059669" },
-            { label: "Variance", value: data.totals.totals.variance, color: data.totals.totals.variance >= 0 ? "#059669" : "#DC2626" },
-          ].map(kpi => (
-            <div
-              key={kpi.label}
-              style={{
-                background: "white",
-                border: "1px solid #E5E5DC",
-                borderRadius: 8,
-                padding: "12px 16px",
-              }}
-            >
-              <div style={{ fontSize: 10, color: "#9CA3AF", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
-                {kpi.label}
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: kpi.color, fontVariantNumeric: "tabular-nums" }}>
-                {fmt(kpi.value, true)}
-              </div>
-              {kpi.label === "Variance" && (
-                <div style={{ fontSize: 10, color: kpi.color, marginTop: 2 }}>
-                  {fmtPct(kpi.value, data.totals.totals.budget)} vs budget
-                </div>
-              )}
-            </div>
-          ))}
+      {/* ── Active filter chips ── */}
+      {filterActive && allProjects.length>0 && (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:4, alignItems:"center" }}>
+          <span style={{ fontFamily:P.mono, fontSize:8, color:P.textSm, letterSpacing:"0.08em", textTransform:"uppercase" }}>Filtered:</span>
+          {[...selectedProjects].slice(0,6).map(id=>{
+            const p=allProjects.find(x=>x.id===id);
+            if (!p) return null;
+            return (
+              <span key={id} style={{ display:"flex", alignItems:"center", gap:4, padding:"2px 8px", background:P.navyLt, border:`1px solid ${P.navy}33`, borderRadius:2, fontFamily:P.mono, fontSize:9, color:P.navy }}>
+                {p.projectCode||p.title.slice(0,12)}
+                <button onClick={()=>{ const next=new Set(selectedProjects.size===0?allProjects.map(x=>x.id):selectedProjects); next.delete(id); setSelectedProjects(next.size===allProjects.length?new Set():next); }} style={{ border:"none", background:"none", cursor:"pointer", padding:0, color:P.navy, lineHeight:1 }}>
+                  <X size={9}/>
+                </button>
+              </span>
+            );
+          })}
+          {selectedProjects.size>6&&<span style={{ fontFamily:P.mono, fontSize:9, color:P.textSm }}>+{selectedProjects.size-6} more</span>}
+          <button onClick={()=>setSelectedProjects(new Set())} style={{ fontFamily:P.mono, fontSize:9, color:P.red, background:"none", border:"none", cursor:"pointer", textDecoration:"underline", marginLeft:4 }}>Clear all</button>
         </div>
       )}
 
-      {/* Error */}
-      {error && (
-        <div style={{ padding: 16, background: "#FFF0F0", border: "1px solid #FCA5A5", borderRadius: 8, color: "#DC2626", fontSize: 13 }}>
-          {error}
-        </div>
-      )}
+      {/* ── Quarter filter buttons ── */}
+      <div style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"center" }}>
+        <span style={{ fontFamily:P.mono, fontSize:9, color:P.textSm, letterSpacing:"0.08em", textTransform:"uppercase", marginRight:4 }}>Quarter:</span>
+        <button onClick={()=>setActiveQs(null)} style={{ padding:"4px 12px", fontFamily:P.mono, fontSize:9, fontWeight:700, cursor:"pointer", border:"1px solid", borderColor:!activeQs?P.navy:P.border, background:!activeQs?P.navy:P.bg, color:!activeQs?"#FFF":P.textMd, borderRadius:3 }}>All</button>
+        {quarters.map(q=>{
+          const isActive=!activeQs||activeQs.has(q.label);
+          const qFct=sumLines(lines,md,q.months,"forecast");
+          const qBud=sumLines(lines,md,q.months,"budget");
+          const over=qBud>0&&qFct>qBud;
+          return (
+            <button key={q.label} onClick={()=>toggleQuarter(q.label)} style={{ padding:"4px 12px", fontFamily:P.mono, fontSize:9, fontWeight:700, cursor:"pointer", border:"1px solid", borderRadius:3, borderColor:isActive?(over?P.amber:P.navy):P.border, background:isActive?(over?P.amberLt:P.navyLt):P.bg, color:isActive?(over?P.amber:P.navy):P.textSm, opacity:isActive?1:0.5 }}>
+              {q.label.split(" ")[0]} {q.label.split(" ")[1]}
+              {qFct!==0&&<span style={{ marginLeft:6, fontWeight:400, opacity:0.7 }}>{fmtK(qFct)}</span>}
+            </button>
+          );
+        })}
+      </div>
 
-      {/* Loading skeleton */}
-      {loading && !data && (
-        <div style={{ padding: 40, textAlign: "center", color: "#9CA3AF", fontSize: 13 }}>
-          Loading phasing data…
-        </div>
-      )}
+      {/* ── Legend ── */}
+      <div style={{ display:"flex", flexWrap:"wrap", gap:12, alignItems:"center" }}>
+        {[
+          { bg:"#EEF4F9", bc:"#A0BAD0", l:"Budget" },
+          ...(viewMode==="full"?[{ bg:P.violetLt, bc:"#C0B0E0", l:"Actual (locked)" }]:[]),
+          { bg:P.greenLt, bc:"#A0D0B8", l:"Forecast" },
+          { bg:P.redLt,   bc:"#F0B0AA", l:"Over budget" },
+        ].map(({bg,bc,l})=>(
+          <span key={l} style={{ display:"flex", alignItems:"center", gap:5, fontFamily:P.mono, fontSize:9, color:P.textSm, letterSpacing:"0.06em" }}>
+            <span style={{ width:10, height:10, background:bg, border:`1px solid ${bc}`, display:"inline-block", flexShrink:0 }}/>
+            {l.toUpperCase()}
+          </span>
+        ))}
+        <span style={{ display:"flex", alignItems:"center", gap:5, fontFamily:P.mono, fontSize:9, color:P.textSm, letterSpacing:"0.06em" }}>
+          <span style={{ width:6, height:6, borderRadius:"50%", background:P.navy, boxShadow:`0 0 0 2px ${P.navyLt}`, display:"inline-block", flexShrink:0 }}/>
+          CURRENT MONTH
+        </span>
+      </div>
 
-      {/* Phasing table */}
-      {data && data.projects.length === 0 && (
-        <div style={{ padding: 40, textAlign: "center", color: "#9CA3AF", fontSize: 13 }}>
-          No projects found for FY {fyLabel(fyYear, fyStart)}
-        </div>
-      )}
+      {/* ── States ── */}
+      {loading && <div style={{ border:`1px solid ${P.borderMd}`, padding:48, textAlign:"center" }}><span style={{ fontFamily:P.mono, fontSize:11, color:P.textSm }}>LOADING PORTFOLIO PHASING…</span></div>}
+      {!loading&&data&&!data.ok&&<div style={{ border:`1px solid ${P.borderMd}`, borderLeft:`3px solid ${P.red}`, padding:"16px 20px", background:P.redLt }}><span style={{ fontFamily:P.mono, fontSize:11, color:P.red }}>{data.error}</span></div>}
+      {!loading&&data?.ok&&lines.length===0&&<div style={{ border:`1px dashed ${P.amber}`, background:P.amberLt, padding:"48px 24px", textAlign:"center" }}><p style={{ fontFamily:P.sans, fontSize:13, color:P.amber }}>No financial plan phasing data found for the selected projects and FY {fyLabel(fyYear,fyStart)}.</p></div>}
 
-      {data && data.projects.length > 0 && (
-        <div
-          style={{
-            border: "1px solid #E5E5DC",
-            borderRadius: 8,
-            overflow: "auto",
-            maxHeight: "calc(100vh - 380px)",
-            position: "relative",
-          }}
-        >
-          <table style={{ borderCollapse: "collapse", width: "max-content", minWidth: "100%" }}>
-            <thead style={{ position: "sticky", top: 0, zIndex: 5 }}>
-              {/* Month group row */}
-              <tr>
-                <th
-                  style={{
-                    position: "sticky",
-                    left: 0,
-                    zIndex: 6,
-                    background: "#1A1A1A",
-                    minWidth: 220,
-                    padding: "8px 10px",
-                    textAlign: "left",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: "white",
-                    borderRight: "2px solid #333",
-                  }}
-                >
-                  Project
-                </th>
-                {!allExpanded && (
-                  <>
-                    <th style={collapsedThStyle}>Budget</th>
-                    <th style={collapsedThStyle}>Forecast</th>
-                    <th style={collapsedThStyle}>Actual</th>
-                    <th style={collapsedThStyle}>Variance</th>
-                    <th style={collapsedThStyle}></th>
-                    {fyMonths.slice(1).map((m, i) => (
-                      <th key={i} colSpan={4} style={{ background: "#1A1A1A", borderRight: "1px solid #333" }} />
-                    ))}
-                  </>
-                )}
-                {allExpanded && fyMonths.map((m, i) => <MonthGroupHeader key={i} month={m} />)}
-                {allExpanded && (
-                  <th
-                    colSpan={4}
-                    style={{
-                      padding: "6px 8px",
-                      textAlign: "center",
-                      fontSize: 10,
-                      fontWeight: 700,
-                      background: "#111",
-                      color: "#FFFFFF",
-                      whiteSpace: "nowrap",
-                      letterSpacing: "0.05em",
-                    }}
-                  >
-                    FY Total
-                  </th>
-                )}
+      {/* ── TABLE ── */}
+      {!loading&&data?.ok&&lines.length>0&&(
+        <div style={{ border:`1px solid ${P.borderMd}`, maxHeight:"65vh", overflowY:"auto", overflowX:"auto" }}>
+          <table style={{ borderCollapse:"collapse", background:P.surface, minWidth:`${220+visibleMonths.length*(colsPerMonth===3?168:120)+100}px` }}>
+            <thead style={{ position:"sticky", top:0, zIndex:20 }}>
+              <tr style={{ background:"#EFEFEC" }}>
+                <th style={{ position:"sticky", left:0, zIndex:30, background:"#EFEFEC", minWidth:220, padding:"7px 10px", textAlign:"left", borderRight:`1px solid ${P.borderMd}`, borderBottom:`1px solid ${P.border}`, fontFamily:P.mono, fontSize:8, color:P.textSm, letterSpacing:"0.1em", textTransform:"uppercase", fontWeight:500 }}>Cost Category</th>
+                {visibleQuarters.map(q=>{
+                  const qMonths=q.months.filter(mk=>visibleMonths.includes(mk));
+                  return <th key={q.label} colSpan={qMonths.length*colsPerMonth} style={{ padding:"7px 10px", textAlign:"center", fontFamily:P.mono, fontSize:9, fontWeight:600, color:P.text, letterSpacing:"0.08em", textTransform:"uppercase", borderRight:`1px solid ${P.borderMd}`, borderBottom:`1px solid ${P.border}`, background:"#F2F2EF" }}>{q.label}</th>;
+                })}
+                <th style={{ position:"sticky", right:0, zIndex:30, background:"#EFEFEC", minWidth:100, padding:"7px 10px", textAlign:"right", borderLeft:`1px solid ${P.borderMd}`, borderBottom:`1px solid ${P.border}`, fontFamily:P.mono, fontSize:8, color:P.textSm, letterSpacing:"0.1em", textTransform:"uppercase", fontWeight:500 }}>Total FCT</th>
               </tr>
-
-              {/* Sub-column headers */}
-              {allExpanded && (
-                <tr>
-                  <th
-                    style={{
-                      position: "sticky",
-                      left: 0,
-                      zIndex: 6,
-                      background: "#F5F5F0",
-                      minWidth: 220,
-                      padding: "4px 10px",
-                      borderRight: "2px solid #E5E5DC",
-                    }}
-                  />
-                  {fyMonths.map((_, mi) =>
-                    METRICS.map(metric => <MetricSubHeader key={`${mi}-${metric}`} metric={metric} />)
-                  )}
-                  {METRICS.map(metric => (
-                    <th
-                      key={`grand-hdr-${metric}`}
-                      style={{
-                        padding: "4px 8px",
-                        textAlign: "center",
-                        fontSize: 9,
-                        fontWeight: 700,
-                        background: "#E8E8E0",
-                        color: METRIC_COLORS[metric as keyof typeof METRIC_COLORS] as any,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {METRIC_LABELS[metric]}
+              <tr style={{ background:"#F7F7F5" }}>
+                <th style={{ position:"sticky", left:0, zIndex:30, background:"#F7F7F5", padding:"4px 10px", borderRight:`1px solid ${P.borderMd}`, borderBottom:`1px solid ${P.border}` }}/>
+                {visibleMonths.map(mk=>{
+                  const month=Number(mk.split("-")[1]), year=Number(mk.split("-")[0]);
+                  const isCur=isCurrentMonth(mk), isPast=isPastMonth(mk);
+                  return (
+                    <th key={mk} colSpan={colsPerMonth} style={{ padding:"5px 4px", textAlign:"center", borderRight:`1px solid ${P.border}`, borderBottom:`1px solid ${P.border}`, background:isCur?"#E8F0F8":isPast?"#F9F9F7":"#F7F7F5", opacity:isPast&&!isCur?0.8:1 }}>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:3 }}>
+                        {isCur&&<span style={{ width:5, height:5, borderRadius:"50%", background:P.navy, boxShadow:`0 0 0 2px ${P.navyLt}`, display:"inline-block", flexShrink:0 }}/>}
+                        <span style={{ fontFamily:P.mono, fontSize:10, fontWeight:isCur?600:400, color:isCur?P.navy:P.text }}>{MONTH_SHORT[month-1]}</span>
+                        <span style={{ fontFamily:P.mono, fontSize:9, color:P.textSm }}>{String(year).slice(2)}</span>
+                      </div>
                     </th>
-                  ))}
-                </tr>
-              )}
+                  );
+                })}
+                <th style={{ position:"sticky", right:0, zIndex:30, background:"#F7F7F5", padding:"4px 10px", borderLeft:`1px solid ${P.borderMd}`, borderBottom:`1px solid ${P.border}` }}/>
+              </tr>
+              <tr style={{ background:"#F2F2EF" }}>
+                <th style={{ position:"sticky", left:0, zIndex:30, background:"#F2F2EF", padding:"3px 10px", borderRight:`1px solid ${P.borderMd}`, borderBottom:`1px solid ${P.borderMd}` }}/>
+                {visibleMonths.flatMap(mk=>viewMode==="full"
+                  ?[<th key={`${mk}-b`} style={{ ...thBase, background:"#EEF4F9", color:P.navy, minWidth:52 }}>BUD</th>,<th key={`${mk}-a`} style={{ ...thBase, background:P.violetLt, color:P.violet, minWidth:52 }}>ACT</th>,<th key={`${mk}-f`} style={{ ...thBase, background:"#F0F7F3", color:P.green, borderRight:`1px solid ${P.border}`, minWidth:52 }}>FCT</th>]
+                  :[<th key={`${mk}-b`} style={{ ...thBase, background:"#EEF4F9", color:P.navy, minWidth:58 }}>BUD</th>,<th key={`${mk}-f`} style={{ ...thBase, background:"#F0F7F3", color:P.green, borderRight:`1px solid ${P.border}`, minWidth:58 }}>FCT</th>]
+                )}
+                <th style={{ ...thBase, position:"sticky", right:0, zIndex:30, background:"#F0F7F3", color:P.green, borderLeft:`1px solid ${P.borderMd}`, textAlign:"right", padding:"3px 10px" }}>FCT</th>
+              </tr>
             </thead>
-
             <tbody>
-              {data.projects.map(proj => (
-                <ProjectRow
-                  key={proj.id}
-                  proj={proj}
-                  fyMonths={fyMonths}
-                  expanded={expandedProjects.has(proj.id)}
-                  onToggle={() => toggleProject(proj.id)}
-                />
-              ))}
+              {lines.map((line,li)=>{
+                const lineFct=visibleMonths.reduce((s,mk)=>s+(Number(md[line.id]?.[mk]?.forecast)||0),0);
+                const lineBud=visibleMonths.reduce((s,mk)=>s+(Number(md[line.id]?.[mk]?.budget)||0),0);
+                const isOver=lineBud>0&&lineFct>lineBud, isNeg=lineFct<0;
+                const rowBg=li%2===0?P.surface:"#FAFAF8";
+                const cell=(val: number|"", color: string)=>(
+                  <div style={{ padding:"5px 6px", textAlign:"right", fontFamily:P.mono, fontSize:10, color, fontVariantNumeric:"tabular-nums" }}>
+                    {val!==""&&Number(val)!==0?fmtK(val):"--"}
+                  </div>
+                );
+                return (
+                  <tr key={line.id} style={{ background:rowBg, borderBottom:`1px solid ${P.border}` }}>
+                    <td style={{ position:"sticky", left:0, zIndex:10, padding:"6px 10px 6px 16px", borderRight:`1px solid ${P.border}`, background:rowBg, minWidth:220 }}>
+                      <span style={{ fontFamily:P.sans, fontSize:11, fontWeight:500, color:P.text, display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:180 }}>{line.description}</span>
+                    </td>
+                    {visibleMonths.flatMap(mk=>{
+                      const e=md[line.id]?.[mk]??{budget:"",actual:"",forecast:"",locked:false};
+                      const fOver=e.budget&&Number(e.forecast)>Number(e.budget);
+                      return viewMode==="full"
+                        ?[<td key={`${mk}-b`} style={{ borderBottom:`1px solid ${P.border}`, background:"#F2F8FF", minWidth:52 }}>{cell(e.budget,P.navy)}</td>,<td key={`${mk}-a`} style={{ borderBottom:`1px solid ${P.border}`, background:"#F9F7FF", minWidth:52 }}>{cell(e.actual,P.violet)}</td>,<td key={`${mk}-f`} style={{ borderBottom:`1px solid ${P.border}`, borderRight:`1px solid ${P.border}`, minWidth:52, background:fOver?"#FDF5F4":"#F3FAF6" }}>{cell(e.forecast,fOver?P.red:P.green)}</td>]
+                        :[<td key={`${mk}-b`} style={{ borderBottom:`1px solid ${P.border}`, background:"#F2F8FF", minWidth:58 }}>{cell(e.budget,P.navy)}</td>,<td key={`${mk}-f`} style={{ borderBottom:`1px solid ${P.border}`, borderRight:`1px solid ${P.border}`, minWidth:58, background:fOver?"#FDF5F4":"#F3FAF6" }}>{cell(e.forecast,fOver?P.red:P.green)}</td>];
+                    })}
+                    <td style={{ position:"sticky", right:0, zIndex:10, padding:"5px 10px", textAlign:"right", fontFamily:P.mono, fontSize:10, fontWeight:700, color:isNeg?P.red:isOver?P.red:lineFct>0?P.green:P.textSm, background:rowBg, borderLeft:`1px solid ${P.border}`, borderBottom:`1px solid ${P.border}`, fontVariantNumeric:"tabular-nums" }}>
+                      {lineFct!==0?fmtK(lineFct):"--"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
-
-            <tfoot>
-              <TotalsRow data={data} fyMonths={fyMonths} />
+            <tfoot style={{ position:"sticky", bottom:0, zIndex:20 }}>
+              <tr style={{ background:"#EAEAE7", borderTop:`2px solid ${P.borderMd}` }}>
+                <td style={{ position:"sticky", left:0, zIndex:30, padding:"7px 10px", background:"#EAEAE7", borderRight:`1px solid ${P.borderMd}`, fontFamily:P.mono, fontSize:8, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", color:P.textMd }}>Portfolio Total</td>
+                {visibleMonths.flatMap(mk=>{
+                  const t=monthTotals[mk], fNeg=t.forecast<0, fOver=t.budget>0&&t.forecast>t.budget;
+                  return viewMode==="full"
+                    ?[<td key={`ft-${mk}-b`} style={{ padding:"6px 5px", textAlign:"right", fontFamily:P.mono, fontSize:10, fontWeight:600, color:P.navy, background:"#E8F0F8", fontVariantNumeric:"tabular-nums" }}>{t.budget?fmtK(t.budget):"--"}</td>,<td key={`ft-${mk}-a`} style={{ padding:"6px 5px", textAlign:"right", fontFamily:P.mono, fontSize:10, color:P.violet, background:"#F0EEFF", fontVariantNumeric:"tabular-nums" }}>{t.actual?fmtK(t.actual):"--"}</td>,<td key={`ft-${mk}-f`} style={{ padding:"6px 5px", textAlign:"right", fontFamily:P.mono, fontSize:10, fontWeight:700, color:fNeg?P.red:fOver?P.red:P.green, background:(fNeg||fOver)?"#FAF0EE":"#E8F5EE", borderRight:`1px solid ${P.border}`, fontVariantNumeric:"tabular-nums" }}>{t.forecast!==0?fmtK(t.forecast):"--"}</td>]
+                    :[<td key={`ft-${mk}-b`} style={{ padding:"6px 5px", textAlign:"right", fontFamily:P.mono, fontSize:10, fontWeight:600, color:P.navy, background:"#E8F0F8", fontVariantNumeric:"tabular-nums" }}>{t.budget?fmtK(t.budget):"--"}</td>,<td key={`ft-${mk}-f`} style={{ padding:"6px 5px", textAlign:"right", fontFamily:P.mono, fontSize:10, fontWeight:700, color:fNeg?P.red:fOver?P.red:P.green, background:(fNeg||fOver)?"#FAF0EE":"#E8F5EE", borderRight:`1px solid ${P.border}`, fontVariantNumeric:"tabular-nums" }}>{t.forecast!==0?fmtK(t.forecast):"--"}</td>];
+                })}
+                <td style={{ position:"sticky", right:0, zIndex:30, padding:"7px 12px", textAlign:"right", fontFamily:P.mono, fontSize:13, fontWeight:700, color:grandForecast<0?P.red:grandBudget>0&&grandForecast>grandBudget?P.red:P.green, background:"#EAEAE7", borderLeft:`1px solid ${P.borderMd}`, fontVariantNumeric:"tabular-nums" }}>
+                  {grandForecast!==0?fmtK(grandForecast):"--"}
+                </td>
+              </tr>
             </tfoot>
           </table>
         </div>
       )}
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-      `}</style>
+      {/* ── Budget vs Forecast strip ── */}
+      {!loading&&data?.ok&&lines.length>0&&(
+        <div style={{ border:`1px solid #E0D8B0`, background:"#FDFAF2", padding:"10px 14px" }}>
+          <div style={{ fontFamily:P.mono, fontSize:8, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", color:P.amber, marginBottom:6 }}>
+            Portfolio Budget vs Forecast (per month)
+            {filterActive&&<span style={{ marginLeft:8, fontWeight:400, color:P.textSm }}>— {data?.filteredProjectCount} project{data?.filteredProjectCount!==1?"s":""} selected</span>}
+          </div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
+            {visibleMonths.map(mk=>{
+              const bud=monthTotals[mk]?.budget??0, fct=monthTotals[mk]?.forecast??0;
+              if (!bud&&!fct) return null;
+              const gap=fct-bud, [y,m]=mk.split("-"), over=gap>0, under=gap<0;
+              return (
+                <div key={mk} style={{ display:"flex", alignItems:"center", gap:5, padding:"3px 9px", background:over?P.redLt:under?P.greenLt:"#F4F4F2", border:`1px solid ${over?"#F0B0AA":under?"#A0D0B8":P.border}`, fontFamily:P.mono, fontSize:10 }}>
+                  <span style={{ color:P.textSm }}>{MONTH_SHORT[Number(m)-1]} {y.slice(2)}</span>
+                  {gap===0?<span style={{ color:P.textSm, fontWeight:500 }}>on budget</span>:<><span style={{ fontWeight:600, color:over?P.red:P.green, fontVariantNumeric:"tabular-nums" }}>{over?"+":"-"}{fmtK(Math.abs(gap))}</span><span style={{ fontSize:9, color:P.textSm }}>{over?"over":"under"}</span></>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Quarter summary cards ── */}
+      {!loading&&data?.ok&&lines.length>0&&(
+        <div style={{ display:"grid", gridTemplateColumns:`repeat(${Math.min(visibleQuarters.length,4)},1fr)`, gap:8 }}>
+          {visibleQuarters.map(q=>{
+            const qM=q.months.filter(mk=>visibleMonths.includes(mk));
+            const qBud=sumLines(lines,md,qM,"budget"), qAct=sumLines(lines,md,qM.filter(isPastMonth),"actual"), qFct=sumLines(lines,md,qM,"forecast");
+            const qVar=qBud?qFct-qBud:0, qUtil=qBud?Math.round((qFct/qBud)*100):null, over=qBud>0&&qFct>qBud;
+            return (
+              <div key={q.label} style={{ border:`1px solid ${over?"#E0C080":P.border}`, background:over?P.amberLt:P.surface, padding:"10px 12px" }}>
+                <div style={{ fontFamily:P.mono, fontSize:9, fontWeight:700, color:over?P.amber:P.navy, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6 }}>{q.label}</div>
+                <div style={{ display:"flex", gap:10, flexWrap:"wrap", fontFamily:P.mono, fontSize:10 }}>
+                  <span style={{ color:P.textSm }}>Budget <strong style={{ color:P.navy }}>{fmt(qBud)}</strong></span>
+                  <span style={{ color:P.textSm }}>Forecast <strong style={{ color:qFct<0?P.red:over?P.red:P.green }}>{fmt(qFct)}</strong></span>
+                  {qAct>0&&<span style={{ color:P.textSm }}>Actual <strong style={{ color:P.violet }}>{fmt(qAct)}</strong></span>}
+                </div>
+                {qBud>0&&(
+                  <div style={{ marginTop:4, display:"flex", alignItems:"center", gap:6, fontFamily:P.mono, fontSize:9 }}>
+                    {over?<TrendingUp style={{ width:10, height:10, color:P.red }}/>:<TrendingDown style={{ width:10, height:10, color:P.green }}/>}
+                    <span style={{ color:over?P.red:P.green, fontWeight:600 }}>{over?"+":""}{fmt(qVar)} ({over?"+":""}{qBud?((qFct-qBud)/qBud*100).toFixed(1):"0"}%)</span>
+                    {qUtil!==null&&<span style={{ marginLeft:"auto", color:P.textSm }}>Util: <strong style={{ color:qUtil>100?P.red:qUtil>85?P.amber:P.textMd }}>{qUtil}%</strong></span>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <style>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style>
     </div>
   );
 }
-
-/* ─────────────────────────────────────────────────────── styles */
-
-const selectStyle: React.CSSProperties = {
-  padding: "5px 10px",
-  fontSize: 12,
-  border: "1px solid #E5E5DC",
-  borderRadius: 6,
-  background: "white",
-  color: "#1A1A1A",
-  cursor: "pointer",
-  fontFamily: "inherit",
-};
-
-const iconBtnStyle: React.CSSProperties = {
-  width: 30,
-  height: 30,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  border: "1px solid #E5E5DC",
-  borderRadius: 6,
-  background: "white",
-  cursor: "pointer",
-  color: "#6B7280",
-};
-
-const textBtnStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 5,
-  padding: "6px 12px",
-  fontSize: 12,
-  fontWeight: 500,
-  border: "1px solid #E5E5DC",
-  borderRadius: 6,
-  background: "white",
-  color: "#1A1A1A",
-  cursor: "pointer",
-  fontFamily: "inherit",
-};
-
-const collapsedThStyle: React.CSSProperties = {
-  padding: "6px 10px",
-  fontSize: 10,
-  fontWeight: 600,
-  background: "#1A1A1A",
-  color: "#9CA3AF",
-  textAlign: "right",
-  minWidth: 90,
-};
