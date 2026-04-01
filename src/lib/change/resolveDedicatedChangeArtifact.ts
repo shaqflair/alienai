@@ -1,4 +1,11 @@
-﻿async function hasColumn(supabase: any, table: string, column: string) {
+﻿// src/lib/change/resolveDedicatedChangeArtifact.ts
+import "server-only";
+
+function safeStr(x: unknown): string {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+async function hasColumn(supabase: any, table: string, column: string) {
   try {
     const { error } = await supabase.from(table).select(column).limit(1);
     return !error;
@@ -98,7 +105,8 @@ export async function ensureDedicatedArtifactIdForChangeRequest(
     if (!error && Array.isArray(data) && data.length) {
       const changeTitle = (await loadChangeTitleSafe(supabase, changeId)).toLowerCase();
       const exact = data.find((r: any) => safeStr(r?.title).trim().toLowerCase() === changeTitle);
-      const fallback = exact || data.find((r: any) => safeStr(r?.type).trim().toLowerCase() === "change");
+      const fallback =
+        exact || data.find((r: any) => safeStr(r?.type).trim().toLowerCase() === "change");
 
       if (fallback?.id) {
         const resolved = String(fallback.id);
