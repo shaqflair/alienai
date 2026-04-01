@@ -228,7 +228,26 @@ export default function BudgetClient() {
 
         // projectsInFyCount = projects with actual phasing data in this specific FY
         const projectsInFy = phasing.projectsInFyCount ?? 0;
-        const fyActualByProject = phasing.fyActualByProject ?? {};
+        // For per-project row actuals: use FY actual from phasing, fall back to all-time actual from summary
+        const rawFyActualByProject = phasing.fyActualByProject ?? {};
+        const fyActualByProject: Record<string, number> = {};
+        const summaryProjects: any[] = summary?.ok ? ((summary as any).projects ?? []) : [];
+        const summaryActualByProjectId = new Map<string, number>();
+        for (const sp of summaryProjects) {
+          const pid = String(sp.projectId ?? sp.project_id ?? "").trim();
+          const act = Number(sp.totals?.actual ?? sp.actual ?? 0);
+          if (pid && act > 0) summaryActualByProjectId.set(pid, act);
+        }
+        // Merge: FY actual wins if > 0, else fall back to summary all-time actual
+        for (const pid of Object.keys(rawFyActualByProject)) {
+          fyActualByProject[pid] = Number(rawFyActualByProject[pid]) || summaryActualByProjectId.get(pid) || 0;
+        }
+        // Also add projects that have summary actuals but no phasing FY actual
+        for (const [pid, act] of summaryActualByProjectId) {
+          if (!(pid in fyActualByProject) || fyActualByProject[pid] === 0) {
+            fyActualByProject[pid] = act;
+          }
+        }
         setData({
           ...summary,
           ok: true,
