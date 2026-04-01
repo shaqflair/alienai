@@ -281,7 +281,7 @@ export default function BudgetClient() {
                 <Link href="/home" style={{ fontFamily: T.mono, fontSize: 10, color: T.ink4, textDecoration: "none", letterSpacing: "0.08em" }}>
                   {"<- PORTFOLIO INTELLIGENCE"}
                 </Link>
-                <span style={{ color: T.ink5 }}>{" Â· "}</span>
+                <span style={{ color: T.ink5 }}>{" · "}</span>
                 <Cap>BUDGET REGISTER</Cap>
               </div>
               <Mono size={10} color={T.ink5}>{nowUK()}</Mono>
@@ -473,3 +473,4 @@ export default function BudgetClient() {
     </>
   );
 }
+

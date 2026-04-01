@@ -198,7 +198,7 @@ function ProjectFilterPanel({
 /* ── Main component ─────────────────────────────────────────────── */
 export default function PortfolioMonthlyPhasing() {
   const [fyStart,   setFyStart]   = useState(4);
-  const [fyYear,    setFyYear]    = useState(() => { const now=new Date(); return now.getMonth()+1>=4?now.getFullYear():now.getFullYear()-1; });
+  const [fyYear,    setFyYear]    = useState(() => { const now=new Date(); const m=now.getMonth()+1; const y=now.getFullYear(); return m===4?y-1:m>=4?y:y-1; });
   const [numMonths, setNumMonths] = useState(12);
   const [scope,     setScope]     = useState<"active"|"all">("active");
   const [viewMode,  setViewMode]  = useState<ViewMode>("full");
