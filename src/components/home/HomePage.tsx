@@ -63,7 +63,7 @@ const ExecutiveBriefingCard = dynamic(
             </div>
             <div>
               <div className="font-black text-slate-900" style={{ letterSpacing: "-0.01em" }}>Executive Briefing</div>
-              <div className="mt-0.5 text-xs text-slate-400">AI-generated portfolio narrative Â· Ready</div>
+              <div className="mt-0.5 text-xs text-slate-400">AI-generated portfolio narrative \u00B7 Ready</div>
             </div>
           </div>
         </div>
@@ -1089,7 +1089,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
 
   const raidCardSub = !raidPanel ? "Calculating risk signals..." :
     openRisksValue === 0 && openIssuesValue === 0 ? "No risks or issues detected this period" :
-    raidHighSeverity > 0 ? `${raidHighSeverity} high-impact Â· ${openIssuesValue} issue${openIssuesValue !== 1 ? "s" : ""} due` :
+    raidHighSeverity > 0 ? `${raidHighSeverity} high-impact \u00B7 ${openIssuesValue} issue${openIssuesValue !== 1 ? "s" : ""} due` :
     `${openIssuesValue} issue${openIssuesValue !== 1 ? "s" : ""} due this period`;
 
   const fpHasData = fpSummary?.ok === true;
@@ -1114,7 +1114,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
 
   const fpValueLabel = fpTotalBudget != null ? formatBudget(fpTotalBudget, fpCurrency) : fpLoading ? "..." : "No data";
   const fpSubLabel = fpHasData
-    ? fpTotalSpent != null ? `${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` Â· ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}` : `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "needs monitoring" : "over budget"}`
+    ? fpTotalSpent != null ? `${formatBudget(fpTotalSpent, fpCurrency)} spent${fpVarianceNum != null ? ` \u00B7 ${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}% variance` : ""}` : `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "needs monitoring" : "over budget"}`
     : fpLoading ? "Loading financial plans..." : "No approved financial plans";
   const fpTrendLabel = fpVarianceNum != null && fpVarianceNum !== 0 ? `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%` : undefined;
 
@@ -1149,11 +1149,11 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
     : !scheduleHasAny
       ? "No milestones defined â€” schedule visibility limited"
       : scheduleHasOverdue
-        ? `${scheduleOverdueCount} overdue Â· schedule risk detected`
+        ? `${scheduleOverdueCount} overdue \u00B7 schedule risk detected`
         : milestonesDueLive > 0
           ? `${milestonesDueLive} due in next ${windowDays === "all" ? "60" : windowDays} days`
           : scheduleNextMilestone
-            ? `Next: ${scheduleNextMilestone.title}${nextMilestoneDays != null ? ` Â· ${nextMilestoneDays > 0 ? `${nextMilestoneDays}d` : "due soon"}` : ""}`
+            ? `Next: ${scheduleNextMilestone.title}${nextMilestoneDays != null ? ` \u00B7 ${nextMilestoneDays > 0 ? `${nextMilestoneDays}d` : "due soon"}` : ""}`
             : `No milestones due in next ${windowDays === "all" ? "60" : windowDays} days`;
 
   const milestoneKpiColorKey =
@@ -1194,7 +1194,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600"><Layers className="h-4 w-4 text-white" /></div>
               <div className="flex items-baseline gap-2.5">
                 <span className="text-base font-bold text-gray-900">Organisation Portfolio</span>
-                <span className="hidden text-xs text-gray-400 md:block">Enterprise project portfolio overview{filtersActive ? ` Â· filtered (${activeProjectCountLabel})` : ""}</span>
+                <span className="hidden text-xs text-gray-400 md:block">Enterprise project portfolio overview{filtersActive ? ` \u00B7 filtered (${activeProjectCountLabel})` : ""}</span>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -1230,10 +1230,10 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                 <span className="font-semibold text-gray-700">Active filters:</span>{" "}
                 <span className="truncate">
                   {urlFilters.q ? `q="${urlFilters.q}" ` : ""}
-                  {urlFilters.projectId?.length ?? 0 ? `Â· Projects ${urlFilters.projectId!.length} ` : ""}
-                  {urlFilters.projectCode?.length ?? 0 ? `Â· Codes ${urlFilters.projectCode!.length} ` : ""}
-                  {urlFilters.projectManagerId?.length ?? 0 ? `Â· PM ${urlFilters.projectManagerId!.length} ` : ""}
-                  {urlFilters.department?.length ?? 0 ? `Â· Dept ${urlFilters.department!.length} ` : ""}
+                  {urlFilters.projectId?.length ?? 0 ? `\u00B7 Projects ${urlFilters.projectId!.length} ` : ""}
+                  {urlFilters.projectCode?.length ?? 0 ? `\u00B7 Codes ${urlFilters.projectCode!.length} ` : ""}
+                  {urlFilters.projectManagerId?.length ?? 0 ? `\u00B7 PM ${urlFilters.projectManagerId!.length} ` : ""}
+                  {urlFilters.department?.length ?? 0 ? `\u00B7 Dept ${urlFilters.department!.length} ` : ""}
                 </span>
               </div>
               <button onClick={clearFilters} className="rounded-xl bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-200 hover:text-gray-900">Clear all</button>
@@ -1307,7 +1307,7 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
                     <Flame className="h-4 w-4 text-orange-500" />
                     <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-orange-500">Live Signals</div>
                   </div>
-                  <h3 className="mt-1 text-base font-semibold text-gray-900">Governance Alerts Â· Next {dueWindowDays} days</h3>
+                  <h3 className="mt-1 text-base font-semibold text-gray-900">Governance Alerts \u00B7 Next {dueWindowDays} days</h3>
                 </div>
                 <button onClick={() => router.push(appendFiltersToUrl(`/insights?days=${numericWindowDays}`, urlFilters))} className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1">View all <ChevronRight className="h-3 w-3" /></button>
               </div>
@@ -1472,3 +1472,4 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
     </LazyMotion>
   );
 }
+
