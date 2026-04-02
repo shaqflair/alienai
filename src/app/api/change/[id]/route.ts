@@ -164,7 +164,10 @@ export async function GET(req: Request, ctx: Ctx) {
 
       if (change) {
         const role = await requireProjectRole(supabase, change.project_id, user.id);
-        if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
+        if (!role) {
+          const { data: orgChk } = await supabase.from("organisation_members").select("id").eq("user_id", user.id).is("removed_at", null).limit(1);
+          if (!Array.isArray(orgChk) || !orgChk.length) return err("Forbidden", { status: 403, code: "forbidden" });
+        }
 
         const approvals = await getApprovalProgressForArtifact({
           supabase,
@@ -201,7 +204,10 @@ export async function GET(req: Request, ctx: Ctx) {
     if (!projectId) return err("Not found", { status: 404, code: "not_found" });
 
     const role = await requireProjectRole(supabase, projectId, user.id);
-    if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
+    if (!role) {
+      const { data: orgChk } = await supabase.from("organisation_members").select("id").eq("user_id", user.id).is("removed_at", null).limit(1);
+      if (!Array.isArray(orgChk) || !orgChk.length) return err("Forbidden", { status: 403, code: "forbidden" });
+    }
 
     const { data: items, error: itemsErr } = await supabase
       .from(TABLE)
