@@ -74,23 +74,11 @@ export async function GET(req: Request) {
     const nowKey    = currentMonthKey();
 
     // 1. Organisation
-    const { data: orgMems } = await supabase
+    const { data: orgMem } = await supabase
       .from("organisation_members").select("organisation_id")
-      .eq("user_id", auth.user.id).is("removed_at", null);
-    const orgIds = (orgMems ?? []).map((m: any) => safeStr(m.organisation_id)).filter(Boolean);
-    if (!orgIds.length) return err("No organisation found", 404);
-    // Pick the org that has the most projects (handles multi-org membership)
-    const { data: orgProjectCounts } = await supabase
-      .from("projects")
-      .select("organisation_id")
-      .in("organisation_id", orgIds)
-      .is("deleted_at", null);
-    const countByOrg: Record<string, number> = {};
-    for (const p of orgProjectCounts ?? []) {
-      const oid = safeStr(p.organisation_id);
-      countByOrg[oid] = (countByOrg[oid] ?? 0) + 1;
-    }
-    const orgId = orgIds.sort((a, b) => (countByOrg[b] ?? 0) - (countByOrg[a] ?? 0))[0];
+      .eq("user_id", auth.user.id).is("removed_at", null).limit(1).maybeSingle();
+    const orgId = safeStr((orgMem as any)?.organisation_id);
+    if (!orgId) return err("No organisation found", 404);
 
     // 2. All projects (include department + project_manager_id for fallback)
     let projQ = supabase
@@ -246,14 +234,55 @@ export async function GET(req: Request) {
       if (lineActual > 0) monthlyActualByProject.set(id, lineActual);
     }
 
-    // Combine: use monthly_data actual if present (more granular), else project_spend
+    // Fetch live timesheet actuals from weekly_timesheet_entries
+    const liveActualByProject = new Map<string, number>();
+    try {
+      const { data: wteData } = await supabase
+        .from("weekly_timesheet_entries")
+        .select("project_id, hours, timesheets!inner(user_id, status, organisation_id)")
+        .in("project_id", projectIds)
+        .eq("timesheets.status", "approved")
+        .gt("hours", 0);
+
+      if (wteData && wteData.length > 0) {
+        const orgId   = (wteData[0] as any).timesheets?.organisation_id ?? null;
+        const userIds = [...new Set(wteData.map((r: any) => r.timesheets?.user_id).filter(Boolean))];
+        const [{ data: rateData }, { data: profileData }, { data: memberData }] = await Promise.all([
+          supabase.from("resource_rates").select("user_id, role_label, rate, rate_type").eq("organisation_id", orgId).order("effective_from", { ascending: false }),
+          supabase.from("profiles").select("user_id, job_title").in("user_id", userIds),
+          supabase.from("organisation_members").select("user_id, job_title").eq("organisation_id", orgId).in("user_id", userIds),
+        ]);
+        const jobTitleByUser: Record<string, string> = {};
+        for (const m of memberData ?? []) { if (m.user_id && m.job_title) jobTitleByUser[m.user_id] = m.job_title; }
+        for (const p of profileData ?? []) { if (p.user_id && p.job_title) jobTitleByUser[p.user_id] = p.job_title; }
+        const ratesByUserId: Record<string, number> = {};
+        const ratesByRoleLabel: Record<string, number> = {};
+        for (const r of rateData ?? []) {
+          const dayRate = r.rate_type === "monthly_cost" ? Number(r.rate) / 20 : Number(r.rate);
+          if (r.user_id && !ratesByUserId[r.user_id]) ratesByUserId[r.user_id] = dayRate;
+          if (r.role_label && !ratesByRoleLabel[r.role_label.toLowerCase()]) ratesByRoleLabel[r.role_label.toLowerCase()] = dayRate;
+        }
+        for (const row of wteData) {
+          const pid    = String((row as any).project_id ?? "");
+          const uid    = (row as any).timesheets?.user_id;
+          const days   = (Number((row as any).hours) || 0) / 8;
+          let dr       = ratesByUserId[uid] ?? 0;
+          if (!dr) { const jt = jobTitleByUser[uid]; if (jt) dr = ratesByRoleLabel[jt.toLowerCase()] ?? 0; }
+          if (dr > 0 && pid) liveActualByProject.set(pid, (liveActualByProject.get(pid) ?? 0) + days * dr);
+        }
+      }
+    } catch (e) {
+      console.warn("[budget-phasing] live timesheet fetch failed:", e);
+    }
+
+    // Combine: live timesheet wins, fall back to monthly_data actual or project_spend
     const fyActualByProject = new Map<string, number>();
     let totalFyActual = 0;
     for (const id of projectIds) {
+      const fromLive    = liveActualByProject.get(id) ?? 0;
       const fromMonthly = monthlyActualByProject.get(id) ?? 0;
       const fromSpend   = spendByProject.get(id) ?? 0;
-      // Take the higher of the two — they should be the same source but just in case
-      const actual = Math.max(fromMonthly, fromSpend);
+      const actual = fromLive > 0 ? fromLive : Math.max(fromMonthly, fromSpend);
       if (actual > 0) {
         fyActualByProject.set(id, actual);
         totalFyActual += actual;
