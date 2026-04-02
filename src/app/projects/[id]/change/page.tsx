@@ -145,7 +145,7 @@ function buildQueryString(sp: any) {
 const PROJECT_SELECT_MIN = "id, title, project_code";
 
 const PROJECT_SELECT_MAX =
-  "id, title, project_code, code, public_id, external_id, project_number, project_no";
+  "id, title, project_code";
 
 async function selectProjectBy(sb: any, col: "id" | "project_code", value: string) {
   {
