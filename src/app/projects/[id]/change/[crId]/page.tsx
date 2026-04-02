@@ -73,8 +73,15 @@ export default async function ChangeCrIdRedirectPage({
   if (!crParam) redirect(`/projects/${projectParam}/change`);
 
   // Resolve to UUID in one hop to avoid double-redirect auth loss
-  const supabase = await createClient();
-  const projectUuid = await resolveProjectUuid(supabase, projectParam);
+  // Use try/catch — auth may not be available in redirect context
+  let projectUuid: string | null = null;
+  try {
+    const supabase = await createClient();
+    projectUuid = await resolveProjectUuid(supabase, projectParam);
+  } catch {
+    // If auth fails, fall back to using the param as-is
+    projectUuid = looksLikeUuid(projectParam) ? projectParam : null;
+  }
   const resolvedProject = projectUuid ?? projectParam;
 
   const qs = buildQueryString(sp);
