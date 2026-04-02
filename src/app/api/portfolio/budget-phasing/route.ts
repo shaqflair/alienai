@@ -237,10 +237,11 @@ export async function GET(req: Request) {
 
     // Fetch live timesheet actuals from weekly_timesheet_entries
     const liveActualByProject = new Map<string, number>();
+    const liveActualByProjectMonth = new Map<string, number>();
     try {
       const { data: wteData } = await supabase
         .from("weekly_timesheet_entries")
-        .select("project_id, hours, timesheets!inner(user_id, status, organisation_id)")
+        .select("project_id, hours, work_date, timesheets!inner(user_id, status, organisation_id)")
         .in("project_id", projectIds)
         .eq("timesheets.status", "approved")
         .gt("hours", 0);
@@ -269,7 +270,19 @@ export async function GET(req: Request) {
           const days   = (Number((row as any).hours) || 0) / 8;
           let dr       = ratesByUserId[uid] ?? 0;
           if (!dr) { const jt = jobTitleByUser[uid]; if (jt) dr = ratesByRoleLabel[jt.toLowerCase()] ?? 0; }
-          if (dr > 0 && pid) liveActualByProject.set(pid, (liveActualByProject.get(pid) ?? 0) + days * dr);
+          if (dr > 0 && pid) {
+            liveActualByProject.set(pid, (liveActualByProject.get(pid) ?? 0) + days * dr);
+            // Also track by month for the grid
+            const wd = String((row as any).work_date ?? "");
+            if (wd) {
+              const d = new Date(wd);
+              if (!isNaN(d.getTime())) {
+                const mk = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+                const key = pid + "|" + mk;
+                liveActualByProjectMonth.set(key, (liveActualByProjectMonth.get(key) ?? 0) + days * dr);
+              }
+            }
+          }
         }
       }
     } catch (e) {
@@ -317,9 +330,17 @@ export async function GET(req: Request) {
           if (!catTotals.has(catKey)) catTotals.set(catKey, new Map());
           const m  = catTotals.get(catKey)!;
           const ex = m.get(mk) ?? { budget: 0, actual: 0, forecast: 0 };
+          // Use live timesheet actual for people lines by month
+          let liveMonthActual = 0;
+          if (line.category === "people") {
+            for (const pid of projectIds) {
+              liveMonthActual += liveActualByProjectMonth.get(pid + "|" + mk) ?? 0;
+            }
+          }
+          const storedActual = safeNum(e?.actual ?? e?.actualAmount ?? 0);
           m.set(mk, {
             budget:   ex.budget   + safeNum(e?.budget   ?? e?.budgetAmount   ?? 0),
-            actual:   ex.actual   + safeNum(e?.actual   ?? e?.actualAmount   ?? 0),
+            actual:   ex.actual   + (liveMonthActual > 0 ? liveMonthActual : storedActual),
             forecast: ex.forecast + safeNum(e?.forecast ?? e?.forecastAmount ?? 0),
           });
         }
