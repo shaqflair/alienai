@@ -262,7 +262,7 @@ export default function BudgetClient() {
             withPlanCount: projectsInFy,
           },
           projects: summary.projects ?? [],
-          _noFyData: !hasPhasing,
+          _noFyData: false,
           _fyActualByProject: fyActualByProject,
         });
       } else {
@@ -489,7 +489,7 @@ export default function BudgetClient() {
                 </div>
               ) : (
                 <div style={{ background: T.surface, border: `1px solid ${T.hr}`, overflow: "hidden" }}>
-                  {(data as any)?._noFyData ? (
+                  {false ? (
                     <div style={{ padding: 64, textAlign: "center" }}>
                       <Mono size={12} color={T.ink5}>No financial plan phasing data for FY {fyLabel}.</Mono>
                       <div style={{ marginTop: 8, fontFamily: T.mono, fontSize: 10, color: T.ink5 }}>Add monthly phasing data to project financial plans to see FY-specific figures.</div>
