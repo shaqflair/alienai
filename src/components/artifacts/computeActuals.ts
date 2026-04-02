@@ -98,13 +98,8 @@ export function computeActuals(
     let dayRate: number;
 
     if (entry.resource_id === "__weekly__") {
-      // Weekly timesheet bridge — map to people cost line
-      if (!weeklyMapping) continue;
-      lineId  = weeklyMapping.lineId;
-      dayRate = weeklyMapping.rate;
-    } else if (entry.resource_id === "__weekly__") {
-      // Cost already pre-computed server-side (days field holds the £ value)
-      // Map to first people cost line
+      // Cost is pre-computed server-side: approved_days field holds the £ amount.
+      // dayRate=1 so cost = approved_days * 1 = the £ value passed in.
       const peopleLine = costLines?.find(l => l.category === "people");
       if (!peopleLine) continue;
       lineId  = peopleLine.id;
