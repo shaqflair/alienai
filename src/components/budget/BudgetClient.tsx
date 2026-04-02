@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useOrgFy } from "@/hooks/useOrgFy";
@@ -7,7 +7,7 @@ import dynamic from "next/dynamic";
 
 const PortfolioMonthlyPhasing = dynamic(
   () => import("@/components/portfolio/PortfolioMonthlyPhasing"),
-  { ssr: false, loading: () => <div style={{ padding: 64, textAlign: "center", color: "#a8a29e", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>LOADING PHASING DATAâ€¦</div> }
+  { ssr: false, loading: () => <div style={{ padding: 64, textAlign: "center", color: "#a8a29e", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>LOADING PHASING DATA…</div> }
 );
 
 const FONT_URL = "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=IBM+Plex+Mono:wght@300;400;500;600&family=Source+Serif+4:opsz,wght@8..60,300;400;600&display=swap";
@@ -66,7 +66,7 @@ function fmt(n: number): string {
   const abs = Math.abs(n);
   const sign = n < 0 ? "-" : "";
   if (abs >= 1_000_000) return sign + "\u00A3" + (abs / 1_000_000).toFixed(2) + "M";
-  // Show exact figure with commas â€” no rounding to K
+  // Show exact figure with commas — no rounding to K
   return sign + "\u00A3" + abs.toLocaleString("en-GB", { maximumFractionDigits: 0 });
 }
 
@@ -131,7 +131,7 @@ function nowUK() {
   return new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(",", "");
 }
 
-/* â”€â”€ Executive KPI card â”€â”€ */
+/* ── Executive KPI card ── */
 function KpiCard({ label, value, sub, color, note, highlight }: {
   label: string; value: string; sub?: string; color?: string; note?: string; highlight?: boolean;
 }) {
@@ -145,7 +145,7 @@ function KpiCard({ label, value, sub, color, note, highlight }: {
   );
 }
 
-/* â”€â”€ Context banner â”€â”€ */
+/* ── Context banner ── */
 function ContextBanner({ viewMode, projectCount, withPlanCount, fyLabel }: {
   viewMode: ViewMode; projectCount: number; withPlanCount: number; fyLabel: string;
 }) {
@@ -159,7 +159,7 @@ function ContextBanner({ viewMode, projectCount, withPlanCount, fyLabel }: {
   );
 }
 
-/* â”€â”€ Main component â”€â”€ */
+/* ── Main component ── */
 export default function BudgetClient() {
   const [data,      setData]      = useState<ApiResponse | null>(null);
   const [loading,   setLoad]      = useState(true);
@@ -220,7 +220,7 @@ export default function BudgetClient() {
           fyActual = phasing.totalFyActual;
         }
         // If FY-scoped actual is still 0, fall back to all-time actual from
-        // the summary API â€” actuals may be entered in months before FY start
+        // the summary API — actuals may be entered in months before FY start
         if (fyActual === 0 && summary?.ok) {
           const sumPort = (summary as any).portfolio ?? {};
           const allTimeActual = sumPort.totalActual ?? sumPort.total_actual ?? sumPort.totalSpent ?? (summary as any).total_spent ?? (summary as any).actual_spent ?? 0;
@@ -295,7 +295,7 @@ export default function BudgetClient() {
   const varIsUnder = totalVar < 0;
   const varLabel = varIsOver ? "Over budget" : varIsUnder ? "Under forecast" : "On budget";
   const varColor = varIsOver ? "#7f1d1d" : varIsUnder ? "#14532d" : T.ink;
-  const varNote  = varIsUnder ? "Forecast below budget â€” verify scope is intact" : varIsOver ? "Requires executive attention" : "";
+  const varNote  = varIsUnder ? "Forecast below budget — verify scope is intact" : varIsOver ? "Requires executive attention" : "";
 
   const fyLabel = effectiveFyStart === 1 ? String(effectiveFyYear) : `${effectiveFyYear}/${String(effectiveFyYear + 1).slice(2)}`;
 
@@ -336,7 +336,7 @@ export default function BudgetClient() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <Link href="/home" style={{ fontFamily: T.mono, fontSize: 10, color: T.ink4, textDecoration: "none", letterSpacing: "0.08em" }}>{"<- PORTFOLIO INTELLIGENCE"}</Link>
-                <span style={{ color: T.ink5 }}>{" Â· "}</span>
+                <span style={{ color: T.ink5 }}>{" · "}</span>
                 <Cap>BUDGET REGISTER</Cap>
               </div>
               <Mono size={10} color={T.ink5}>{nowUK()}</Mono>
@@ -345,7 +345,7 @@ export default function BudgetClient() {
               <div>
                 <h1 style={{ fontFamily: T.serif, fontSize: 42, fontWeight: 700, margin: 0, letterSpacing: "-0.02em", lineHeight: 1.05, color: T.ink }}>Budget Intelligence</h1>
                 <p style={{ fontFamily: T.body, fontSize: 14, color: T.ink3, marginTop: 8, fontWeight: 300, lineHeight: 1.5, maxWidth: 560 }}>
-                  Financial health across the portfolio â€” forecast variance, burn rate and delivery exposure.
+                  Financial health across the portfolio — forecast variance, burn rate and delivery exposure.
                 </p>
               </div>
               {/* View mode + FY selector */}
@@ -360,10 +360,10 @@ export default function BudgetClient() {
                     ))}
                   </div>
                   <select value={effectiveFyStart} onChange={e => setOverviewFyStart(Number(e.target.value))} style={{ padding: "6px 8px", fontFamily: T.mono, fontSize: 10, border: `1px solid ${T.hr}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
-                    <option value={4}>Apr â€“ Mar</option>
-                    <option value={1}>Jan â€“ Dec</option>
-                    <option value={7}>Jul â€“ Jun</option>
-                    <option value={10}>Oct â€“ Sep</option>
+                    <option value={4}>Apr – Mar</option>
+                    <option value={1}>Jan – Dec</option>
+                    <option value={7}>Jul – Jun</option>
+                    <option value={10}>Oct – Sep</option>
                   </select>
                   <select value={effectiveFyYear} onChange={e => setOverviewFyYear(Number(e.target.value))} style={{ padding: "6px 8px", fontFamily: T.mono, fontSize: 10, border: `1px solid ${T.hr}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
                     {(() => { const now = new Date(); const cur = now.getMonth() + 1 >= effectiveFyStart ? now.getFullYear() : now.getFullYear() - 1; return [cur+1, cur, cur-1, cur-2].map(y => <option key={y} value={y}>FY {effectiveFyStart === 1 ? y : `${y}/${String(y+1).slice(2)}`}</option>); })()}
@@ -419,7 +419,7 @@ export default function BudgetClient() {
                   <KpiCard
                     label="Projects at risk"
                     value={`${atRiskCount} / ${projects.filter(p => p.hasFinancialPlan).length}`}
-                    sub={atRiskCount > 0 ? `${overCount} over budget Â· ${watchCount} watch` : "All projects on track"}
+                    sub={atRiskCount > 0 ? `${overCount} over budget · ${watchCount} watch` : "All projects on track"}
                     color={atRiskCount > 0 ? "#7f1d1d" : "#14532d"}
                   />
                   <KpiCard
@@ -432,22 +432,22 @@ export default function BudgetClient() {
                 </div>
               )}
 
-              {/* Interpretation strip â€” context for executives */}
+              {/* Interpretation strip — context for executives */}
               {!loading && port && (port.totalBudget > 0) && (
                 <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
                   {varIsUnder && (
                     <div style={{ flex: 1, padding: "10px 14px", background: "#fefce8", border: "1px solid #fde68a", borderRadius: 6, fontFamily: T.mono, fontSize: 11, color: "#78350f" }}>
-                      <strong>Under-forecast by {fmt(Math.abs(totalVar))}</strong> â€” Forecast is below approved budget. Verify project scope is intact and phasing is up to date.
+                      <strong>Under-forecast by {fmt(Math.abs(totalVar))}</strong> — Forecast is below approved budget. Verify project scope is intact and phasing is up to date.
                     </div>
                   )}
                   {varIsOver && (
                     <div style={{ flex: 1, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, fontFamily: T.mono, fontSize: 11, color: "#7f1d1d" }}>
-                      <strong>Over budget by {fmt(Math.abs(totalVar))}</strong> â€” Forecast exceeds approved budget. Escalation or budget revision may be required.
+                      <strong>Over budget by {fmt(Math.abs(totalVar))}</strong> — Forecast exceeds approved budget. Escalation or budget revision may be required.
                     </div>
                   )}
                   {utilisationPct !== null && utilisationPct < 10 && port.totalBudget > 0 && (
                     <div style={{ flex: 1, padding: "10px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, fontFamily: T.mono, fontSize: 11, color: "#14532d" }}>
-                      <strong>Low burn rate ({utilisationPct}%)</strong> â€” Only {fmt(port.totalActual)} of {fmt(port.totalBudget)} budget has been spent. Projects may be early stage or spend not yet recorded.
+                      <strong>Low burn rate ({utilisationPct}%)</strong> — Only {fmt(port.totalActual)} of {fmt(port.totalBudget)} budget has been spent. Projects may be early stage or spend not yet recorded.
                     </div>
                   )}
                   {viewMode === "live" && (
@@ -608,7 +608,7 @@ export default function BudgetClient() {
               {!loading && data?.ok && (
                 <div style={{ marginTop: 24, display: "flex", justifyContent: "space-between", paddingTop: 16, borderTop: `1px solid ${T.hr}` }}>
                   <Mono size={10} color={T.ink5}>
-                    {viewMode === "live" ? "Active projects only" : "All projects incl. closed"} Â· {projects.length} projects Â· {filtered.length} shown
+                    {viewMode === "live" ? "Active projects only" : "All projects incl. closed"} · {projects.length} projects · {filtered.length} shown
                   </Mono>
                   <Mono size={10} color={T.ink5}>{nowUK()}</Mono>
                 </div>
