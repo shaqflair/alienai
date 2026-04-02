@@ -261,7 +261,7 @@ export default function BudgetClient() {
             projectCount:  phasing.projectCount ?? summary.portfolio?.projectCount ?? 0,
             withPlanCount: projectsInFy,
           },
-          projects: hasPhasing ? (summary.projects ?? []) : [],
+          projects: summary.projects ?? [],
           _noFyData: !hasPhasing,
           _fyActualByProject: fyActualByProject,
         });
