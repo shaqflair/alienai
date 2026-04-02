@@ -532,6 +532,48 @@ export async function loadFinancialPlanSummary(input: {
     roleByProject = new Map();
   }
 
+  // Pre-fetch live timesheet actuals per project
+  const liveActualByProject = new Map();
+  try {
+    if (effectiveProjectIdsForDisplay.length > 0) {
+      const { data: wteData } = await supabase
+        .from("weekly_timesheet_entries")
+        .select("project_id, hours, timesheets!inner(user_id, status, organisation_id)")
+        .in("project_id", effectiveProjectIdsForDisplay)
+        .eq("timesheets.status", "approved")
+        .gt("hours", 0);
+
+      if (wteData && wteData.length > 0 && organisationId) {
+        const userIds = [...new Set(wteData.map((r) => r.timesheets?.user_id).filter(Boolean))];
+        const [{ data: rateData }, { data: profileData }, { data: memberData }] = await Promise.all([
+          supabase.from("resource_rates").select("user_id, role_label, rate, rate_type").eq("organisation_id", organisationId).order("effective_from", { ascending: false }),
+          supabase.from("profiles").select("user_id, job_title").in("user_id", userIds),
+          supabase.from("organisation_members").select("user_id, job_title").eq("organisation_id", organisationId).in("user_id", userIds),
+        ]);
+        const jobTitleByUser = {};
+        for (const m of memberData ?? []) { if (m.user_id && m.job_title) jobTitleByUser[m.user_id] = m.job_title; }
+        for (const p of profileData ?? []) { if (p.user_id && p.job_title) jobTitleByUser[p.user_id] = p.job_title; }
+        const ratesByUserId = {};
+        const ratesByRoleLabel = {};
+        for (const r of rateData ?? []) {
+          const dayRate = r.rate_type === "monthly_cost" ? Number(r.rate) / 20 : Number(r.rate);
+          if (r.user_id && !ratesByUserId[r.user_id]) ratesByUserId[r.user_id] = dayRate;
+          if (r.role_label && !ratesByRoleLabel[r.role_label.toLowerCase()]) ratesByRoleLabel[r.role_label.toLowerCase()] = dayRate;
+        }
+        for (const row of wteData) {
+          const pid  = String(row.project_id ?? "");
+          const uid  = row.timesheets?.user_id;
+          const days = (Number(row.hours) || 0) / 8;
+          let dr = ratesByUserId[uid] ?? 0;
+          if (!dr) { const jt = jobTitleByUser[uid]; if (jt) dr = ratesByRoleLabel[jt.toLowerCase()] ?? 0; }
+          if (dr > 0 && pid) liveActualByProject.set(pid, (liveActualByProject.get(pid) ?? 0) + days * dr);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[loadFinancialPlanSummary] live timesheet fetch failed:", e);
+  }
+
   const scoringAllowed = new Set(effectiveProjectIdsForScoring);
 
   const summaries = (projects ?? []).map((project: any) => {
