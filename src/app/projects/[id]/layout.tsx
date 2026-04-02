@@ -44,6 +44,8 @@ function normalizeProjectIdentifier(input: string) {
   let v = safeStr(input).trim();
   try { v = decodeURIComponent(v); } catch {}
   v = v.trim();
+  // If it contains a dash (e.g. PRJ-100), preserve the full code
+  if (v.includes("-")) return v.toUpperCase();
   const m = v.match(/(\d{3,})$/);
   if (m?.[1]) return m[1];
   return v;
