@@ -24,6 +24,8 @@ import {
   emptyFinancialPlan,
   type FinancialPlanContent,
 } from "@/components/artifacts/FinancialPlanEditor";
+import { getApprovedTimesheetEntries } from "@/app/actions/financial-plan-timesheets";
+import type { TimesheetEntry } from "@/components/artifacts/computeActuals";
 
 /* ---------------- dynamic client components ---------------- */
 const StakeholderRegisterEditor = dynamic(() => import("@/components/editors/StakeholderRegisterEditor"), {
@@ -315,6 +317,17 @@ function FinancialPlanEditorHost({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
+  const [timesheetEntries, setTimesheetEntries] = useState<TimesheetEntry[]>([]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    const resourceIds = (content.resources ?? []).map((r: any) => r.id).filter(Boolean);
+    getApprovedTimesheetEntries(projectId, resourceIds).then(result => {
+      if (result.ok) setTimesheetEntries(result.entries);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
   const lastQueuedJsonRef = useRef<string>(stableStringify(content));
@@ -472,6 +485,7 @@ function FinancialPlanEditorHost({
         readOnly={readOnly}
         budgetLocked={budgetLocked}
         onRequestReload={handleRequestReload}
+        timesheetEntries={timesheetEntries}
       />
     </div>
   );

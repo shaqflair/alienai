@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 import { createClient } from "@/utils/supabase/server";
 import type { TimesheetEntry } from "@/components/artifacts/computeActuals";
 import type { FetchTimesheetResult } from "./financial-plan-timesheets.shared";
@@ -21,9 +21,7 @@ export async function getApprovedTimesheetEntries(
       .in("resource_id", resourceIds)
       .gt("approved_days", 0)
       .order("month_key", { ascending: true });
-
     if (legacyErr) return { ok: false, error: legacyErr.message };
-
     for (const row of legacyData ?? []) {
       entries.push({
         resource_id:   String(row.resource_id),
@@ -35,33 +33,22 @@ export async function getApprovedTimesheetEntries(
 
   const { data: weeklyData, error: weeklyErr } = await supabase
     .from("weekly_timesheet_entries")
-    .select(`
-      id,
-      total_hours,
-      week_start,
-      weekly_timesheets!inner (
-        project_id,
-        status,
-        week_start
-      )
-    `)
-    .eq("weekly_timesheets.project_id", projectId)
-    .eq("weekly_timesheets.status", "approved")
-    .gt("total_hours", 0);
+    .select("work_date, hours, timesheets!inner(status)")
+    .eq("project_id", projectId)
+    .eq("timesheets.status", "approved")
+    .gt("hours", 0);
 
   if (weeklyErr) {
     console.warn("[financial-plan-timesheets] weekly fetch error:", weeklyErr.message);
   } else {
     const byMonth: Record<string, number> = {};
     for (const row of weeklyData ?? []) {
-      const weekStart: string =
-        (row as any).week_start ??
-        (row as any).weekly_timesheets?.week_start;
-      if (!weekStart) continue;
-      const d = new Date(weekStart);
+      const workDate = String((row as any).work_date ?? "");
+      if (!workDate) continue;
+      const d = new Date(workDate);
       if (isNaN(d.getTime())) continue;
-      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const days = (Number((row as any).total_hours) || 0) / 8;
+      const monthKey = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+      const days = (Number((row as any).hours) || 0) / 8;
       byMonth[monthKey] = (byMonth[monthKey] ?? 0) + days;
     }
     for (const [month_key, approved_days] of Object.entries(byMonth)) {
