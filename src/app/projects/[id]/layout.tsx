@@ -108,8 +108,7 @@ export default async function ProjectLayout({
 }) {
   const supabase = await createClient();
   const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr) throw authErr;
-  if (!auth?.user) redirect("/login");
+  if (authErr || !auth?.user) redirect("/login");
 
   const { id: _paramId } = await params;
   const rawId = safeStr(_paramId).trim();
