@@ -1590,7 +1590,20 @@ export default function ChangeBoardDnd({
     // Fetch approval progress for this change
     fetch(`/api/change/${encodeURIComponent(it.id)}`)
       .then(r => r.json().catch(() => ({})))
-      .then(j => { if (j?.approvals) setEditApproval(j.approvals); })
+      .then(j => {
+        if (j?.approvals) {
+          // Map myAction.canApprove to top-level canApprove for the modal
+          const appr = j.approvals;
+          setEditApproval({
+            ...appr,
+            canApprove: appr?.myAction?.canApprove ?? false,
+            currentStepIndex: appr?.currentStep ? 0 : 0,
+            totalSteps: appr?.currentStep ? 2 : 1,
+            currentStepLabel: appr?.currentStep?.label ?? "",
+            remainingApprovers: appr?.remainingApprovers ?? 0,
+          });
+        }
+      })
       .catch(() => {});
   }, []);
 
