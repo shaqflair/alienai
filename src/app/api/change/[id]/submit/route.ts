@@ -983,7 +983,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         changeId,
         changeTitle: changeForNotification.title,
         changeType: changeForNotification.changeType,
-        project: projectForNotification,
+        project: { ...projectForNotification, project_code: projectId },
         projectFallbackRef: projectId,
         submittedByName: actorName ?? actorEmail ?? null,
       });

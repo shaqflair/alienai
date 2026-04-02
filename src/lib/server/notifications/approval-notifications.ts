@@ -62,8 +62,10 @@ function getArtifactUrl(baseUrl: string, projectRef: string, artifactId: string)
   return `${baseUrl}/projects/${encodeURIComponent(projectRef)}/artifacts/${encodeURIComponent(artifactId)}`;
 }
 
-function getChangeUrl(baseUrl: string, projectRef: string, changeId: string) {
-  return `${baseUrl}/projects/${encodeURIComponent(projectRef)}/change/${encodeURIComponent(changeId)}`;
+function getChangeUrl(baseUrl: string, projectRef: string, changeId: string, projectUuid?: string) {
+  // Always use UUID in URLs to avoid project code resolution issues
+  const pid = projectUuid ?? projectRef;
+  return `${baseUrl}/projects/${encodeURIComponent(pid)}/change/${encodeURIComponent(changeId)}`;
 }
 
 async function getStepApprovers(
