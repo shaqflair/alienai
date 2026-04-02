@@ -402,7 +402,7 @@ function Drawer({
   );
 }
 
-function ApprovalBar({ approval }: { approval?: ApprovalProgressInput | null }) {
+function ApprovalBar({ approval, onApprove, onReject }: { approval?: ApprovalProgressInput | null; onApprove?: () => void; onReject?: () => void }) {
   if (!approval) return null;
   const totalSteps = Math.max(0, Number(approval.totalSteps ?? 0) || 0);
   const currentIndex = Math.max(0, Number(approval.currentStepIndex ?? 0) || 0);
@@ -441,6 +441,26 @@ function ApprovalBar({ approval }: { approval?: ApprovalProgressInput | null }) 
           </span>
         </div>
       </div>
+      {canApprove && onApprove && (
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button
+            type="button"
+            onClick={onApprove}
+            style={{ flex: 1, padding: "8px 0", background: "#10b981", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+          >
+            Approve
+          </button>
+          {onReject && (
+            <button
+              type="button"
+              onClick={onReject}
+              style={{ flex: 1, padding: "8px 0", background: "#ef4444", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+            >
+              Reject
+            </button>
+          )}
+        </div>
+      )}
       <div className="ccm-apprbody">
         <div className="ccm-progtrack">
           <div className="ccm-progfill" style={{ width: `${pct}%` }} />
@@ -1134,7 +1154,36 @@ export default function ChangeCreateModal({
               </div>
             </div>
 
-            <ApprovalBar approval={approval} />
+            <ApprovalBar
+              approval={approval}
+              onApprove={approval?.canApprove ? async () => {
+                const pid = resolvedProjectId || projectId;
+                const cid = changeId;
+                if (!pid || !cid) return;
+                const res = await fetch(`/api/change/${encodeURIComponent(cid)}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ projectId: pid, action: "approve" }),
+                });
+                const j = await res.json().catch(() => ({}));
+                if (res.ok && j?.ok !== false) { onClose(); }
+                else { alert(j?.error || "Approve failed"); }
+              } : undefined}
+              onReject={approval?.canApprove ? async () => {
+                const pid = resolvedProjectId || projectId;
+                const cid = changeId;
+                if (!pid || !cid) return;
+                const reason = window.prompt("Reason for rejection (optional):");
+                const res = await fetch(`/api/change/${encodeURIComponent(cid)}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ projectId: pid, action: "reject", reason }),
+                });
+                const j = await res.json().catch(() => ({}));
+                if (res.ok && j?.ok !== false) { onClose(); }
+                else { alert(j?.error || "Reject failed"); }
+              } : undefined}
+            />
           </div>
 
           {/* ── Errors ── */}
