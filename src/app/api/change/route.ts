@@ -221,11 +221,30 @@ export async function GET(req: Request, ctx: Ctx) {
       });
     }
 
+    // Check if current user is an approver on any pending step for this project's CRs
+    let isApprover = false;
+    try {
+      const artifactIds = (items ?? [])
+        .map((cr: any) => cr.artifact_id)
+        .filter(Boolean);
+      if (artifactIds.length > 0) {
+        const { data: stepData } = await supabase
+          .from("artifact_approval_steps")
+          .select("id, approval_step_approvers!inner(user_id)")
+          .in("artifact_id", artifactIds)
+          .eq("status", "pending")
+          .eq("approval_step_approvers.user_id", user.id)
+          .limit(1);
+        isApprover = Array.isArray(stepData) && stepData.length > 0;
+      }
+    } catch {}
+
     return ok({
       mode: "project",
       project_id: projectId,
       role,
       can_edit: canEdit(role),
+      isApprover,
       items: items ?? [],
     });
   } catch (e: any) {
