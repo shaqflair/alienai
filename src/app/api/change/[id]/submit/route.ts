@@ -120,6 +120,10 @@ function hasArtifactIdMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "artifact_id");
 }
 
+function hasStatusMissingColumn(errMsg: string) {
+  return hasMissingColumn(errMsg, "status");
+}
+
 function isMissingRelation(errMsg: string) {
   const m = (errMsg || "").toLowerCase();
   return m.includes("does not exist") && m.includes("relation");
@@ -297,6 +301,34 @@ async function getFirstPendingStepSummary(
   }
 }
 
+async function getActiveApprovalChainForArtifact(
+  supabase: any,
+  artifactId: string
+): Promise<{ id: string; status: string | null } | null> {
+  const aid = safeStr(artifactId).trim();
+  if (!aid) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("approval_chains")
+      .select("id, status, is_active")
+      .eq("artifact_id", aid)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    return {
+      id: safeStr((data as any)?.id).trim(),
+      status: safeStr((data as any)?.status).trim() || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /* =========================================================
    Notification helpers
 ========================================================= */
@@ -397,7 +429,8 @@ async function updateArtifactSubmitted(
   artifactId: string,
   chainId: string,
   actorId: string,
-  nowIso: string
+  nowIso: string,
+  approvalStepIndex?: number | null
 ) {
   const patch1: any = {
     approval_chain_id: chainId,
@@ -405,7 +438,10 @@ async function updateArtifactSubmitted(
     submitted_by: actorId,
     status: "submitted",
     approval_status: "submitted",
-    approval_step_index: 0,
+    approval_step_index:
+      typeof approvalStepIndex === "number" && Number.isFinite(approvalStepIndex)
+        ? approvalStepIndex
+        : 0,
     is_locked: true,
     locked_at: nowIso,
     locked_by: actorId,
@@ -432,6 +468,73 @@ async function tryAttachApprovalChainIdToChange(supabase: any, changeId: string,
   if (hasApprovalChainIdMissingColumn(safeStr(first.error.message))) return;
 }
 
+async function syncChangeToSubmittedReview(
+  supabase: any,
+  args: {
+    changeId: string;
+    artifactId: string;
+    chainId: string;
+    nowIso: string;
+    includeDeliveryStatus?: boolean;
+    includeStatus?: boolean;
+  }
+) {
+  const patch: any = {
+    decision_status: "submitted",
+    decision_at: null,
+    decision_by: null,
+    decision_role: null,
+    decision_rationale: null,
+    updated_at: args.nowIso,
+    artifact_id: args.artifactId,
+  };
+
+  if (args.includeDeliveryStatus !== false) {
+    patch.delivery_status = "review";
+  }
+  if (args.includeStatus !== false) {
+    patch.status = "review";
+  }
+
+  if (safeStr(args.chainId).trim()) {
+    patch.approval_chain_id = args.chainId;
+  }
+
+  let attempt = await supabase
+    .from("change_requests")
+    .update(patch)
+    .eq("id", args.changeId)
+    .select(
+      "id, project_id, artifact_id, approval_chain_id, status, delivery_status, decision_status"
+    )
+    .maybeSingle();
+
+  if (!attempt.error) return attempt.data ?? null;
+
+  const msg = safeStr(attempt.error.message);
+  const retryPatch = { ...patch };
+
+  if (hasDeliveryStatusMissingColumn(msg)) delete (retryPatch as any).delivery_status;
+  if (hasStatusMissingColumn(msg)) delete (retryPatch as any).status;
+  if (hasArtifactIdMissingColumn(msg)) delete (retryPatch as any).artifact_id;
+  if (hasApprovalChainIdMissingColumn(msg)) delete (retryPatch as any).approval_chain_id;
+
+  attempt = await supabase
+    .from("change_requests")
+    .update(retryPatch)
+    .eq("id", args.changeId)
+    .select(
+      "id, project_id, artifact_id, approval_chain_id, status, delivery_status, decision_status"
+    )
+    .maybeSingle();
+
+  if (attempt.error) {
+    throw new Error(attempt.error.message);
+  }
+
+  return attempt.data ?? null;
+}
+
 /**
  * Concurrency-safe claim using ONLY valid decision_status values.
  * We temporarily claim by moving to "submitted", which is allowed by DB constraint.
@@ -452,10 +555,7 @@ async function claimChangeForSubmission(
     updated_at: args.nowIso,
   };
 
-  let query = supabase
-    .from("change_requests")
-    .update(patch)
-    .eq("id", args.changeId);
+  let query = supabase.from("change_requests").update(patch).eq("id", args.changeId);
 
   const currentDecision = safeStr(args.currentDecisionStatus).trim().toLowerCase();
 
@@ -512,6 +612,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       id: string;
       project_id: string;
       artifact_id?: string;
+      approval_chain_id?: string;
       status?: string;
       delivery_status?: string;
       decision_status?: string;
@@ -523,7 +624,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const firstLoad = await supabase
       .from("change_requests")
-      .select("id, project_id, artifact_id, status, delivery_status, decision_status")
+      .select(
+        "id, project_id, artifact_id, approval_chain_id, status, delivery_status, decision_status"
+      )
       .eq("id", changeId)
       .maybeSingle();
 
@@ -534,7 +637,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       if (deliveryStatusMissing) {
         const secondLoad = await supabase
           .from("change_requests")
-          .select("id, project_id, artifact_id, status, decision_status")
+          .select("id, project_id, artifact_id, approval_chain_id, status, decision_status")
           .eq("id", changeId)
           .maybeSingle();
 
@@ -561,15 +664,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       return jsonErr("This change is already decided", 400);
     }
 
-    if (decision === "submitted") {
-      return jsonOk({
-        item: { ...cr, delivery_status: cr?.delivery_status ?? null },
-        data: cr,
-        already: "submitted",
-      });
-    }
-
-    if (!deliveryStatusMissing && fromLane !== "analysis") {
+    if (!deliveryStatusMissing && fromLane !== "analysis" && decision !== "submitted") {
       return jsonErr("Only changes in Analysis can be submitted for approval.", 409);
     }
 
@@ -591,8 +686,97 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const actorEmail = safeStr((user as any)?.email ?? "").trim() || null;
     const actorName = await resolveActorName(supabase, user.id, actorEmail);
-
     const amount = await loadImpactCostForChange(supabase, changeId);
+
+    const existingActiveChain = await getActiveApprovalChainForArtifact(supabase, artifactId);
+
+    if (decision === "submitted" && existingActiveChain?.id) {
+      const firstStep = await getFirstPendingStepSummary(supabase, existingActiveChain.id);
+
+      await updateArtifactSubmitted(
+        supabase,
+        artifactId,
+        existingActiveChain.id,
+        user.id,
+        now,
+        firstStep?.step_order ?? 0
+      );
+      await tryAttachApprovalChainIdToChange(supabase, changeId, existingActiveChain.id);
+
+      const synced = await syncChangeToSubmittedReview(supabase, {
+        changeId,
+        artifactId,
+        chainId: existingActiveChain.id,
+        nowIso: now,
+        includeDeliveryStatus: !deliveryStatusMissing,
+        includeStatus: true,
+      });
+
+      const finalItem = {
+        ...(synced || cr),
+        artifact_id: safeStr((synced as any)?.artifact_id).trim() || artifactId,
+        approval_chain_id:
+          safeStr((synced as any)?.approval_chain_id).trim() || existingActiveChain.id,
+        delivery_status:
+          (synced as any)?.delivery_status ?? (deliveryStatusMissing ? null : toLaneDb(toLane)),
+        status: safeStr((synced as any)?.status).trim() || "review",
+        decision_status: "submitted",
+      };
+
+      return jsonOk({
+        item: finalItem,
+        data: finalItem,
+        approval_chain_id: existingActiveChain.id,
+        artifact_id: artifactId,
+        amount,
+        artifact_type: normalizeArtifactType("change"),
+        already: "submitted",
+      });
+    }
+
+    if (!decision && existingActiveChain?.id) {
+      const firstStep = await getFirstPendingStepSummary(supabase, existingActiveChain.id);
+
+      await updateArtifactSubmitted(
+        supabase,
+        artifactId,
+        existingActiveChain.id,
+        user.id,
+        now,
+        firstStep?.step_order ?? 0
+      );
+      await tryAttachApprovalChainIdToChange(supabase, changeId, existingActiveChain.id);
+
+      const synced = await syncChangeToSubmittedReview(supabase, {
+        changeId,
+        artifactId,
+        chainId: existingActiveChain.id,
+        nowIso: now,
+        includeDeliveryStatus: !deliveryStatusMissing,
+        includeStatus: true,
+      });
+
+      const finalItem = {
+        ...(synced || cr),
+        artifact_id: safeStr((synced as any)?.artifact_id).trim() || artifactId,
+        approval_chain_id:
+          safeStr((synced as any)?.approval_chain_id).trim() || existingActiveChain.id,
+        delivery_status:
+          (synced as any)?.delivery_status ?? (deliveryStatusMissing ? null : toLaneDb(toLane)),
+        status: safeStr((synced as any)?.status).trim() || "review",
+        decision_status: "submitted",
+      };
+
+      return jsonOk({
+        item: finalItem,
+        data: finalItem,
+        approval_chain_id: existingActiveChain.id,
+        artifact_id: artifactId,
+        amount,
+        artifact_type: normalizeArtifactType("change"),
+        already: "submitted",
+      });
+    }
 
     const claimed = await claimChangeForSubmission(supabase, {
       changeId,
@@ -605,18 +789,71 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     if (!claimed) {
       const latest = await supabase
         .from("change_requests")
-        .select("id, project_id, artifact_id, status, delivery_status, decision_status")
+        .select(
+          "id, project_id, artifact_id, approval_chain_id, status, delivery_status, decision_status"
+        )
         .eq("id", changeId)
         .maybeSingle();
 
       const latestRow = (latest.data as ChangeRow | null) || cr;
       const latestDecision = safeStr((latestRow as any)?.decision_status).trim().toLowerCase();
+      const latestArtifactId =
+        safeStr((latestRow as any)?.artifact_id).trim() || artifactId;
+      const activeChainAfterMiss = await getActiveApprovalChainForArtifact(supabase, latestArtifactId);
 
-      if (latestDecision === "submitted") {
+      if (latestDecision === "submitted" || activeChainAfterMiss?.id) {
+        const chainId = activeChainAfterMiss?.id || safeStr((latestRow as any)?.approval_chain_id).trim();
+        const firstStep = chainId
+          ? await getFirstPendingStepSummary(supabase, chainId)
+          : null;
+
+        if (chainId) {
+          await updateArtifactSubmitted(
+            supabase,
+            latestArtifactId,
+            chainId,
+            user.id,
+            now,
+            firstStep?.step_order ?? 0
+          );
+          await tryAttachApprovalChainIdToChange(supabase, changeId, chainId);
+
+          const synced = await syncChangeToSubmittedReview(supabase, {
+            changeId,
+            artifactId: latestArtifactId,
+            chainId,
+            nowIso: now,
+            includeDeliveryStatus: !deliveryStatusMissing,
+            includeStatus: true,
+          });
+
+          const finalItem = {
+            ...(synced || latestRow),
+            artifact_id: safeStr((synced as any)?.artifact_id).trim() || latestArtifactId,
+            approval_chain_id: safeStr((synced as any)?.approval_chain_id).trim() || chainId,
+            delivery_status:
+              (synced as any)?.delivery_status ?? (deliveryStatusMissing ? null : toLaneDb(toLane)),
+            status: safeStr((synced as any)?.status).trim() || "review",
+            decision_status: "submitted",
+          };
+
+          return jsonOk({
+            item: finalItem,
+            data: finalItem,
+            approval_chain_id: chainId,
+            artifact_id: latestArtifactId,
+            amount,
+            artifact_type: normalizeArtifactType("change"),
+            already: "submitted",
+          });
+        }
+
         return jsonOk({
           item: {
             ...latestRow,
+            artifact_id: latestArtifactId,
             delivery_status: (latestRow as any)?.delivery_status ?? null,
+            decision_status: "submitted",
           },
           data: latestRow,
           already: "submitted",
@@ -644,56 +881,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const firstStep = await getFirstPendingStepSummary(supabase, chainId);
 
-    await updateArtifactSubmitted(supabase, artifactId, chainId, user.id, now);
+    await updateArtifactSubmitted(
+      supabase,
+      artifactId,
+      chainId,
+      user.id,
+      now,
+      firstStep?.step_order ?? 0
+    );
     await tryAttachApprovalChainIdToChange(supabase, changeId, chainId);
 
-    const patch: any = {
-      delivery_status: toLaneDb(toLane),
-      decision_status: "submitted",
-      decision_at: null,
-      decision_by: null,
-      decision_role: null,
-      decision_rationale: null,
-      updated_at: now,
-      artifact_id: artifactId,
-    };
-
-    const firstUpdate = await supabase
-      .from("change_requests")
-      .update(patch)
-      .eq("id", changeId)
-      .eq("decision_status", "submitted")
-      .select("id, project_id, artifact_id, status, delivery_status, decision_status")
-      .maybeSingle();
-
-    let updated = firstUpdate.data as ChangeRow | null;
-    const deliveryMissingOnUpdate = Boolean(
-      firstUpdate.error && hasDeliveryStatusMissingColumn(safeStr(firstUpdate.error.message))
-    );
-    const artifactMissingOnUpdate = Boolean(
-      firstUpdate.error && hasArtifactIdMissingColumn(safeStr(firstUpdate.error.message))
-    );
-
-    if (deliveryMissingOnUpdate || artifactMissingOnUpdate) {
-      if (deliveryMissingOnUpdate) delete patch.delivery_status;
-      if (artifactMissingOnUpdate) delete patch.artifact_id;
-
-      const secondUpdate = await supabase
-        .from("change_requests")
-        .update(patch)
-        .eq("id", changeId)
-        .eq("decision_status", "submitted")
-        .select("id, project_id, artifact_id, status, decision_status")
-        .maybeSingle();
-
-      if (secondUpdate.error) {
-        throw new Error(secondUpdate.error.message);
-      }
-
-      updated = secondUpdate.data as ChangeRow | null;
-    } else if (firstUpdate.error) {
-      throw new Error(firstUpdate.error.message);
-    }
+    const updated = await syncChangeToSubmittedReview(supabase, {
+      changeId,
+      artifactId,
+      chainId,
+      nowIso: now,
+      includeDeliveryStatus: !deliveryStatusMissing,
+      includeStatus: true,
+    });
 
     try {
       await logChangeEvent(
@@ -706,14 +911,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
           actorRole: role,
           eventType: "submitted_for_approval",
           fromValue: deliveryStatusMissing ? null : fromLane || null,
-          toValue: deliveryMissingOnUpdate ? null : toLane,
+          toValue: deliveryStatusMissing ? null : toLane,
           note: null,
           payload: {
             decision_status: { from: decision || null, to: "submitted" },
             lane: {
               from: deliveryStatusMissing ? null : fromLane || null,
-              to: deliveryMissingOnUpdate ? null : toLane,
+              to: deliveryStatusMissing ? null : toLane,
             },
+            board_status: { from: safeStr(cr?.status).trim() || null, to: "review" },
             approval_chain_id: chainId,
             approval_chain_artifact_type: chosenType,
             amount,
@@ -729,7 +935,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       change_id: changeId,
       event_type: "status_changed",
       from_status: deliveryStatusMissing ? null : fromLane,
-      to_status: deliveryMissingOnUpdate ? null : toLane,
+      to_status: deliveryStatusMissing ? null : toLane,
       actor_user_id: user.id,
       actor_role: safeStr(role),
       comment: null,
@@ -766,8 +972,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         artifact_id: artifactId,
         amount,
         from_lane: deliveryStatusMissing ? null : fromLane || null,
-        to_lane: deliveryMissingOnUpdate ? null : toLane,
-        delivery_status_missing: deliveryMissingOnUpdate || deliveryStatusMissing,
+        to_lane: deliveryStatusMissing ? null : toLane,
         first_step: firstStep,
         source: "submit_route",
         sla_started_at: now,
@@ -795,7 +1000,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const finalItem = {
       ...resultItem,
       artifact_id: safeStr((resultItem as any)?.artifact_id).trim() || artifactId,
-      delivery_status: resultItem?.delivery_status ?? null,
+      approval_chain_id: safeStr((resultItem as any)?.approval_chain_id).trim() || chainId,
+      delivery_status: (resultItem as any)?.delivery_status ?? (deliveryStatusMissing ? null : "review"),
+      status: safeStr((resultItem as any)?.status).trim() || "review",
       decision_status: "submitted",
     };
 
