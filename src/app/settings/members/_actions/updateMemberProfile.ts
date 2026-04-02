@@ -103,7 +103,13 @@ export async function updateMemberProfile(
     }
 
     revalidatePath("/settings/members");
-    return { ok: true };
+    // Keep profiles table in sync so rate lookups work
+  await supabase
+    .from("profiles")
+    .update({ job_title: input.job_title.trim() || null })
+    .eq("user_id", input.user_id);
+
+  return { ok: true };
   } catch (err: unknown) {
     console.error("updateMemberProfile error:", err);
     return { ok: false, error: "Unexpected error" };
