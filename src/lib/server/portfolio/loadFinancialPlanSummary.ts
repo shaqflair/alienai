@@ -558,9 +558,12 @@ export async function loadFinancialPlanSummary(input: {
       totalApprovedBudget,
       totalBudgeted,
       totalForecast,
-      totalActual,
       currency,
     } = extracted;
+    // Use live timesheet actual if available, fall back to stored value
+    const totalActual = liveActualByProject.has(pid)
+      ? Math.round(liveActualByProject.get(pid)! * 100) / 100
+      : extracted.totalActual;
 
     const effectiveBudget = totalApprovedBudget > 0 ? totalApprovedBudget : totalBudgeted;
     const variance = totalForecast - effectiveBudget;
