@@ -102,6 +102,13 @@ export function computeActuals(
       if (!weeklyMapping) continue;
       lineId  = weeklyMapping.lineId;
       dayRate = weeklyMapping.rate;
+    } else if (entry.resource_id === "__weekly__") {
+      // Cost already pre-computed server-side (days field holds the £ value)
+      // Map to first people cost line
+      const peopleLine = costLines?.find(l => l.category === "people");
+      if (!peopleLine) continue;
+      lineId  = peopleLine.id;
+      dayRate = 1; // approved_days already holds £ cost
     } else {
       const lookup = dayRateByResourceId.get(entry.resource_id);
       if (!lookup) continue;
