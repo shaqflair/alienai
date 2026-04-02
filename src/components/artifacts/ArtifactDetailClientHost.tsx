@@ -321,8 +321,9 @@ function FinancialPlanEditorHost({
 
   useEffect(() => {
     if (!projectId) return;
-    const resourceIds = (content.resources ?? []).map((r: any) => r.id).filter(Boolean);
-    getApprovedTimesheetEntries(projectId, resourceIds).then(result => {
+    // Pass empty resourceIds — weekly_timesheet_entries is the source of truth now.
+    // Passing resourceIds caused double-counting with legacy timesheet_entries.
+    getApprovedTimesheetEntries(projectId, []).then(result => {
       if (result.ok) setTimesheetEntries(result.entries);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
