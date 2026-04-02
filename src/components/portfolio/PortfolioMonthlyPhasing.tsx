@@ -56,7 +56,7 @@ function buildQuarters(keys: MonthKey[], fyStart: number) {
   for (let i=0; i<keys.length; i+=3) {
     const slice=keys.slice(i,i+3); if(!slice.length) break;
     const [y,m]=slice[0].split("-").map(Number), fyY=m>=fyStart?y:y-1;
-    qs.push({ label:`Q${Math.floor(i/3)+1} FY${fyY}/${String(fyY+1).slice(2)}`, months:slice });
+    const qNum = Math.floor(i/3)+1; const qLabel = qNum<=4?`Q${qNum}`:`Q${((qNum-1)%4)+1}`; qs.push({ label:`${qLabel} FY${fyY}/${String(fyY+1).slice(2)}`, months:slice });
   }
   return qs;
 }

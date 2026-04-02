@@ -1530,7 +1530,10 @@ export default function FinancialPlanEditor({
 
   const totalApprovedDays = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const e of timesheetEntries) map[e.resource_id] = (map[e.resource_id] ?? 0) + e.approved_days;
+    for (const e of timesheetEntries) {
+      if (e.resource_id === "__weekly__") continue; // __weekly__ stores £ cost not days
+      map[e.resource_id] = (map[e.resource_id] ?? 0) + e.approved_days;
+    }
     return Object.values(map).reduce((s, d) => s + d, 0);
   }, [timesheetEntries]);
 
