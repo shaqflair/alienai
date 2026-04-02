@@ -50,21 +50,70 @@ function extractDigits(raw: string): string | null {
 function projectCodeVariants(raw: string): string[] {
   const out = new Set<string>();
   const s = safeStr(raw).trim();
-  if (s) out.add(s);
+  if (!s) return [];
+
   const up = s.toUpperCase();
-  if (up) out.add(up);
+  out.add(s);
+  out.add(up);
 
   const digits = extractDigits(s);
+
   if (digits) {
+    const padded = digits.padStart(5, "0");
+
     out.add(digits);
+
     out.add(`P-${digits}`);
-    out.add(`P-${digits.padStart(5, "0")}`);
+    out.add(`P${digits}`);
+    out.add(`P-${padded}`);
+    out.add(`P${padded}`);
+
+    out.add(`PRJ-${digits}`);
+    out.add(`PRJ${digits}`);
+    out.add(`PRJ-${padded}`);
+    out.add(`PRJ${padded}`);
+
+    out.add(`PROJECT-${digits}`);
+    out.add(`PROJECT${digits}`);
   }
 
-  const m = up.match(/^P-(\d{1,10})$/);
-  if (m?.[1]) {
-    out.add(m[1]);
-    out.add(String(Number(m[1])));
+  const pDash = up.match(/^P-(\d{1,10})$/);
+  if (pDash?.[1]) {
+    const n = String(Number(pDash[1]));
+    out.add(pDash[1]);
+    out.add(n);
+    out.add(`PRJ-${n}`);
+    out.add(`PRJ${n}`);
+  }
+
+  const pPlain = up.match(/^P(\d{1,10})$/);
+  if (pPlain?.[1]) {
+    const n = String(Number(pPlain[1]));
+    out.add(pPlain[1]);
+    out.add(n);
+    out.add(`P-${n}`);
+    out.add(`PRJ-${n}`);
+    out.add(`PRJ${n}`);
+  }
+
+  const prjDash = up.match(/^PRJ-(\d{1,10})$/);
+  if (prjDash?.[1]) {
+    const n = String(Number(prjDash[1]));
+    out.add(prjDash[1]);
+    out.add(n);
+    out.add(`P-${n}`);
+    out.add(`P${n}`);
+    out.add(`PRJ${n}`);
+  }
+
+  const prjPlain = up.match(/^PRJ(\d{1,10})$/);
+  if (prjPlain?.[1]) {
+    const n = String(Number(prjPlain[1]));
+    out.add(prjPlain[1]);
+    out.add(n);
+    out.add(`P-${n}`);
+    out.add(`P${n}`);
+    out.add(`PRJ-${n}`);
   }
 
   return Array.from(out).filter(Boolean);
@@ -91,33 +140,34 @@ function buildQueryString(sp: any) {
 
 /* -------------------------------------------
    project resolve (UUID or code)
-   ✅ Robust against schema differences (prod/dev)
 ------------------------------------------- */
 
-// Prefer safe/minimal columns that exist in your schema
 const PROJECT_SELECT_MIN = "id, title, project_code";
 
-// Optional extra columns (might not exist everywhere)
 const PROJECT_SELECT_MAX =
   "id, title, project_code, code, public_id, external_id, project_number, project_no";
 
-/**
- * Try a select; if it fails due to missing columns, retry with minimal select.
- */
 async function selectProjectBy(sb: any, col: "id" | "project_code", value: string) {
-  // 1) try max (nice-to-have fields)
   {
-    const { data, error } = await sb.from("projects").select(PROJECT_SELECT_MAX).eq(col, value).maybeSingle();
+    const { data, error } = await sb
+      .from("projects")
+      .select(PROJECT_SELECT_MAX)
+      .eq(col, value)
+      .maybeSingle();
+
     if (!error) return { project: data ?? null, error: null as any };
-    // If schema mismatch (missing column), fall through to minimal.
+
     const msg = safeStr((error as any)?.message).toLowerCase();
-    const looksLikeMissingColumn =
-      msg.includes("column") && msg.includes("does not exist");
+    const looksLikeMissingColumn = msg.includes("column") && msg.includes("does not exist");
     if (!looksLikeMissingColumn) return { project: null as any, error };
   }
 
-  // 2) safe minimal select
-  const { data, error } = await sb.from("projects").select(PROJECT_SELECT_MIN).eq(col, value).maybeSingle();
+  const { data, error } = await sb
+    .from("projects")
+    .select(PROJECT_SELECT_MIN)
+    .eq(col, value)
+    .maybeSingle();
+
   if (error) return { project: null as any, error };
   return { project: data ?? null, error: null as any };
 }
@@ -126,7 +176,6 @@ async function resolveProject(sb: any, rawParam: string) {
   const raw = safeStr(rawParam).trim();
   if (!raw) return { project: null as any, error: new Error("Missing project id") };
 
-  // 1) UUID path
   if (looksLikeUuid(raw)) {
     const r = await selectProjectBy(sb, "id", raw);
     if (r.error) return { project: null as any, error: r.error };
@@ -134,7 +183,6 @@ async function resolveProject(sb: any, rawParam: string) {
     return { project: null as any, error: new Error("Project not found") };
   }
 
-  // 2) Human code variants path
   const variants = projectCodeVariants(raw);
   for (const v of variants) {
     const r = await selectProjectBy(sb, "project_code", v);
@@ -163,7 +211,6 @@ export default async function ChangeLogPage({
   const paramId = safeStr(p?.id).trim();
   if (!paramId) notFound();
 
-  // If some old UI is still linking to /change?view=changes, normalise it
   const view = safeStr(sp?.view);
   if (view && view.toLowerCase() === "changes") {
     redirect(`/projects/${paramId}/change`);
@@ -171,29 +218,23 @@ export default async function ChangeLogPage({
 
   const supabase = await createClient();
 
-  // ✅ auth guard
   const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !auth?.user) redirect("/login");
+  if (authErr || !auth?.user) {
+    redirect("/login");
+  }
 
-  // ✅ Resolve project UUID even if the route param is a code
   const resolved = await resolveProject(supabase, paramId);
   if (resolved.error || !resolved.project?.id) {
-    // This is what was causing your 404 in prod when PROJECT_SELECT had missing columns.
     notFound();
   }
 
   const projectUuid = safeStr(resolved.project.id).trim();
   if (!looksLikeUuid(projectUuid)) notFound();
 
-  // ✅ Normalize URL to UUID so ChangeManagementBoard (useParams) always gets UUID
   if (paramId !== projectUuid) {
     const q = buildQueryString(sp);
     redirect(q ? `/projects/${projectUuid}/change?${q}` : `/projects/${projectUuid}/change`);
   }
-
-  /* -------------------------------------------
-     project "human id" (for UI chip only)
-  ------------------------------------------- */
 
   let projectCode: string | null = null;
   {
@@ -211,11 +252,6 @@ export default async function ChangeLogPage({
 
     projectCode = candidates.length ? candidates[0] : null;
   }
-
-  /* -------------------------------------------
-     locate Change Requests artifact for compare (optional)
-     ✅ Do NOT include "change" (legacy) to avoid picking wrong artifact
-  ------------------------------------------- */
 
   let compareHref: string | null = null;
 
@@ -241,8 +277,14 @@ export default async function ChangeLogPage({
       compareHref = `/projects/${projectUuid}/artifacts/${crArtifact.id}/compare`;
     }
   } catch {
-    // optional feature – safe to ignore
+    // optional
   }
+
+  const projectBadge = projectCode
+    ? /^PRJ-/i.test(projectCode) || /^P-/i.test(projectCode)
+      ? projectCode
+      : `PRJ-${projectCode}`
+    : null;
 
   return (
     <main className="crPage">
@@ -258,13 +300,13 @@ export default async function ChangeLogPage({
               flexWrap: "wrap",
             }}
           >
-            {projectCode ? (
+            {projectBadge ? (
               <span
                 className="px-3 py-2 rounded-xl border border-gray-200 text-sm"
                 title="Project ID"
                 style={{ fontWeight: 800 }}
               >
-                {`PRJ-${projectCode}`}
+                {projectBadge}
               </span>
             ) : null}
 
@@ -281,8 +323,7 @@ export default async function ChangeLogPage({
         }
       />
 
-      {/* ✅ ALWAYS Kanban */}
-<ChangeManagementBoard projectId={projectUuid} />
+      <ChangeManagementBoard projectId={projectUuid} />
     </main>
   );
 }
