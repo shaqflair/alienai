@@ -286,8 +286,13 @@ export async function POST(req: Request, ctx: Ctx) {
     if (!existing) return err("Not found", { status: 404, code: "not_found" });
 
     const role = await requireProjectRole(supabase, existing.project_id, user.id);
-    if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
-    if (!canEdit(role)) return err("Forbidden", { status: 403, code: "forbidden" });
+    if (!role) {
+      // Allow org members (e.g. approvers) to perform approval actions
+      const { data: orgChk } = await supabase.from("organisation_members").select("id").eq("user_id", user.id).is("removed_at", null).limit(1);
+      if (!Array.isArray(orgChk) || !orgChk.length) return err("Forbidden", { status: 403, code: "forbidden" });
+    } else if (!canEdit(role) && !["approve","reject","request_changes"].includes(safeStr(body?.action))) {
+      return err("Forbidden", { status: 403, code: "forbidden" });
+    }
 
     const patch: any = {};
 
@@ -532,8 +537,13 @@ export async function DELETE(req: Request, ctx: Ctx) {
     if (!existing) return err("Not found", { status: 404, code: "not_found" });
 
     const role = await requireProjectRole(supabase, existing.project_id, user.id);
-    if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
-    if (!canEdit(role)) return err("Forbidden", { status: 403, code: "forbidden" });
+    if (!role) {
+      // Allow org members (e.g. approvers) to perform approval actions
+      const { data: orgChk } = await supabase.from("organisation_members").select("id").eq("user_id", user.id).is("removed_at", null).limit(1);
+      if (!Array.isArray(orgChk) || !orgChk.length) return err("Forbidden", { status: 403, code: "forbidden" });
+    } else if (!canEdit(role) && !["approve","reject","request_changes"].includes(safeStr(body?.action))) {
+      return err("Forbidden", { status: 403, code: "forbidden" });
+    }
 
     const { error: hardErr } = await supabase.from(TABLE).delete().eq("id", existing.id);
     if (hardErr) {
