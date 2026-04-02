@@ -71,7 +71,7 @@ async function loadProjectMetaSafe(
   try {
     const first = await supabase
       .from("projects")
-      .select("created_by, owner_id, user_id, organisation_id")
+      .select("created_by, user_id, organisation_id")
       .eq("id", projectId)
       .maybeSingle();
 
@@ -79,7 +79,6 @@ async function loadProjectMetaSafe(
       return {
         ownerUserId:
           safeStr((first.data as any)?.created_by).trim() ||
-          safeStr((first.data as any)?.owner_id).trim() ||
           safeStr((first.data as any)?.user_id).trim() ||
           null,
         organisationId: safeStr((first.data as any)?.organisation_id).trim() || null,
@@ -95,7 +94,7 @@ async function loadProjectMetaSafe(
 
     const second = await supabase
       .from("projects")
-      .select("created_by, owner_id, user_id, organization_id")
+      .select("created_by, user_id, organization_id")
       .eq("id", projectId)
       .maybeSingle();
 
@@ -104,7 +103,6 @@ async function loadProjectMetaSafe(
     return {
       ownerUserId:
         safeStr((second.data as any)?.created_by).trim() ||
-        safeStr((second.data as any)?.owner_id).trim() ||
         safeStr((second.data as any)?.user_id).trim() ||
         null,
       organisationId: safeStr((second.data as any)?.organization_id).trim() || null,
