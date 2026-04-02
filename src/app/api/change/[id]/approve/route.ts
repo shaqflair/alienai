@@ -457,7 +457,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!projectId) return jsonErr("Missing project_id", 500);
 
     const memberRole = await requireProjectRole(supabase, projectId, user.id);
-    if (!memberRole) return jsonErr("Forbidden", 403);
+    if (!memberRole) {
+      // Allow org members (e.g. approvers not in project_members)
+      const { data: orgChk } = await supabase.from("organisation_members").select("id").eq("user_id", user.id).is("removed_at", null).limit(1);
+      if (!Array.isArray(orgChk) || !orgChk.length) return jsonErr("Forbidden", 403);
+    }
 
     const organisationId = await resolveOrganisationIdForProject(supabase, projectId);
 
