@@ -228,14 +228,22 @@ export async function GET(req: Request, ctx: Ctx) {
         .map((cr: any) => cr.artifact_id)
         .filter(Boolean);
       if (artifactIds.length > 0) {
-        const { data: stepData } = await supabase
+        // Get pending step IDs first
+        const { data: steps } = await supabase
           .from("artifact_approval_steps")
-          .select("id, approval_step_approvers!inner(user_id)")
+          .select("id")
           .in("artifact_id", artifactIds)
-          .eq("status", "pending")
-          .eq("approval_step_approvers.user_id", user.id)
-          .limit(1);
-        isApprover = Array.isArray(stepData) && stepData.length > 0;
+          .eq("status", "pending");
+        const stepIds = (steps ?? []).map((s: any) => s.id).filter(Boolean);
+        if (stepIds.length > 0) {
+          const { data: approverData } = await supabase
+            .from("approval_step_approvers")
+            .select("id")
+            .in("step_id", stepIds)
+            .eq("user_id", user.id)
+            .limit(1);
+          isApprover = Array.isArray(approverData) && approverData.length > 0;
+        }
       }
     } catch {}
 
