@@ -329,6 +329,41 @@ async function getActiveApprovalChainForArtifact(
   }
 }
 
+async function countOtherChangesLinkedToArtifact(
+  supabase: any,
+  artifactId: string,
+  changeId: string
+): Promise<number> {
+  const aid = safeStr(artifactId).trim();
+  const cid = safeStr(changeId).trim();
+  if (!aid || !cid) return 0;
+
+  try {
+    const { data, error } = await supabase
+      .from("change_requests")
+      .select("id")
+      .eq("artifact_id", aid);
+
+    if (error || !Array.isArray(data)) return 0;
+    return data.filter((r: any) => safeStr(r?.id).trim() !== cid).length;
+  } catch {
+    return 0;
+  }
+}
+
+async function ensureArtifactIsDedicatedToChange(
+  supabase: any,
+  artifactId: string,
+  changeId: string
+) {
+  const linkedOtherCount = await countOtherChangesLinkedToArtifact(supabase, artifactId, changeId);
+  if (linkedOtherCount > 0) {
+    throw new Error(
+      `Artifact ${artifactId} is already linked to another change request. Dedicated per-change artifacts are required.`
+    );
+  }
+}
+
 /* =========================================================
    Notification helpers
 ========================================================= */
@@ -559,12 +594,10 @@ async function claimChangeForSubmission(
 
   const currentDecision = safeStr(args.currentDecisionStatus).trim().toLowerCase();
 
-  if (!currentDecision || currentDecision === "draft") {
-    if (currentDecision === "draft") {
-      query = query.eq("decision_status", "draft");
-    } else {
-      query = query.is("decision_status", null);
-    }
+  if (currentDecision === "draft") {
+    query = query.eq("decision_status", "draft");
+  } else if (!currentDecision) {
+    query = query.is("decision_status", null);
   } else {
     return false;
   }
@@ -605,7 +638,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const supabase = await sb();
     const user = await requireUser(supabase);
-
     const requestId = randomUUID();
 
     type ChangeRow = {
@@ -676,6 +708,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       );
     }
 
+    await ensureArtifactIsDedicatedToChange(supabase, artifactId, changeId);
+
     const now = new Date().toISOString();
     const toLane = "review";
 
@@ -691,50 +725,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const existingActiveChain = await getActiveApprovalChainForArtifact(supabase, artifactId);
 
     if (decision === "submitted" && existingActiveChain?.id) {
-      const firstStep = await getFirstPendingStepSummary(supabase, existingActiveChain.id);
-
-      await updateArtifactSubmitted(
-        supabase,
-        artifactId,
-        existingActiveChain.id,
-        user.id,
-        now,
-        firstStep?.step_order ?? 0
-      );
-      await tryAttachApprovalChainIdToChange(supabase, changeId, existingActiveChain.id);
-
-      const synced = await syncChangeToSubmittedReview(supabase, {
-        changeId,
-        artifactId,
-        chainId: existingActiveChain.id,
-        nowIso: now,
-        includeDeliveryStatus: !deliveryStatusMissing,
-        includeStatus: true,
-      });
-
-      const finalItem = {
-        ...(synced || cr),
-        artifact_id: safeStr((synced as any)?.artifact_id).trim() || artifactId,
-        approval_chain_id:
-          safeStr((synced as any)?.approval_chain_id).trim() || existingActiveChain.id,
-        delivery_status:
-          (synced as any)?.delivery_status ?? (deliveryStatusMissing ? null : toLaneDb(toLane)),
-        status: safeStr((synced as any)?.status).trim() || "review",
-        decision_status: "submitted",
-      };
-
-      return jsonOk({
-        item: finalItem,
-        data: finalItem,
-        approval_chain_id: existingActiveChain.id,
-        artifact_id: artifactId,
-        amount,
-        artifact_type: normalizeArtifactType("change"),
-        already: "submitted",
-      });
-    }
-
-    if (!decision && existingActiveChain?.id) {
       const firstStep = await getFirstPendingStepSummary(supabase, existingActiveChain.id);
 
       await updateArtifactSubmitted(
@@ -797,15 +787,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
       const latestRow = (latest.data as ChangeRow | null) || cr;
       const latestDecision = safeStr((latestRow as any)?.decision_status).trim().toLowerCase();
-      const latestArtifactId =
-        safeStr((latestRow as any)?.artifact_id).trim() || artifactId;
-      const activeChainAfterMiss = await getActiveApprovalChainForArtifact(supabase, latestArtifactId);
+      const latestArtifactId = safeStr((latestRow as any)?.artifact_id).trim() || artifactId;
+
+      if (latestArtifactId) {
+        await ensureArtifactIsDedicatedToChange(supabase, latestArtifactId, changeId);
+      }
+
+      const activeChainAfterMiss = latestArtifactId
+        ? await getActiveApprovalChainForArtifact(supabase, latestArtifactId)
+        : null;
 
       if (latestDecision === "submitted" || activeChainAfterMiss?.id) {
-        const chainId = activeChainAfterMiss?.id || safeStr((latestRow as any)?.approval_chain_id).trim();
-        const firstStep = chainId
-          ? await getFirstPendingStepSummary(supabase, chainId)
-          : null;
+        const chainId =
+          activeChainAfterMiss?.id || safeStr((latestRow as any)?.approval_chain_id).trim();
+        const firstStep = chainId ? await getFirstPendingStepSummary(supabase, chainId) : null;
 
         if (chainId) {
           await updateArtifactSubmitted(
@@ -1001,7 +996,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       ...resultItem,
       artifact_id: safeStr((resultItem as any)?.artifact_id).trim() || artifactId,
       approval_chain_id: safeStr((resultItem as any)?.approval_chain_id).trim() || chainId,
-      delivery_status: (resultItem as any)?.delivery_status ?? (deliveryStatusMissing ? null : "review"),
+      delivery_status:
+        (resultItem as any)?.delivery_status ?? (deliveryStatusMissing ? null : "review"),
       status: safeStr((resultItem as any)?.status).trim() || "review",
       decision_status: "submitted",
     };
