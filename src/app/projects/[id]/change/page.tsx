@@ -216,10 +216,12 @@ export default async function ChangeLogPage({
     redirect(`/projects/${paramId}/change`);
   }
 
-  const supabase = await createClient();
-
-  const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !auth?.user) {
+  let supabase: any;
+  try {
+    supabase = await createClient();
+    const { data: auth, error: authErr } = await supabase.auth.getUser();
+    if (authErr || !auth?.user) redirect("/login");
+  } catch {
     redirect("/login");
   }
 
