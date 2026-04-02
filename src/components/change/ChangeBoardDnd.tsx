@@ -1496,6 +1496,7 @@ export default function ChangeBoardDnd({
   const [createOpen, setCreateOpen] = useState(false);
   const [createLane, setCreateLane] = useState<DeliveryLane>("intake");
   const [editOpen, setEditOpen] = useState(false);
+  const [editApproval, setEditApproval] = useState<any>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editInitialValue, setEditInitialValue] = useState<any | null>(null);
 
@@ -1584,7 +1585,13 @@ export default function ChangeBoardDnd({
   const openEdit = useCallback((it: ChangeItem) => {
     setEditId(it.id);
     setEditInitialValue(mapRowToModalInitialValue(it));
+    setEditApproval(null);
     setEditOpen(true);
+    // Fetch approval progress for this change
+    fetch(`/api/change/${encodeURIComponent(it.id)}`)
+      .then(r => r.json().catch(() => ({})))
+      .then(j => { if (j?.approvals) setEditApproval(j.approvals); })
+      .catch(() => {});
   }, []);
 
   const openAi = useCallback((it: ChangeItem) => {
@@ -1907,6 +1914,7 @@ export default function ChangeBoardDnd({
           changeId={editId}
           initialValue={editInitialValue ?? undefined}
           titleOverride="Edit Change Request"
+          approval={editApproval}
         />
       ) : null}
 
