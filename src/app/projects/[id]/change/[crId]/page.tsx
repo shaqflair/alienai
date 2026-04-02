@@ -1,7 +1,9 @@
 // src/app/projects/[id]/change/[crId]/page.tsx
+// Pure redirect page — no auth needed, no Supabase call.
+// Redirects to the change board with the cr param set.
+// The change board handles project code -> UUID resolution.
 import "server-only";
 import { redirect, notFound } from "next/navigation";
-import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,23 +39,6 @@ function buildQueryString(sp: any) {
   return qs;
 }
 
-async function resolveProjectUuid(supabase: any, param: string): Promise<string | null> {
-  if (looksLikeUuid(param)) return param;
-  // Try resolving by project_code
-  const { data } = await supabase.from("projects").select("id").eq("project_code", param.toUpperCase()).maybeSingle();
-  if (data?.id) return String(data.id);
-  // Try numeric variants
-  const digits = param.match(/(\d+)/)?.[1];
-  if (digits) {
-    const variants = [digits, `P-${digits}`, `PRJ-${digits}`];
-    for (const v of variants) {
-      const { data: d } = await supabase.from("projects").select("id").eq("project_code", v).maybeSingle();
-      if (d?.id) return String(d.id);
-    }
-  }
-  return null;
-}
-
 type ParamsShape = { id?: string; crId?: string };
 
 export default async function ChangeCrIdRedirectPage({
@@ -72,18 +57,6 @@ export default async function ChangeCrIdRedirectPage({
   if (!projectParam) notFound();
   if (!crParam) redirect(`/projects/${projectParam}/change`);
 
-  // Resolve to UUID in one hop to avoid double-redirect auth loss
-  // Use try/catch — auth may not be available in redirect context
-  let projectUuid: string | null = null;
-  try {
-    const supabase = await createClient();
-    projectUuid = await resolveProjectUuid(supabase, projectParam);
-  } catch {
-    // If auth fails, fall back to using the param as-is
-    projectUuid = looksLikeUuid(projectParam) ? projectParam : null;
-  }
-  const resolvedProject = projectUuid ?? projectParam;
-
   const qs = buildQueryString(sp);
   if (looksLikeUuid(crParam)) {
     qs.set("cr", crParam);
@@ -94,5 +67,5 @@ export default async function ChangeCrIdRedirectPage({
   }
 
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
-  redirect(`/projects/${resolvedProject}/change${suffix}`);
+  redirect(`/projects/${projectParam}/change${suffix}`);
 }
