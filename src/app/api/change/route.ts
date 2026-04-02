@@ -209,7 +209,16 @@ export async function GET(req: Request, ctx: Ctx) {
     if (!projectId) return err("Not found", { status: 404, code: "not_found" });
 
     const role = await requireProjectRole(supabase, projectId, user.id);
-    if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
+    if (!role) {
+      // Allow org-level approvers who may not be project members
+      const { data: approverCheck } = await supabase
+        .from("approval_step_approvers")
+        .select("id")
+        .eq("user_id", user.id)
+        .limit(1);
+      const isOrgApprover = Array.isArray(approverCheck) && approverCheck.length > 0;
+      if (!isOrgApprover) return err("Forbidden", { status: 403, code: "forbidden" });
+    }
 
     const { data: items, error: itemsErr } = await supabase
       .from(TABLE)
