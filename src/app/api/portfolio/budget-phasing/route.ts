@@ -74,11 +74,23 @@ export async function GET(req: Request) {
     const nowKey    = currentMonthKey();
 
     // 1. Organisation
-    const { data: orgMem } = await supabase
+    const { data: orgMems } = await supabase
       .from("organisation_members").select("organisation_id")
-      .eq("user_id", auth.user.id).is("removed_at", null).limit(1).maybeSingle();
-    const orgId = safeStr((orgMem as any)?.organisation_id);
-    if (!orgId) return err("No organisation found", 404);
+      .eq("user_id", auth.user.id).is("removed_at", null);
+    const orgIds = (orgMems ?? []).map((m: any) => safeStr(m.organisation_id)).filter(Boolean);
+    if (!orgIds.length) return err("No organisation found", 404);
+    // Pick the org that has the most projects (handles multi-org membership)
+    const { data: orgProjectCounts } = await supabase
+      .from("projects")
+      .select("organisation_id")
+      .in("organisation_id", orgIds)
+      .is("deleted_at", null);
+    const countByOrg: Record<string, number> = {};
+    for (const p of orgProjectCounts ?? []) {
+      const oid = safeStr(p.organisation_id);
+      countByOrg[oid] = (countByOrg[oid] ?? 0) + 1;
+    }
+    const orgId = orgIds.sort((a, b) => (countByOrg[b] ?? 0) - (countByOrg[a] ?? 0))[0];
 
     // 2. All projects (include department + project_manager_id for fallback)
     let projQ = supabase
