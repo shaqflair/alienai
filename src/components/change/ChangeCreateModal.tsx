@@ -1151,6 +1151,25 @@ export default function ChangeCreateModal({
                 <button type="button" className="ccm-btn ccm-btn-primary ccm-btn-sm" onClick={submitChange} disabled={disabled}>
                   {saving ? (isEdit ? "Saving…" : "Creating…") : isEdit ? "Save Changes" : "Create CR"}
                 </button>
+                {isEdit && approval?.canApprove && (
+                  <>
+                    <button type="button" className="ccm-btn ccm-btn-sm" onClick={async () => {
+                      const pid = resolvedProjectId || projectId;
+                      if (!pid || !changeId) return;
+                      const res = await fetch(`/api/change/${encodeURIComponent(changeId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: pid, action: "approve" }) });
+                      const j = await res.json().catch(() => ({}));
+                      if (res.ok && j?.ok !== false) onClose(); else alert(j?.error || "Failed");
+                    }} style={{ background: "#10b981", color: "#fff", borderColor: "#10b981" }} disabled={disabled}>Approve</button>
+                    <button type="button" className="ccm-btn ccm-btn-sm" onClick={async () => {
+                      const pid = resolvedProjectId || projectId;
+                      if (!pid || !changeId) return;
+                      const reason = window.prompt("Reason (optional):");
+                      const res = await fetch(`/api/change/${encodeURIComponent(changeId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: pid, action: "reject", reason }) });
+                      const j = await res.json().catch(() => ({}));
+                      if (res.ok && j?.ok !== false) onClose(); else alert(j?.error || "Failed");
+                    }} style={{ background: "#ef4444", color: "#fff", borderColor: "#ef4444" }} disabled={disabled}>Reject</button>
+                  </>
+                )}
               </div>
             </div>
 
