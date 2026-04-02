@@ -310,50 +310,21 @@ export async function getPendingArtifactStepForArtifact(args: {
 async function listDirectApproverUserIdsForStep(supabase: any, stepId: string): Promise<string[]> {
   const { data, error } = await supabase
     .from("approval_step_approvers")
-    .select("approver_type, approver_ref, approver_member_id, active")
-    .eq("step_id", safeStr(stepId))
-    .eq("active", true);
+    .select("user_id, email, role, status")
+    .eq("step_id", safeStr(stepId));
 
   if (error) {
     if (isMissingRelation(safeStr(error.message))) return [];
     throw new Error(error.message);
   }
 
+  // approval_step_approvers has user_id directly
   const rows = Array.isArray(data) ? data : [];
-
-  const memberIds = rows
-    .filter((r: any) => safeStr(r?.approver_type).toLowerCase() === "user")
-    .map((r: any) => safeStr(r?.approver_member_id))
-    .filter((x) => looksLikeUuid(x));
-
-  const legacyUserIds = rows
-    .filter((r: any) => safeStr(r?.approver_type).toLowerCase() === "user")
-    .map((r: any) => safeStr(r?.approver_ref))
-    .filter((x) => looksLikeUuid(x));
-
   const out = new Set<string>();
-
-  // Canonical path
-  if (memberIds.length) {
-    try {
-      const { data: mems, error: mErr } = await supabase
-        .from("organisation_members")
-        .select("id, user_id")
-        .in("id", memberIds);
-
-      if (!mErr) {
-        (Array.isArray(mems) ? mems : []).forEach((m: any) => {
-          const uid = safeStr(m?.user_id);
-          if (looksLikeUuid(uid)) out.add(uid);
-        });
-      }
-    } catch {
-      // swallow, fallback to legacy below
-    }
-  }
-
-  legacyUserIds.forEach((u) => out.add(u));
-
+  rows.forEach((r: any) => {
+    const uid = safeStr(r?.user_id);
+    if (looksLikeUuid(uid)) out.add(uid);
+  });
   return Array.from(out);
 }
 
