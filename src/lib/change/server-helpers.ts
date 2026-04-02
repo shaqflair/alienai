@@ -309,7 +309,7 @@ export async function getPendingArtifactStepForArtifact(args: {
  */
 async function listDirectApproverUserIdsForStep(supabase: any, stepId: string): Promise<string[]> {
   const { data, error } = await supabase
-    .from("artifact_step_approvers")
+    .from("approval_step_approvers")
     .select("approver_type, approver_ref, approver_member_id, active")
     .eq("step_id", safeStr(stepId))
     .eq("active", true);
@@ -682,7 +682,7 @@ export async function getApprovalProgressForArtifact(args: {
 
     try {
       const { data: appr, error: apErr } = await supabase
-        .from("artifact_step_approvers")
+        .from("approval_step_approvers")
         .select("approver_type, approver_member_id, approver_ref, active")
         .eq("step_id", currentStep.stepId)
         .eq("active", true);
