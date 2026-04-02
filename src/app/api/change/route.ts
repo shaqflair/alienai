@@ -210,14 +210,16 @@ export async function GET(req: Request, ctx: Ctx) {
 
     const role = await requireProjectRole(supabase, projectId, user.id);
     if (!role) {
-      // Allow org-level approvers who may not be project members
-      const { data: approverCheck } = await supabase
-        .from("approval_step_approvers")
+      // Allow org members who are approvers (RLS on approval_step_approvers blocks non-members)
+      // Check org membership instead — org members can view the change board
+      const { data: orgCheck } = await supabase
+        .from("organisation_members")
         .select("id")
         .eq("user_id", user.id)
+        .is("removed_at", null)
         .limit(1);
-      const isOrgApprover = Array.isArray(approverCheck) && approverCheck.length > 0;
-      if (!isOrgApprover) return err("Forbidden", { status: 403, code: "forbidden" });
+      const isOrgMember = Array.isArray(orgCheck) && orgCheck.length > 0;
+      if (!isOrgMember) return err("Forbidden", { status: 403, code: "forbidden" });
     }
 
     const { data: items, error: itemsErr } = await supabase
