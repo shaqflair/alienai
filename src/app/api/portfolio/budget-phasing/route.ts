@@ -74,10 +74,11 @@ export async function GET(req: Request) {
     const nowKey    = currentMonthKey();
 
     // 1. Organisation
-    const { data: orgMem } = await supabase
-      .from("organisation_members").select("organisation_id")
-      .eq("user_id", auth.user.id).is("removed_at", null).limit(1).maybeSingle();
-    const orgId = safeStr((orgMem as any)?.organisation_id);
+    const { data: orgMems } = await supabase
+      .from("organisation_members").select("organisation_id, created_at")
+      .eq("user_id", auth.user.id).is("removed_at", null)
+      .order("created_at", { ascending: false });
+    const orgId = safeStr((orgMems ?? [])[0]?.organisation_id);
     if (!orgId) return err("No organisation found", 404);
 
     // 2. All projects (include department + project_manager_id for fallback)
