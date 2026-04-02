@@ -163,7 +163,17 @@ export async function GET(req: Request, ctx: Ctx) {
 
       if (change) {
         const role = await requireProjectRole(supabase, change.project_id, user.id);
-        if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
+        // Also allow approvers who may not be project members
+        if (!role) {
+          const artifactId = resolveApprovalArtifactId(change);
+          const { data: approverCheck } = await supabase
+            .from("approval_step_approvers")
+            .select("id")
+            .eq("user_id", user.id)
+            .limit(1);
+          const isApprover = Array.isArray(approverCheck) && approverCheck.length > 0;
+          if (!isApprover) return err("Forbidden", { status: 403, code: "forbidden" });
+        }
 
         const approvals = await getApprovalProgressForArtifact({
           supabase,
