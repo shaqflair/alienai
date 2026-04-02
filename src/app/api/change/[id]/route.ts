@@ -170,7 +170,7 @@ export async function GET(req: Request, ctx: Ctx) {
           supabase,
           artifactId: resolveApprovalArtifactId(change),
           actorUserId: user.id,
-        }).catch(() => null);
+        }).catch((e: any) => { console.error('[change/id] approval error:', e?.message); return null; });
 
         return ok({ mode: "change", item: change, role, approvals });
       }

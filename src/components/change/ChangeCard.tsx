@@ -185,12 +185,14 @@ export default function ChangeCard({
   compact,
   onMove,
   onDeleted,
+  isApprover,
 }: {
   item: ChangeItem;
   projectId?: string;
   compact?: boolean;
   onMove: (id: string, toLane: ChangeStatus) => void;
   onDeleted?: (id: string) => void;
+  isApprover?: boolean;
 }) {
   // Inject styles once
   React.useEffect(() => { injectStyles(); }, []);
