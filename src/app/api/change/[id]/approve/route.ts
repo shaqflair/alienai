@@ -721,7 +721,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       approval_date: now,
     };
 
-    const first = await supabase
+    const adminDb2 = createAdminClient();
+    const first = await adminDb2
       .from("change_requests")
       .update(patch)
       .eq("id", id)
@@ -740,7 +741,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       if (hasMissingColumn(msg, "decision_by")) delete patch.decision_by;
       if (hasMissingColumn(msg, "decision_at")) delete patch.decision_at;
 
-      const second = await supabase
+      const second = await adminDb2
         .from("change_requests")
         .update(patch)
         .eq("id", id)
