@@ -657,7 +657,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
       // Auto-update financial plan approved budget using requested_budget_uplift
       try {
-        const uplift = Number((cr as any)?.requested_budget_uplift ?? 0) || 0;
+        const uplift = Number((cr as any)?.impact_analysis?.cost ?? 0) || 0;
         const hasContingency = String((cr as any)?.contingency_notes ?? "").trim().length > 0;
         if (uplift > 0 && !hasContingency) {
           const adminDb3 = createAdminClient();
