@@ -446,9 +446,9 @@ export default async function ProjectPage({
     gateRecord?.status === "complete"
   );
   const _todayStr = new Date().toISOString().slice(0, 10);
-  const _in60Str  = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+  const _in30Str  = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
   const _endStr   = project?.finish_date ? String(project.finish_date).slice(0, 10) : null;
-  const gate5Applicable = !!(_endStr && _endStr <= _in60Str && _endStr >= _todayStr);
+  const gate5Applicable = !!(_endStr && _endStr <= _in30Str && _endStr >= _todayStr);
 
   // ── Profile map ────────────────────────────────────────────────────────────
   let profileMap = new Map<string, any>();
