@@ -1178,7 +1178,7 @@ export default function ChangeCreateModal({
               onApprove={approval?.canApprove ? async () => {
                 const pid = resolvedProjectId || projectId;
                 const cid = changeId;
-                if (!pid || !cid) return;
+                if (!pid || !cid) { alert("ApprovalBar debug: pid=" + pid + " cid=" + cid + " changeId=" + changeId); return; }
                 const res = await fetch(`/api/change/${encodeURIComponent(cid)}`, {
                   method: "PATCH",
                   headers: { "Content-Type": "application/json" },
