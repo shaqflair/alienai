@@ -1,11 +1,4 @@
 ﻿// src/app/api/portfolio/budget-phasing/route.ts
-// GET ?fyStart=4&fyYear=2026&fyMonths=12&scope=active|all&projectIds=id1,id2
-//
-// PM resolution mirrors getProjectManagerNameBestEffort from the artifact page:
-// 1. Look up project_members for PM role candidates
-// 2. Fall back to projects.project_manager_id
-// 3. Resolve profile name from profiles table
-
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -28,7 +21,6 @@ function currentMonthKey() {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
 }
 
-// Same display name logic as the artifact page — prefer name over email, strip domain if only email
 function displayName(profile: any): string {
   const full    = safeStr(profile?.full_name).trim();
   const display = safeStr(profile?.display_name).trim();
@@ -37,20 +29,9 @@ function displayName(profile: any): string {
   if (full    && !full.includes("@"))    return full;
   if (display && !display.includes("@")) return display;
   if (name    && !name.includes("@"))    return name;
-  if (email.includes("@")) return email.split("@")[0]; // "alex.adupoku" not full email
+  if (email.includes("@")) return email.split("@")[0];
   return email || "Unknown";
 }
-
-const PM_ROLE_CANDIDATES = [
-  "project_manager", "project manager", "pm",
-  "programme_manager", "program_manager",
-  "programme manager", "program manager",
-  "delivery_manager", "delivery manager",
-  "lead project manager", "lead_project_manager",
-  "senior project manager", "senior_project_manager",
-  "principal project manager", "principal_project_manager",
-  "project lead", "project_lead",
-];
 
 export async function GET(req: Request) {
   try {
@@ -81,7 +62,7 @@ export async function GET(req: Request) {
     const orgId = safeStr((orgMems ?? [])[0]?.organisation_id);
     if (!orgId) return err("No organisation found", 404);
 
-    // 2. All projects (include department + project_manager_id for fallback)
+    // 2. All projects
     let projQ = supabase
       .from("projects")
       .select("id, title, project_code, project_manager_id, department, budget_amount")
@@ -96,10 +77,7 @@ export async function GET(req: Request) {
 
     const allProjectIds = allProjects.map((p: any) => safeStr(p.id));
 
-    // 3. PM resolution — same as artifact page getProjectManagerNameBestEffort
-    //    Step A: query project_members for PM role
-    // Use ilike for PM role matching to catch variants like "Lead Project Manager"
-    // Fetch all active members then filter by PM-like roles client-side
+    // 3. PM resolution
     const { data: allMembers } = await supabase
       .from("project_members")
       .select("project_id, user_id, role")
@@ -112,12 +90,10 @@ export async function GET(req: Request) {
       return PM_ROLE_KEYWORDS.some(k => role === k || role.includes("project manager") || role.includes("programme manager") || role.includes("program manager") || role === "pm" || role.includes("delivery manager"));
     });
 
-    // Step B: collect all user IDs to fetch profiles (PM members + project_manager_id fallbacks)
     const pmMemberUserIds = [...new Set((pmMembers ?? []).map((m: any) => safeStr(m.user_id)).filter(Boolean))];
     const fallbackPmIds   = [...new Set(allProjects.map((p: any) => safeStr(p.project_manager_id)).filter(Boolean))];
     const allUserIds      = [...new Set([...pmMemberUserIds, ...fallbackPmIds])];
 
-    // Step C: fetch profiles
     const profileByUserId = new Map<string, any>();
     if (allUserIds.length) {
       const orFilter = allUserIds.flatMap(id => [`id.eq.${id}`, `user_id.eq.${id}`]).join(",");
@@ -131,31 +107,28 @@ export async function GET(req: Request) {
       }
     }
 
-    // Step D: map project_id → PM name (project_members wins, project_manager_id is fallback)
     const pmNameByProjectId = new Map<string, string>();
     for (const m of (pmMembers ?? []) as any[]) {
       const pid = safeStr(m.project_id);
-      if (pmNameByProjectId.has(pid)) continue; // first match wins
+      if (pmNameByProjectId.has(pid)) continue;
       const prof = profileByUserId.get(safeStr(m.user_id));
       if (prof) pmNameByProjectId.set(pid, displayName(prof));
     }
-    // Fallback via project_manager_id
     for (const p of allProjects) {
-      const pid   = safeStr(p.id);
-      const pmId  = safeStr(p.project_manager_id);
+      const pid  = safeStr(p.id);
+      const pmId = safeStr(p.project_manager_id);
       if (pmNameByProjectId.has(pid) || !pmId) continue;
       const prof = profileByUserId.get(pmId);
       if (prof) pmNameByProjectId.set(pid, displayName(prof));
     }
 
-    // 4. Enriched project list for filter panel
+    // 4. Enriched project list
     const enrichedProjects = allProjects.map((p: any) => ({
-      id:          safeStr(p.id),
-      title:       safeStr(p.title) || "Untitled",
-      projectCode: safeStr(p.project_code),
-      department:  safeStr(p.department).trim() || "",
-      pmName:      pmNameByProjectId.get(safeStr(p.id)) ?? "",
-      // budget_amount from projects table as a fallback
+      id:            safeStr(p.id),
+      title:         safeStr(p.title) || "Untitled",
+      projectCode:   safeStr(p.project_code),
+      department:    safeStr(p.department).trim() || "",
+      pmName:        pmNameByProjectId.get(safeStr(p.id)) ?? "",
       projectBudget: safeNum(p.budget_amount),
     }));
 
@@ -168,7 +141,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ ...empty, projectCount: allProjects.length, allProjects: enrichedProjects });
     }
 
-    // 6. Financial plans — no is_current filter (plans can have is_current:false), prefer approved
+    // 6. Financial plans — prefer approved
     const { data: artifactRows } = await supabase
       .from("artifacts")
       .select("id, project_id, content_json, approval_status, type")
@@ -185,16 +158,8 @@ export async function GET(req: Request) {
       }
     }
 
-    // 6b. FY-scoped actual spend — sum from TWO sources and take the higher:
-    //   1. monthly_data.actual in the financial plan (populated from timesheet sync)
-    //   2. project_spend table (direct spend entries)
-    //   This ensures we capture actuals regardless of which mechanism was used.
-
-    // Source 1: project_spend table filtered by FY date range
+    // 6b. FY-scoped actual spend from project_spend table
     const fyStartDate = `${fyYear}-${String(fyStart).padStart(2, "0")}-01`;
-    const fyEndMonth  = monthKeys[monthKeys.length - 1];
-    const [fyEndYear, fyEndMo] = fyEndMonth.split("-").map(Number);
-    // Use today as the end date for actuals so current month spend is included
     const today       = new Date();
     const fyEndDate   = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
 
@@ -211,7 +176,7 @@ export async function GET(req: Request) {
       spendByProject.set(pid, (spendByProject.get(pid) ?? 0) + safeNum(row.amount));
     }
 
-    // Source 2: monthly_data.actual from financial plans (from timesheet sync)
+    // Source 2: monthly_data.actual from financial plans
     const monthlyActualByProject = new Map<string, number>();
     for (const id of projectIds) {
       const artifact = artifactByProject.get(id);
@@ -222,11 +187,8 @@ export async function GET(req: Request) {
       let lineActual = 0;
       for (const line of lines) {
         const lineData = monthly[safeStr(line.id)] ?? {};
-        // Check both FY monthKeys AND all keys in the monthly data
-        // (in case the financial plan uses different key format)
         const allMonthKeys = new Set([...monthKeys, ...Object.keys(lineData)]);
         for (const mk of allMonthKeys) {
-          // Only include months within the FY and up to today
           if (monthSet.has(mk) && mk <= nowKey) {
             lineActual += safeNum(lineData[mk]?.actual ?? lineData[mk]?.actualAmount ?? 0);
           }
@@ -235,9 +197,12 @@ export async function GET(req: Request) {
       if (lineActual > 0) monthlyActualByProject.set(id, lineActual);
     }
 
-    // Fetch live timesheet actuals from weekly_timesheet_entries
-    const liveActualByProject = new Map<string, number>();
-    const liveActualByProjectMonth = new Map<string, number>();
+    // ── Live timesheet actuals ──────────────────────────────────────────────
+    // Logic mirrors financial-plan-timesheets.ts:
+    //   user → job_title → personal rate (priority) OR role rate → days × rate = £ cost
+    const liveActualByProject       = new Map<string, number>();
+    const liveActualByProjectMonth  = new Map<string, number>();
+
     try {
       const { data: wteData } = await supabase
         .from("weekly_timesheet_entries")
@@ -247,37 +212,73 @@ export async function GET(req: Request) {
         .gt("hours", 0);
 
       if (wteData && wteData.length > 0) {
-        const orgId   = (wteData[0] as any).timesheets?.organisation_id ?? null;
-        const userIds = [...new Set(wteData.map((r: any) => r.timesheets?.user_id).filter(Boolean))];
+        const wteOrgId = (wteData[0] as any).timesheets?.organisation_id ?? orgId;
+        const userIds  = [...new Set(wteData.map((r: any) => r.timesheets?.user_id).filter(Boolean) as string[])];
+
         const [{ data: rateData }, { data: profileData }, { data: memberData }] = await Promise.all([
-          supabase.from("resource_rates").select("user_id, role_label, rate, rate_type").eq("organisation_id", orgId).order("effective_from", { ascending: false }),
-          supabase.from("profiles").select("user_id, job_title").in("user_id", userIds),
-          supabase.from("organisation_members").select("user_id, job_title").eq("organisation_id", orgId).in("user_id", userIds),
+          // day_rate only — no monthly_cost conversion errors
+          supabase.from("resource_rates")
+            .select("user_id, role_label, rate, rate_type")
+            .eq("organisation_id", wteOrgId)
+            .eq("rate_type", "day_rate"),
+          supabase.from("profiles")
+            .select("user_id, job_title")
+            .in("user_id", userIds),
+          supabase.from("organisation_members")
+            .select("user_id, job_title, role")
+            .eq("organisation_id", wteOrgId)
+            .in("user_id", userIds),
         ]);
-        const jobTitleByUser: Record<string, string> = {};
-        for (const m of memberData ?? []) { if (m.user_id && m.job_title) jobTitleByUser[m.user_id] = m.job_title; }
-        for (const p of profileData ?? []) { if (p.user_id && p.job_title) jobTitleByUser[p.user_id] = p.job_title; }
-        const ratesByUserId: Record<string, number> = {};
-        const ratesByRoleLabel: Record<string, number> = {};
-        for (const r of rateData ?? []) {
-          const dayRate = r.rate_type === "monthly_cost" ? Number(r.rate) / 20 : Number(r.rate);
-          if (r.user_id && !ratesByUserId[r.user_id]) ratesByUserId[r.user_id] = dayRate;
-          if (r.role_label && !ratesByRoleLabel[r.role_label.toLowerCase()]) ratesByRoleLabel[r.role_label.toLowerCase()] = dayRate;
+
+        // Job title: org_members first, profiles overwrites (profiles is primary)
+        const jobTitleByUser = new Map<string, string>();
+        for (const m of memberData ?? []) {
+          const title = String(m.job_title || m.role || "").trim();
+          if (m.user_id && title) jobTitleByUser.set(String(m.user_id), title);
         }
+        for (const p of profileData ?? []) {
+          const title = String(p.job_title || "").trim();
+          if (p.user_id && title) jobTitleByUser.set(String(p.user_id), title);
+        }
+
+        // Rate maps: personal (user_id set) vs role-based (user_id null) — kept separate
+        const personalRateByUser = new Map<string, number>();
+        const rateByLabel        = new Map<string, number>();
+
+        for (const r of rateData ?? []) {
+          if (!r.role_label || !r.rate) continue;
+          const rate = Number(r.rate);
+          if (r.user_id) {
+            if (!personalRateByUser.has(String(r.user_id)))
+              personalRateByUser.set(String(r.user_id), rate);
+          } else {
+            const label = String(r.role_label).toLowerCase().trim();
+            if (!rateByLabel.has(label)) rateByLabel.set(label, rate);
+          }
+        }
+
         for (const row of wteData) {
-          const pid    = String((row as any).project_id ?? "");
-          const uid    = (row as any).timesheets?.user_id;
-          const days   = (Number((row as any).hours) || 0) / 8;
-          let dr       = ratesByUserId[uid] ?? 0;
-          if (!dr) { const jt = jobTitleByUser[uid]; if (jt) dr = ratesByRoleLabel[jt.toLowerCase()] ?? 0; }
-          if (dr > 0 && pid) {
+          const pid = String((row as any).project_id ?? "");
+          if (!pid) continue;
+
+          const uid  = (row as any).timesheets?.user_id;
+          const days = (Number((row as any).hours) || 0) / 8;
+
+          // 1. Personal rate, 2. role rate via job title
+          let dr = uid ? (personalRateByUser.get(String(uid)) ?? 0) : 0;
+          if (!dr && uid) {
+            const jt = jobTitleByUser.get(String(uid));
+            if (jt) dr = rateByLabel.get(jt.toLowerCase().trim()) ?? 0;
+          }
+
+          if (dr > 0) {
             liveActualByProject.set(pid, (liveActualByProject.get(pid) ?? 0) + days * dr);
-            // Also track by month for the grid
+
             const wd = String((row as any).work_date ?? "");
             if (wd) {
               const d = new Date(wd);
               if (!isNaN(d.getTime())) {
-                const mk = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+                const mk  = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
                 const key = pid + "|" + mk;
                 liveActualByProjectMonth.set(key, (liveActualByProjectMonth.get(key) ?? 0) + days * dr);
               }
@@ -296,7 +297,7 @@ export async function GET(req: Request) {
       const fromLive    = liveActualByProject.get(id) ?? 0;
       const fromMonthly = monthlyActualByProject.get(id) ?? 0;
       const fromSpend   = spendByProject.get(id) ?? 0;
-      const actual = fromLive > 0 ? fromLive : Math.max(fromMonthly, fromSpend);
+      const actual      = fromLive > 0 ? fromLive : Math.max(fromMonthly, fromSpend);
       if (actual > 0) {
         fyActualByProject.set(id, actual);
         totalFyActual += actual;
@@ -330,7 +331,7 @@ export async function GET(req: Request) {
           if (!catTotals.has(catKey)) catTotals.set(catKey, new Map());
           const m  = catTotals.get(catKey)!;
           const ex = m.get(mk) ?? { budget: 0, actual: 0, forecast: 0 };
-          // Use live timesheet actual for people lines by month
+
           let liveMonthActual = 0;
           if (line.category === "people") {
             for (const pid of projectIds) {
@@ -347,7 +348,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // 8. Build output in FinancialPlanMonthlyView-compatible shape
+    // 8. Build output
     const aggregatedLines: { id: string; category: string; description: string }[] = [];
     const monthlyData: Record<string, Record<string, { budget: number|""; actual: number|""; forecast: number|""; locked: boolean }>> = {};
 
@@ -365,8 +366,7 @@ export async function GET(req: Request) {
       monthlyData[id] = lineMonthly;
     }
 
-    // Calculate total approved budget — only for projects that have phasing data in this FY
-    // A project "exists" in this FY if it has at least one non-zero monthly entry in monthKeys
+    // Calculate total approved budget
     const projectsInFy = new Set<string>();
     for (const id of projectIds) {
       const artifact = artifactByProject.get(id);
@@ -391,15 +391,14 @@ export async function GET(req: Request) {
     let totalApprovedBudget = 0;
     const approvedBudgetByProject: Record<string, number> = {};
     for (const id of projectsInFy) {
-      // Only count budget for projects active in this FY
-      const artifact = artifactByProject.get(id);
-      const cj = artifact?.content_json;
-      const approved = safeNum(cj?.total_approved_budget ?? 0);
+      const artifact  = artifactByProject.get(id);
+      const cj        = artifact?.content_json;
+      const approved  = safeNum(cj?.total_approved_budget ?? 0);
       if (approved > 0) {
         approvedBudgetByProject[id] = approved;
         totalApprovedBudget += approved;
       } else {
-        const proj = allProjects.find((p: any) => safeStr(p.id) === id);
+        const proj     = allProjects.find((p: any) => safeStr(p.id) === id);
         const fallback = safeNum(proj?.budget_amount ?? 0);
         if (fallback > 0) {
           approvedBudgetByProject[id] = fallback;
@@ -408,7 +407,6 @@ export async function GET(req: Request) {
       }
     }
 
-    // Enrich allProjects with FY-scoped actual for the project rows
     const enrichedProjectsWithActual = enrichedProjects.map((p: any) => ({
       ...p,
       fyActual: fyActualByProject.get(p.id) ?? 0,
@@ -417,16 +415,16 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true, fyStart, fyYear, numMonths, monthKeys,
       aggregatedLines, monthlyData,
-      projectCount: allProjects.length,
+      projectCount:        allProjects.length,
       projectsWithPlan,
-      projectsInFyCount: projectsInFy.size,
+      projectsInFyCount:   projectsInFy.size,
       filteredProjectCount: projectIds.length,
       scope,
-      allProjects: enrichedProjectsWithActual,
+      allProjects:         enrichedProjectsWithActual,
       totalApprovedBudget,
       approvedBudgetByProject,
       totalFyActual,
-      fyActualByProject: Object.fromEntries(fyActualByProject),
+      fyActualByProject:   Object.fromEntries(fyActualByProject),
     });
   } catch (e: any) {
     console.error("[portfolio/budget-phasing]", e);
