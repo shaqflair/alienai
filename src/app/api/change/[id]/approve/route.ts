@@ -673,6 +673,25 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
             await adminDb3.from("artifacts")
               .update({ content_json: { ...fpArt.content_json, total_approved_budget: newBudget } })
               .eq("id", fpArt.id);
+            // Audit record with CR reference
+            try {
+              const crPublicId = safeStr((cr as any)?.public_id);
+              const crTitle = safeStr((cr as any)?.title);
+              await adminDb3.from("artifact_audit_log").insert({
+                artifact_id: fpArt.id,
+                project_id: projectId,
+                actor_id: user.id,
+                actor_email: actorEmail ?? null,
+                action: "budget_uplift",
+                action_label: "Budget updated via Change Request",
+                summary: `Approved budget £${currentBudget.toLocaleString()} → £${newBudget.toLocaleString()} — ${crPublicId || crTitle || id}`,
+                table_name: "artifacts",
+                row_pk: fpArt.id,
+                changed_columns: ["content_json"],
+                before: { total_approved_budget: currentBudget },
+                after: { total_approved_budget: newBudget },
+              });
+            } catch {}
             console.log(`[approve] Budget updated: ${currentBudget} -> ${newBudget} (+${uplift})`);
           }
         }
