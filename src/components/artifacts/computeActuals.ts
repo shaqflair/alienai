@@ -98,12 +98,11 @@ export function computeActuals(
     let dayRate: number;
 
     if (entry.resource_id === "__weekly__") {
-      // approved_days holds actual days. Multiply by avg day rate from people resources.
+      // approved_days holds pre-computed cost (days x rate card). dayRate=1.
       const peopleLine = costLines?.find(l => l.category === "people");
       if (!peopleLine) continue;
       lineId = peopleLine.id;
-      const peopleRes = resources.filter(r => r.cost_line_id === peopleLine.id && Number(r.day_rate) > 0);
-      dayRate = peopleRes.length > 0 ? peopleRes.reduce((s, r) => s + Number(r.day_rate), 0) / peopleRes.length : (Number(peopleLine.budgeted) || 0) / Math.max(1, resources.filter(r => r.cost_line_id === peopleLine.id).reduce((s, r) => s + (Number(r.planned_days) || 0), 0));
+      dayRate = 1;
       const lookup = dayRateByResourceId.get(entry.resource_id);
       if (!lookup) continue;
       lineId  = lookup.lineId;
