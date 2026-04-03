@@ -1,4 +1,4 @@
-// computeActuals.ts
+﻿// computeActuals.ts
 // Pure function — approved_days × rate_card_rate, grouped by cost_line_id × month_key.
 // This is the single source of truth for all "Actual" values in the financial plan.
 // Nothing else should write to the actual field — it is derived-only.
