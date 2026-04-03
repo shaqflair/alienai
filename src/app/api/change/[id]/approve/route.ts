@@ -364,7 +364,8 @@ async function syncArtifactFinalApproval(
     rejected_by: null,
   };
 
-  const first = await supabase.from("artifacts").update(patch1).eq("id", args.artifactId);
+  const adminDb = createAdminClient();
+  const first = await adminDb.from("artifacts").update(patch1).eq("id", args.artifactId);
   if (!first.error) return;
 
   const patch2: any = {
@@ -375,7 +376,7 @@ async function syncArtifactFinalApproval(
     is_locked: false,
   };
 
-  const second = await supabase.from("artifacts").update(patch2).eq("id", args.artifactId);
+  const second = await adminDb.from("artifacts").update(patch2).eq("id", args.artifactId);
   if (second.error) {
     throw new Error(`artifacts final-approval patch failed: ${second.error.message}`);
   }
