@@ -655,6 +655,31 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         console.error("[POST /api/change/:id/approve] next-step notification failed:", notifyErr);
       }
 
+      // Auto-update financial plan approved budget using requested_budget_uplift
+      try {
+        const uplift = Number((cr as any)?.requested_budget_uplift ?? 0) || 0;
+        const hasContingency = String((cr as any)?.contingency_notes ?? "").trim().length > 0;
+        if (uplift > 0 && !hasContingency) {
+          const adminDb3 = createAdminClient();
+          const { data: fpArt } = await adminDb3
+            .from("artifacts")
+            .select("id, content_json")
+            .eq("project_id", projectId)
+            .ilike("type", "%financial%plan%")
+            .maybeSingle();
+          if (fpArt?.id && fpArt?.content_json) {
+            const currentBudget = Number(fpArt.content_json?.total_approved_budget ?? 0) || 0;
+            const newBudget = currentBudget + uplift;
+            await adminDb3.from("artifacts")
+              .update({ content_json: { ...fpArt.content_json, total_approved_budget: newBudget } })
+              .eq("id", fpArt.id);
+            console.log(`[approve] Budget updated: ${currentBudget} -> ${newBudget} (+${uplift})`);
+          }
+        }
+      } catch (e) {
+        console.error("[approve] Budget update failed:", e);
+      }
+
       const fresh = await supabase
         .from("change_requests")
         .select("*")
