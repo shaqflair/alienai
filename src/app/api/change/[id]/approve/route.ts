@@ -534,7 +534,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     });
 
     const state = await recomputeApprovalState({
-      supabase,
+      supabase: createAdminClient(),
       artifactId,
       chainId: pending.chainId,
       stepId: pending.stepId,
