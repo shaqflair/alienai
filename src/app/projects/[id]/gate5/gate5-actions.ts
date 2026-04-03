@@ -439,7 +439,7 @@ export async function loadGate5Status(projectId: string): Promise<Gate5Result | 
   const startDateRaw = (projectDates as any)?.start_date ?? null;
   const finishDateRaw = (projectDates as any)?.finish_date ?? (projectDates as any)?.end_date ?? endDateRaw;
   let showBadge = false;
-  if (daysToEndDate !== null && daysToEndDate <= 60) {
+  if (daysToEndDate !== null && daysToEndDate <= 30) {
     showBadge = true;
   } else if (startDateRaw && finishDateRaw) {
     const start = new Date(startDateRaw).getTime();
