@@ -98,13 +98,12 @@ export function computeActuals(
     let dayRate: number;
 
     if (entry.resource_id === "__weekly__") {
-      // Cost is pre-computed server-side: approved_days field holds the £ amount.
-      // dayRate=1 so cost = approved_days * 1 = the £ value passed in.
+      // approved_days holds actual days. Multiply by avg day rate from people resources.
       const peopleLine = costLines?.find(l => l.category === "people");
       if (!peopleLine) continue;
-      lineId  = peopleLine.id;
-      dayRate = 1; // approved_days already holds £ cost
-    } else {
+      lineId = peopleLine.id;
+      const peopleRes = resources.filter(r => r.cost_line_id === peopleLine.id && Number(r.day_rate) > 0);
+      dayRate = peopleRes.length > 0 ? peopleRes.reduce((s, r) => s + Number(r.day_rate), 0) / peopleRes.length : (Number(peopleLine.budgeted) || 0) / Math.max(1, resources.filter(r => r.cost_line_id === peopleLine.id).reduce((s, r) => s + (Number(r.planned_days) || 0), 0));
       const lookup = dayRateByResourceId.get(entry.resource_id);
       if (!lookup) continue;
       lineId  = lookup.lineId;
