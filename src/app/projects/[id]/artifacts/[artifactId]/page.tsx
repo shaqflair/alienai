@@ -285,7 +285,7 @@ export default async function ArtifactDetailPage({
   const effectiveLockLayout =
     !!approvalEnabled &&
     (financialPlanMode
-      ? statusLower === "approved" || statusLower === "rejected"
+      ? statusLower === "rejected"
       : isSubmitted || statusLower === "approved" || statusLower === "rejected");
 
   const effectiveIsEditable =
@@ -293,7 +293,7 @@ export default async function ArtifactDetailPage({
       ? canEditByRole &&
         isCurrent &&
         !effectiveLockLayout &&
-        (isDraftOrCR || statusLower === "submitted")
+        (isDraftOrCR || statusLower === "submitted" || statusLower === "approved")
       : approvalEnabled && (charterMode || closureMode)
         ? canEditByRole && isDraftOrCR && !effectiveLockLayout && isCurrent
         : !!loaderIsEditable;
