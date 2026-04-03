@@ -704,7 +704,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     });
 
     const patchBase: any = {
-      status: "approved",
+      status: "implemented",
       decision_status: "approved",
       decision_rationale: note || null,
       decision_by: effectiveApproverUserId,
