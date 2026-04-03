@@ -93,7 +93,6 @@ export async function getApprovedTimesheetEntries(
     const { data: rates } = await supabase
       .from("resource_rates")
       .select("role_label, rate")
-      .eq("organisation_id", orgId)
       .eq("rate_type", "day_rate");
 
     for (const r of rates ?? []) {
@@ -102,12 +101,6 @@ export async function getApprovedTimesheetEntries(
       }
     }
   }
-
-  // Debug: log what we found
-  console.log("[timesheets] orgId:", orgId);
-  console.log("[timesheets] userIds:", userIds);
-  console.log("[timesheets] jobTitleByUser:", Object.fromEntries(jobTitleByUser));
-  console.log("[timesheets] rateByLabel:", Object.fromEntries(rateByLabel));
 
   // Helper: get day rate for a user
   function getDayRate(userId: string): number {
