@@ -98,12 +98,10 @@ export function computeActuals(
     let dayRate: number;
 
     if (entry.resource_id === "__weekly__") {
-      // Cost is pre-computed server-side: approved_days field holds the £ amount.
-      // dayRate=1 so cost = approved_days * 1 = the £ value passed in.
-      const peopleLine = costLines?.find(l => l.category === "people");
-      if (!peopleLine) continue;
-      lineId  = peopleLine.id;
-      dayRate = 1; // approved_days already holds £ cost
+      // Weekly timesheet bridge — map to people cost line
+      if (!weeklyMapping) continue;
+      lineId  = weeklyMapping.lineId;
+      dayRate = weeklyMapping.rate;
     } else {
       const lookup = dayRateByResourceId.get(entry.resource_id);
       if (!lookup) continue;
