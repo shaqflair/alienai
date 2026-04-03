@@ -142,3 +142,5 @@ export async function approveTimesheetEntry({
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
+  return { ok: true };
+}
