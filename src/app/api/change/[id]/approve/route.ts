@@ -502,8 +502,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     let onBehalfOf: string | null = null;
 
     try {
+      const adminDb = createAdminClient();
       const res = await requireApproverForPendingArtifactStep({
-        supabase,
+        supabase: adminDb,
         artifactId,
         actorUserId: user.id,
       });
