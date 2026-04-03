@@ -86,7 +86,9 @@ function getArtifactReadOnlyBanner(args: {
       "pending_approval",
       "in_review",
       "awaiting_approval",
-      ].includes(status) && status !== "approved" && status !== "rejected";
+    ].includes(status) &&
+    status !== "approved" &&
+    status !== "rejected";
 
   if (isViewer) {
     return {
@@ -155,7 +157,6 @@ async function getProjectManagerNameBestEffort(supabase: any, projectId: string)
     const full = safeStr((prof as any)?.full_name).trim();
     if (full) return full;
 
-    
     const nm = safeStr((prof as any)?.name).trim();
     if (nm) return nm;
 
@@ -265,6 +266,7 @@ export default async function ArtifactDetailPage({
   } = vm as any;
 
   const projectRefForPaths = normParam(projectHumanId) || projectParam || normParam(projectUuid);
+  const projectCodeLabel = normParam(projectHumanId) || normParam(projectParam) || normParam(projectUuid) || "—";
 
   const isWeeklyReport = mode === "weekly_report" || !!weeklyMode;
   const isFinancialPlan = mode === "financial_plan" || !!financialPlanMode;
@@ -635,6 +637,7 @@ export default async function ArtifactDetailPage({
           font-size: 12px;
           color: #57606a;
           margin-bottom: 8px;
+          flex-wrap: wrap;
         }
         .af-breadcrumb a {
           color: #57606a;
@@ -648,6 +651,19 @@ export default async function ArtifactDetailPage({
         .af-breadcrumb-sep {
           opacity: 0.5;
           color: #57606a;
+        }
+        .af-project-code {
+          display: inline-flex;
+          align-items: center;
+          padding: 3px 8px;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.03em;
+          background: #eef2ff;
+          color: #4338ca;
+          border: 1px solid #c7d2fe;
+          white-space: nowrap;
         }
         .af-title-row {
           display: flex;
@@ -850,6 +866,8 @@ export default async function ArtifactDetailPage({
               <Link href={`/projects/${projectRefForPaths}/artifacts`}>Artifacts</Link>
               <span className="af-breadcrumb-sep">/</span>
               <span style={{ color: "#0d1117", fontWeight: 500 }}>{artifactType}</span>
+              <span className="af-breadcrumb-sep">/</span>
+              <span className="af-project-code">{projectCodeLabel}</span>
             </div>
 
             <div className="af-title-row">
@@ -877,6 +895,12 @@ export default async function ArtifactDetailPage({
               <span className="af-status-badge" style={{ background: sc.bg, color: sc.color }}>
                 <span className="af-status-dot" style={{ background: sc.dot }} />
                 {sc.label}
+              </span>
+
+              <span className="af-meta-sep">•</span>
+
+              <span className="af-tag" style={{ background: "#eef2ff", color: "#4338ca" }}>
+                Project code: {projectCodeLabel}
               </span>
 
               <span className="af-meta-sep">•</span>
@@ -961,12 +985,6 @@ export default async function ArtifactDetailPage({
           <Link href={`/projects/${projectRefForPaths}/governance`} className="af-btn">
             Governance
           </Link>
-
-          {!changeRequestsMode && (
-            <Link href={`/projects/${projectRefForPaths}/artifacts/${artifactId}/compare`} className="af-btn">
-              Compare versions
-            </Link>
-          )}
 
           {approvalEnabled && (
             <span style={{ marginLeft: "auto", fontSize: 12, color: "#8b949e" }}>
