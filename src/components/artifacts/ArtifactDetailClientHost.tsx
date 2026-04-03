@@ -308,7 +308,6 @@ function FinancialPlanEditorHost({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [timesheetEntries, setTimesheetEntries] = useState<TimesheetEntry[]>([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [timesheetEntries, setTimesheetEntries] = useState<TimesheetEntry[]>([]);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
