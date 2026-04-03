@@ -305,192 +305,53 @@ function OverrideToggle({ line, hasLinkedResources, resTotal, sym, onToggle }: {
 }
 
 function FinancialPlanHeaderBar({
-  currency,
-  symbol,
-  onCurrencyChange,
-  totalApprovedBudget,
-  onBudgetChange,
-  budgetLocked,
-  readOnly,
-  artifactId,
-  lastUpdatedAt,
+  currency, symbol, onCurrencyChange, totalApprovedBudget, onBudgetChange,
+  budgetLocked, readOnly, artifactId, lastUpdatedAt,
 }: {
-  currency: Currency;
-  symbol: string;
-  onCurrencyChange: (c: Currency) => void;
-  totalApprovedBudget: number | "";
-  onBudgetChange: (v: number | "") => void;
-  budgetLocked: boolean;
-  readOnly: boolean;
-  artifactId?: string;
-  lastUpdatedAt?: string;
+  currency: Currency; symbol: string; onCurrencyChange: (c: Currency) => void;
+  totalApprovedBudget: number | ""; onBudgetChange: (v: number | "") => void;
+  budgetLocked: boolean; readOnly: boolean; artifactId?: string; lastUpdatedAt?: string;
 }) {
-  const inputBase: React.CSSProperties = {
-    border: `1px solid ${P.border}`,
-    background: P.surface,
-    fontFamily: P.sans,
-    fontSize: 13,
-    color: P.text,
-    padding: "6px 10px",
-    outline: "none",
-  };
-
-  const labelStyle: React.CSSProperties = {
-    display: "block",
-    fontFamily: P.mono,
-    fontSize: 8,
-    fontWeight: 600,
-    color: P.textSm,
-    textTransform: "uppercase",
-    letterSpacing: "0.1em",
-    marginBottom: 5,
-  };
-
-  const chipStyle = (bg: string, color: string, border: string): React.CSSProperties => ({
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 5,
-    padding: "4px 8px",
-    border: `1px solid ${border}`,
-    background: bg,
-    color,
-    fontFamily: P.mono,
-    fontSize: 9,
-    fontWeight: 700,
-    letterSpacing: "0.04em",
-    textTransform: "uppercase",
-  });
+  const inputBase: React.CSSProperties = { border: `1px solid ${P.border}`, background: P.surface, fontFamily: P.sans, fontSize: 13, color: P.text, padding: "6px 10px", outline: "none" };
+  const labelStyle: React.CSSProperties = { display: "block", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.textSm, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 5 };
+  const chipStyle = (bg: string, color: string, border: string): React.CSSProperties => ({ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 8px", border: `1px solid ${border}`, background: bg, color, fontFamily: P.mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" });
 
   return (
-    <div
-      style={{
-        border: `1px solid ${P.border}`,
-        background: P.surface,
-        padding: 16,
-        display: "flex",
-        flexWrap: "wrap",
-        gap: 16,
-        alignItems: "flex-end",
-        justifyContent: "space-between",
-      }}
-    >
+    <div style={{ border: `1px solid ${P.border}`, background: P.surface, padding: 16, display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-end", justifyContent: "space-between" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 260 }}>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: P.text, lineHeight: 1.1 }}>
-            Financial Plan
-          </div>
-          <div style={{ marginTop: 4, fontSize: 13, color: P.textMd }}>
-            Board-level control for cost, forecast, actuals, changes and billing.
-          </div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: P.text, lineHeight: 1.1 }}>Financial Plan</div>
+          <div style={{ marginTop: 4, fontSize: 13, color: P.textMd }}>Board-level control for cost, forecast, actuals, changes and billing.</div>
         </div>
-
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {budgetLocked && (
-            <span style={chipStyle(P.greenLt, P.green, "#A0D0B8")}>
-              <Lock style={{ width: 10, height: 10 }} />
-              Baselined
-            </span>
-          )}
-          <span style={chipStyle(P.greenLt, P.green, "#A0D0B8")}>
-            <Calendar style={{ width: 10, height: 10 }} />
-            Forecast from monthly
-          </span>
-          <span style={chipStyle(P.violetLt, P.violet, "#a5f3fc")}>
-            <Lock style={{ width: 10, height: 10 }} />
-            Actuals from timesheets
-          </span>
+          {budgetLocked && <span style={chipStyle(P.greenLt, P.green, "#A0D0B8")}><Lock style={{ width: 10, height: 10 }} />Baselined</span>}
+          <span style={chipStyle(P.greenLt, P.green, "#A0D0B8")}><Calendar style={{ width: 10, height: 10 }} />Forecast from monthly</span>
+          <span style={chipStyle(P.violetLt, P.violet, "#a5f3fc")}><Lock style={{ width: 10, height: 10 }} />Actuals from timesheets</span>
         </div>
       </div>
-
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-end" }}>
         <div>
           <label style={labelStyle}>Currency</label>
-          <select
-            value={currency}
-            onChange={e => onCurrencyChange(e.target.value as Currency)}
-            disabled={readOnly}
-            style={{ ...inputBase, fontFamily: P.mono, fontWeight: 600 }}
-          >
-            {CURRENCIES.map(c => (
-              <option key={c} value={c}>
-                {c} ({CURRENCY_SYMBOLS[c]})
-              </option>
-            ))}
+          <select value={currency} onChange={e => onCurrencyChange(e.target.value as Currency)} disabled={readOnly} style={{ ...inputBase, fontFamily: P.mono, fontWeight: 600 }}>
+            {CURRENCIES.map(c => <option key={c} value={c}>{c} ({CURRENCY_SYMBOLS[c]})</option>)}
           </select>
         </div>
-
         <div>
           <label style={labelStyle}>Approved Budget</label>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              border: `1px solid ${budgetLocked ? "#A0D0B8" : P.border}`,
-              background: budgetLocked ? P.greenLt : P.surface,
-              padding: "0 10px",
-              minHeight: 38,
-            }}
-          >
+          <div style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${budgetLocked ? "#A0D0B8" : P.border}`, background: budgetLocked ? P.greenLt : P.surface, padding: "0 10px", minHeight: 38 }}>
             {budgetLocked && <Lock style={{ width: 12, height: 12, color: P.green }} />}
-            <span style={{ fontFamily: P.mono, fontSize: 13, fontWeight: 700, color: budgetLocked ? P.green : P.textSm }}>
-              {symbol}
-            </span>
-            <input
-              type="number"
-              min={0}
-              step={1000}
-              value={totalApprovedBudget}
-              onChange={e => onBudgetChange(e.target.value === "" ? "" : Number(e.target.value))}
-              readOnly={readOnly || budgetLocked}
-              style={{
-                width: 150,
-                border: "none",
-                background: "transparent",
-                fontSize: 13,
-                fontWeight: 600,
-                fontFamily: P.mono,
-                color: budgetLocked ? P.green : P.text,
-                outline: "none",
-                padding: "6px 0",
-              }}
-            />
+            <span style={{ fontFamily: P.mono, fontSize: 13, fontWeight: 700, color: budgetLocked ? P.green : P.textSm }}>{symbol}</span>
+            <input type="number" min={0} step={1000} value={totalApprovedBudget} onChange={e => onBudgetChange(e.target.value === "" ? "" : Number(e.target.value))} readOnly={readOnly || budgetLocked} style={{ width: 150, border: "none", background: "transparent", fontSize: 13, fontWeight: 600, fontFamily: P.mono, color: budgetLocked ? P.green : P.text, outline: "none", padding: "6px 0" }} />
           </div>
-          {budgetLocked && (
-            <div style={{ marginTop: 4, fontSize: 9, fontFamily: P.mono, color: P.green, opacity: 0.85 }}>
-              Locked — raise a Change Request to amend
-            </div>
-          )}
+          {budgetLocked && <div style={{ marginTop: 4, fontSize: 9, fontFamily: P.mono, color: P.green, opacity: 0.85 }}>Locked — raise a Change Request to amend</div>}
         </div>
-
         <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 140 }}>
           {artifactId && (
-            <a
-              href={`/api/artifacts/financial-plan/export/xlsx?artifactId=${encodeURIComponent(artifactId)}`}
-              download
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                padding: "9px 12px",
-                border: `1px solid ${P.border}`,
-                background: P.bg,
-                color: P.textMd,
-                fontSize: 11,
-                fontWeight: 700,
-                textDecoration: "none",
-                fontFamily: P.mono,
-              }}
-            >
+            <a href={`/api/artifacts/financial-plan/export/xlsx?artifactId=${encodeURIComponent(artifactId)}`} download style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 12px", border: `1px solid ${P.border}`, background: P.bg, color: P.textMd, fontSize: 11, fontWeight: 700, textDecoration: "none", fontFamily: P.mono }}>
               Export XLSX
             </a>
           )}
-          {lastUpdatedAt && (
-            <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, textAlign: "right" }}>
-              Updated {new Date(lastUpdatedAt).toLocaleString("en-GB")}
-            </div>
-          )}
+          {lastUpdatedAt && <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, textAlign: "right" }}>Updated {new Date(lastUpdatedAt).toLocaleString("en-GB")}</div>}
         </div>
       </div>
     </div>
@@ -498,108 +359,32 @@ function FinancialPlanHeaderBar({
 }
 
 function FinancialPlanExecutiveSummary({
-  symbol,
-  totalBudgeted,
-  totalActual,
-  totalForecast,
-  approvedBudget,
-  pendingExposure,
-  forecastVariance,
-  utilPct,
-  totalApprovedDays,
-  plannedCost,
-  plannedCharge,
+  symbol, totalBudgeted, totalActual, totalForecast, approvedBudget,
+  pendingExposure, forecastVariance, utilPct, totalApprovedDays, plannedCost, plannedCharge,
 }: {
-  symbol: string;
-  totalBudgeted: number;
-  totalActual: number;
-  totalForecast: number;
-  approvedBudget: number;
-  pendingExposure: number;
-  forecastVariance: number | null;
-  utilPct: number | null;
-  totalApprovedDays: number;
-  plannedCost?: number;
-  plannedCharge?: number;
+  symbol: string; totalBudgeted: number; totalActual: number; totalForecast: number;
+  approvedBudget: number; pendingExposure: number; forecastVariance: number | null;
+  utilPct: number | null; totalApprovedDays: number; plannedCost?: number; plannedCharge?: number;
 }) {
-  const grossMargin =
-    plannedCharge != null && plannedCost != null ? plannedCharge - plannedCost : null;
-  const grossMarginPct =
-    plannedCharge != null && plannedCharge > 0 && grossMargin != null
-      ? Math.round((grossMargin / plannedCharge) * 100)
-      : null;
+  const grossMargin = plannedCharge != null && plannedCost != null ? plannedCharge - plannedCost : null;
+  const grossMarginPct = plannedCharge != null && plannedCharge > 0 && grossMargin != null ? Math.round((grossMargin / plannedCharge) * 100) : null;
 
   const cards = [
-    {
-      label: "Approved Budget",
-      value: fmt(approvedBudget, symbol),
-      sub: "Current approved ceiling",
-      color: P.text,
-      bg: P.surface,
-      border: P.border,
-    },
-    {
-      label: "Forecast",
-      value: fmt(totalForecast, symbol),
-      sub: utilPct != null ? `${utilPct}% of approved budget` : "Forecast view",
-      color: forecastVariance != null && forecastVariance > 0 ? P.red : P.green,
-      bg: P.surface,
-      border: P.border,
-    },
-    {
-      label: "Actuals",
-      value: fmt(totalActual, symbol),
-      sub: totalApprovedDays > 0 ? `${totalApprovedDays.toLocaleString()} approved days` : "Awaiting approved timesheets",
-      color: P.violet,
-      bg: P.violetLt,
-      border: "#a5f3fc",
-    },
-    {
-      label: "Variance to Budget",
-      value: forecastVariance == null ? "—" : `${forecastVariance > 0 ? "+" : "-"}${fmt(Math.abs(forecastVariance), symbol)}`,
-      sub: forecastVariance == null ? "No baseline set" : forecastVariance > 0 ? "Forecast above approved" : "Forecast within approved",
-      color: forecastVariance != null && forecastVariance > 0 ? P.red : P.green,
-      bg: P.surface,
-      border: P.border,
-    },
-    {
-      label: "Pending Exposure",
-      value: fmt(pendingExposure, symbol),
-      sub: "Awaiting change decisions",
-      color: pendingExposure > 0 ? P.amber : P.textSm,
-      bg: P.surface,
-      border: P.border,
-    },
-    {
-      label: "Planned Margin",
-      value: grossMargin != null ? fmt(Math.abs(grossMargin), symbol) : "—",
-      sub: grossMarginPct != null ? `${grossMarginPct}% margin outlook` : "Add charge-out rates to see margin",
-      color: grossMargin != null ? (grossMargin >= 0 ? P.green : P.red) : P.textSm,
-      bg: P.surface,
-      border: P.border,
-    },
+    { label: "Approved Budget", value: fmt(approvedBudget, symbol), sub: "Current approved ceiling", color: P.text, bg: P.surface, border: P.border },
+    { label: "Forecast", value: fmt(totalForecast, symbol), sub: utilPct != null ? `${utilPct}% of approved budget` : "Forecast view", color: forecastVariance != null && forecastVariance > 0 ? P.red : P.green, bg: P.surface, border: P.border },
+    { label: "Actuals", value: fmt(totalActual, symbol), sub: totalApprovedDays > 0 ? `${totalApprovedDays.toLocaleString()} approved days` : "Awaiting approved timesheets", color: P.violet, bg: P.violetLt, border: "#a5f3fc" },
+    { label: "Variance to Budget", value: forecastVariance == null ? "—" : `${forecastVariance > 0 ? "+" : "-"}${fmt(Math.abs(forecastVariance), symbol)}`, sub: forecastVariance == null ? "No baseline set" : forecastVariance > 0 ? "Forecast above approved" : "Forecast within approved", color: forecastVariance != null && forecastVariance > 0 ? P.red : P.green, bg: P.surface, border: P.border },
+    { label: "Pending Exposure", value: fmt(pendingExposure, symbol), sub: "Awaiting change decisions", color: pendingExposure > 0 ? P.amber : P.textSm, bg: P.surface, border: P.border },
+    { label: "Planned Margin", value: grossMargin != null ? fmt(Math.abs(grossMargin), symbol) : "—", sub: grossMarginPct != null ? `${grossMarginPct}% margin outlook` : "Add charge-out rates to see margin", color: grossMargin != null ? (grossMargin >= 0 ? P.green : P.red) : P.textSm, bg: P.surface, border: P.border },
   ];
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
       {cards.map(card => (
-        <div
-          key={card.label}
-          style={{
-            border: `1px solid ${card.border}`,
-            background: card.bg,
-            padding: "14px 16px",
-          }}
-        >
-          <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
-            {card.label}
-          </div>
-          <div style={{ fontFamily: P.mono, fontSize: 22, fontWeight: 700, color: card.color, fontVariantNumeric: "tabular-nums" }}>
-            {card.value}
-          </div>
-          <div style={{ marginTop: 6, fontSize: 11, color: card.color === P.violet ? P.violet : P.textSm }}>
-            {card.sub}
-          </div>
+        <div key={card.label} style={{ border: `1px solid ${card.border}`, background: card.bg, padding: "14px 16px" }}>
+          <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>{card.label}</div>
+          <div style={{ fontFamily: P.mono, fontSize: 22, fontWeight: 700, color: card.color, fontVariantNumeric: "tabular-nums" }}>{card.value}</div>
+          <div style={{ marginTop: 6, fontSize: 11, color: card.color === P.violet ? P.violet : P.textSm }}>{card.sub}</div>
         </div>
       ))}
     </div>
@@ -607,66 +392,25 @@ function FinancialPlanExecutiveSummary({
 }
 
 function FinancialPlanInsightRail({
-  symbol,
-  overBudget,
-  forecastVariance,
-  totalResourceCost,
-  approvedBudget,
-  pendingExposure,
-  signals,
-  totalApprovedDays,
-  timesheetEntryCount,
+  symbol, overBudget, forecastVariance, totalResourceCost, approvedBudget,
+  pendingExposure, signals, totalApprovedDays, timesheetEntryCount,
 }: {
-  symbol: string;
-  overBudget: boolean;
-  forecastVariance: number | null;
-  totalResourceCost: number;
-  approvedBudget: number;
-  pendingExposure: number;
-  signals: Signal[];
-  totalApprovedDays: number;
-  timesheetEntryCount: number;
+  symbol: string; overBudget: boolean; forecastVariance: number | null;
+  totalResourceCost: number; approvedBudget: number; pendingExposure: number;
+  signals: Signal[]; totalApprovedDays: number; timesheetEntryCount: number;
 }) {
   const criticalCount = signals.filter(s => s.severity === "critical").length;
-  const warningCount = signals.filter(s => s.severity === "warning").length;
-
+  const warningCount  = signals.filter(s => s.severity === "warning").length;
   const items: Array<{ tone: "red" | "amber" | "blue" | "violet"; text: React.ReactNode }> = [];
 
-  if (overBudget && forecastVariance !== null) {
-    items.push({
-      tone: "red",
-      text: <>Forecast exceeds approved budget by <strong>{fmt(Math.abs(forecastVariance), symbol)}</strong>.</>,
-    });
-  }
-
-  if (approvedBudget > 0 && totalResourceCost > approvedBudget) {
-    items.push({
-      tone: "amber",
-      text: <>Resource costs total <strong>{fmt(totalResourceCost, symbol)}</strong>, which is above approved budget.</>,
-    });
-  }
-
-  if (pendingExposure > 0) {
-    items.push({
-      tone: "amber",
-      text: <>There is <strong>{fmt(pendingExposure, symbol)}</strong> of pending change exposure not yet baselined.</>,
-    });
-  }
-
-  if (criticalCount > 0 || warningCount > 0) {
-    items.push({
-      tone: "blue",
-      text: <>
-        Financial intelligence has detected <strong>{criticalCount}</strong> critical and <strong>{warningCount}</strong> warning signal{criticalCount + warningCount !== 1 ? "s" : ""}.
-      </>,
-    });
-  }
+  if (overBudget && forecastVariance !== null) items.push({ tone: "red", text: <>Forecast exceeds approved budget by <strong>{fmt(Math.abs(forecastVariance), symbol)}</strong>.</> });
+  if (approvedBudget > 0 && totalResourceCost > approvedBudget) items.push({ tone: "amber", text: <>Resource costs total <strong>{fmt(totalResourceCost, symbol)}</strong>, which is above approved budget.</> });
+  if (pendingExposure > 0) items.push({ tone: "amber", text: <>There is <strong>{fmt(pendingExposure, symbol)}</strong> of pending change exposure not yet baselined.</> });
+  if (criticalCount > 0 || warningCount > 0) items.push({ tone: "blue", text: <>Financial intelligence has detected <strong>{criticalCount}</strong> critical and <strong>{warningCount}</strong> warning signal{criticalCount + warningCount !== 1 ? "s" : ""}.</> });
 
   items.push({
     tone: "violet",
-    text: <>
-      Actuals are locked from <strong>{timesheetEntryCount}</strong> approved timesheet entr{timesheetEntryCount !== 1 ? "ies" : "y"} and <strong>{totalApprovedDays.toLocaleString()}</strong> approved day{totalApprovedDays !== 1 ? "s" : ""}.
-    </>,
+    text: <>Actuals are locked from <strong>{timesheetEntryCount}</strong> approved timesheet entr{timesheetEntryCount !== 1 ? "ies" : "y"} and <strong>{totalApprovedDays.toLocaleString()}</strong> approved day{totalApprovedDays !== 1 ? "s" : ""}.</>,
   });
 
   const toneStyles = {
@@ -681,21 +425,8 @@ function FinancialPlanInsightRail({
       {items.map((item, i) => {
         const t = toneStyles[item.tone];
         return (
-          <div
-            key={i}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "10px 12px",
-              fontSize: 12,
-              border: `1px solid ${t.border}`,
-              background: t.bg,
-              color: t.color,
-            }}
-          >
-            {t.icon}
-            <span>{item.text}</span>
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", fontSize: 12, border: `1px solid ${t.border}`, background: t.bg, color: t.color }}>
+            {t.icon}<span>{item.text}</span>
           </div>
         );
       })}
@@ -704,99 +435,39 @@ function FinancialPlanInsightRail({
 }
 
 function OverviewTab({
-  content,
-  linesForDisplay,
-  symbol,
-  approvedBudget,
-  totalForecast,
-  totalActual,
-  forecastVariance,
-  pendingExposure,
-  approvedExposure,
-  signals,
-  raidItems,
-  approvalDelays,
-  heatmapTotals,
-  totalApprovedDays,
-  avgDayRate,
+  content, linesForDisplay, symbol, approvedBudget, totalForecast, totalActual,
+  forecastVariance, pendingExposure, approvedExposure, signals, raidItems,
+  approvalDelays, heatmapTotals, totalApprovedDays, avgDayRate,
 }: {
-  content: FinancialPlanContent;
-  linesForDisplay: CostLine[];
-  symbol: string;
-  approvedBudget: number;
-  totalForecast: number;
-  totalActual: number;
-  forecastVariance: number | null;
-  pendingExposure: number;
-  approvedExposure: number;
-  signals: Signal[];
-  raidItems?: Array<{ type: string; title: string; severity: string; status: string }>;
+  content: FinancialPlanContent; linesForDisplay: CostLine[]; symbol: string;
+  approvedBudget: number; totalForecast: number; totalActual: number;
+  forecastVariance: number | null; pendingExposure: number; approvedExposure: number;
+  signals: Signal[]; raidItems?: Array<{ type: string; title: string; severity: string; status: string }>;
   approvalDelays?: Array<{ title: string; daysPending: number; cost_impact?: number }>;
   heatmapTotals: { totalCost: number; totalCharge: number; hasBothRates: boolean } | null;
-  totalApprovedDays: number;
-  avgDayRate: number;
+  totalApprovedDays: number; avgDayRate: number;
 }) {
-  const topForecastLines = [...linesForDisplay]
-    .sort((a, b) => (Number(b.forecast) || 0) - (Number(a.forecast) || 0))
-    .slice(0, 3);
-
-  const topVarianceLines = [...linesForDisplay]
-    .map(line => ({
-      line,
-      variance: (Number(line.forecast) || 0) - (Number(line.budgeted) || 0),
-    }))
-    .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))
-    .slice(0, 3);
-
-  const topPendingChanges = [...(content.change_exposure ?? [])]
-    .filter(c => c.status === "pending")
-    .sort((a, b) => (Number(b.cost_impact) || 0) - (Number(a.cost_impact) || 0))
-    .slice(0, 3);
-
+  const topForecastLines = [...linesForDisplay].sort((a, b) => (Number(b.forecast) || 0) - (Number(a.forecast) || 0)).slice(0, 3);
+  const topVarianceLines = [...linesForDisplay].map(line => ({ line, variance: (Number(line.forecast) || 0) - (Number(line.budgeted) || 0) })).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance)).slice(0, 3);
+  const topPendingChanges = [...(content.change_exposure ?? [])].filter(c => c.status === "pending").sort((a, b) => (Number(b.cost_impact) || 0) - (Number(a.cost_impact) || 0)).slice(0, 3);
   const criticalSignals = signals.filter(s => s.severity === "critical").slice(0, 4);
-  const warningSignals = signals.filter(s => s.severity === "warning").slice(0, 4);
-
-  const plannedCost = heatmapTotals?.totalCost ?? 0;
+  const warningSignals  = signals.filter(s => s.severity === "warning").slice(0, 4);
+  const plannedCost   = heatmapTotals?.totalCost ?? 0;
   const plannedCharge = heatmapTotals?.totalCharge ?? 0;
-  const grossMargin = plannedCharge - plannedCost;
+  const grossMargin   = plannedCharge - plannedCost;
   const grossMarginPct = plannedCharge > 0 ? Math.round((grossMargin / plannedCharge) * 100) : null;
-
-  const blockStyle: React.CSSProperties = {
-    border: `1px solid ${P.border}`,
-    background: P.surface,
-    padding: 16,
-  };
-
-  const sectionTitleStyle: React.CSSProperties = {
-    fontFamily: P.mono,
-    fontSize: 9,
-    color: P.textSm,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    marginBottom: 10,
-  };
+  const blockStyle: React.CSSProperties = { border: `1px solid ${P.border}`, background: P.surface, padding: 16 };
+  const sectionTitleStyle: React.CSSProperties = { fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ ...blockStyle, background: P.navyLt }}>
         <div style={sectionTitleStyle}>Financial Health</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 12, color: P.textSm }}>Approved Budget</div>
-            <div style={{ fontFamily: P.mono, fontSize: 22, fontWeight: 700, color: P.navy }}>{fmt(approvedBudget, symbol)}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: P.textSm }}>Forecast</div>
-            <div style={{ fontFamily: P.mono, fontSize: 22, fontWeight: 700, color: forecastVariance != null && forecastVariance > 0 ? P.red : P.green }}>{fmt(totalForecast, symbol)}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: P.textSm }}>Actuals</div>
-            <div style={{ fontFamily: P.mono, fontSize: 22, fontWeight: 700, color: P.violet }}>{fmt(totalActual, symbol)}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: P.textSm }}>Exposure</div>
-            <div style={{ fontFamily: P.mono, fontSize: 22, fontWeight: 700, color: pendingExposure > 0 ? P.amber : P.text }}>{fmt(pendingExposure + approvedExposure, symbol)}</div>
-          </div>
+          <div><div style={{ fontSize: 12, color: P.textSm }}>Approved Budget</div><div style={{ fontFamily: P.mono, fontSize: 22, fontWeight: 700, color: P.navy }}>{fmt(approvedBudget, symbol)}</div></div>
+          <div><div style={{ fontSize: 12, color: P.textSm }}>Forecast</div><div style={{ fontFamily: P.mono, fontSize: 22, fontWeight: 700, color: forecastVariance != null && forecastVariance > 0 ? P.red : P.green }}>{fmt(totalForecast, symbol)}</div></div>
+          <div><div style={{ fontSize: 12, color: P.textSm }}>Actuals</div><div style={{ fontFamily: P.mono, fontSize: 22, fontWeight: 700, color: P.violet }}>{fmt(totalActual, symbol)}</div></div>
+          <div><div style={{ fontSize: 12, color: P.textSm }}>Exposure</div><div style={{ fontFamily: P.mono, fontSize: 22, fontWeight: 700, color: pendingExposure > 0 ? P.amber : P.text }}>{fmt(pendingExposure + approvedExposure, symbol)}</div></div>
         </div>
       </div>
 
@@ -804,44 +475,23 @@ function OverviewTab({
         <div style={{ ...blockStyle }}>
           <div style={sectionTitleStyle}>Top Cost Drivers</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {topForecastLines.length === 0 ? (
-              <div style={{ color: P.textSm, fontSize: 12 }}>No forecast lines available yet.</div>
-            ) : (
-              topForecastLines.map(line => (
-                <div key={line.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, paddingBottom: 10, borderBottom: `1px solid ${P.border}` }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: P.text }}>{line.description || CATEGORY_LABELS[line.category]}</div>
-                    <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>{CATEGORY_LABELS[line.category]}</div>
-                  </div>
-                  <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>
-                    {fmt(line.forecast, symbol)}
-                  </div>
-                </div>
-              ))
-            )}
+            {topForecastLines.length === 0 ? <div style={{ color: P.textSm, fontSize: 12 }}>No forecast lines available yet.</div> : topForecastLines.map(line => (
+              <div key={line.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, paddingBottom: 10, borderBottom: `1px solid ${P.border}` }}>
+                <div><div style={{ fontSize: 12, fontWeight: 600, color: P.text }}>{line.description || CATEGORY_LABELS[line.category]}</div><div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>{CATEGORY_LABELS[line.category]}</div></div>
+                <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>{fmt(line.forecast, symbol)}</div>
+              </div>
+            ))}
           </div>
         </div>
-
         <div style={{ ...blockStyle }}>
           <div style={sectionTitleStyle}>Largest Variances</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {topVarianceLines.length === 0 ? (
-              <div style={{ color: P.textSm, fontSize: 12 }}>No variance lines available yet.</div>
-            ) : (
-              topVarianceLines.map(({ line, variance }) => (
-                <div key={line.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, paddingBottom: 10, borderBottom: `1px solid ${P.border}` }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: P.text }}>{line.description || CATEGORY_LABELS[line.category]}</div>
-                    <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>
-                      Budget {fmt(line.budgeted, symbol)} → Forecast {fmt(line.forecast, symbol)}
-                    </div>
-                  </div>
-                  <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: variance > 0 ? P.red : variance < 0 ? P.green : P.textSm }}>
-                    {variance > 0 ? "+" : ""}{fmt(Math.abs(variance), symbol)}
-                  </div>
-                </div>
-              ))
-            )}
+            {topVarianceLines.length === 0 ? <div style={{ color: P.textSm, fontSize: 12 }}>No variance lines available yet.</div> : topVarianceLines.map(({ line, variance }) => (
+              <div key={line.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, paddingBottom: 10, borderBottom: `1px solid ${P.border}` }}>
+                <div><div style={{ fontSize: 12, fontWeight: 600, color: P.text }}>{line.description || CATEGORY_LABELS[line.category]}</div><div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>Budget {fmt(line.budgeted, symbol)} → Forecast {fmt(line.forecast, symbol)}</div></div>
+                <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: variance > 0 ? P.red : variance < 0 ? P.green : P.textSm }}>{variance > 0 ? "+" : ""}{fmt(Math.abs(variance), symbol)}</div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -850,77 +500,40 @@ function OverviewTab({
         <div style={{ ...blockStyle }}>
           <div style={sectionTitleStyle}>Pending Change Pressure</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {topPendingChanges.length === 0 ? (
-              <div style={{ color: P.textSm, fontSize: 12 }}>No pending change exposure recorded.</div>
-            ) : (
-              topPendingChanges.map(change => (
-                <div key={change.id} style={{ paddingBottom: 10, borderBottom: `1px solid ${P.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: P.text }}>
-                    {change.change_ref || "Unreferenced change"}
-                  </div>
-                  <div style={{ fontSize: 11, color: P.textMd, marginTop: 2 }}>{change.title || "Untitled change"}</div>
-                  <div style={{ fontFamily: P.mono, fontSize: 10, color: P.amber, marginTop: 4 }}>
-                    {fmt(change.cost_impact, symbol)} pending
-                  </div>
-                </div>
-              ))
-            )}
+            {topPendingChanges.length === 0 ? <div style={{ color: P.textSm, fontSize: 12 }}>No pending change exposure recorded.</div> : topPendingChanges.map(change => (
+              <div key={change.id} style={{ paddingBottom: 10, borderBottom: `1px solid ${P.border}` }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: P.text }}>{change.change_ref || "Unreferenced change"}</div>
+                <div style={{ fontSize: 11, color: P.textMd, marginTop: 2 }}>{change.title || "Untitled change"}</div>
+                <div style={{ fontFamily: P.mono, fontSize: 10, color: P.amber, marginTop: 4 }}>{fmt(change.cost_impact, symbol)} pending</div>
+              </div>
+            ))}
           </div>
         </div>
-
         <div style={{ ...blockStyle }}>
           <div style={sectionTitleStyle}>Financial Signals</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {criticalSignals.length === 0 && warningSignals.length === 0 ? (
-              <div style={{ color: P.textSm, fontSize: 12 }}>No financial signals at the moment.</div>
-            ) : (
-              <>
-                {criticalSignals.map((s, i) => (
-                  <div key={`critical-${i}`} style={{ padding: "8px 10px", background: P.redLt, border: `1px solid #F0B0AA`, color: P.red, fontSize: 11 }}>
-                    {s.title}
-                  </div>
-                ))}
-                {warningSignals.map((s, i) => (
-                  <div key={`warning-${i}`} style={{ padding: "8px 10px", background: P.amberLt, border: `1px solid #E0C080`, color: P.amber, fontSize: 11 }}>
-                    {s.title}
-                  </div>
-                ))}
-              </>
+            {criticalSignals.length === 0 && warningSignals.length === 0 ? <div style={{ color: P.textSm, fontSize: 12 }}>No financial signals at the moment.</div> : (
+              <>{criticalSignals.map((s, i) => <div key={`c-${i}`} style={{ padding: "8px 10px", background: P.redLt, border: `1px solid #F0B0AA`, color: P.red, fontSize: 11 }}>{s.title}</div>)}
+                {warningSignals.map((s, i) => <div key={`w-${i}`} style={{ padding: "8px 10px", background: P.amberLt, border: `1px solid #E0C080`, color: P.amber, fontSize: 11 }}>{s.title}</div>)}</>
             )}
           </div>
         </div>
-
         <div style={{ ...blockStyle }}>
           <div style={sectionTitleStyle}>Resource & Billing Snapshot</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: P.textSm }}>Planned Cost</span>
-              <strong style={{ fontFamily: P.mono, color: P.navy }}>{fmt(plannedCost, symbol)}</strong>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: P.textSm }}>Planned Charge</span>
-              <strong style={{ fontFamily: P.mono, color: P.green }}>{fmt(plannedCharge, symbol)}</strong>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: P.textSm }}>Gross Margin</span>
-              <strong style={{ fontFamily: P.mono, color: grossMargin >= 0 ? P.green : P.red }}>
-                {plannedCharge > 0 ? fmt(Math.abs(grossMargin), symbol) : "—"}
-              </strong>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: P.textSm }}>Margin %</span>
-              <strong style={{ fontFamily: P.mono, color: grossMarginPct != null && grossMarginPct >= 0 ? P.green : P.red }}>
-                {grossMarginPct != null ? `${grossMarginPct}%` : "—"}
-              </strong>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: P.textSm }}>Approved Days</span>
-              <strong style={{ fontFamily: P.mono, color: P.violet }}>{totalApprovedDays.toLocaleString()}</strong>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: P.textSm }}>Avg Actual Day Rate</span>
-              <strong style={{ fontFamily: P.mono, color: P.text }}>{avgDayRate > 0 ? fmt(Math.round(avgDayRate), symbol) : "—"}</strong>
-            </div>
+            {[
+              { label: "Planned Cost",         value: fmt(plannedCost, symbol),   color: P.navy },
+              { label: "Planned Charge",        value: fmt(plannedCharge, symbol), color: P.green },
+              { label: "Gross Margin",          value: plannedCharge > 0 ? fmt(Math.abs(grossMargin), symbol) : "—", color: grossMargin >= 0 ? P.green : P.red },
+              { label: "Margin %",              value: grossMarginPct != null ? `${grossMarginPct}%` : "—", color: grossMarginPct != null && grossMarginPct >= 0 ? P.green : P.red },
+              { label: "Approved Days",         value: totalApprovedDays.toLocaleString(), color: P.violet },
+              { label: "Avg Actual Day Rate",   value: avgDayRate > 0 ? fmt(Math.round(avgDayRate), symbol) : "—", color: P.text },
+            ].map(row => (
+              <div key={row.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ color: P.textSm }}>{row.label}</span>
+                <strong style={{ fontFamily: P.mono, color: row.color }}>{row.value}</strong>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -934,18 +547,12 @@ function OverviewTab({
                 {approvalDelays.slice(0, 5).map((d, i) => (
                   <div key={i} style={{ paddingBottom: 8, borderBottom: `1px solid ${P.border}` }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: P.text }}>{d.title}</div>
-                    <div style={{ fontFamily: P.mono, fontSize: 10, color: P.amber, marginTop: 3 }}>
-                      {d.daysPending} day{d.daysPending !== 1 ? "s" : ""} pending
-                      {d.cost_impact ? ` • ${fmt(d.cost_impact, symbol)}` : ""}
-                    </div>
+                    <div style={{ fontFamily: P.mono, fontSize: 10, color: P.amber, marginTop: 3 }}>{d.daysPending} day{d.daysPending !== 1 ? "s" : ""} pending{d.cost_impact ? ` • ${fmt(d.cost_impact, symbol)}` : ""}</div>
                   </div>
                 ))}
               </div>
-            ) : (
-              <div style={{ color: P.textSm, fontSize: 12 }}>No approval delay data.</div>
-            )}
+            ) : <div style={{ color: P.textSm, fontSize: 12 }}>No approval delay data.</div>}
           </div>
-
           <div style={{ ...blockStyle }}>
             <div style={sectionTitleStyle}>RAID Pressure</div>
             {raidItems && raidItems.length > 0 ? (
@@ -953,15 +560,11 @@ function OverviewTab({
                 {raidItems.slice(0, 5).map((item, i) => (
                   <div key={i} style={{ paddingBottom: 8, borderBottom: `1px solid ${P.border}` }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: P.text }}>{item.title}</div>
-                    <div style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, marginTop: 3 }}>
-                      {item.type} • {item.severity} • {item.status}
-                    </div>
+                    <div style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm, marginTop: 3 }}>{item.type} • {item.severity} • {item.status}</div>
                   </div>
                 ))}
               </div>
-            ) : (
-              <div style={{ color: P.textSm, fontSize: 12 }}>No RAID data connected.</div>
-            )}
+            ) : <div style={{ color: P.textSm, fontSize: 12 }}>No RAID data connected.</div>}
           </div>
         </div>
       ) : null}
@@ -978,18 +581,8 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
   const [synced, setSynced] = useState(false);
   const sym = CURRENCY_SYMBOLS[currency as Currency] ?? "£";
   const preview = previewSync(resources, costLines, monthlyData, fyConfig);
-
-  const readyResources = resources.filter(r =>
-    r.cost_line_id &&
-    ((r.rate_type === "day_rate" && Number(r.day_rate) > 0 && Number(r.planned_days) > 0) ||
-     (r.rate_type === "monthly_cost" && Number(r.monthly_cost) > 0 && Number(r.planned_months) > 0))
-  );
-  const unreadyResources = resources.filter(r =>
-    r.cost_line_id &&
-    !((r.rate_type === "day_rate" && Number(r.day_rate) > 0 && Number(r.planned_days) > 0) ||
-      (r.rate_type === "monthly_cost" && Number(r.monthly_cost) > 0 && Number(r.planned_months) > 0))
-  );
-
+  const readyResources = resources.filter(r => r.cost_line_id && ((r.rate_type === "day_rate" && Number(r.day_rate) > 0 && Number(r.planned_days) > 0) || (r.rate_type === "monthly_cost" && Number(r.monthly_cost) > 0 && Number(r.planned_months) > 0)));
+  const unreadyResources = resources.filter(r => r.cost_line_id && !((r.rate_type === "day_rate" && Number(r.day_rate) > 0 && Number(r.planned_days) > 0) || (r.rate_type === "monthly_cost" && Number(r.monthly_cost) > 0 && Number(r.planned_months) > 0)));
   if (resources.length === 0) return null;
   const hasChanges = preview.length > 0;
 
@@ -1013,17 +606,11 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
           <Zap style={{ width: 14, height: 14, flexShrink: 0, color: synced ? P.green : hasChanges ? P.navy : P.textSm }} />
           <div>
             <div style={{ fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: synced ? P.green : hasChanges ? P.navy : P.textMd, letterSpacing: "0.04em" }}>
-              {synced ? "Monthly phasing synced -- actuals from approved timesheets"
-                : hasChanges ? `${readyResources.length} resource${readyResources.length !== 1 ? "s" : ""} ready to sync to monthly phasing`
-                : "Monthly phasing is up to date with resources"}
+              {synced ? "Monthly phasing synced -- actuals from approved timesheets" : hasChanges ? `${readyResources.length} resource${readyResources.length !== 1 ? "s" : ""} ready to sync to monthly phasing` : "Monthly phasing is up to date with resources"}
             </div>
             <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>
               {readyResources.length} ready · {unreadyResources.length} missing rate or qty · {resources.filter(r => !r.cost_line_id).length} unlinked
-              {timesheetEntries.length > 0 && (
-                <span style={{ marginLeft: 8, color: P.violet, fontWeight: 600 }}>
-                  · {timesheetEntries.length} approved timesheet entr{timesheetEntries.length !== 1 ? "ies" : "y"}
-                </span>
-              )}
+              {timesheetEntries.length > 0 && <span style={{ marginLeft: 8, color: P.violet, fontWeight: 600 }}>· {timesheetEntries.length} approved timesheet entr{timesheetEntries.length !== 1 ? "ies" : "y"}</span>}
             </div>
           </div>
         </div>
@@ -1031,22 +618,16 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
           {hasChanges && !synced && (
             <>
               <button type="button" onClick={() => setExpanded(v => !v)} style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: P.mono, fontSize: 10, color: P.navy, cursor: "pointer", background: "none", border: "none", fontWeight: 500 }}>
-                Preview
-                <ChevronRight style={{ width: 12, height: 12, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+                Preview<ChevronRight style={{ width: 12, height: 12, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
               </button>
               <button type="button" onClick={handleSync} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: P.navy, color: "#FFF", fontFamily: P.mono, fontSize: 10, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.04em" }}>
                 <Zap style={{ width: 11, height: 11 }} /> SYNC TO MONTHLY
               </button>
             </>
           )}
-          {synced && (
-            <span style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 10, color: P.green, fontWeight: 600 }}>
-              <Check style={{ width: 12, height: 12 }} /> Synced
-            </span>
-          )}
+          {synced && <span style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 10, color: P.green, fontWeight: 600 }}><Check style={{ width: 12, height: 12 }} /> Synced</span>}
         </div>
       </div>
-
       {expanded && hasChanges && (
         <div style={{ borderTop: `1px solid ${P.border}`, background: P.surface }}>
           {preview.map(row => {
@@ -1061,11 +642,7 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
                   <span style={{ color: P.textSm }}>{fmtShort(row.totalBefore, sym)}</span>
                   <span style={{ color: P.border }}>{"→"}</span>
                   <span style={{ fontWeight: 700, color: P.text }}>{fmtShort(row.totalAfter, sym)}</span>
-                  {delta !== 0 && (
-                    <span style={{ padding: "2px 6px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, background: delta > 0 ? P.amberLt : P.greenLt, color: delta > 0 ? P.amber : P.green, border: `1px solid ${delta > 0 ? "#E0C080" : "#A0D0B8"}` }}>
-                      {delta > 0 ? "+" : ""}{fmtShort(delta, sym)}
-                    </span>
-                  )}
+                  {delta !== 0 && <span style={{ padding: "2px 6px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, background: delta > 0 ? P.amberLt : P.greenLt, color: delta > 0 ? P.amber : P.green, border: `1px solid ${delta > 0 ? "#E0C080" : "#A0D0B8"}` }}>{delta > 0 ? "+" : ""}{fmtShort(delta, sym)}</span>}
                 </div>
               </div>
             );
@@ -1075,9 +652,7 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
               <AlertCircle style={{ width: 13, height: 13, color: P.amber, flexShrink: 0, marginTop: 1 }} />
               <div style={{ fontFamily: P.mono, fontSize: 9, color: P.amber }}>
                 <strong>{unreadyResources.length} resource{unreadyResources.length !== 1 ? "s" : ""}</strong> linked but missing rate or qty:
-                <ul style={{ marginTop: 4, paddingLeft: 16, listStyle: "disc" }}>
-                  {unreadyResources.map(r => <li key={r.id}>{r.name || "Unnamed"}</li>)}
-                </ul>
+                <ul style={{ marginTop: 4, paddingLeft: 16, listStyle: "disc" }}>{unreadyResources.map(r => <li key={r.id}>{r.name || "Unnamed"}</li>)}</ul>
               </div>
             </div>
           )}
@@ -1085,9 +660,7 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 16px", background: P.violetLt, borderTop: `1px solid #a5f3fc` }}>
               <Lock style={{ width: 13, height: 13, color: P.violet, flexShrink: 0, marginTop: 1 }} />
               <div style={{ fontFamily: P.mono, fontSize: 9, color: P.violet }}>
-                <strong>Actuals</strong> will be auto-computed from{" "}
-                <strong>{timesheetEntries.length} approved timesheet entr{timesheetEntries.length !== 1 ? "ies" : "y"}</strong>{" "}
-                (approved days x rate card rate). The Actual column is locked.
+                <strong>Actuals</strong> will be auto-computed from <strong>{timesheetEntries.length} approved timesheet entr{timesheetEntries.length !== 1 ? "ies" : "y"}</strong> (approved days x rate card rate). The Actual column is locked.
               </div>
             </div>
           )}
@@ -1151,9 +724,20 @@ function ResourcesTab({
     onChange(resources.map(r => r.id === id ? { ...r, ...patch } : r)),
   [onChange, resources]);
 
+  // ── approvedDaysByResource ────────────────────────────────────────────────
+  // "__weekly__" entries store £ cost — skip them (used by computeActuals only).
+  // "__days__{userId}" entries store actual days — index by userId for per-person display.
+  // Legacy resource-plan entries — index by resource_id as before.
   const approvedDaysByResource = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const e of timesheetEntries) map[e.resource_id] = (map[e.resource_id] ?? 0) + e.approved_days;
+    for (const e of timesheetEntries) {
+      if (e.resource_id === "__weekly__") continue;
+      if (e.resource_id.startsWith("__days__")) {
+        map[e.resource_id] = (map[e.resource_id] ?? 0) + e.approved_days;
+        continue;
+      }
+      map[e.resource_id] = (map[e.resource_id] ?? 0) + e.approved_days;
+    }
     return map;
   }, [timesheetEntries]);
 
@@ -1165,11 +749,19 @@ function ResourcesTab({
 
   const heatmapPersonIds = new Set(people.map(p => p.person_id));
   const exceptions = resources.filter(r => !r.user_id || !heatmapPersonIds.has(r.user_id));
+  const heatmapTotalDays  = people.reduce((s, p) => s + p.total_days, 0);
+  const heatmapTotalCost  = people.reduce((s, p) => s + (p.planned_cost ?? 0), 0);
 
-  const heatmapTotalDays    = people.reduce((s, p) => s + p.total_days, 0);
-  const heatmapTotalCost    = people.reduce((s, p) => s + (p.planned_cost ?? 0), 0);
-  const heatmapApprovedDays = people.reduce((s, p) => { const r = manualByPersonId.get(p.person_id); return s + (r ? (approvedDaysByResource[r.id] ?? 0) : 0); }, 0);
-  const missingRate         = people.filter(p => p.cost_day_rate == null && p.charge_day_rate == null);
+  // Total approved days across all heatmap people — checks both legacy resource ID
+  // and the __days__{userId} entries emitted by the server action for weekly timesheets
+  const heatmapApprovedDays = people.reduce((s, p) => {
+    const r = manualByPersonId.get(p.person_id);
+    const legacyDays = r ? (approvedDaysByResource[r.id] ?? 0) : 0;
+    const weeklyDays = approvedDaysByResource[`__days__${p.person_id}`] ?? 0;
+    return s + (legacyDays || weeklyDays);
+  }, 0);
+
+  const missingRate = people.filter(p => p.cost_day_rate == null && p.charge_day_rate == null);
 
   const thStyle: React.CSSProperties = { padding: "8px 10px", textAlign: "left", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", borderBottom: `1px solid ${P.borderMd}`, whiteSpace: "nowrap", background: "#F4F4F2" };
   const thViolet: React.CSSProperties = { ...thStyle, color: P.violet, background: P.violetLt };
@@ -1226,15 +818,21 @@ function ResourcesTab({
 
             {!loading && !error && people.map((person, idx) => {
               const manualResource = manualByPersonId.get(person.person_id);
-              const approvedDays   = manualResource ? (approvedDaysByResource[manualResource.id] ?? 0) : 0;
-              const variance       = approvedDays > 0 ? approvedDays - person.total_days : null;
-              const margin         = person.planned_cost != null && person.planned_charge != null ? person.planned_charge - person.planned_cost : null;
-              const marginPct      = person.planned_charge != null && person.planned_charge > 0 && margin != null ? Math.round((margin / person.planned_charge) * 100) : null;
-              const actualCost     = person.cost_day_rate != null && approvedDays > 0 ? Math.round(approvedDays * person.cost_day_rate) : null;
-              const hasTimesheet   = approvedDays > 0;
-              const rowBg          = idx % 2 === 0 ? P.surface : "#FAFAF8";
-              const linkedLine     = manualResource ? costLines.find(l => l.id === manualResource.cost_line_id) : null;
-              const initials       = person.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
+
+              // Check legacy resource-plan days first, then fall back to
+              // __days__{userId} entries from weekly timesheet server action
+              const legacyDays   = manualResource ? (approvedDaysByResource[manualResource.id] ?? 0) : 0;
+              const weeklyDays   = approvedDaysByResource[`__days__${person.person_id}`] ?? 0;
+              const approvedDays = legacyDays || weeklyDays;
+
+              const variance   = approvedDays > 0 ? approvedDays - person.total_days : null;
+              const margin     = person.planned_cost != null && person.planned_charge != null ? person.planned_charge - person.planned_cost : null;
+              const marginPct  = person.planned_charge != null && person.planned_charge > 0 && margin != null ? Math.round((margin / person.planned_charge) * 100) : null;
+              const actualCost = person.cost_day_rate != null && approvedDays > 0 ? Math.round(approvedDays * person.cost_day_rate) : null;
+              const hasTimesheet = approvedDays > 0;
+              const rowBg      = idx % 2 === 0 ? P.surface : "#FAFAF8";
+              const linkedLine = manualResource ? costLines.find(l => l.id === manualResource.cost_line_id) : null;
+              const initials   = person.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
 
               return (
                 <tr key={person.person_id} style={{ background: rowBg, borderBottom: `1px solid ${P.border}` }}>
@@ -1355,9 +953,7 @@ function ResourcesTab({
                       ))}
                     </div>
                   </td>
-                  <td style={{ padding: "8px 10px", background: rowBg }}>
-                    <MoneyCell value={r.rate_type === "day_rate" ? r.day_rate : r.monthly_cost} onChange={v => update(r.id, r.rate_type === "day_rate" ? { day_rate: v } : { monthly_cost: v })} symbol={sym} readOnly={readOnly} />
-                  </td>
+                  <td style={{ padding: "8px 10px", background: rowBg }}><MoneyCell value={r.rate_type === "day_rate" ? r.day_rate : r.monthly_cost} onChange={v => update(r.id, r.rate_type === "day_rate" ? { day_rate: v } : { monthly_cost: v })} symbol={sym} readOnly={readOnly} /></td>
                   <td style={{ padding: "8px 10px", background: rowBg }}>
                     <input type="number" min={0} step={1} value={r.rate_type === "day_rate" ? r.planned_days : r.planned_months}
                       onChange={e => { const v = e.target.value === "" ? "" : Number(e.target.value); update(r.id, r.rate_type === "day_rate" ? { planned_days: v } : { planned_months: v }); }}
@@ -1372,12 +968,8 @@ function ResourcesTab({
                   <td style={{ padding: "8px 10px", textAlign: "right", background: baseIdx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
                     {variance !== null ? <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: variance > 0 ? P.red : P.green }}>{variance > 0 ? "+" : ""}{variance.toFixed(1)}</span> : <span style={{ color: P.textSm }}>—</span>}
                   </td>
-                  <td style={{ padding: "8px 10px", textAlign: "right", background: rowBg }}>
-                    <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>{plannedCost != null ? `${sym}${plannedCost.toLocaleString()}` : "—"}</span>
-                  </td>
-                  <td style={{ padding: "8px 10px", textAlign: "right", background: baseIdx % 2 === 0 ? P.violetLt : "#e0f7fa" }}>
-                    <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: actualCost != null ? P.violet : P.textSm }}>{actualCost != null ? `${sym}${actualCost.toLocaleString()}` : "—"}</span>
-                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "right", background: rowBg }}><span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.navy }}>{plannedCost != null ? `${sym}${plannedCost.toLocaleString()}` : "—"}</span></td>
+                  <td style={{ padding: "8px 10px", textAlign: "right", background: baseIdx % 2 === 0 ? P.violetLt : "#e0f7fa" }}><span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: actualCost != null ? P.violet : P.textSm }}>{actualCost != null ? `${sym}${actualCost.toLocaleString()}` : "—"}</span></td>
                   <td style={{ padding: "8px 10px", textAlign: "right", background: rowBg }}><span style={{ fontFamily: P.mono, fontSize: 10, color: P.textSm }}>manual</span></td>
                   <td style={{ padding: "6px 8px", background: rowBg }}>
                     <select value={r.cost_line_id ?? ""} onChange={e => update(r.id, { cost_line_id: e.target.value || null })} disabled={readOnly}
@@ -1475,26 +1067,22 @@ export default function FinancialPlanEditor({
   const urlTab  = searchParams?.get("tab")  as FinancialPlanTab | null;
   const urlCrId = searchParams?.get("crId") ?? null;
   const validTabs: FinancialPlanTab[] = ["overview","budget","resources","monthly","changes","narrative","billing"];
-  const [activeTab, setActiveTab] = useState<FinancialPlanTab>(
-    () => (urlTab && validTabs.includes(urlTab)) ? urlTab : "overview"
-  );
+  const [activeTab, setActiveTab] = useState<FinancialPlanTab>(() => (urlTab && validTabs.includes(urlTab)) ? urlTab : "overview");
   const [highlightedCrId, setHighlightedCrId] = useState<string | null>(urlCrId);
   const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
-  const [signals, setSignals]     = useState<Signal[]>([]);
+  const [signals, setSignals] = useState<Signal[]>([]);
+
   useEffect(() => {
     if (!highlightedCrId || activeTab !== "changes") return;
-    const t = setTimeout(() => {
-      highlightedRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 400);
+    const t = setTimeout(() => { highlightedRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }, 400);
     return () => clearTimeout(t);
   }, [highlightedCrId, activeTab]);
 
   const [heatmapPeopleCount, setHeatmapPeopleCount] = useState<number | null>(null);
   const [heatmapTotals, setHeatmapTotals] = useState<{ totalCost: number; totalCharge: number; hasBothRates: boolean } | null>(null);
-
   const handlePeopleLoaded = useCallback((count: number) => { setHeatmapPeopleCount(count); }, []);
   const [, startTransition] = useTransition();
-  const lastSignalsKeyRef    = useRef<string>("");
+  const lastSignalsKeyRef = useRef<string>("");
   const baselineMonthlyDataRef = useRef<MonthlyData | null>(null);
 
   const [overriddenMonths, setOverriddenMonths] = useState<string[]>(() => {
@@ -1507,11 +1095,7 @@ export default function FinancialPlanEditor({
       .then(r => r.json()).then(d => {
         if (!d.ok) return;
         const people: Array<{ planned_cost: number | null; planned_charge: number | null; cost_day_rate: number | null; charge_day_rate: number | null }> = d.people ?? [];
-        setHeatmapTotals({
-          totalCost:   people.reduce((s, p) => s + (p.planned_cost   ?? 0), 0),
-          totalCharge: people.reduce((s, p) => s + (p.planned_charge ?? 0), 0),
-          hasBothRates: people.some(p => p.cost_day_rate != null && p.charge_day_rate != null && p.cost_day_rate !== p.charge_day_rate),
-        });
+        setHeatmapTotals({ totalCost: people.reduce((s, p) => s + (p.planned_cost ?? 0), 0), totalCharge: people.reduce((s, p) => s + (p.planned_charge ?? 0), 0), hasBothRates: people.some(p => p.cost_day_rate != null && p.charge_day_rate != null && p.cost_day_rate !== p.charge_day_rate) });
       }).catch(() => {});
   }, [projectId, artifactId]);
 
@@ -1528,13 +1112,16 @@ export default function FinancialPlanEditor({
   const actualTotalsPerLine = useMemo(() => computeActualTotalsPerLine(resources, timesheetEntries, lines), [resources, timesheetEntries, lines]);
   const linesWithActuals    = useMemo(() => applyActualsToCostLines(lines, actualTotalsPerLine), [lines, actualTotalsPerLine]);
 
+  // totalApprovedDays: sum only __days__{userId} entries (actual days).
+  // Skip __weekly__ entries (they store £ cost, not days).
+  // Legacy resource-plan entries also store real days so include those too.
   const totalApprovedDays = useMemo(() => {
-    const map: Record<string, number> = {};
+    let total = 0;
     for (const e of timesheetEntries) {
-      if (e.resource_id === "__weekly__") continue; // __weekly__ stores £ cost not days
-      map[e.resource_id] = (map[e.resource_id] ?? 0) + e.approved_days;
+      if (e.resource_id === "__weekly__") continue; // £ cost — skip
+      total += e.approved_days;
     }
-    return Object.values(map).reduce((s, d) => s + d, 0);
+    return total;
   }, [timesheetEntries]);
 
   const resourceTotalsByLine = useMemo(() => {
@@ -1583,21 +1170,19 @@ export default function FinancialPlanEditor({
     return result;
   }, [lines, monthlyData]);
 
-  const linesForDisplay = useMemo(() =>
-    linesWithActuals.map(l => ({ ...l, forecast: forecastFromMonthly[l.id] !== undefined ? forecastFromMonthly[l.id] : l.forecast })),
-  [linesWithActuals, forecastFromMonthly]);
+  const linesForDisplay = useMemo(() => linesWithActuals.map(l => ({ ...l, forecast: forecastFromMonthly[l.id] !== undefined ? forecastFromMonthly[l.id] : l.forecast })), [linesWithActuals, forecastFromMonthly]);
 
-  const totalBudgeted     = sumField(linesForDisplay, "budgeted");
-  const totalActual       = sumField(linesForDisplay, "actual");
-  const totalForecast     = sumField(linesForDisplay, "forecast");
-  const approvedBudget    = Number(content.total_approved_budget) || 0;
-  const forecastVariance  = approvedBudget ? totalForecast - approvedBudget : null;
-  const pendingExposure   = content.change_exposure.filter(c => c.status === "pending").reduce((s, c) => s + (Number(c.cost_impact) || 0), 0);
-  const approvedExposure  = content.change_exposure.filter(c => c.status === "approved").reduce((s, c) => s + (Number(c.cost_impact) || 0), 0);
-  const utilPct           = approvedBudget ? Math.round((totalForecast / approvedBudget) * 100) : null;
-  const overBudget        = forecastVariance !== null && forecastVariance > 0;
+  const totalBudgeted    = sumField(linesForDisplay, "budgeted");
+  const totalActual      = sumField(linesForDisplay, "actual");
+  const totalForecast    = sumField(linesForDisplay, "forecast");
+  const approvedBudget   = Number(content.total_approved_budget) || 0;
+  const forecastVariance = approvedBudget ? totalForecast - approvedBudget : null;
+  const pendingExposure  = content.change_exposure.filter(c => c.status === "pending").reduce((s, c) => s + (Number(c.cost_impact) || 0), 0);
+  const approvedExposure = content.change_exposure.filter(c => c.status === "approved").reduce((s, c) => s + (Number(c.cost_impact) || 0), 0);
+  const utilPct          = approvedBudget ? Math.round((totalForecast / approvedBudget) * 100) : null;
+  const overBudget       = forecastVariance !== null && forecastVariance > 0;
   const totalResourceCost = resources.reduce((s, r) => s + resourceTotal(r), 0);
-  const avgDayRate        = heatmapTotals && totalApprovedDays > 0 ? heatmapTotals.totalCost / totalApprovedDays : 0;
+  const avgDayRate       = heatmapTotals && totalApprovedDays > 0 ? heatmapTotals.totalCost / totalApprovedDays : 0;
 
   useEffect(() => {
     const sigs = analyseFinancialPlan(contentDeps, monthlyDataWithActuals, fyConfig, { lastUpdatedAt: contentDeps.last_updated_at });
@@ -1610,82 +1195,17 @@ export default function FinancialPlanEditor({
   const criticalCount = signals.filter(s => s.severity === "critical").length;
   const warningCount  = signals.filter(s => s.severity === "warning").length;
 
-  const financialSummary = useMemo(() => ({
-    totalBudgeted,
-    totalActual,
-    totalForecast,
-    approvedBudget,
-    forecastVariance,
-    pendingExposure,
-    approvedExposure,
-    utilPct,
-    overBudget,
-  }), [
-    totalBudgeted,
-    totalActual,
-    totalForecast,
-    approvedBudget,
-    forecastVariance,
-    pendingExposure,
-    approvedExposure,
-    utilPct,
-    overBudget,
-  ]);
-
-  const resourceSummary = useMemo(() => ({
-    totalResourceCost,
-    totalApprovedDays,
-    avgDayRate,
-    heatmapPeopleCount,
-    heatmapTotals,
-  }), [
-    totalResourceCost,
-    totalApprovedDays,
-    avgDayRate,
-    heatmapPeopleCount,
-    heatmapTotals,
-  ]);
-
-  const syncSummary = useMemo(() => ({
-    hasArtifact: Boolean(artifactId),
-    hasProject: Boolean(projectId),
-    hasResources: resources.length > 0,
-    hasTimesheets: timesheetEntries.length > 0,
-    monthlyOverrideCount: overriddenMonths.length,
-    lastSyncedAt: content.resource_plan_synced_at ?? null,
-    lastUpdatedAt: content.last_updated_at ?? null,
-  }), [
-    artifactId,
-    projectId,
-    resources.length,
-    timesheetEntries.length,
-    overriddenMonths.length,
-    content.resource_plan_synced_at,
-    content.last_updated_at,
-  ]);
+  const financialSummary = useMemo(() => ({ totalBudgeted, totalActual, totalForecast, approvedBudget, forecastVariance, pendingExposure, approvedExposure, utilPct, overBudget }), [totalBudgeted, totalActual, totalForecast, approvedBudget, forecastVariance, pendingExposure, approvedExposure, utilPct, overBudget]);
+  const resourceSummary  = useMemo(() => ({ totalResourceCost, totalApprovedDays, avgDayRate, heatmapPeopleCount, heatmapTotals }), [totalResourceCost, totalApprovedDays, avgDayRate, heatmapPeopleCount, heatmapTotals]);
+  const syncSummary      = useMemo(() => ({ hasArtifact: Boolean(artifactId), hasProject: Boolean(projectId), hasResources: resources.length > 0, hasTimesheets: timesheetEntries.length > 0, monthlyOverrideCount: overriddenMonths.length, lastSyncedAt: content.resource_plan_synced_at ?? null, lastUpdatedAt: content.last_updated_at ?? null }), [artifactId, projectId, resources.length, timesheetEntries.length, overriddenMonths.length, content.resource_plan_synced_at, content.last_updated_at]);
 
   const tabs = useMemo(() => [
     { id: "overview" as const, label: "Overview" },
     { id: "budget" as const, label: "Cost Breakdown" },
     { id: "resources" as const, label: `Resources${heatmapPeopleCount != null ? ` (${heatmapPeopleCount})` : ""}` },
-    {
-      id: "monthly" as const,
-      label: "Monthly Phasing",
-      badge:
-        criticalCount > 0
-          ? { count: criticalCount, color: P.red }
-          : warningCount > 0
-            ? { count: warningCount, color: P.amber }
-            : undefined,
-    },
-    {
-      id: "changes" as const,
-      label: `Change Exposure${content.change_exposure.length > 0 ? ` (${content.change_exposure.length})` : ""}`,
-    },
-    {
-      id: "billing" as const,
-      label: `Billing${invoices.length > 0 ? ` (${invoices.length})` : ""}`,
-    },
+    { id: "monthly" as const, label: "Monthly Phasing", badge: criticalCount > 0 ? { count: criticalCount, color: P.red } : warningCount > 0 ? { count: warningCount, color: P.amber } : undefined },
+    { id: "changes" as const, label: `Change Exposure${content.change_exposure.length > 0 ? ` (${content.change_exposure.length})` : ""}` },
+    { id: "billing" as const, label: `Billing${invoices.length > 0 ? ` (${invoices.length})` : ""}` },
     { id: "narrative" as const, label: "Narrative & Assumptions" },
   ], [heatmapPeopleCount, criticalCount, warningCount, content.change_exposure.length, invoices.length]);
 
@@ -1694,128 +1214,36 @@ export default function FinancialPlanEditor({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, fontFamily: P.sans }}>
-      <FinancialPlanHeaderBar
-        currency={content.currency}
-        symbol={sym}
-        onCurrencyChange={c => updateField("currency", c)}
-        totalApprovedBudget={content.total_approved_budget}
-        onBudgetChange={v => updateField("total_approved_budget", v)}
-        budgetLocked={budgetLocked}
-        readOnly={readOnly}
-        artifactId={artifactId}
-        lastUpdatedAt={syncSummary.lastUpdatedAt ?? undefined}
-      />
+      <FinancialPlanHeaderBar currency={content.currency} symbol={sym} onCurrencyChange={c => updateField("currency", c)} totalApprovedBudget={content.total_approved_budget} onBudgetChange={v => updateField("total_approved_budget", v)} budgetLocked={budgetLocked} readOnly={readOnly} artifactId={artifactId} lastUpdatedAt={syncSummary.lastUpdatedAt ?? undefined} />
 
-      <FinancialPlanExecutiveSummary
-        symbol={sym}
-        totalBudgeted={financialSummary.totalBudgeted}
-        totalActual={financialSummary.totalActual}
-        totalForecast={financialSummary.totalForecast}
-        approvedBudget={financialSummary.approvedBudget}
-        pendingExposure={financialSummary.pendingExposure}
-        forecastVariance={financialSummary.forecastVariance}
-        utilPct={financialSummary.utilPct}
-        totalApprovedDays={resourceSummary.totalApprovedDays}
-        plannedCost={resourceSummary.heatmapTotals?.totalCost}
-        plannedCharge={resourceSummary.heatmapTotals?.totalCharge}
-      />
+      <FinancialPlanExecutiveSummary symbol={sym} totalBudgeted={financialSummary.totalBudgeted} totalActual={financialSummary.totalActual} totalForecast={financialSummary.totalForecast} approvedBudget={financialSummary.approvedBudget} pendingExposure={financialSummary.pendingExposure} forecastVariance={financialSummary.forecastVariance} utilPct={financialSummary.utilPct} totalApprovedDays={resourceSummary.totalApprovedDays} plannedCost={resourceSummary.heatmapTotals?.totalCost} plannedCharge={resourceSummary.heatmapTotals?.totalCharge} />
 
-      <FinancialPlanInsightRail
-        symbol={sym}
-        overBudget={financialSummary.overBudget}
-        forecastVariance={financialSummary.forecastVariance}
-        totalResourceCost={resourceSummary.totalResourceCost}
-        approvedBudget={financialSummary.approvedBudget}
-        pendingExposure={financialSummary.pendingExposure}
-        signals={signals}
-        totalApprovedDays={resourceSummary.totalApprovedDays}
-        timesheetEntryCount={timesheetEntries.length}
-      />
+      <FinancialPlanInsightRail symbol={sym} overBudget={financialSummary.overBudget} forecastVariance={financialSummary.forecastVariance} totalResourceCost={resourceSummary.totalResourceCost} approvedBudget={financialSummary.approvedBudget} pendingExposure={financialSummary.pendingExposure} signals={signals} totalApprovedDays={resourceSummary.totalApprovedDays} timesheetEntryCount={timesheetEntries.filter(e => e.resource_id === "__weekly__").length + timesheetEntries.filter(e => !e.resource_id.startsWith("__")).length} />
 
       <div>
         <label style={labelStyle}>Plan Summary</label>
-        <textarea
-          value={content.summary}
-          onChange={e => updateField("summary", e.target.value)}
-          readOnly={readOnly}
-          rows={2}
-          placeholder="Brief overview of financial position and key spend areas..."
-          style={{ ...inputBase, width: "100%", resize: "none", lineHeight: 1.5 }}
-        />
+        <textarea value={content.summary} onChange={e => updateField("summary", e.target.value)} readOnly={readOnly} rows={2} placeholder="Brief overview of financial position and key spend areas..." style={{ ...inputBase, width: "100%", resize: "none", lineHeight: 1.5 }} />
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${P.border}`, overflowX: "auto" }}>
         {tabs.map(tab => {
           const active = activeTab === tab.id;
           return (
-            <button
-              type="button"
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "10px 16px",
-                fontFamily: P.sans,
-                fontSize: 12,
-                fontWeight: active ? 700 : 500,
-                cursor: "pointer",
-                background: "none",
-                border: "none",
-                borderBottom: `2px solid ${active ? P.navy : "transparent"}`,
-                color: active ? P.navy : P.textMd,
-                marginBottom: -2,
-                whiteSpace: "nowrap",
-              }}
-            >
+            <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 16px", fontFamily: P.sans, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer", background: "none", border: "none", borderBottom: `2px solid ${active ? P.navy : "transparent"}`, color: active ? P.navy : P.textMd, marginBottom: -2, whiteSpace: "nowrap" }}>
               {tab.id === "overview" && <TrendingUp style={{ width: 12, height: 12 }} />}
               {tab.id === "monthly" && <Calendar style={{ width: 12, height: 12 }} />}
               {tab.id === "resources" && <Users style={{ width: 12, height: 12 }} />}
               {tab.id === "billing" && <Receipt style={{ width: 12, height: 12 }} />}
               {tab.label}
-              {"badge" in tab && tab.badge && (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    minWidth: 16,
-                    height: 16,
-                    padding: "0 4px",
-                    background: tab.badge.color,
-                    color: "#FFF",
-                    fontFamily: P.mono,
-                    fontSize: 9,
-                    fontWeight: 700,
-                  }}
-                >
-                  {tab.badge.count}
-                </span>
-              )}
+              {"badge" in tab && tab.badge && <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 16, height: 16, padding: "0 4px", background: tab.badge.color, color: "#FFF", fontFamily: P.mono, fontSize: 9, fontWeight: 700 }}>{tab.badge.count}</span>}
             </button>
           );
         })}
       </div>
 
       {activeTab === "overview" && (
-        <OverviewTab
-          content={content}
-          linesForDisplay={linesForDisplay}
-          symbol={sym}
-          approvedBudget={approvedBudget}
-          totalForecast={totalForecast}
-          totalActual={totalActual}
-          forecastVariance={forecastVariance}
-          pendingExposure={pendingExposure}
-          approvedExposure={approvedExposure}
-          signals={signals}
-          raidItems={raidItems}
-          approvalDelays={approvalDelays}
-          heatmapTotals={heatmapTotals}
-          totalApprovedDays={totalApprovedDays}
-          avgDayRate={avgDayRate}
-        />
+        <OverviewTab content={content} linesForDisplay={linesForDisplay} symbol={sym} approvedBudget={approvedBudget} totalForecast={totalForecast} totalActual={totalActual} forecastVariance={forecastVariance} pendingExposure={pendingExposure} approvedExposure={approvedExposure} signals={signals} raidItems={raidItems} approvalDelays={approvalDelays} heatmapTotals={heatmapTotals} totalApprovedDays={totalApprovedDays} avgDayRate={avgDayRate} />
       )}
 
       {activeTab === "budget" && (
@@ -1828,19 +1256,19 @@ export default function FinancialPlanEditor({
             <thead>
               <tr style={{ background: "#F4F4F2", borderBottom: `1px solid ${P.borderMd}` }}>
                 {[
-                  { h: "Category",          bg: "#F4F4F2", color: P.textSm },
-                  { h: "Description",       bg: "#F4F4F2", color: P.textSm },
+                  { h: "Category", bg: "#F4F4F2", color: P.textSm },
+                  { h: "Description", bg: "#F4F4F2", color: P.textSm },
                   { h: `Budgeted (${sym})`, bg: "#F4F4F2", color: P.textSm },
-                  { h: `Actual (${sym})`,   bg: P.violetLt, color: P.violet },
-                  { h: `Forecast (${sym})`, bg: P.greenLt,  color: P.green },
-                  { h: "Variance",          bg: "#F4F4F2", color: P.textSm },
-                  { h: "Qty",               bg: "#f0fdf4", color: "#065f46" },
-                  { h: "Unit Cost",         bg: "#f0fdf4", color: "#065f46" },
-                  { h: "Unit Charge",       bg: "#f0fdf4", color: "#059669" },
-                  { h: "Margin",            bg: "#f0fdf4", color: "#059669" },
-                  { h: "Resources",         bg: "#F4F4F2", color: P.textSm },
-                  { h: "Notes",             bg: "#F4F4F2", color: P.textSm },
-                  { h: "",                  bg: "#F4F4F2", color: P.textSm },
+                  { h: `Actual (${sym})`, bg: P.violetLt, color: P.violet },
+                  { h: `Forecast (${sym})`, bg: P.greenLt, color: P.green },
+                  { h: "Variance", bg: "#F4F4F2", color: P.textSm },
+                  { h: "Qty", bg: "#f0fdf4", color: "#065f46" },
+                  { h: "Unit Cost", bg: "#f0fdf4", color: "#065f46" },
+                  { h: "Unit Charge", bg: "#f0fdf4", color: "#059669" },
+                  { h: "Margin", bg: "#f0fdf4", color: "#059669" },
+                  { h: "Resources", bg: "#F4F4F2", color: P.textSm },
+                  { h: "Notes", bg: "#F4F4F2", color: P.textSm },
+                  { h: "", bg: "#F4F4F2", color: P.textSm },
                 ].map(({ h, bg, color }, i) => (
                   <th key={i} style={{ padding: "8px 10px", textAlign: "left", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color, letterSpacing: "0.08em", textTransform: "uppercase", borderBottom: `1px solid ${P.borderMd}`, background: bg, whiteSpace: "nowrap" }}>{h}</th>
                 ))}
@@ -1870,23 +1298,14 @@ export default function FinancialPlanEditor({
                 return (
                   <tr key={l.id} style={{ background: rowBg }}>
                     <td style={{ ...cellBase, minWidth: 140, padding: "4px 6px" }}>
-                      <select value={l.category} onChange={e => updateLine(l.id, { category: e.target.value as CostCategory })} disabled={readOnly}
-                        style={{ width: "100%", border: "none", background: "transparent", fontSize: 11, fontFamily: P.sans, fontWeight: 500, color: P.text, outline: "none", cursor: readOnly ? "default" : "pointer" }}>
+                      <select value={l.category} onChange={e => updateLine(l.id, { category: e.target.value as CostCategory })} disabled={readOnly} style={{ width: "100%", border: "none", background: "transparent", fontSize: 11, fontFamily: P.sans, fontWeight: 500, color: P.text, outline: "none", cursor: readOnly ? "default" : "pointer" }}>
                         {(Object.keys(CATEGORY_LABELS) as CostCategory[]).map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
                       </select>
                     </td>
-                    <td style={{ ...cellBase, minWidth: 160 }}>
-                      <input type="text" value={l.description} onChange={e => updateLine(l.id, { description: e.target.value })} readOnly={readOnly}
-                        placeholder="Description..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }} />
-                    </td>
-                    <td style={{ ...cellBase, background: hasResources && !l.override ? "#F2F8FF" : rowBg }}>
-                      <MoneyCell value={l.budgeted} onChange={v => updateLine(l.id, { budgeted: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
-                    </td>
+                    <td style={{ ...cellBase, minWidth: 160 }}><input type="text" value={l.description} onChange={e => updateLine(l.id, { description: e.target.value })} readOnly={readOnly} placeholder="Description..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }} /></td>
+                    <td style={{ ...cellBase, background: hasResources && !l.override ? "#F2F8FF" : rowBg }}><MoneyCell value={l.budgeted} onChange={v => updateLine(l.id, { budgeted: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} /></td>
                     <td style={{ ...cellBase, background: isPeople ? P.violetLt : rowBg }}>
-                      {isPeople
-                        ? <ActualCell value={l.actual} symbol={sym} approvedDays={lineApprovedDays} hasTimesheetData={hasTimesheetData} />
-                        : <MoneyCell value={l.actual} onChange={v => updateLine(l.id, { actual: v })} symbol={sym} readOnly={readOnly} />
-                      }
+                      {isPeople ? <ActualCell value={l.actual} symbol={sym} approvedDays={lineApprovedDays} hasTimesheetData={hasTimesheetData} /> : <MoneyCell value={l.actual} onChange={v => updateLine(l.id, { actual: v })} symbol={sym} readOnly={readOnly} />}
                     </td>
                     <td style={{ ...cellBase, background: hasMonthlyForecast ? P.greenLt : hasResources && !l.override ? "#F2F8FF" : rowBg }}>
                       {hasMonthlyForecast ? (
@@ -1894,43 +1313,28 @@ export default function FinancialPlanEditor({
                           <Lock style={{ width: 9, height: 9, color: P.green, flexShrink: 0, opacity: 0.7 }} />
                           <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: P.green, fontVariantNumeric: "tabular-nums" }}>{fmt(forecastFromMonthly[l.id], sym)}</span>
                         </div>
-                      ) : (
-                        <MoneyCell value={l.forecast} onChange={v => updateLine(l.id, { forecast: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
-                      )}
+                      ) : <MoneyCell value={l.forecast} onChange={v => updateLine(l.id, { forecast: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />}
                     </td>
                     <td style={{ ...cellBase, padding: "4px 10px" }}><VarianceBadge budget={l.budgeted} forecast={displayForecast} /></td>
                     <td style={{ ...cellBase, background: isPeople ? rowBg : greenBg, minWidth: 60 }}>
-                      {!isPeople ? <input type="number" min={0} step={1} value={l.quantity === "" ? "" : l.quantity} onChange={e => updateLine(l.id, { quantity: e.target.value === "" ? "" : Number(e.target.value) })} readOnly={readOnly} placeholder="1" style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.mono, outline: "none" }} />
-                        : <span style={{ padding: "6px 8px", display: "block", fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
+                      {!isPeople ? <input type="number" min={0} step={1} value={l.quantity === "" ? "" : l.quantity} onChange={e => updateLine(l.id, { quantity: e.target.value === "" ? "" : Number(e.target.value) })} readOnly={readOnly} placeholder="1" style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.mono, outline: "none" }} /> : <span style={{ padding: "6px 8px", display: "block", fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
                     </td>
                     <td style={{ ...cellBase, background: isPeople ? rowBg : greenBg }}>
-                      {!isPeople ? <MoneyCell value={l.unit_cost} onChange={v => { const q = Number(l.quantity || 0); const patch: Partial<CostLine> = { unit_cost: v }; if (q > 0 && v !== "") patch.budgeted = q * Number(v); updateLine(l.id, patch); }} symbol={sym} readOnly={readOnly} />
-                        : <span style={{ padding: "6px 8px", display: "block", fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
+                      {!isPeople ? <MoneyCell value={l.unit_cost} onChange={v => { const q = Number(l.quantity || 0); const patch: Partial<CostLine> = { unit_cost: v }; if (q > 0 && v !== "") patch.budgeted = q * Number(v); updateLine(l.id, patch); }} symbol={sym} readOnly={readOnly} /> : <span style={{ padding: "6px 8px", display: "block", fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
                     </td>
                     <td style={{ ...cellBase, background: isPeople ? rowBg : greenBg }}>
-                      {!isPeople ? <MoneyCell value={l.unit_charge} onChange={v => { const q = Number(l.quantity || 0); const patch: Partial<CostLine> = { unit_charge: v }; if (q > 0 && v !== "") patch.forecast = q * Number(v); updateLine(l.id, patch); }} symbol={sym} readOnly={readOnly} />
-                        : <span style={{ padding: "6px 8px", display: "block", fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
+                      {!isPeople ? <MoneyCell value={l.unit_charge} onChange={v => { const q = Number(l.quantity || 0); const patch: Partial<CostLine> = { unit_charge: v }; if (q > 0 && v !== "") patch.forecast = q * Number(v); updateLine(l.id, patch); }} symbol={sym} readOnly={readOnly} /> : <span style={{ padding: "6px 8px", display: "block", fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
                     </td>
                     <td style={{ ...cellBase, background: isPeople ? rowBg : greenBg, padding: "4px 10px" }}>
-                      {!isPeople && lineMargin != null ? (
-                        <div>
-                          <div style={{ fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: lineMargin >= 0 ? "#059669" : P.red }}>{sym}{Math.abs(lineMargin).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</div>
-                          {marginPct != null && <div style={{ fontFamily: P.mono, fontSize: 8, color: lineMargin >= 0 ? "#059669" : P.red }}>{marginPct}% margin</div>}
-                        </div>
-                      ) : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
+                      {!isPeople && lineMargin != null ? <div><div style={{ fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: lineMargin >= 0 ? "#059669" : P.red }}>{sym}{Math.abs(lineMargin).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</div>{marginPct != null && <div style={{ fontFamily: P.mono, fontSize: 8, color: lineMargin >= 0 ? "#059669" : P.red }}>{marginPct}% margin</div>}</div> : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
                     </td>
                     <td style={{ ...cellBase, padding: "4px 8px", minWidth: 130 }}>
                       {!readOnly && <OverrideToggle line={l} hasLinkedResources={hasResources} resTotal={resTotal} sym={sym} onToggle={() => toggleLineOverride(l.id)} />}
                       {!hasResources && <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>no resources</span>}
                     </td>
-                    <td style={{ ...cellBase, minWidth: 160 }}>
-                      <input type="text" value={l.notes} onChange={e => updateLine(l.id, { notes: e.target.value })} readOnly={readOnly}
-                        placeholder="Notes..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.textMd, fontFamily: P.sans, outline: "none" }} />
-                    </td>
+                    <td style={{ ...cellBase, minWidth: 160 }}><input type="text" value={l.notes} onChange={e => updateLine(l.id, { notes: e.target.value })} readOnly={readOnly} placeholder="Notes..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.textMd, fontFamily: P.sans, outline: "none" }} /></td>
                     <td style={{ ...cellBase, padding: "4px 6px" }}>
-                      {!readOnly && <button type="button" onClick={() => removeLine(l.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
-                        onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
-                        onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0.35"; }} aria-label="Delete cost line"><Trash2 style={{ width: 13, height: 13 }} /></button>}
+                      {!readOnly && <button type="button" onClick={() => removeLine(l.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }} onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }} onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0.35"; }} aria-label="Delete cost line"><Trash2 style={{ width: 13, height: 13 }} /></button>}
                     </td>
                   </tr>
                 );
@@ -1959,22 +1363,12 @@ export default function FinancialPlanEditor({
               );
             })()}
           </table>
-          {!readOnly && (
-            <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
-              <button type="button" onClick={addLine} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.navy, cursor: "pointer", fontWeight: 500 }}>
-                <Plus style={{ width: 14, height: 14 }} /> Add line
-              </button>
-            </div>
-          )}
+          {!readOnly && <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}><button type="button" onClick={addLine} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.navy, cursor: "pointer", fontWeight: 500 }}><Plus style={{ width: 14, height: 14 }} /> Add line</button></div>}
         </div>
       )}
 
       {activeTab === "resources" && (
-        <ResourcesTab resources={resources} costLines={lines} sym={sym} currency={content.currency}
-          readOnly={readOnly} onChange={handleResourcesChange} organisationId={organisationId}
-          monthlyData={monthlyData} fyConfig={fyConfig} timesheetEntries={timesheetEntries}
-          actualsByLine={actualsByLine} onSyncMonthly={d => updateField("monthly_data", d)}
-          projectId={projectId} artifactId={artifactId} onPeopleLoaded={handlePeopleLoaded} />
+        <ResourcesTab resources={resources} costLines={lines} sym={sym} currency={content.currency} readOnly={readOnly} onChange={handleResourcesChange} organisationId={organisationId} monthlyData={monthlyData} fyConfig={fyConfig} timesheetEntries={timesheetEntries} actualsByLine={actualsByLine} onSyncMonthly={d => updateField("monthly_data", d)} projectId={projectId} artifactId={artifactId} onPeopleLoaded={handlePeopleLoaded} />
       )}
 
       {activeTab === "monthly" && (
@@ -1993,63 +1387,28 @@ export default function FinancialPlanEditor({
               </div>
             );
           })()}
-
-          {artifactId && projectId && (
-            <ResourcePlanSyncBar projectId={projectId} artifactId={artifactId} isAdmin={isAdmin}
-              currency={content.currency} lastSyncedAt={content.resource_plan_synced_at ?? null}
-              overriddenMonths={overriddenMonths}
-              onOverrideChange={months => { setOverriddenMonths(months); handleChange({ ...content, resource_plan_overridden_months: JSON.stringify(months) }); }}
-              onSynced={() => { onRequestReload?.(); }} />
-          )}
-
-          {!readOnly && resources.length > 0 && (
-            <ResourceSyncBar resources={resources} costLines={lines} monthlyData={monthlyData}
-              fyConfig={fyConfig} currency={content.currency} timesheetEntries={timesheetEntries}
-              onSync={d => updateField("monthly_data", d)} />
-          )}
-
-          <FinancialIntelligencePanel content={content} monthlyData={monthlyDataWithActuals} fyConfig={fyConfig}
-            lastUpdatedAt={content.last_updated_at} raidItems={raidItems} approvalDelays={approvalDelays} onSignalsChange={setSignals} />
-
-          <FinancialPlanMonthlyView content={content} monthlyData={monthlyDataWithActuals}
-            onMonthlyDataChange={d => updateField("monthly_data", d)}
-            fyConfig={fyConfig} onFyConfigChange={c => updateField("fy_config", c)}
-            signals={signals} readOnly={readOnly} baselineMonthlyData={baselineMonthlyDataRef.current ?? undefined} />
+          {artifactId && projectId && <ResourcePlanSyncBar projectId={projectId} artifactId={artifactId} isAdmin={isAdmin} currency={content.currency} lastSyncedAt={content.resource_plan_synced_at ?? null} overriddenMonths={overriddenMonths} onOverrideChange={months => { setOverriddenMonths(months); handleChange({ ...content, resource_plan_overridden_months: JSON.stringify(months) }); }} onSynced={() => { onRequestReload?.(); }} />}
+          {!readOnly && resources.length > 0 && <ResourceSyncBar resources={resources} costLines={lines} monthlyData={monthlyData} fyConfig={fyConfig} currency={content.currency} timesheetEntries={timesheetEntries} onSync={d => updateField("monthly_data", d)} />}
+          <FinancialIntelligencePanel content={content} monthlyData={monthlyDataWithActuals} fyConfig={fyConfig} lastUpdatedAt={content.last_updated_at} raidItems={raidItems} approvalDelays={approvalDelays} onSignalsChange={setSignals} />
+          <FinancialPlanMonthlyView content={content} monthlyData={monthlyDataWithActuals} onMonthlyDataChange={d => updateField("monthly_data", d)} fyConfig={fyConfig} onFyConfigChange={c => updateField("fy_config", c)} signals={signals} readOnly={readOnly} baselineMonthlyData={baselineMonthlyDataRef.current ?? undefined} />
         </div>
       )}
 
       {activeTab === "changes" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {(() => {
-            const unapplied = content.change_exposure.filter(
-              c => c.status === "approved" && Number(c.cost_impact) !== 0 && !String(c.notes || "").includes("Applied to budget")
-            );
+            const unapplied = content.change_exposure.filter(c => c.status === "approved" && Number(c.cost_impact) !== 0 && !String(c.notes || "").includes("Applied to budget"));
             if (!unapplied.length) return null;
             return (
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 14px", background: P.greenLt, border: "1px solid #A0D0B8", marginBottom: 8 }}>
                 <Check style={{ width: 13, height: 13, color: P.green, flexShrink: 0, marginTop: 1 }} />
                 <div style={{ fontFamily: P.mono, fontSize: 11, color: P.green }}>
-                  <strong>{unapplied.length} approved CR{unapplied.length !== 1 ? "s" : ""}</strong> ready to apply —
-                  click <strong>✓ Apply to budget</strong> on each approved row to update the approved budget ceiling.
-                  Total impact: <strong>{sym}{unapplied.reduce((s, c) => s + (Number(c.cost_impact) || 0), 0).toLocaleString()}</strong>
+                  <strong>{unapplied.length} approved CR{unapplied.length !== 1 ? "s" : ""}</strong> ready to apply — click <strong>✓ Apply to budget</strong> on each approved row to update the approved budget ceiling. Total impact: <strong>{sym}{unapplied.reduce((s, c) => s + (Number(c.cost_impact) || 0), 0).toLocaleString()}</strong>
                 </div>
               </div>
             );
           })()}
-                    {(() => {
-            const unapplied = content.change_exposure.filter(c => c.status === "approved" && Number(c.cost_impact) !== 0 && !String(c.notes || "").includes("Applied to budget"));
-            if (!unapplied.length) return null;
-            const total = unapplied.reduce((s, c) => s + (Number(c.cost_impact) || 0), 0);
-            return (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 14px", background: P.greenLt, border: "1px solid #A0D0B8", marginBottom: 8, borderRadius: 4 }}>
-                <Check style={{ width: 13, height: 13, color: P.green, flexShrink: 0, marginTop: 1 }} />
-                <div style={{ fontFamily: P.mono, fontSize: 11, color: P.green }}>
-                  <strong>{unapplied.length} approved CR{unapplied.length !== 1 ? "s" : ""}</strong> ready — click <strong>✓ Apply to budget</strong>. Total: <strong>{sym}{Math.abs(total).toLocaleString()}</strong>
-                </div>
-              </div>
-            );
-          })()}
-<div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
             {[
               { label: "Approved Exposure", value: fmt(approvedExposure, sym), color: P.navy },
               { label: "Pending Exposure",  value: fmt(pendingExposure, sym),  color: pendingExposure > 0 ? P.amber : P.textSm },
@@ -2076,75 +1435,32 @@ export default function FinancialPlanEditor({
                   const rowBg = idx % 2 === 0 ? P.surface : "#FAFAF8";
                   const cb: React.CSSProperties = { borderBottom: `1px solid ${P.border}`, background: rowBg };
                   return (
-                    <tr
-                    key={c.id}
-                    ref={
-                      (c.id === highlightedCrId || c.change_ref === highlightedCrId)
-                        ? (el) => { highlightedRowRef.current = el; }
-                        : undefined
-                    }
-                    onClick={() => setHighlightedCrId(null)}
-                    style={{
-                      background: (c.id === highlightedCrId || c.change_ref === highlightedCrId) ? "#f0fdf4" : rowBg,
-                      outline: (c.id === highlightedCrId || c.change_ref === highlightedCrId) ? "2px solid #A0D0B8" : "none",
-                      outlineOffset: -2,
-                    }}
-                  >
+                    <tr key={c.id} ref={(c.id === highlightedCrId || c.change_ref === highlightedCrId) ? (el) => { highlightedRowRef.current = el; } : undefined} onClick={() => setHighlightedCrId(null)}
+                      style={{ background: (c.id === highlightedCrId || c.change_ref === highlightedCrId) ? "#f0fdf4" : rowBg, outline: (c.id === highlightedCrId || c.change_ref === highlightedCrId) ? "2px solid #A0D0B8" : "none", outlineOffset: -2 }}>
                       <td style={cb}><input type="text" value={c.change_ref} onChange={e => updateCE(c.id, { change_ref: e.target.value })} readOnly={readOnly} placeholder="CR-001" style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 11, fontFamily: P.mono, color: P.textMd, outline: "none" }} /></td>
                       <td style={{ ...cb, minWidth: 180 }}><input type="text" value={c.title} onChange={e => updateCE(c.id, { title: e.target.value })} readOnly={readOnly} placeholder="Change title..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }} /></td>
                       <td style={cb}><MoneyCell value={c.cost_impact} onChange={v => updateCE(c.id, { cost_impact: v })} symbol={sym} readOnly={readOnly} /></td>
                       <td style={{ ...cb, padding: "4px 8px" }}>
-                        <select value={c.status} onChange={e => updateCE(c.id, { status: e.target.value as ChangeExposure["status"] })} disabled={readOnly}
-                          style={{ fontSize: 10, fontFamily: P.mono, fontWeight: 700, padding: "3px 8px", border: "none", cursor: readOnly ? "default" : "pointer", outline: "none", background: c.status === "approved" ? P.greenLt : c.status === "pending" ? P.amberLt : "#F4F4F2", color: c.status === "approved" ? P.green : c.status === "pending" ? P.amber : P.textSm }}>
+                        <select value={c.status} onChange={e => updateCE(c.id, { status: e.target.value as ChangeExposure["status"] })} disabled={readOnly} style={{ fontSize: 10, fontFamily: P.mono, fontWeight: 700, padding: "3px 8px", border: "none", cursor: readOnly ? "default" : "pointer", outline: "none", background: c.status === "approved" ? P.greenLt : c.status === "pending" ? P.amberLt : "#F4F4F2", color: c.status === "approved" ? P.green : c.status === "pending" ? P.amber : P.textSm }}>
                           <option value="approved">Approved</option><option value="pending">Pending</option><option value="rejected">Rejected</option>
                         </select>
                         {c.status === "approved" && c.cost_impact !== "" && Number(c.cost_impact) !== 0 && !readOnly && (
-                          <button
-                            type="button"
-                            title="Apply this approved CR cost impact to the Approved Budget"
-                            onClick={() => {
-                              const current = Number(content.total_approved_budget) || 0;
-                              const impact  = Number(c.cost_impact) || 0;
-                              updateField("total_approved_budget", current + impact);
-                              updateCE(c.id, { notes: (c.notes ? c.notes + " | " : "") + "Applied to budget: " + sym + Math.abs(impact).toLocaleString("en-GB") + " on " + new Date().toLocaleDateString("en-GB") });
-                            }}
-                            style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, cursor: "pointer", background: P.greenLt, border: "1px solid #A0D0B8", color: P.green }}
-                          >
-                            ✓ Apply to budget
-                          </button>
-                        )}
-                        {c.status === "approved" && c.cost_impact !== "" && Number(c.cost_impact) !== 0 && !readOnly && (
-                          <button
-                            type="button"
-                            title="Apply this approved CR cost impact to the Approved Budget"
-                            onClick={() => {
-                              const current = Number(content.total_approved_budget) || 0;
-                              const impact  = Number(c.cost_impact) || 0;
-                              updateField("total_approved_budget", current + impact);
-                              updateCE(c.id, { notes: (c.notes ? c.notes + " | " : "") + "Applied to budget: " + sym + Math.abs(impact).toLocaleString() + " on " + new Date().toLocaleDateString("en-GB") });
-                            }}
-                            style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, cursor: "pointer", background: P.greenLt, border: "1px solid #A0D0B8", color: P.green }}
-                          >
+                          <button type="button" title="Apply this approved CR cost impact to the Approved Budget" onClick={() => { const current = Number(content.total_approved_budget) || 0; const impact = Number(c.cost_impact) || 0; updateField("total_approved_budget", current + impact); updateCE(c.id, { notes: (c.notes ? c.notes + " | " : "") + "Applied to budget: " + sym + Math.abs(impact).toLocaleString("en-GB") + " on " + new Date().toLocaleDateString("en-GB") }); }}
+                            style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, cursor: "pointer", background: P.greenLt, border: "1px solid #A0D0B8", color: P.green }}>
                             ✓ Apply to budget
                           </button>
                         )}
                       </td>
                       <td style={{ ...cb, minWidth: 160 }}><input type="text" value={c.notes} onChange={e => updateCE(c.id, { notes: e.target.value })} readOnly={readOnly} placeholder="Notes..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.textMd, fontFamily: P.sans, outline: "none" }} /></td>
                       <td style={{ ...cb, padding: "4px 6px" }}>
-                        {!readOnly && <button type="button" onClick={() => removeCE(c.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
-                          onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
-                          onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0"; }} aria-label="Delete change exposure"><Trash2 style={{ width: 13, height: 13 }} /></button>}
+                        {!readOnly && <button type="button" onClick={() => removeCE(c.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }} onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }} onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0"; }} aria-label="Delete change exposure"><Trash2 style={{ width: 13, height: 13 }} /></button>}
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
-            {!readOnly && <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
-              <button type="button" onClick={addCE} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.amber, cursor: "pointer", fontWeight: 500 }}>
-                <Plus style={{ width: 14, height: 14 }} /> Add change exposure
-              </button>
-            </div>}
+            {!readOnly && <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}><button type="button" onClick={addCE} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.amber, cursor: "pointer", fontWeight: 500 }}><Plus style={{ width: 14, height: 14 }} /> Add change exposure</button></div>}
           </div>
         </div>
       )}
@@ -2152,34 +1468,19 @@ export default function FinancialPlanEditor({
       {activeTab === "narrative" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {[
-            { key: "variance_narrative" as const, label: "Variance Narrative",        placeholder: "Explain material variances between budget and forecast..." },
-            { key: "assumptions"        as const, label: "Assumptions & Constraints", placeholder: "Key assumptions: rates, headcount, duration, exchange rate basis..." },
+            { key: "variance_narrative" as const, label: "Variance Narrative", placeholder: "Explain material variances between budget and forecast..." },
+            { key: "assumptions" as const, label: "Assumptions & Constraints", placeholder: "Key assumptions: rates, headcount, duration, exchange rate basis..." },
           ].map(({ key, label, placeholder }) => (
             <div key={key}>
               <label style={labelStyle}>{label}</label>
-              <textarea value={content[key]} onChange={e => updateField(key, e.target.value)} readOnly={readOnly} rows={4}
-                placeholder={placeholder} style={{ ...inputBase, width: "100%", resize: "vertical", lineHeight: 1.6 }} />
+              <textarea value={content[key]} onChange={e => updateField(key, e.target.value)} readOnly={readOnly} rows={4} placeholder={placeholder} style={{ ...inputBase, width: "100%", resize: "vertical", lineHeight: 1.6 }} />
             </div>
           ))}
         </div>
       )}
 
       {activeTab === "billing" && (
-        <BillingCockpit
-          invoices={invoices}
-          onInvoicesChange={inv => updateField("invoices", inv)}
-          costLines={lines}
-          changeExposure={content.change_exposure}
-          currency={content.currency}
-          totalForecast={totalForecast}
-          totalBudget={approvedBudget}
-          plannedCost={heatmapTotals?.totalCost ?? 0}
-          plannedCharge={heatmapTotals?.totalCharge ?? 0}
-          totalCostToDate={totalActual}
-          approvedDaysTotal={totalApprovedDays}
-          avgDayRate={avgDayRate}
-          readOnly={readOnly}
-        />
+        <BillingCockpit invoices={invoices} onInvoicesChange={inv => updateField("invoices", inv)} costLines={lines} changeExposure={content.change_exposure} currency={content.currency} totalForecast={totalForecast} totalBudget={approvedBudget} plannedCost={heatmapTotals?.totalCost ?? 0} plannedCharge={heatmapTotals?.totalCharge ?? 0} totalCostToDate={totalActual} approvedDaysTotal={totalApprovedDays} avgDayRate={avgDayRate} readOnly={readOnly} />
       )}
     </div>
   );

@@ -78,7 +78,7 @@ export async function getApprovedTimesheetEntries(
   if (!orgId) return { ok: true, entries: legacyEntries };
 
   // Step 4: resolve job title for each user
-  // Priority: profiles.job_title → organisation_members.job_title → organisation_members.role
+  // Priority: profiles.job_title → organisation_members.job_title → role
   const userIds = [...new Set(approvedTs.map((t: any) => String(t.user_id)))];
   const jobTitleByUser = new Map<string, string>();
 
@@ -107,40 +107,31 @@ export async function getApprovedTimesheetEntries(
     }
   }
 
-  // Step 5: fetch ALL rate cards for this org (both personal + role-based)
-  // Personal rate (user_id set) takes priority over role-based rate (user_id null)
+  // Step 5: fetch ALL rate cards for this org (personal + role-based)
   const { data: rates } = await supabase
     .from("resource_rates")
     .select("user_id, role_label, rate, rate_type")
     .eq("organisation_id", orgId)
     .eq("rate_type", "day_rate");
 
-  // Map 1: personal rate by user_id → rate
   const personalRateByUser = new Map<string, number>();
-  // Map 2: role-based rate by lowercase role_label → rate
   const rateByLabel = new Map<string, number>();
 
   for (const r of rates ?? []) {
     if (!r.role_label || !r.rate) continue;
     const rate = Number(r.rate);
     if (r.user_id) {
-      // Personal rate — keyed by user
       personalRateByUser.set(String(r.user_id), rate);
     } else {
-      // Role-based rate — keyed by label
       rateByLabel.set(String(r.role_label).toLowerCase().trim(), rate);
     }
   }
 
-  // Helper: resolve day rate for a user
-  // 1. Personal rate (user_id match) → most specific
-  // 2. Role-based rate via job_title → label match
+  // Helper: personal rate first, then role-based via job title
   function getDayRate(userId: string): number {
-    // 1. Personal rate
     const personal = personalRateByUser.get(userId);
     if (personal) return personal;
 
-    // 2. Role-based via job title
     const jobTitle = jobTitleByUser.get(userId);
     if (jobTitle) {
       const roleRate = rateByLabel.get(jobTitle.toLowerCase().trim());
@@ -154,55 +145,75 @@ export async function getApprovedTimesheetEntries(
     return 0;
   }
 
-  // Step 6: group weekly entries by user+month → days × rate = £ cost
-  const costMap = new Map<string, { cost: number; days: number }>();
+  // Step 6: group weekly entries by user+month → accumulate days and £ cost
+  const costMap = new Map<string, { cost: number; days: number; userId: string }>();
 
   for (const row of weeklyRaw ?? []) {
-    const tsId = String(row.timesheet_id);
+    const tsId   = String(row.timesheet_id);
     const userId = approvedMap.get(tsId);
-    if (!userId) continue; // not approved
+    if (!userId) continue;
 
-    const mk = String(row.work_date).slice(0, 7); // YYYY-MM
-    const days = Number(row.hours) / HOURS_PER_DAY;
+    const mk      = String(row.work_date).slice(0, 7); // YYYY-MM
+    const days    = Number(row.hours) / HOURS_PER_DAY;
     const dayRate = getDayRate(userId);
-    const cost = days * dayRate;
+    const cost    = days * dayRate;
 
-    const key = `${mk}__${userId}`;
-    const prev = costMap.get(key) ?? { cost: 0, days: 0 };
+    const key  = `${mk}__${userId}`;
+    const prev = costMap.get(key) ?? { cost: 0, days: 0, userId };
     costMap.set(key, {
-      cost: prev.cost + cost,
-      days: prev.days + days,
+      cost:   prev.cost + cost,
+      days:   prev.days + days,
+      userId,
     });
   }
 
-  // Step 7: collapse to one entry per month, summing cost across users
-  // approved_days stores £ cost (computeActuals multiplies by dayRate=1)
-  const mergedByMonth = new Map<string, number>();
-  const weeklyMonths = new Set<string>();
+  // Step 7: produce two distinct sets of entries:
+  //
+  //   A) "__weekly__" → approved_days = £ cost (consumed by computeActuals, dayRate=1)
+  //   B) "__days__{userId}" → approved_days = actual days (consumed by UI for display only)
+  //
+  // computeActuals only processes "__weekly__" and real resource IDs, so the
+  // "__days__" entries pass through harmlessly and are used by the resources tab
+  // to show approved days and variance per person.
 
-  for (const [key, { cost }] of costMap.entries()) {
+  const weeklyMonths  = new Set<string>();
+  const costByMonth   = new Map<string, number>();           // month → total £ cost
+  const daysByUser    = new Map<string, number>();           // userId → total approved days
+
+  for (const [key, { cost, days, userId }] of costMap.entries()) {
     const mk = key.split("__")[0];
     weeklyMonths.add(mk);
-    mergedByMonth.set(mk, (mergedByMonth.get(mk) ?? 0) + cost);
+    costByMonth.set(mk, (costByMonth.get(mk) ?? 0) + cost);
+    daysByUser.set(userId, (daysByUser.get(userId) ?? 0) + days);
   }
 
-  const finalWeeklyEntries: TimesheetEntry[] = [
-    ...mergedByMonth.entries(),
-  ].map(([mk, cost]) => ({
-    resource_id:   "__weekly__",
-    month_key:     mk,
-    approved_days: Math.round(cost * 100) / 100,
-  }));
+  // A) Cost entries — one per month, used by computeActuals
+  const finalWeeklyEntries: TimesheetEntry[] = [...costByMonth.entries()].map(
+    ([mk, cost]) => ({
+      resource_id:   "__weekly__",
+      month_key:     mk,
+      approved_days: Math.round(cost * 100) / 100,
+    })
+  );
 
-  // Step 8: exclude legacy entries for months already covered by weekly
-  // to avoid double-counting
+  // B) Day entries — one per user, used by resources tab for display
+  //    resource_id = "__days__{userId}" so the component can look up days by user_id
+  const finalDaysEntries: TimesheetEntry[] = [...daysByUser.entries()].map(
+    ([userId, days]) => ({
+      resource_id:   `__days__${userId}`,
+      month_key:     "0000-00", // placeholder — not used for display lookup
+      approved_days: Math.round(days * 100) / 100,
+    })
+  );
+
+  // Step 8: exclude legacy entries for months already covered by weekly timesheets
   const dedupedLegacy = legacyEntries.filter(
     (e) => !weeklyMonths.has(e.month_key)
   );
 
   return {
     ok: true,
-    entries: [...dedupedLegacy, ...finalWeeklyEntries],
+    entries: [...dedupedLegacy, ...finalWeeklyEntries, ...finalDaysEntries],
   };
 }
 
