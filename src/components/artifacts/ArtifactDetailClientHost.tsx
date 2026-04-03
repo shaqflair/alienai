@@ -1,4 +1,4 @@
-// src/components/artifacts/ArtifactDetailClientHost.tsx
+﻿// src/components/artifacts/ArtifactDetailClientHost.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -304,6 +304,7 @@ function FinancialPlanEditorHost({
   });
 
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [timesheetEntries, setTimesheetEntries] = useState<TimesheetEntry[]>([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
