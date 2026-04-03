@@ -568,7 +568,11 @@ export default async function ArtifactDetailPage({
   let initialTimesheetEntries: TimesheetEntry[] = [];
   if (isFinancialPlan && projectUuid) {
     try {
-      const tsResult = await getApprovedTimesheetEntries(String(projectUuid), []);
+      const contentJson = (artifact as any).content_json ?? null;
+      const resourceIds: string[] = Array.isArray(contentJson?.resources)
+        ? contentJson.resources.map((r: any) => String(r.id)).filter(Boolean)
+        : [];
+      const tsResult = await getApprovedTimesheetEntries(String(projectUuid), resourceIds);
       if (tsResult.ok) initialTimesheetEntries = tsResult.entries;
     } catch { /* non-fatal */ }
   }
