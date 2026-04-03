@@ -312,15 +312,7 @@ export default async function ChangeLogPage({
               </span>
             ) : null}
 
-            {compareHref ? (
-              <Link
-                href={compareHref}
-                className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
-                title="Compare versions of the Change Requests artifact"
-              >
-                Compare versions
-              </Link>
-            ) : null}
+
           </div>
         }
       />
