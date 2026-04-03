@@ -24,6 +24,8 @@ import {
   emptyFinancialPlan,
   type FinancialPlanContent,
 } from "@/components/artifacts/FinancialPlanEditor";
+import { getApprovedTimesheetEntries } from "@/app/actions/financial-plan-timesheets";
+import type { TimesheetEntry } from "@/components/artifacts/computeActuals";
 
 /* ---------------- dynamic client components ---------------- */
 const StakeholderRegisterEditor = dynamic(() => import("@/components/editors/StakeholderRegisterEditor"), {
@@ -306,6 +308,7 @@ function FinancialPlanEditorHost({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [timesheetEntries, setTimesheetEntries] = useState<TimesheetEntry[]>([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [timesheetEntries, setTimesheetEntries] = useState<TimesheetEntry[]>([]);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
@@ -399,6 +402,13 @@ function FinancialPlanEditorHost({
       if (!json) return;
       if (json === lastQueuedJsonRef.current && json === lastSavedJsonRef.current) return;
 
+  useEffect(() => {
+    if (!projectId) return;
+    getApprovedTimesheetEntries(projectId, [])
+      .then(r => { if (r.ok) setTimesheetEntries(r.entries); })
+      .catch(() => {});
+  }, [projectId]);
+
       lastQueuedJsonRef.current = json;
       clearPendingSave();
 
@@ -464,6 +474,7 @@ function FinancialPlanEditorHost({
         readOnly={readOnly}
         budgetLocked={budgetLocked}
         onRequestReload={handleRequestReload}
+        timesheetEntries={timesheetEntries}
       />
     </div>
   );
