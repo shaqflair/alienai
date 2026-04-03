@@ -699,6 +699,30 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         console.error("[approve] Budget update failed:", e);
       }
 
+      // Auto-update project dates from CR proposed dates or days impact
+      try {
+        const ia = (cr as any)?.impact_analysis ?? {};
+        const proposedFinish = ia?.proposed?.finish_date ?? null;
+        const proposedStart = ia?.proposed?.start_date ?? null;
+        const daysImpact = Number(ia?.days ?? 0) || 0;
+        const adminDb4 = createAdminClient();
+        if (proposedFinish || proposedStart) {
+          const datePatch: any = { updated_at: now };
+          if (proposedFinish) datePatch.finish_date = proposedFinish;
+          if (proposedStart) datePatch.start_date = proposedStart;
+          await adminDb4.from("projects").update(datePatch).eq("id", projectId);
+        } else if (daysImpact > 0) {
+          const { data: proj } = await adminDb4.from("projects").select("id, finish_date").eq("id", projectId).maybeSingle();
+          if (proj?.finish_date) {
+            const d = new Date(proj.finish_date);
+            d.setDate(d.getDate() + daysImpact);
+            await adminDb4.from("projects").update({ finish_date: d.toISOString().split("T")[0] }).eq("id", projectId);
+          }
+        }
+      } catch (e) {
+        console.error("[approve] date update failed:", e);
+      }
+
       const fresh = await supabase
         .from("change_requests")
         .select("*")
