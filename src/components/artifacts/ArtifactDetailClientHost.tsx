@@ -1,4 +1,4 @@
-﻿// src/components/artifacts/ArtifactDetailClientHost.tsx
+// src/components/artifacts/ArtifactDetailClientHost.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,8 +24,6 @@ import {
   emptyFinancialPlan,
   type FinancialPlanContent,
 } from "@/components/artifacts/FinancialPlanEditor";
-import { getApprovedTimesheetEntries } from "@/app/actions/financial-plan-timesheets";
-import type { TimesheetEntry } from "@/components/artifacts/computeActuals";
 
 /* ---------------- dynamic client components ---------------- */
 const StakeholderRegisterEditor = dynamic(() => import("@/components/editors/StakeholderRegisterEditor"), {
@@ -46,11 +44,6 @@ const ScheduleGanttEditor = dynamic(() => import("@/components/editors/ScheduleG
 const ProjectClosureReportEditor = dynamic(() => import("@/components/editors/ProjectClosureReportEditor"), {
   ssr: false,
   loading: () => <div className="text-sm text-slate-600">Loading Closure Report editor…</div>,
-});
-
-const ChangeManagementBoard = dynamic(() => import("@/components/change/ChangeManagementBoard"), {
-  ssr: false,
-  loading: () => <div className="text-sm text-slate-600">Loading Change Board…</div>,
 });
 
 const WeeklyReportEditor = dynamic(() => import("@/components/editors/WeeklyReportEditor"), {
@@ -304,11 +297,7 @@ function FinancialPlanEditorHost({
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
 }) {
   const [content, setContent] = useState<FinancialPlanContent>(() => {
-    if (
-      initialJson &&
-      typeof initialJson === "object" &&
-      typeof initialJson.currency === "string"
-    ) {
+    if (initialJson && typeof initialJson === "object" && typeof initialJson.currency === "string") {
       return initialJson as FinancialPlanContent;
     }
     return emptyFinancialPlan();
@@ -316,18 +305,6 @@ function FinancialPlanEditorHost({
 
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-
-  const [timesheetEntries, setTimesheetEntries] = useState<TimesheetEntry[]>([]);
-
-  useEffect(() => {
-    if (!projectId) return;
-    // Pass empty resourceIds — weekly_timesheet_entries is the source of truth now.
-    // Passing resourceIds caused double-counting with legacy timesheet_entries.
-    getApprovedTimesheetEntries(projectId, []).then(result => {
-      if (result.ok) setTimesheetEntries(result.entries);
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
@@ -486,7 +463,6 @@ function FinancialPlanEditorHost({
         readOnly={readOnly}
         budgetLocked={budgetLocked}
         onRequestReload={handleRequestReload}
-        timesheetEntries={timesheetEntries}
       />
     </div>
   );
@@ -547,7 +523,7 @@ function PanelsCard({
   if (!showAI && !showTimeline) return null;
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 text-slate-900 shadow-sm space-y-3">
+    <section className="space-y-3 rounded-3xl border border-slate-200 bg-white p-5 text-slate-900 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-slate-900">Insights & activity</div>
@@ -590,9 +566,7 @@ function PanelsCard({
       ) : null}
 
       {!openAI && !openTimeline ? (
-        <div className="text-xs text-slate-500">
-          AI suggestions and timeline are available on demand.
-        </div>
+        <div className="text-xs text-slate-500">AI suggestions and timeline are available on demand.</div>
       ) : null}
     </section>
   );
@@ -644,9 +618,7 @@ function EditorStatusBar({
               </span>
             </div>
 
-            <p className={cx("mt-2 text-sm", tone.sub)}>
-              {meta.description}
-            </p>
+            <p className={cx("mt-2 text-sm", tone.sub)}>{meta.description}</p>
           </div>
         </div>
 
@@ -688,9 +660,7 @@ function DocumentShell({
         </div>
       )}
 
-      <div className="px-6 py-6">
-        {children}
-      </div>
+      <div className="px-6 py-6">{children}</div>
     </section>
   );
 }
@@ -762,7 +732,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   const effectiveLegacyExports =
     mode === "charter" ? (isCharterV2 ? undefined : legacyExports) : legacyExports;
 
-  const shouldHidePanels = mode === "charter" || isFinancialPlan;
+  const shouldHidePanels = mode === "charter" || isFinancialPlan || mode === "change_requests";
 
   const baseDraftRev = useMemo(() => {
     const candidates = [
@@ -949,6 +919,42 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     );
   }
 
+  if (mode === "change_requests") {
+    return (
+      <div className="space-y-6 text-slate-900">
+        <DocumentShell
+          header={
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Change requests</div>
+              <div className="mt-1 text-xs text-slate-500">
+                Change control is managed from the dedicated board, not inside the artifact host.
+              </div>
+            </div>
+          }
+          subheader={
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs text-slate-500">
+                Open the board to manage pipeline, approvals, impact, and implementation flow.
+              </div>
+              <Link
+                href={`/projects/${encodeURIComponent(projectId)}/change`}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50"
+                prefetch={false}
+              >
+                Open Change Control
+              </Link>
+            </div>
+          }
+        >
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+            This artifact surface no longer embeds the Change Board UI. That prevents ghost controls,
+            washed-out header states, and duplicate board chrome.
+          </div>
+        </DocumentShell>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 text-slate-900">
       {!isApproverMode && !approvalLocked && mode !== "weekly_report" ? (
@@ -964,7 +970,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         />
       ) : null}
 
-      {(mode === "weekly_report" || effectiveReadOnly || approvalLocked || isApproverReviewMode) ? (
+      {mode === "weekly_report" || effectiveReadOnly || approvalLocked || isApproverReviewMode ? (
         <EditorStatusBar
           effectiveReadOnly={effectiveReadOnly}
           approvalLocked={approvalLocked}
@@ -975,187 +981,129 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         />
       ) : null}
 
-      {mode === "change_requests" ? (
-        <section className="w-full text-slate-900">
-          <DocumentShell
-            header={
-              <div>
-                <div className="text-sm font-semibold text-slate-900">Change Requests</div>
-                <div className="mt-1 text-xs text-slate-500">
-                  Open the dedicated board to manage change control, approvals, and delivery impact.
-                </div>
+      <>
+        <DocumentShell
+          header={contentHeader}
+          subheader={
+            effectiveReadOnly ? (
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <Eye className="h-3.5 w-3.5" />
+                Readability is preserved in locked and approved states.
               </div>
-            }
-            subheader={
-              <div className="flex justify-end">
-                <Link
-                  href={`/projects/${encodeURIComponent(projectId)}/change`}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50"
-                  prefetch={false}
-                >
-                  Open Change Control
-                </Link>
-              </div>
-            }
-          >
-            <div className="text-sm text-slate-600">
-              Use the dedicated board for operational change handling rather than the artifact surface.
-            </div>
-          </DocumentShell>
-
-          {!shouldHidePanels ? (
-            <div className="mt-6">
-              <PanelsCard
-                showAI={showAI}
-                showTimeline={showTimeline}
-                openAI={openAI}
-                openTimeline={openTimeline}
-                setOpenAI={setOpenAI}
-                setOpenTimeline={setOpenTimeline}
-                aiTargetType={aiTargetType}
-                aiTitle={aiTitle}
-                projectId={projectId}
-                artifactId={artifactId}
-                mode={mode}
-                devHost={devHost}
-              />
-            </div>
-          ) : null}
-        </section>
-      ) : (
-        <>
-          <DocumentShell
-            header={contentHeader}
-            subheader={
-              effectiveReadOnly ? (
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <Eye className="h-3.5 w-3.5" />
-                  Readability is preserved in locked and approved states.
-                </div>
-              ) : null
-            }
-          >
-            {isApproverMode ? (
-              <ProjectCharterEditorFormLazy
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={charterInitial}
-                readOnly={true}
-                lockLayout={true}
-                artifactVersion={artifactVersion}
-                projectTitle={projectTitle}
-                projectManagerName={projectManagerName ?? undefined}
-                legacyExports={effectiveLegacyExports}
-                approvalEnabled={!!approvalEnabled}
-                canSubmitOrResubmit={false}
-                approvalStatus={approvalStatus ?? null}
-                submitForApprovalAction={null}
-                isApprover={true}
-                onRequestChangesWithComments={handleRequestChangesWithComments}
-              />
-            ) : (
-             <div
-  className="relative [&_*]:opacity-100 [&_*]:blur-0"
-  style={{
-    filter: "none",
-    backdropFilter: "none",
-  }}
->                {mode === "charter" ? (
-                  <ProjectCharterEditorFormLazy
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={charterInitial}
-                    readOnly={effectiveReadOnly}
-                    artifactVersion={artifactVersion}
-                    projectTitle={projectTitle}
-                    projectManagerName={projectManagerName ?? undefined}
-                    legacyExports={effectiveLegacyExports}
-                    approvalEnabled={!!approvalEnabled}
-                    canSubmitOrResubmit={allowSubmitInEditor && !effectiveReadOnly}
-                    approvalStatus={approvalStatus ?? null}
-                    submitForApprovalAction={allowSubmitInEditor && !effectiveReadOnly ? submitForApprovalAction : null}
-                  />
-                ) : mode === "stakeholder" ? (
-                  <StakeholderRegisterEditor
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={rawContentJson ?? null}
-                    readOnly={effectiveReadOnly}
-                  />
-                ) : mode === "wbs" ? (
-                  <WBSEditor
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={rawContentJson ?? null}
-                    readOnly={effectiveReadOnly}
-                  />
-                ) : mode === "schedule" ? (
-                  <ScheduleGanttEditor
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={typedInitialJson ?? null}
-                    readOnly={effectiveReadOnly}
-                    projectTitle={projectTitle || ""}
-                    projectStartDate={projectStartDate ?? null}
-                    projectFinishDate={projectFinishDate ?? null}
-                    latestWbsJson={latestWbsJson ?? null}
-                    wbsArtifactId={wbsArtifactId ?? null}
-                  />
-                ) : mode === "closure" ? (
-                  <ProjectClosureReportEditor
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={typedInitialJson ?? null}
-                    readOnly={effectiveReadOnly}
-                  />
-                ) : mode === "weekly_report" ? (
-                  <WeeklyReportEditor
-                    projectId={projectId}
-                    artifactId={artifactId}
-                    initialJson={typedInitialJson ?? rawContentJson ?? null}
-                    readOnly={effectiveReadOnly}
-                    updateArtifactJsonAction={updateArtifactJsonAction}
-                  />
-                ) : mode === "change_requests" ? (
-                  <ChangeManagementBoard
-                    projectId={projectId}
-                  />
-                ) : (
-                  <div className="grid gap-3">
-                    {String(rawContentText ?? "").trim().length === 0 ? (
-                      <div className="text-sm text-slate-600">No content yet.</div>
-                    ) : null}
-
-                    <textarea
-                      rows={14}
-                      readOnly
-                      value={String(rawContentText ?? "")}
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm text-slate-900 whitespace-pre-wrap outline-none"
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </DocumentShell>
-
-          {!shouldHidePanels ? (
-            <PanelsCard
-              showAI={showAI}
-              showTimeline={showTimeline}
-              openAI={openAI}
-              openTimeline={openTimeline}
-              setOpenAI={setOpenAI}
-              setOpenTimeline={setOpenTimeline}
-              aiTargetType={aiTargetType}
-              aiTitle={aiTitle}
+            ) : null
+          }
+        >
+          {isApproverMode ? (
+            <ProjectCharterEditorFormLazy
               projectId={projectId}
               artifactId={artifactId}
-              mode={mode}
-              devHost={devHost}
+              initialJson={charterInitial}
+              readOnly={true}
+              lockLayout={true}
+              artifactVersion={artifactVersion}
+              projectTitle={projectTitle}
+              projectManagerName={projectManagerName ?? undefined}
+              legacyExports={effectiveLegacyExports}
+              approvalEnabled={!!approvalEnabled}
+              canSubmitOrResubmit={false}
+              approvalStatus={approvalStatus ?? null}
+              submitForApprovalAction={null}
+              isApprover={true}
+              onRequestChangesWithComments={handleRequestChangesWithComments}
             />
-          ) : null}
-        </>
-      )}
+          ) : (
+            <div className="relative">
+              {mode === "charter" ? (
+                <ProjectCharterEditorFormLazy
+                  projectId={projectId}
+                  artifactId={artifactId}
+                  initialJson={charterInitial}
+                  readOnly={effectiveReadOnly}
+                  artifactVersion={artifactVersion}
+                  projectTitle={projectTitle}
+                  projectManagerName={projectManagerName ?? undefined}
+                  legacyExports={effectiveLegacyExports}
+                  approvalEnabled={!!approvalEnabled}
+                  canSubmitOrResubmit={allowSubmitInEditor && !effectiveReadOnly}
+                  approvalStatus={approvalStatus ?? null}
+                  submitForApprovalAction={allowSubmitInEditor && !effectiveReadOnly ? submitForApprovalAction : null}
+                />
+              ) : mode === "stakeholder" ? (
+                <StakeholderRegisterEditor
+                  projectId={projectId}
+                  artifactId={artifactId}
+                  initialJson={rawContentJson ?? null}
+                  readOnly={effectiveReadOnly}
+                />
+              ) : mode === "wbs" ? (
+                <WBSEditor
+                  projectId={projectId}
+                  artifactId={artifactId}
+                  initialJson={rawContentJson ?? null}
+                  readOnly={effectiveReadOnly}
+                />
+              ) : mode === "schedule" ? (
+                <ScheduleGanttEditor
+                  projectId={projectId}
+                  artifactId={artifactId}
+                  initialJson={typedInitialJson ?? null}
+                  readOnly={effectiveReadOnly}
+                  projectTitle={projectTitle || ""}
+                  projectStartDate={projectStartDate ?? null}
+                  projectFinishDate={projectFinishDate ?? null}
+                  latestWbsJson={latestWbsJson ?? null}
+                  wbsArtifactId={wbsArtifactId ?? null}
+                />
+              ) : mode === "closure" ? (
+                <ProjectClosureReportEditor
+                  projectId={projectId}
+                  artifactId={artifactId}
+                  initialJson={typedInitialJson ?? null}
+                  readOnly={effectiveReadOnly}
+                />
+              ) : mode === "weekly_report" ? (
+                <WeeklyReportEditor
+                  projectId={projectId}
+                  artifactId={artifactId}
+                  initialJson={typedInitialJson ?? rawContentJson ?? null}
+                  readOnly={effectiveReadOnly}
+                  updateArtifactJsonAction={updateArtifactJsonAction}
+                />
+              ) : (
+                <div className="grid gap-3">
+                  {String(rawContentText ?? "").trim().length === 0 ? (
+                    <div className="text-sm text-slate-600">No content yet.</div>
+                  ) : null}
+
+                  <textarea
+                    rows={14}
+                    readOnly
+                    value={String(rawContentText ?? "")}
+                    className="w-full whitespace-pre-wrap rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm text-slate-900 outline-none"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </DocumentShell>
+
+        {!shouldHidePanels ? (
+          <PanelsCard
+            showAI={showAI}
+            showTimeline={showTimeline}
+            openAI={openAI}
+            openTimeline={openTimeline}
+            setOpenAI={setOpenAI}
+            setOpenTimeline={setOpenTimeline}
+            aiTargetType={aiTargetType}
+            aiTitle={aiTitle}
+            projectId={projectId}
+            artifactId={artifactId}
+            mode={mode}
+            devHost={devHost}
+          />
+        ) : null}
+      </>
     </div>
   );
 }
