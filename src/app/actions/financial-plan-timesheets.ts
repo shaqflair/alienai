@@ -1,7 +1,10 @@
 "use server";
+
 import { createClient } from "@/utils/supabase/server";
 import type { TimesheetEntry } from "@/components/artifacts/computeActuals";
 import type { FetchTimesheetResult } from "./financial-plan-timesheets.shared";
+
+const HOURS_PER_DAY = 8;
 
 export async function getApprovedTimesheetEntries(
   projectId: string,
@@ -10,11 +13,11 @@ export async function getApprovedTimesheetEntries(
   if (!projectId) return { ok: true, entries: [] };
 
   const supabase = await createClient();
-  const entries: TimesheetEntry[] = [];
 
-  // Source 1: legacy timesheet_entries (resource-plan linked)
+  // --- 1. Legacy resource-plan entries (timesheet_entries table) ---
+  const legacyEntries: TimesheetEntry[] = [];
   if (resourceIds.length > 0) {
-    const { data: legacyData, error: legacyErr } = await supabase
+    const { data: legacy } = await supabase
       .from("timesheet_entries")
       .select("resource_id, month_key, approved_days")
       .eq("project_id", projectId)
@@ -22,9 +25,9 @@ export async function getApprovedTimesheetEntries(
       .in("resource_id", resourceIds)
       .gt("approved_days", 0)
       .order("month_key", { ascending: true });
-    if (legacyErr) return { ok: false, error: legacyErr.message };
-    for (const row of legacyData ?? []) {
-      entries.push({
+
+    for (const row of legacy ?? []) {
+      legacyEntries.push({
         resource_id:   String(row.resource_id),
         month_key:     String(row.month_key),
         approved_days: Number(row.approved_days),
@@ -32,96 +35,104 @@ export async function getApprovedTimesheetEntries(
     }
   }
 
-  // Source 2: weekly_timesheet_entries joined to timesheets
-  const { data: weeklyData, error: weeklyErr } = await supabase
+  // --- 2. Weekly timesheet entries — two separate queries to avoid join issues ---
+  // Step 1: get all weekly entries for this project
+  const { data: weeklyRaw, error } = await supabase
     .from("weekly_timesheet_entries")
-    .select("work_date, hours, timesheets!inner(user_id, status, organisation_id)")
+    .select("timesheet_id, work_date, hours")
     .eq("project_id", projectId)
-    .eq("timesheets.status", "approved")
     .gt("hours", 0);
 
-  if (weeklyErr) {
-    console.warn("[financial-plan-timesheets] weekly fetch error:", weeklyErr.message);
-    return { ok: true, entries };
-  }
-  if (!weeklyData || weeklyData.length === 0) return { ok: true, entries };
+  if (error) return { ok: false, error: error.message };
 
-  const userIds = [...new Set(weeklyData.map((r: any) => r.timesheets?.user_id).filter(Boolean))];
-  const orgId   = (weeklyData[0] as any).timesheets?.organisation_id ?? null;
+  // Step 2: find which of those timesheets are approved
+  const timesheetIds = [...new Set((weeklyRaw ?? []).map((r: any) => String(r.timesheet_id)))];
+  const approvedIds = new Set<string>();
 
-  const rateByUser: Record<string, number> = {};
-
-  if (userIds.length > 0 && orgId) {
-    // Get job_title from profiles (primary source of truth)
-    const { data: profileData } = await supabase
-      .from("profiles")
-      .select("user_id, job_title")
-      .in("user_id", userIds);
-
-    // Fallback: organisation_members
-    const { data: memberData } = await supabase
-      .from("organisation_members")
-      .select("user_id, job_title")
-      .eq("organisation_id", orgId)
-      .in("user_id", userIds);
-
-    const jobTitleByUser: Record<string, string> = {};
-    for (const m of memberData ?? []) {
-      if (m.user_id && m.job_title) jobTitleByUser[m.user_id] = m.job_title;
-    }
-    for (const p of profileData ?? []) {
-      if (p.user_id && p.job_title) jobTitleByUser[p.user_id] = p.job_title;
-    }
-
-    // Get all rates for this org
-    const { data: rateData } = await supabase
-      .from("resource_rates")
-      .select("user_id, role_label, rate, rate_type")
-      .eq("organisation_id", orgId)
-      .order("effective_from", { ascending: false });
-
-    const ratesByUserId:    Record<string, number> = {};
-    const ratesByRoleLabel: Record<string, number> = {};
-
-    for (const r of rateData ?? []) {
-      const dayRate = r.rate_type === "monthly_cost" ? Number(r.rate) / 20 : Number(r.rate);
-      if (r.user_id && !ratesByUserId[r.user_id])           ratesByUserId[r.user_id]                   = dayRate;
-      if (r.role_label && !ratesByRoleLabel[r.role_label.toLowerCase()]) ratesByRoleLabel[r.role_label.toLowerCase()] = dayRate;
-    }
-
-    for (const userId of userIds) {
-      if (ratesByUserId[userId]) {
-        rateByUser[userId] = ratesByUserId[userId];
-      } else {
-        const jt = jobTitleByUser[userId];
-        if (jt && ratesByRoleLabel[jt.toLowerCase()]) {
-          rateByUser[userId] = ratesByRoleLabel[jt.toLowerCase()];
-        } else {
-          console.warn("[financial-plan-timesheets] no rate for user:", userId, "job_title:", jt ?? "unknown");
-        }
-      }
-    }
+  if (timesheetIds.length > 0) {
+    const { data: approvedTs } = await supabase
+      .from("timesheets")
+      .select("id")
+      .in("id", timesheetIds)
+      .eq("status", "approved");
+    (approvedTs ?? []).forEach((t: any) => approvedIds.add(String(t.id)));
   }
 
-  const byMonth: Record<string, number> = {};
-  for (const row of weeklyData) {
-    const workDate = String((row as any).work_date ?? "");
-    if (!workDate) continue;
-    const d = new Date(workDate);
-    if (isNaN(d.getTime())) continue;
-    const monthKey = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
-    const days     = (Number((row as any).hours) || 0) / 8;
-    const userId   = (row as any).timesheets?.user_id;
-    const dayRate  = userId ? (rateByUser[userId] ?? 0) : 0;
-    if (dayRate === 0) continue;
-    byMonth[monthKey] = (byMonth[monthKey] ?? 0) + (days * dayRate);
+  // Step 3: group by month, sum hours → days, only approved timesheets
+  const monthMap = new Map<string, number>();
+  for (const row of weeklyRaw ?? []) {
+    if (!approvedIds.has(String(row.timesheet_id))) continue;
+    const mk   = String(row.work_date).slice(0, 7); // YYYY-MM
+    const days = Number(row.hours) / HOURS_PER_DAY;
+    monthMap.set(mk, (monthMap.get(mk) ?? 0) + days);
   }
 
-  for (const [month_key, totalCost] of Object.entries(byMonth)) {
-    if (totalCost > 0) {
-      entries.push({ resource_id: "__weekly__", month_key, approved_days: Math.round(totalCost * 100) / 100 });
-    }
-  }
+  const weeklyEntries: TimesheetEntry[] = [...monthMap.entries()].map(([mk, days]) => ({
+    resource_id:   "__weekly__",
+    month_key:     mk,
+    approved_days: Math.round(days * 100) / 100,
+  }));
 
-  return { ok: true, entries };
+  return { ok: true, entries: [...legacyEntries, ...weeklyEntries] };
+}
+
+export async function submitTimesheetEntry({
+  projectId,
+  resourceId,
+  monthKey,
+  days,
+}: {
+  projectId: string;
+  resourceId: string;
+  monthKey: string;
+  days: number;
+}): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) return { ok: false, error: "Not authenticated" };
+
+  const { error } = await supabase.from("timesheet_entries").upsert(
+    {
+      project_id:    projectId,
+      resource_id:   resourceId,
+      month_key:     monthKey,
+      approved_days: days,
+      status:        "submitted",
+      submitted_at:  new Date().toISOString(),
+      submitted_by:  user.id,
+    },
+    { onConflict: "project_id,resource_id,month_key" }
+  );
+
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+export async function approveTimesheetEntry({
+  projectId,
+  resourceId,
+  monthKey,
+}: {
+  projectId: string;
+  resourceId: string;
+  monthKey: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) return { ok: false, error: "Not authenticated" };
+
+  const { error } = await supabase
+    .from("timesheet_entries")
+    .update({
+      status:      "approved",
+      approved_at: new Date().toISOString(),
+      approved_by: user.id,
+    })
+    .eq("project_id", projectId)
+    .eq("resource_id", resourceId)
+    .eq("month_key", monthKey)
+    .eq("status", "submitted");
+
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
 }
