@@ -326,25 +326,26 @@ const BOARD_CSS = `
     align-items:flex-start;
     justify-content:space-between;
     gap:16px;
-    padding:20px 24px 0;
+    padding:8px 24px 0;
   }
 
   .kb-title {
-    font-size:18px;
+    font-size:20px;
     font-weight:800;
-    color:#111827;
+    color:#0f172a;
     letter-spacing:-0.03em;
+    line-height:1.2;
   }
 
   .kb-sub {
-    font-size:12.5px;
-    color:#94a3b8;
-    margin-top:4px;
+    font-size:13px;
+    color:#64748b;
+    margin-top:6px;
     font-weight:500;
   }
 
   .kb-wip-warn {
-    margin-top:8px;
+    margin-top:10px;
     font-size:11px;
     color:#b91c1c;
     background:rgba(220,38,38,0.06);
@@ -1191,71 +1192,72 @@ function SortableCard({
                 <span className="kb-card-id">{changeDisplay(item)}</span>
               </div>
 
-<div className="kb-card-badges">
-  {priConf && item.priority && (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "4px 10px",
-        borderRadius: 999,
-        background: priConf.softBg,
-        color: priConf.color,
-        fontSize: 10,
-        fontWeight: 800,
-        border: "none",
-        boxShadow: "none",
-        outline: "none",
-      }}
-    >
-      <span
-        style={{
-          fontSize: 9,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          opacity: 0.7,
-          fontWeight: 700,
-        }}
-      >
-        Priority
-      </span>
-      <span>{safeStr(item.priority)}</span>
-    </div>
-  )}
+              <div className="kb-card-badges">
+                {priConf && item.priority && (
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      background: priConf.softBg,
+                      color: priConf.color,
+                      fontSize: 10,
+                      fontWeight: 800,
+                      border: "none",
+                      boxShadow: "none",
+                      outline: "none",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 9,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        opacity: 0.7,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Priority
+                    </span>
+                    <span>{safeStr(item.priority)}</span>
+                  </div>
+                )}
 
-  {riskLabel && (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "4px 10px",
-        borderRadius: 999,
-        background: risk.softBg,
-        color: risk.dot,
-        fontSize: 10,
-        fontWeight: 800,
-        border: "none",
-        boxShadow: "none",
-        outline: "none",
-      }}
-    >
-      <span
-        style={{
-          fontSize: 9,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          opacity: 0.7,
-          fontWeight: 700,
-        }}
-      >
-        Risk
-      </span>
-      <span>{riskLabel}</span>
-    </div>
-  )}
-</div>          </div>
+                {riskLabel && (
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      background: risk.softBg,
+                      color: risk.dot,
+                      fontSize: 10,
+                      fontWeight: 800,
+                      border: "none",
+                      boxShadow: "none",
+                      outline: "none",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 9,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        opacity: 0.7,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Risk
+                    </span>
+                    <span>{riskLabel}</span>
+                  </div>
+                )}
+              </div>
+            </div>
 
             <button
               type="button"
@@ -1587,12 +1589,10 @@ export default function ChangeBoardDnd({
     setEditInitialValue(mapRowToModalInitialValue(it));
     setEditApproval(null);
     setEditOpen(true);
-    // Fetch approval progress for this change
     fetch(`/api/change/${encodeURIComponent(it.id)}`)
       .then(r => r.json().catch(() => ({})))
       .then(j => {
         if (j?.approvals) {
-          // Map myAction.canApprove to top-level canApprove for the modal
           const appr = j.approvals;
           setEditApproval({
             ...appr,
@@ -1772,10 +1772,7 @@ export default function ChangeBoardDnd({
     <div className="kb-root">
       <div className="kb-topbar">
         <div>
-          <div className="kb-title">
-            Change Board
-            {projectLabel ? <span style={{ color: "#94a3b8", fontWeight: 500 }}> · {projectLabel}</span> : null}
-          </div>
+          <div className="kb-title">Change Board</div>
           <div className="kb-sub">
             {totalItems} change{totalItems !== 1 ? "s" : ""} across {LANES.length} stages · drag to move
           </div>
