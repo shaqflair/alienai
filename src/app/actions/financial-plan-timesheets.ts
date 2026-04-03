@@ -103,6 +103,12 @@ export async function getApprovedTimesheetEntries(
     }
   }
 
+  // Debug: log what we found
+  console.log("[timesheets] orgId:", orgId);
+  console.log("[timesheets] userIds:", userIds);
+  console.log("[timesheets] jobTitleByUser:", Object.fromEntries(jobTitleByUser));
+  console.log("[timesheets] rateByLabel:", Object.fromEntries(rateByLabel));
+
   // Helper: get day rate for a user
   function getDayRate(userId: string): number {
     const jobTitle = jobTitleByUser.get(userId);
