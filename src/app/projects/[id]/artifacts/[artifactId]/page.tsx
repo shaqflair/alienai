@@ -23,6 +23,8 @@ import {
   renameArtifactTitle,
 } from "./approval-actions";
 import { displayType } from "./_lib/artifact-detail-utils";
+import { getApprovedTimesheetEntries } from "@/app/actions/financial-plan-timesheets";
+import type { TimesheetEntry } from "@/components/artifacts/computeActuals";
 import { loadArtifactDetail } from "./_lib/loadArtifactDetail";
 import FinancialPlanAuditTrail from "@/components/artifacts/FinancialPlanAuditTrail";
 
@@ -560,6 +562,15 @@ export default async function ArtifactDetailPage({
     revalidatePath(artifactsPath);
     revalidatePath(artifactPath);
     redirect(artifactPath);
+  }
+
+  // Fetch approved timesheet entries server-side for financial plan
+  let initialTimesheetEntries: TimesheetEntry[] = [];
+  if (isFinancialPlan && projectUuid) {
+    try {
+      const tsResult = await getApprovedTimesheetEntries(String(projectUuid), []);
+      if (tsResult.ok) initialTimesheetEntries = tsResult.entries;
+    } catch { /* non-fatal */ }
   }
 
   const jsonSaveAction = isFinancialPlan ? updateArtifactJsonSilent : updateArtifactJsonArgs;
@@ -1230,6 +1241,7 @@ export default async function ArtifactDetailPage({
             updateArtifactJsonAction={jsonSaveAction}
             isApprover={isApproverViewingSubmitted}
             requestChangesWithCommentsAction={requestChangesWithCommentsAction}
+            initialTimesheetEntries={initialTimesheetEntries}
           />
         </div>
 
