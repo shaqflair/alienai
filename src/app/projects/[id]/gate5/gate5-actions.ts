@@ -451,8 +451,8 @@ export async function loadGate5Status(projectId: string): Promise<Gate5Result | 
       const pctElapsed = elapsed / totalDuration;
       showBadge = pctElapsed >= 0.5; // past halfway
     }
-  } else if (mandatoryBlocked > 0) {
-    showBadge = true; // always show if there are blocks regardless of date
+  } else if (mandatoryBlocked > 0 && daysToEndDate !== null && daysToEndDate <= 30) {
+    showBadge = true; // only show within 30 days of end date
   }
 
   return {
