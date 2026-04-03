@@ -1,13 +1,13 @@
-﻿// computeActuals.ts
+// computeActuals.ts
 // Pure function — approved_days × rate_card_rate, grouped by cost_line_id × month_key.
 // This is the single source of truth for all "Actual" values in the financial plan.
 // Nothing else should write to the actual field — it is derived-only.
 //
 // TWO sources of actuals:
 // 1. Resource-plan entries (resource_id matches a plan resource with cost_line_id + day_rate)
-// 2. Weekly timesheet entries (resource_id === "__weekly__") — mapped to people cost lines
-//    using the implied day rate: budgeted / planned_days_from_resources.
-//    If no resources exist, approved days are shown at £0 but still counted.
+// 2. Weekly timesheet entries (resource_id === "__weekly__") — approved_days holds
+//    pre-computed £ cost (days × rate card rate from the server action).
+//    dayRate=1 so the cost passes through unchanged.
 
 import type { Resource, CostLine } from "./FinancialPlanEditor";
 
@@ -18,58 +18,18 @@ export type TimesheetEntry = {
   resource_id: string;
   /** YYYY-MM */
   month_key: string;
-  /** Number of approved days in this month */
+  /** Number of approved days (legacy) OR pre-computed £ cost (weekly, resource_id === "__weekly__") */
   approved_days: number;
 };
 
 export type ActualsByLine = Record<string, Record<string, number>>;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function impliedDayRate(resources: Resource[], costLines: CostLine[]): { lineId: string; rate: number } | null {
-  // Find people cost lines
-  const peopleLines = costLines.filter(l => l.category === "people");
-  if (peopleLines.length === 0) return null;
-
-  const targetLine = peopleLines[0];
-
-  // Try to get avg day rate from linked resources
-  const linkedResources = resources.filter(r => r.cost_line_id === targetLine.id);
-  if (linkedResources.length > 0) {
-    const rates = linkedResources.map(r =>
-      r.rate_type === "day_rate"
-        ? Number(r.day_rate) || 0
-        : (Number(r.monthly_cost) || 0) / 20
-    ).filter(r => r > 0);
-    if (rates.length > 0) {
-      const avg = rates.reduce((s, r) => s + r, 0) / rates.length;
-      return { lineId: targetLine.id, rate: avg };
-    }
-  }
-
-  // Fall back: use budgeted / planned days if available
-  const budgeted = Number(targetLine.budgeted) || 0;
-  const totalPlannedDays = resources
-    .filter(r => r.cost_line_id === targetLine.id)
-    .reduce((s, r) => {
-      if (r.rate_type === "day_rate") return s + (Number(r.planned_days) || 0);
-      return s + (Number(r.planned_months) || 0) * 20;
-    }, 0);
-
-  if (budgeted > 0 && totalPlannedDays > 0) {
-    return { lineId: targetLine.id, rate: budgeted / totalPlannedDays };
-  }
-
-  // Last resort: show days at £0 cost but still populate the line
-  return { lineId: targetLine.id, rate: 0 };
-}
 
 // ── Core computation ──────────────────────────────────────────────────────────
 
 export function computeActuals(
   resources: Resource[],
   entries: TimesheetEntry[],
-  costLines?: CostLine[],  // optional — needed to handle __weekly__ entries
+  costLines?: CostLine[],
 ): ActualsByLine {
   // Build lookup: resource_id → { lineId, dayRate }
   const dayRateByResourceId = new Map<string, { lineId: string; dayRate: number }>();
@@ -86,9 +46,6 @@ export function computeActuals(
     dayRateByResourceId.set(r.id, { lineId: r.cost_line_id, dayRate });
   }
 
-  // Pre-compute implied rate for weekly entries (only if costLines provided)
-  const weeklyMapping = costLines ? impliedDayRate(resources, costLines) : null;
-
   const result: ActualsByLine = {};
 
   for (const entry of entries) {
@@ -98,11 +55,14 @@ export function computeActuals(
     let dayRate: number;
 
     if (entry.resource_id === "__weekly__") {
-      // approved_days holds pre-computed cost (days x rate card). dayRate=1.
+      // approved_days already holds pre-computed £ cost (days × rate card rate).
+      // Set dayRate=1 so the value passes through unchanged.
       const peopleLine = costLines?.find(l => l.category === "people");
       if (!peopleLine) continue;
-      lineId = peopleLine.id;
+      lineId  = peopleLine.id;
       dayRate = 1;
+    } else {
+      // Legacy resource-plan entry — look up the resource's rate
       const lookup = dayRateByResourceId.get(entry.resource_id);
       if (!lookup) continue;
       lineId  = lookup.lineId;
