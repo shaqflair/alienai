@@ -733,7 +733,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       });
     }
 
-    const toLane = "in_progress";
+    const toLane = "implemented";
 
     await closeApprovalChainIfPossible(supabase, {
       chainId: pending.chainId,
