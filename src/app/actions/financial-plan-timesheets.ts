@@ -91,14 +91,14 @@ export async function getApprovedTimesheetEntries(
 
   if (orgId) {
     const { data: rates } = await supabase
-      .from("rate_cards")
-      .select("label, rate_per_day")
+      .from("resource_rates")
+      .select("role_label, rate")
       .eq("organisation_id", orgId)
-      .eq("is_active", true);
+      .eq("rate_type", "day_rate");
 
     for (const r of rates ?? []) {
-      if (r.label && r.rate_per_day) {
-        rateByLabel.set(String(r.label).toLowerCase().trim(), Number(r.rate_per_day));
+      if (r.role_label && r.rate) {
+        rateByLabel.set(String(r.role_label).toLowerCase().trim(), Number(r.rate));
       }
     }
   }
