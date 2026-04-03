@@ -530,6 +530,66 @@ function AiField({
 /* ═══════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════ */
+
+function ApproverActionPanel({ changeId, projectId, disabled, onDone }: {
+  changeId: string | null;
+  projectId: string;
+  disabled: boolean;
+  onDone: () => void;
+}) {
+  const [note, setNote] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  async function act(action: "approve" | "reject" | "request_changes") {
+    if (!changeId || !projectId) return;
+    setBusy(true);
+    try {
+      const url = action === "approve"
+        ? `/api/change/${encodeURIComponent(changeId)}/approve`
+        : action === "reject"
+        ? `/api/change/${encodeURIComponent(changeId)}/reject`
+        : `/api/change/${encodeURIComponent(changeId)}/request-changes`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, note: note.trim() || undefined, reason: note.trim() || undefined }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j?.ok !== false) { onDone(); }
+      else { alert(j?.error || "Action failed"); }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 320 }}>
+      <textarea
+        placeholder="Add comment or feedback (optional)..."
+        value={note}
+        onChange={e => setNote(e.target.value)}
+        rows={2}
+        style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, resize: "vertical" }}
+        disabled={busy || disabled}
+      />
+      <div style={{ display: "flex", gap: 6 }}>
+        <button type="button" onClick={() => act("approve")} disabled={busy || disabled}
+          style={{ flex: 1, padding: "7px 0", background: "#10b981", color: "#fff", border: "none", borderRadius: 7, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+          {busy ? "..." : "✓ Approve"}
+        </button>
+        <button type="button" onClick={() => act("request_changes")} disabled={busy || disabled}
+          style={{ flex: 1, padding: "7px 0", background: "#f59e0b", color: "#fff", border: "none", borderRadius: 7, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+          {busy ? "..." : "↩ Rework"}
+        </button>
+        <button type="button" onClick={() => act("reject")} disabled={busy || disabled}
+          style={{ flex: 1, padding: "7px 0", background: "#ef4444", color: "#fff", border: "none", borderRadius: 7, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+          {busy ? "..." : "✕ Reject"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ChangeCreateModal({
   open,
   onClose,
@@ -1151,24 +1211,13 @@ export default function ChangeCreateModal({
                 <button type="button" className="ccm-btn ccm-btn-primary ccm-btn-sm" onClick={submitChange} disabled={disabled}>
                   {saving ? (isEdit ? "Saving…" : "Creating…") : isEdit ? "Save Changes" : "Create CR"}
                 </button>
-                {isEdit && (approval?.canApprove ?? false) && (
-                  <>
-                    <button type="button" className="ccm-btn ccm-btn-sm" onClick={async () => {
-                      const pid = resolvedProjectId || projectId;
-                      if (!pid || !changeId) return;
-                      const res = await fetch(`/api/change/${encodeURIComponent(changeId)}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: pid }) });
-                      const j = await res.json().catch(() => ({}));
-                      if (res.ok && j?.ok !== false) onClose(); else alert(j?.error || "Failed");
-                    }} style={{ background: "#10b981", color: "#fff", borderColor: "#10b981" }} disabled={disabled}>Approve</button>
-                    <button type="button" className="ccm-btn ccm-btn-sm" onClick={async () => {
-                      const pid = resolvedProjectId || projectId;
-                      if (!pid || !changeId) return;
-                      const reason = window.prompt("Reason (optional):");
-                      const res = await fetch(`/api/change/${encodeURIComponent(changeId)}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: pid, action: "reject", reason }) });
-                      const j = await res.json().catch(() => ({}));
-                      if (res.ok && j?.ok !== false) onClose(); else alert(j?.error || "Failed");
-                    }} style={{ background: "#ef4444", color: "#fff", borderColor: "#ef4444" }} disabled={disabled}>Reject</button>
-                  </>
+                {(approval?.canApprove ?? false) && (
+                  <ApproverActionPanel
+                    changeId={changeId}
+                    projectId={resolvedProjectId || projectId}
+                    disabled={disabled}
+                    onDone={onClose}
+                  />
                 )}
               </div>
             </div>
