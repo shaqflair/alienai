@@ -12,6 +12,7 @@ import {
   recordArtifactApprovalDecision,
   recomputeApprovalState,
 } from "@/lib/change/server-helpers";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { ensureDedicatedArtifactIdForChangeRequest } from "@/lib/change/resolveDedicatedChangeArtifact";
 import {
   notifyNextChangeStepApprovers,
