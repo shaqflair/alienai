@@ -15,24 +15,22 @@ export async function getApprovedTimesheetEntries(
   const supabase = await createClient();
 
   // --- 1. Legacy resource-plan entries (timesheet_entries table) ---
+  // Fetch ALL approved entries for this project regardless of resource ID
   const legacyEntries: TimesheetEntry[] = [];
-  if (resourceIds.length > 0) {
-    const { data: legacy } = await supabase
-      .from("timesheet_entries")
-      .select("resource_id, month_key, approved_days")
-      .eq("project_id", projectId)
-      .eq("status", "approved")
-      .in("resource_id", resourceIds)
-      .gt("approved_days", 0)
-      .order("month_key", { ascending: true });
+  const { data: legacy } = await supabase
+    .from("timesheet_entries")
+    .select("resource_id, month_key, approved_days")
+    .eq("project_id", projectId)
+    .eq("status", "approved")
+    .gt("approved_days", 0)
+    .order("month_key", { ascending: true });
 
-    for (const row of legacy ?? []) {
-      legacyEntries.push({
-        resource_id:   String(row.resource_id),
-        month_key:     String(row.month_key),
-        approved_days: Number(row.approved_days),
-      });
-    }
+  for (const row of legacy ?? []) {
+    legacyEntries.push({
+      resource_id:   String(row.resource_id),
+      month_key:     String(row.month_key),
+      approved_days: Number(row.approved_days),
+    });
   }
 
   // --- 2. Weekly timesheet entries — two separate queries ---
