@@ -155,8 +155,7 @@ export async function POST(req: Request) {
         .update({
           role,
           removed_at: null,
-          email: auth.user.email ?? null,
-        })
+          })
         .eq("id", existingMembership.id);
 
       if (restoreMembershipErr) {
@@ -170,8 +169,7 @@ export async function POST(req: Request) {
           user_id: auth.user.id,
           role,
           removed_at: null,
-          email: auth.user.email ?? null,
-        });
+          });
 
       if (insertMembershipErr) {
         return err(insertMembershipErr.message, 400);
