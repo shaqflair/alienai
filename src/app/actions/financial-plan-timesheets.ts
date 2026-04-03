@@ -23,7 +23,6 @@ export async function getApprovedTimesheetEntries(
     .gt("approved_days", 0)
     .order("month_key", { ascending: true });
 
-  // Only filter by resourceIds if provided
   if (resourceIds.length > 0) {
     legacyQuery = legacyQuery.in("resource_id", resourceIds);
   }
@@ -38,7 +37,7 @@ export async function getApprovedTimesheetEntries(
 
   // --- 2. Weekly timesheet entries ---
 
-  // Step 1: get all weekly entries for this project
+  // Step 1: get all weekly entries for this project with hours > 0
   const { data: weeklyRaw, error } = await supabase
     .from("weekly_timesheet_entries")
     .select("timesheet_id, work_date, hours")
@@ -52,7 +51,7 @@ export async function getApprovedTimesheetEntries(
   ];
   if (timesheetIds.length === 0) return { ok: true, entries: legacyEntries };
 
-  // Step 2: get approved timesheets with user_id
+  // Step 2: get approved timesheets → user_id
   const { data: approvedTs } = await supabase
     .from("timesheets")
     .select("id, user_id")
@@ -78,11 +77,9 @@ export async function getApprovedTimesheetEntries(
 
   if (!orgId) return { ok: true, entries: legacyEntries };
 
-  // Step 4: get job titles for all approved users
-  // Check profiles first, fall back to organisation_members job_title then role
-  const userIds = [
-    ...new Set(approvedTs.map((t: any) => String(t.user_id))),
-  ];
+  // Step 4: resolve job title for each user
+  // Priority: profiles.job_title → organisation_members.job_title → organisation_members.role
+  const userIds = [...new Set(approvedTs.map((t: any) => String(t.user_id)))];
   const jobTitleByUser = new Map<string, string>();
 
   const { data: profiles } = await supabase
@@ -91,8 +88,8 @@ export async function getApprovedTimesheetEntries(
     .in("user_id", userIds);
 
   for (const p of profiles ?? []) {
-    if (p.job_title)
-      jobTitleByUser.set(String(p.user_id), String(p.job_title).trim());
+    const title = String(p.job_title || "").trim();
+    if (title) jobTitleByUser.set(String(p.user_id), title);
   }
 
   // Fill gaps from organisation_members
@@ -110,53 +107,60 @@ export async function getApprovedTimesheetEntries(
     }
   }
 
-  // Step 5: get role-based rate cards for THIS org (user_id IS NULL = role rates)
-  // Logic: job_title → matches role_label on rate card → rate per day
-  const rateByLabel = new Map<string, number>(); // lowercase role_label → rate_per_day
-
+  // Step 5: fetch ALL rate cards for this org (both personal + role-based)
+  // Personal rate (user_id set) takes priority over role-based rate (user_id null)
   const { data: rates } = await supabase
     .from("resource_rates")
-    .select("role_label, rate, rate_type")
-    .eq("organisation_id", orgId) // scoped to this org only
-    .is("user_id", null)          // role-based cards only (not person-specific)
-    .eq("rate_type", "day_rate"); // day rates only
+    .select("user_id, role_label, rate, rate_type")
+    .eq("organisation_id", orgId)
+    .eq("rate_type", "day_rate");
+
+  // Map 1: personal rate by user_id → rate
+  const personalRateByUser = new Map<string, number>();
+  // Map 2: role-based rate by lowercase role_label → rate
+  const rateByLabel = new Map<string, number>();
 
   for (const r of rates ?? []) {
-    if (r.role_label && r.rate) {
-      rateByLabel.set(
-        String(r.role_label).toLowerCase().trim(),
-        Number(r.rate)
-      );
+    if (!r.role_label || !r.rate) continue;
+    const rate = Number(r.rate);
+    if (r.user_id) {
+      // Personal rate — keyed by user
+      personalRateByUser.set(String(r.user_id), rate);
+    } else {
+      // Role-based rate — keyed by label
+      rateByLabel.set(String(r.role_label).toLowerCase().trim(), rate);
     }
   }
 
-  // Helper: user → job_title → rate card match → day rate
+  // Helper: resolve day rate for a user
+  // 1. Personal rate (user_id match) → most specific
+  // 2. Role-based rate via job_title → label match
   function getDayRate(userId: string): number {
+    // 1. Personal rate
+    const personal = personalRateByUser.get(userId);
+    if (personal) return personal;
+
+    // 2. Role-based via job title
     const jobTitle = jobTitleByUser.get(userId);
-    if (!jobTitle) {
-      console.warn(
-        `[timesheets] No job title found for user ${userId} — cost will be £0`
-      );
-      return 0;
+    if (jobTitle) {
+      const roleRate = rateByLabel.get(jobTitle.toLowerCase().trim());
+      if (roleRate) return roleRate;
     }
-    const rate = rateByLabel.get(jobTitle.toLowerCase().trim());
-    if (!rate) {
-      console.warn(
-        `[timesheets] No rate card match for job title "${jobTitle}" (user ${userId}) — cost will be £0`
-      );
-      return 0;
-    }
-    return rate;
+
+    console.warn(
+      `[timesheets] No rate found for user ${userId} ` +
+      `(job: "${jobTitleByUser.get(userId) ?? "unknown"}") — cost will be £0`
+    );
+    return 0;
   }
 
-  // Step 6: group weekly entries by user+month
-  // approved days × day rate = £ cost
+  // Step 6: group weekly entries by user+month → days × rate = £ cost
   const costMap = new Map<string, { cost: number; days: number }>();
 
   for (const row of weeklyRaw ?? []) {
     const tsId = String(row.timesheet_id);
     const userId = approvedMap.get(tsId);
-    if (!userId) continue; // not approved, skip
+    if (!userId) continue; // not approved
 
     const mk = String(row.work_date).slice(0, 7); // YYYY-MM
     const days = Number(row.hours) / HOURS_PER_DAY;
@@ -171,8 +175,8 @@ export async function getApprovedTimesheetEntries(
     });
   }
 
-  // Step 7: collapse to one entry per month, summing across users
-  // approved_days stores £ cost (computeActuals uses dayRate=1)
+  // Step 7: collapse to one entry per month, summing cost across users
+  // approved_days stores £ cost (computeActuals multiplies by dayRate=1)
   const mergedByMonth = new Map<string, number>();
   const weeklyMonths = new Set<string>();
 
@@ -190,8 +194,8 @@ export async function getApprovedTimesheetEntries(
     approved_days: Math.round(cost * 100) / 100,
   }));
 
-  // Step 8: exclude legacy entries for months already covered by weekly timesheets
-  // to avoid double-counting the same period
+  // Step 8: exclude legacy entries for months already covered by weekly
+  // to avoid double-counting
   const dedupedLegacy = legacyEntries.filter(
     (e) => !weeklyMonths.has(e.month_key)
   );
