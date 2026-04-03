@@ -532,41 +532,118 @@ export async function loadFinancialPlanSummary(input: {
     roleByProject = new Map();
   }
 
-  // Pre-fetch live timesheet actuals per project
-  const liveActualByProject = new Map();
+  // ── Live timesheet actuals ────────────────────────────────────────────────
+  // Logic mirrors financial-plan-timesheets.ts:
+  //   user → job_title (profiles first, org_members fallback)
+  //        → personal rate (user_id match) OR role rate (job_title → role_label)
+  //        → days × rate = £ cost
+  const liveActualByProject = new Map<string, number>();
+
   try {
-    if (effectiveProjectIdsForDisplay.length > 0) {
+    if (effectiveProjectIdsForDisplay.length > 0 && organisationId) {
+      // Step 1: approved weekly timesheet entries
       const { data: wteData } = await supabase
         .from("weekly_timesheet_entries")
-        .select("project_id, hours, timesheets!inner(user_id, status, organisation_id)")
+        .select("project_id, hours, timesheets!inner(user_id, status)")
         .in("project_id", effectiveProjectIdsForDisplay)
         .eq("timesheets.status", "approved")
         .gt("hours", 0);
 
-      if (wteData && wteData.length > 0 && organisationId) {
-        const userIds = [...new Set(wteData.map((r) => r.timesheets?.user_id).filter(Boolean))];
-        const [{ data: rateData }, { data: profileData }, { data: memberData }] = await Promise.all([
-          supabase.from("resource_rates").select("user_id, role_label, rate, rate_type").eq("organisation_id", organisationId).order("effective_from", { ascending: false }),
-          supabase.from("profiles").select("user_id, job_title").in("user_id", userIds),
-          supabase.from("organisation_members").select("user_id, job_title").eq("organisation_id", organisationId).in("user_id", userIds),
-        ]);
-        const jobTitleByUser = {};
-        for (const m of memberData ?? []) { if (m.user_id && m.job_title) jobTitleByUser[m.user_id] = m.job_title; }
-        for (const p of profileData ?? []) { if (p.user_id && p.job_title) jobTitleByUser[p.user_id] = p.job_title; }
-        const ratesByUserId = {};
-        const ratesByRoleLabel = {};
-        for (const r of rateData ?? []) {
-          const dayRate = r.rate_type === "monthly_cost" ? Number(r.rate) / 20 : Number(r.rate);
-          if (r.user_id && !ratesByUserId[r.user_id]) ratesByUserId[r.user_id] = dayRate;
-          if (r.role_label && !ratesByRoleLabel[r.role_label.toLowerCase()]) ratesByRoleLabel[r.role_label.toLowerCase()] = dayRate;
+      if (wteData && wteData.length > 0) {
+        const userIds = [
+          ...new Set(
+            wteData
+              .map((r: any) => r.timesheets?.user_id)
+              .filter(Boolean) as string[],
+          ),
+        ];
+
+        // Step 2: fetch job titles — profiles first, org_members as fallback
+        const [{ data: profileData }, { data: memberData }, { data: rateData }] =
+          await Promise.all([
+            supabase
+              .from("profiles")
+              .select("user_id, job_title")
+              .in("user_id", userIds),
+            supabase
+              .from("organisation_members")
+              .select("user_id, job_title, role")
+              .eq("organisation_id", organisationId)
+              .in("user_id", userIds),
+            // Step 3: fetch ALL day_rate cards for this org
+            // (both personal user_id-scoped and role-based user_id-null)
+            supabase
+              .from("resource_rates")
+              .select("user_id, role_label, rate, rate_type")
+              .eq("organisation_id", organisationId)
+              .eq("rate_type", "day_rate"), // day rates only — no monthly_cost conversion errors
+          ]);
+
+        // Build job title map: profiles wins, org_members fills gaps
+        const jobTitleByUser = new Map<string, string>();
+        for (const m of memberData ?? []) {
+          const title = String(m.job_title || m.role || "").trim();
+          if (m.user_id && title) jobTitleByUser.set(String(m.user_id), title);
         }
+        for (const p of profileData ?? []) {
+          const title = String(p.job_title || "").trim();
+          if (p.user_id && title) jobTitleByUser.set(String(p.user_id), title);
+        }
+
+        // Build rate maps:
+        //   personalRateByUser  — user_id IS NOT NULL → highest priority
+        //   rateByLabel         — user_id IS NULL, keyed by lowercase role_label
+        const personalRateByUser = new Map<string, number>();
+        const rateByLabel = new Map<string, number>();
+
+        for (const r of rateData ?? []) {
+          if (!r.role_label || !r.rate) continue;
+          const rate = Number(r.rate);
+          if (r.user_id) {
+            // Personal rate — keyed by user_id (first entry wins per user)
+            if (!personalRateByUser.has(String(r.user_id))) {
+              personalRateByUser.set(String(r.user_id), rate);
+            }
+          } else {
+            // Role-based rate — keyed by lowercase role_label (first entry wins)
+            const label = String(r.role_label).toLowerCase().trim();
+            if (!rateByLabel.has(label)) {
+              rateByLabel.set(label, rate);
+            }
+          }
+        }
+
+        // Step 4: sum approved cost per project
+        // Priority: personal rate → role rate via job title
         for (const row of wteData) {
-          const pid  = String(row.project_id ?? "");
-          const uid  = row.timesheets?.user_id;
-          const days = (Number(row.hours) || 0) / 8;
-          let dr = ratesByUserId[uid] ?? 0;
-          if (!dr) { const jt = jobTitleByUser[uid]; if (jt) dr = ratesByRoleLabel[jt.toLowerCase()] ?? 0; }
-          if (dr > 0 && pid) liveActualByProject.set(pid, (liveActualByProject.get(pid) ?? 0) + days * dr);
+          const pid = String((row as any).project_id ?? "");
+          if (!pid) continue;
+
+          const uid  = (row as any).timesheets?.user_id;
+          const days = (Number((row as any).hours) || 0) / 8;
+
+          // 1. Try personal rate
+          let dayRate = uid ? (personalRateByUser.get(String(uid)) ?? 0) : 0;
+
+          // 2. Fall back to role-based rate via job title
+          if (!dayRate && uid) {
+            const jobTitle = jobTitleByUser.get(String(uid));
+            if (jobTitle) {
+              dayRate = rateByLabel.get(jobTitle.toLowerCase().trim()) ?? 0;
+            }
+          }
+
+          if (dayRate > 0) {
+            liveActualByProject.set(
+              pid,
+              (liveActualByProject.get(pid) ?? 0) + days * dayRate,
+            );
+          } else {
+            console.warn(
+              `[loadFinancialPlanSummary] No rate for user ${uid} ` +
+              `(job: "${jobTitleByUser.get(String(uid)) ?? "unknown"}") — excluded from actuals`,
+            );
+          }
         }
       }
     }
@@ -596,13 +673,10 @@ export async function loadFinancialPlanSummary(input: {
       extracted = extractBudgetFromContent(content);
     }
 
-    const {
-      totalApprovedBudget,
-      totalBudgeted,
-      totalForecast,
-      currency,
-    } = extracted;
-    // Use live timesheet actual if available, fall back to stored value
+    const { totalApprovedBudget, totalBudgeted, totalForecast, currency } = extracted;
+
+    // Use live timesheet actual if available (days × rate card),
+    // fall back to stored content_json actual
     const totalActual = liveActualByProject.has(pid)
       ? Math.round(liveActualByProject.get(pid)! * 100) / 100
       : extracted.totalActual;
@@ -632,9 +706,9 @@ export async function loadFinancialPlanSummary(input: {
             if (!monthlyBreakdown[monthKey]) {
               monthlyBreakdown[monthKey] = { budget: 0, forecast: 0, actual: 0 };
             }
-            monthlyBreakdown[monthKey].budget += num(v?.budget ?? v?.budgeted, 0);
+            monthlyBreakdown[monthKey].budget   += num(v?.budget ?? v?.budgeted, 0);
             monthlyBreakdown[monthKey].forecast += num(v?.forecast, 0);
-            monthlyBreakdown[monthKey].actual += num(v?.actual, 0);
+            monthlyBreakdown[monthKey].actual   += num(v?.actual, 0);
           }
         }
       } catch {}
@@ -658,12 +732,12 @@ export async function loadFinancialPlanSummary(input: {
       currency,
       totals: {
         approvedBudget: includedInScoring ? totalApprovedBudget : 0,
-        budget: includedInScoring ? effectiveBudget : 0,
-        forecast: includedInScoring ? totalForecast : 0,
-        actual: includedInScoring ? totalActual : 0,
-        variance: includedInScoring ? variance : 0,
-        variancePct: includedInScoring ? variancePct : null,
-        burnPct: includedInScoring ? burnPct : 0,
+        budget:         includedInScoring ? effectiveBudget      : 0,
+        forecast:       includedInScoring ? totalForecast        : 0,
+        actual:         includedInScoring ? totalActual          : 0,
+        variance:       includedInScoring ? variance             : 0,
+        variancePct:    includedInScoring ? variancePct          : null,
+        burnPct:        includedInScoring ? burnPct              : 0,
       },
       monthlyBreakdown: includedInScoring ? monthlyBreakdown : {},
     };
@@ -674,25 +748,21 @@ export async function loadFinancialPlanSummary(input: {
   );
 
   const portTotalApproved = withPlan.reduce(
-    (s: number, p: any) => s + num(p.totals.approvedBudget, 0),
-    0,
+    (s: number, p: any) => s + num(p.totals.approvedBudget, 0), 0,
   );
   const portTotalBudget = withPlan.reduce(
-    (s: number, p: any) => s + num(p.totals.budget, 0),
-    0,
+    (s: number, p: any) => s + num(p.totals.budget, 0), 0,
   );
   const portTotalForecast = withPlan.reduce(
-    (s: number, p: any) => s + num(p.totals.forecast, 0),
-    0,
+    (s: number, p: any) => s + num(p.totals.forecast, 0), 0,
   );
   const portTotalActual = withPlan.reduce(
-    (s: number, p: any) => s + num(p.totals.actual, 0),
-    0,
+    (s: number, p: any) => s + num(p.totals.actual, 0), 0,
   );
 
-  const effectivePortBudget = portTotalBudget;
-  const portfolioVariance = portTotalForecast - effectivePortBudget;
-  const portfolioVariancePct =
+  const effectivePortBudget   = portTotalBudget;
+  const portfolioVariance     = portTotalForecast - effectivePortBudget;
+  const portfolioVariancePct  =
     effectivePortBudget > 0
       ? Math.round(((portfolioVariance / effectivePortBudget) * 100) * 10) / 10
       : null;
@@ -702,57 +772,55 @@ export async function loadFinancialPlanSummary(input: {
       ? "A"
       : ragFromVariancePct(portfolioVariancePct);
 
-  const firstPlanProject = withPlan[0];
-  const portfolioCurrency = firstPlanProject?.currency ?? "GBP";
+  const firstPlanProject   = withPlan[0];
+  const portfolioCurrency  = firstPlanProject?.currency ?? "GBP";
 
   const portfolio = {
-    totalBudget: effectivePortBudget,
-    totalForecast: portTotalForecast,
-    totalActual: portTotalActual,
-    totalVariance: portfolioVariance,
-    projectCount: effectiveProjectIdsForDisplay.length,
-    withPlanCount: withPlan.length,
-    variancePct: portfolioVariancePct,
-    rag: portfolioRag,
+    totalBudget:    effectivePortBudget,
+    totalForecast:  portTotalForecast,
+    totalActual:    portTotalActual,
+    totalVariance:  portfolioVariance,
+    projectCount:   effectiveProjectIdsForDisplay.length,
+    withPlanCount:  withPlan.length,
+    variancePct:    portfolioVariancePct,
+    rag:            portfolioRag,
     meta: {
-      totalApprovedBudget: portTotalApproved,
+      totalApprovedBudget:  portTotalApproved,
       totalEffectiveBudget: portTotalBudget,
       completeness,
-      reason:
-        safeStr(scopeMeta?.reason || "ok") || "ok",
-      scope_mode:
-        safeStr(scopeMeta?.mode || "strict") || "strict",
-      rawCount: rawProjectIds.length,
-      activeCount: activeProjectIds.length,
-      effectiveCount: effectiveProjectIdsForDisplay.length,
-      visibleProjectCount: effectiveProjectIdsForDisplay.length,
-      activeProjectCount: effectiveProjectIdsForScoring.length,
-      usedFallback: Boolean(scopeMeta?.usedFallback),
+      reason:     safeStr(scopeMeta?.reason || "ok") || "ok",
+      scope_mode: safeStr(scopeMeta?.mode || "strict") || "strict",
+      rawCount:              rawProjectIds.length,
+      activeCount:           activeProjectIds.length,
+      effectiveCount:        effectiveProjectIdsForDisplay.length,
+      visibleProjectCount:   effectiveProjectIdsForDisplay.length,
+      activeProjectCount:    effectiveProjectIdsForScoring.length,
+      usedFallback:          Boolean(scopeMeta?.usedFallback),
     },
   };
 
   return {
     ok: true,
     total_approved_budget: effectivePortBudget > 0 ? effectivePortBudget : null,
-    total_spent: portTotalActual > 0 ? portTotalActual : null,
-    variance_pct: portfolioVariancePct,
-    pending_exposure_pct: null,
-    rag: portfolioRag,
-    currency: portfolioCurrency,
-    project_ref: firstPlanProject?.projectId ?? null,
-    artifact_id: firstPlanProject?.artifactId ?? null,
-    project_count: effectiveProjectIdsForDisplay.length,
+    total_spent:           portTotalActual > 0 ? portTotalActual : null,
+    variance_pct:          portfolioVariancePct,
+    pending_exposure_pct:  null,
+    rag:                   portfolioRag,
+    currency:              portfolioCurrency,
+    project_ref:           firstPlanProject?.projectId ?? null,
+    artifact_id:           firstPlanProject?.artifactId ?? null,
+    project_count:         effectiveProjectIdsForDisplay.length,
     portfolio,
     projects: summaries,
     meta: {
       organisationId,
       scope: {
         ...scopeMeta,
-        rawProjectCount: rawProjectIds.length,
-        activeProjectCount: activeProjectIds.length,
-        visibleProjectCount: visibleProjectIds.length,
-        filteredVisibleProjectCount: effectiveProjectIdsForDisplay.length,
-        filteredActiveProjectCount: effectiveProjectIdsForScoring.length,
+        rawProjectCount:              rawProjectIds.length,
+        activeProjectCount:           activeProjectIds.length,
+        visibleProjectCount:          visibleProjectIds.length,
+        filteredVisibleProjectCount:  effectiveProjectIdsForDisplay.length,
+        filteredActiveProjectCount:   effectiveProjectIdsForScoring.length,
         completeness,
       },
       filters: filteredVisible.meta,
