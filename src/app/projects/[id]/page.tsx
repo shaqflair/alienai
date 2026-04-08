@@ -337,7 +337,6 @@ export default async function ProjectPage({
       .select("id, status")
       .eq("project_id", projectUuid)
       .limit(100),
-    // Include status + charter/stakeholder types for governance scoring
     supabase
       .from("artifacts")
       .select("id, type, status")
@@ -360,7 +359,6 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid)
       .is("deleted_at", null)
       .limit(100000),
-    // Financial plan content_json for actual spend from cost_lines
     supabase
       .from("artifacts")
       .select("content_json")
@@ -406,11 +404,8 @@ export default async function ProjectPage({
   const finPlanJson = finPlanResult.status === "fulfilled" ? (finPlanResult.value as any)?.data?.content_json : null;
 
   const spentAmount = (() => {
-    // Primary: project_spend table rows
     const dbSpend = (spendRows as any[]).reduce((s, r) => s + Number(r.amount ?? 0), 0);
     if (dbSpend > 0) return dbSpend;
-    // Fallback: sum actual values from financial plan cost_lines
-    // (covers licence fees, tools, vendors entered directly in the financial plan)
     if (finPlanJson) {
       const lines = Array.isArray(finPlanJson?.cost_lines) ? finPlanJson.cost_lines : [];
       const lineTotal = lines.reduce((sum: number, line: any) => {
@@ -421,8 +416,20 @@ export default async function ProjectPage({
     }
     return 0;
   })();
+
+  // ── FIX: Single source of truth for budget figures ─────────────────────────
+  // budget_amount is the approved Financial Plan budget — always use this as the
+  // canonical budget figure so Resource Planning and Financial Plan show the same number.
+  // budget_days is used only for day-count comparison in resource planning.
   const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
   const budgetDays   = project?.budget_days   != null ? Number(project.budget_days)   : null;
+
+  // Pull allocated days from resource summary so health score can detect overrun.
+  // Previously hardcoded to null which caused Budget to always score 100% Green
+  // even when resource allocation exceeded the day budget.
+  const allocatedDays = resource?.budgetSummary?.allocatedDays != null
+    ? Number(resource.budgetSummary.allocatedDays)
+    : null;
 
   // ── Governance flags ───────────────────────────────────────────────────────
   const APPROVED_ART_STATUSES = new Set([
@@ -446,9 +453,9 @@ export default async function ProjectPage({
     gateRecord?.status === "complete"
   );
   const _todayStr = new Date().toISOString().slice(0, 10);
-  const _in30Str  = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const _in60Str  = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
   const _endStr   = project?.finish_date ? String(project.finish_date).slice(0, 10) : null;
-  const gate5Applicable = !!(_endStr && _endStr <= _in30Str && _endStr >= _todayStr);
+  const gate5Applicable = !!(_endStr && _endStr <= _in60Str && _endStr >= _todayStr);
 
   // ── Profile map ────────────────────────────────────────────────────────────
   let profileMap = new Map<string, any>();
@@ -526,13 +533,16 @@ export default async function ProjectPage({
   }
 
   // ── Health ─────────────────────────────────────────────────────────────────
+  // FIX: allocatedDays now passed from resource summary instead of hardcoded null.
+  // This allows the health calculator to detect day-budget overrun and correctly
+  // score Budget as Red/Amber when allocation exceeds budget_days.
   const health: HealthResult = computeHealthFromData({
     milestones:                 milestones as any[],
     raidItems:                  raidItems as any[],
     budgetAmount,
     spentAmount,
-   allocatedDays:              null,
-    budgetDays:                 budgetDays,
+    allocatedDays,              // ← FIX: was hardcoded null; now reads resource summary
+    budgetDays,
     pendingApprovalCount:       pendingApprovals.length,
     openChangeRequests:         (changeReqs as any[]).filter((c) =>
       ["pending", "open", "submitted", "draft"].includes(String(c.status ?? "").toLowerCase()),
@@ -561,7 +571,6 @@ export default async function ProjectPage({
 
   const overallRag = ragFromScore(healthScore);
 
-  // Icon background & colour for the health score stat card — tracks live RAG
   const healthIconStyle = {
     green:   { bg: "rgba(34,197,94,0.12)",  icon: "#16a34a" },
     amber:   { bg: "rgba(245,158,11,0.12)", icon: "#d97706" },
@@ -601,17 +610,46 @@ export default async function ProjectPage({
   const pmName       = resolvedPmName || "Unassigned";
   const pmJobTitle   = resolvedPmJobTitle || "";
 
-  const budgetTooltip = budgetDetail.budgetAmount != null
-    ? budgetDetail.spentAmount > 0
-      ? `${formatCurrency(budgetDetail.spentAmount)} spent of ${formatCurrency(budgetDetail.budgetAmount!)} approved budget` +
-        ` (${budgetDetail.utilisationPct}% used).` +
-        (budgetDetail.forecastOverrun
-          ? ` Over budget by ${formatCurrency(Math.abs(budgetDetail.variance!))}.`
-          : ` ${formatCurrency(budgetDetail.variance!)} remaining.`) +
-        (budgetDetail.overAllocated ? ` Resource over-allocated.` : "")
-      : `Approved budget: ${formatCurrency(budgetDetail.budgetAmount!)}. No spend logged in project_spend — actual costs tracked via Financial Plan tab.` +
-        (budgetDetail.overAllocated ? ` Resource days over-allocated vs budget days.` : "")
-    : "No approved budget set on this project.";
+  // ── Budget tooltip ─────────────────────────────────────────────────────────
+  // FIX: tooltip now also surfaces day-budget overrun so the UI explains
+  // exactly why Budget health may be Amber/Red even when spend is within budget.
+  const budgetTooltip = (() => {
+    if (budgetDetail.budgetAmount == null) return "No approved budget set on this project.";
+
+    const parts: string[] = [];
+
+    if (budgetDetail.spentAmount > 0) {
+      parts.push(
+        `${formatCurrency(budgetDetail.spentAmount)} spent of ${formatCurrency(budgetDetail.budgetAmount!)} approved budget` +
+        ` (${budgetDetail.utilisationPct}% used).`
+      );
+      parts.push(
+        budgetDetail.forecastOverrun
+          ? `Over budget by ${formatCurrency(Math.abs(budgetDetail.variance!))}.`
+          : `${formatCurrency(budgetDetail.variance!)} remaining.`
+      );
+    } else {
+      parts.push(
+        `Approved budget: ${formatCurrency(budgetDetail.budgetAmount!)}. No spend logged in project_spend — actual costs tracked via Financial Plan tab.`
+      );
+    }
+
+    // Day-budget overrun detail — surfaces the resource planning misalignment
+    if (allocatedDays != null && budgetDays != null) {
+      const dayVariance = allocatedDays - budgetDays;
+      if (dayVariance > 0) {
+        parts.push(
+          `Resource days over-allocated: ${allocatedDays}d allocated vs ${budgetDays}d budget (${dayVariance}d over).`
+        );
+      } else {
+        parts.push(`Resource days: ${allocatedDays}d allocated of ${budgetDays}d budget.`);
+      }
+    } else if (budgetDetail.overAllocated) {
+      parts.push("Resource over-allocated vs day budget.");
+    }
+
+    return parts.join(" ");
+  })();
 
   const governanceTooltip = [
     govDetail.charterApproved            ? "Charter: approved ✓"              : "Charter: not yet approved",
@@ -803,12 +841,8 @@ export default async function ProjectPage({
       {/* ── Stat cards ─────────────────────────────────────────────────────── */}
       <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 16 }}>
 
-        {/* Health Score — icon colour tracks RAG */}
         <div className="stat-card">
-          <div
-            className="stat-icon"
-            style={{ background: healthIconStyle.bg }}
-          >
+          <div className="stat-icon" style={{ background: healthIconStyle.bg }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={healthIconStyle.icon} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
             </svg>
@@ -1002,9 +1036,24 @@ export default async function ProjectPage({
             Resource planning
             <span style={{ flex: 1, height: 1, background: "var(--border)", display: "block" }}/>
           </div>
-          <ProjectResourcePanel data={resource} periods={periods} rateCardRoles={rateCardRoles}/>
+          {/*
+            FIX: Pass approvedBudgetAmount so ProjectResourcePanel displays the same
+            budget figure as the Financial Plan (budget_amount from the projects table)
+            rather than deriving a separate cost from budgetDays × rate card.
+            This resolves the £102,000 vs £131,000 discrepancy seen in the UI.
+          */}
+          <ProjectResourcePanel
+            data={resource}
+            periods={periods}
+            rateCardRoles={rateCardRoles}
+            approvedBudgetAmount={budgetAmount}
+          />
           {justificationData && (
             <div style={{ marginTop: 16 }}>
+              {/*
+                FIX: Pass approvedBudgetAmount and allocatedDays so ResourceJustificationPanel
+                uses the same authoritative figures as every other part of the page.
+              */}
               <ResourceJustificationPanel
                 projectId={projectUuid}
                 projectTitle={projectTitle}
@@ -1012,8 +1061,9 @@ export default async function ProjectPage({
                 budgetSummary={justificationData.budgetSummary ?? null}
                 openCRs={justificationData.openCRs ?? []}
                 roleRequirements={justificationData.roleRequirements ?? []}
-                allocatedDays={resource?.budgetSummary?.allocatedDays ?? 0}
-                budgetDays={resource?.budgetSummary?.budgetDays ?? 0}
+                allocatedDays={allocatedDays ?? resource?.budgetSummary?.allocatedDays ?? 0}
+                budgetDays={budgetDays ?? resource?.budgetSummary?.budgetDays ?? 0}
+                approvedBudgetAmount={budgetAmount}
                 weeklyBurnRate={resource?.budgetSummary?.weeklyBurnRate ?? 0}
                 canEdit={canEdit}
                 rateCard={(justificationData as any).rateCard ?? {}}

@@ -1,16 +1,18 @@
-﻿// src/components/executive/GovernanceIntelligence.tsx — v11
+﻿// src/components/executive/GovernanceIntelligence.tsx — v12
+// ✅ FIX v12: Decode literal \uXXXX escape sequences from API responses before rendering
+//             (prevents "Au00B7" / corrupted-unicode display bugs in AI-generated text)
 // ✅ FIX: Hero stats glass card is now collapsible (chevron toggle)
 // ✅ FIX: Active Tracks — no project codes in sub label
 // ✅ FIX: UUID scrubbing — user:<uuid> and bare UUIDs replaced with "a team member" in AI text
 // ✅ ADD: Optional developer Project Charter flow test panel wired into Governance Intelligence
 //
-// FILTER ALIGNMENT (v11):
+// FILTER ALIGNMENT (v12):
 //   ✅ GI-F1: Accepts dashboard filters prop
 //   ✅ GI-F2: Sends backend-compatible filters (code/name/pm/dept) to approvals pending API
 //   ✅ GI-F3: Sends backend-compatible filters (code/name/pm/dept) to governance-brain API
 //   ✅ GI-F4: Keeps org-wide dashboard visibility model; filters narrow the same scoped portfolio
 //
-// ACCESS CONTROL (v11):
+// ACCESS CONTROL (v12):
 //   ✅ All org members see the full dashboard — all project data is visible in tiles and heatmap
 //   ✅ Drill-down "Open" links in the DrillDrawer are locked for non-members
 //   ✅ HeatTile expand/collapse works for everyone (it only shows info already on screen)
@@ -125,6 +127,24 @@ function looksLikeUuid(s: any) {
   );
 }
 
+/**
+ * Decodes literal \uXXXX escape sequences that arrive as plain text from API
+ * responses instead of being parsed as actual Unicode characters.
+ *
+ * Example: the string "hello\u00B7world" (10 chars) → "hello·world" (11 chars)
+ *
+ * This is the root cause of the "Au00B7" display bug: the middle-dot separator
+ * character (U+00B7, ·) was being stored/returned as the 6-character literal
+ * sequence \u00B7 rather than the single Unicode code point.
+ */
+function decodeUnicodeEscapes(text: string): string {
+  if (!text) return text;
+  return text.replace(
+    /\\u([0-9a-fA-F]{4})/g,
+    (_, hex) => String.fromCharCode(parseInt(hex, 16))
+  );
+}
+
 function scrubUuids(text: string): string {
   if (!text) return text;
   let out = text.replace(
@@ -136,6 +156,16 @@ function scrubUuids(text: string): string {
     "a team member"
   );
   return out;
+}
+
+/**
+ * Full sanitisation pipeline applied to every string that originates from the
+ * API before it reaches the DOM:
+ *   1. Decode literal \uXXXX escape sequences  ← fixes the "Au00B7" bug
+ *   2. Strip raw UUIDs / user:<uuid> references
+ */
+function sanitise(text: string): string {
+  return scrubUuids(decodeUnicodeEscapes(text));
 }
 
 function normalise(raw: any) {
@@ -542,15 +572,15 @@ function DrillDrawer({
                                 marginBottom: 3,
                               }}
                             >
-                              {ss(
+                              {sanitise(ss(
                                 it?.artifact_title ||
                                   it?.step_title ||
                                   it?.artifact_type ||
                                   "Approval"
-                              )}
+                              ))}
                             </div>
                             <div style={{ fontSize: 11, color: "#64748b" }}>
-                              {ss(it?.project_title || it?.project_code || "—")}
+                              {sanitise(ss(it?.project_title || it?.project_code || "—"))}
                             </div>
                           </div>
                           <span
@@ -590,7 +620,7 @@ function DrillDrawer({
                               }}
                             >
                               <FileText size={10} />
-                              <span>{it._stage}</span>
+                              <span>{sanitise(it._stage)}</span>
                             </div>
                           )}
                           {it._approver && (
@@ -612,7 +642,7 @@ function DrillDrawer({
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                {it._approver}
+                                {sanitise(it._approver)}
                               </span>
                             </div>
                           )}
@@ -893,8 +923,9 @@ function AiOutlook({
     },
   }[urgency];
 
-  const text = scrubUuids(ai?.summary || cfg.fallback);
-  const rec = ai?.recommended ? scrubUuids(ai.recommended) : null;
+  // ✅ Use sanitise() instead of bare scrubUuids() — decodes \uXXXX escapes first
+  const text = sanitise(ai?.summary || cfg.fallback);
+  const rec = ai?.recommended ? sanitise(ai.recommended) : null;
 
   return (
     <div
@@ -1178,7 +1209,7 @@ function HeatTile({
                 whiteSpace: "nowrap",
               }}
             >
-              {p.project_title || "Project"}
+              {sanitise(p.project_title || "Project")}
             </div>
             <div
               style={{
@@ -1189,7 +1220,12 @@ function HeatTile({
                 whiteSpace: "nowrap",
               }}
             >
-              {[p.stage, p.approver_label && p.approver_label !== "—" ? `by ${p.approver_label}` : null]
+              {[
+                p.stage ? sanitise(p.stage) : null,
+                p.approver_label && p.approver_label !== "—"
+                  ? `by ${sanitise(p.approver_label)}`
+                  : null,
+              ]
                 .filter(Boolean)
                 .join(" · ")}
             </div>
@@ -1361,12 +1397,12 @@ function HeatTile({
                             color: "#0f172a",
                           }}
                         >
-                          {ss(
+                          {sanitise(ss(
                             it?.artifact_title ||
                               it?.step_title ||
                               it?.artifact_type ||
                               "Approval Step"
-                          )}
+                          ))}
                         </span>
                         <span
                           style={{
@@ -1389,7 +1425,7 @@ function HeatTile({
                           color: "#64748b",
                         }}
                       >
-                        {it._stage && <span>📋 {it._stage}</span>}
+                        {it._stage && <span>📋 {sanitise(it._stage)}</span>}
                         {it._approver && (
                           <span
                             style={{
@@ -1399,7 +1435,7 @@ function HeatTile({
                               maxWidth: 200,
                             }}
                           >
-                            👤 {it._approver}
+                            👤 {sanitise(it._approver)}
                           </span>
                         )}
                         {it._ts && <span>📅 {fmtDate(it._ts)}</span>}
@@ -1582,7 +1618,7 @@ function BnTile({
                   whiteSpace: "nowrap",
                 }}
               >
-                {b.label}
+                {sanitise(b.label)}
               </div>
               <div
                 style={{
@@ -1804,7 +1840,8 @@ export default function GovernanceIntelligence({
       .then((j) => {
         if (dead || !j?.ok) return;
         const org = Array.isArray(j?.orgs) ? j.orgs[0] : null;
-        const summary = scrubUuids(ss(org?.ai_summary)) || null;
+        // ✅ sanitise() decodes \uXXXX escapes AND strips UUIDs
+        const summary = sanitise(ss(org?.ai_summary)) || null;
         const overdue = Number(org?.approvals?.overdue_steps || 0);
         const blocked = Number(org?.blockers?.projects_blocked || 0);
         const score = Number(org?.health?.portfolio_score || 0);
@@ -2352,7 +2389,7 @@ export default function GovernanceIntelligence({
                 gap: 8,
               }}
             >
-              <AlertTriangle size={16} /> {error}
+              <AlertTriangle size={16} /> {sanitise(error)}
             </div>
           )}
 

@@ -32,6 +32,17 @@ export async function GET() {
       fy_config: cj?.fy_config ?? null,
     });
   }
+const { data: weeklyData, error: weeklyErr } = await supabase
+  .from("weekly_timesheet_entries")
+  .select("work_date, hours, timesheets!inner(user_id, status, organisation_id)")
+  .eq("project_id", projectId)
+  .eq("timesheets.status", "approved")
+  .gt("hours", 0);
 
+// ADD THESE:
+console.log("[debug] weeklyData sample:", JSON.stringify(weeklyData?.[0], null, 2));
+console.log("[debug] userIds:", userIds);
+console.log("[debug] rateByUser:", JSON.stringify(rateByUser, null, 2));
+console.log("[debug] byMonth:", JSON.stringify(byMonth, null, 2));
   return NextResponse.json({ ok: true, artifacts: results });
 }
