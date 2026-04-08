@@ -359,15 +359,17 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid)
       .is("deleted_at", null)
       .limit(100000),
-    // FIX: also select approved_budget — the locked top-level column on the artifact
-    // that stores the canonical £131,000 figure shown in the Financial Plan tab.
-    // content_json alone does not contain the approved ceiling; approved_budget does.
+    // FIX: do NOT filter by is_current=true — the artifact with real budget data
+    // may not be flagged is_current. Mirror loadFinancialPlanSummary which orders
+    // by updated_at desc and takes the first result. Select both content_json and
+    // content since the budget may be in either field depending on artifact version.
     supabase
       .from("artifacts")
-      .select("content_json, approved_budget")
+      .select("id, content_json, content, updated_at")
       .eq("project_id", projectUuid)
       .eq("type", "FINANCIAL_PLAN")
-      .eq("is_current", true)
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle(),
     getCachedBriefing(projectUuid),
     (async () => {
@@ -403,14 +405,40 @@ export default async function ProjectPage({
   const justificationData = justificationResult.status === "fulfilled" ? (justificationResult.value as any) : null;
   const rateCardRoles    = rateCardRolesResult.status === "fulfilled" ? (rateCardRolesResult.value as string[] ?? []) : [];
 
-  const spendRows           = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
-  const finPlanData         = finPlanResult.status === "fulfilled" ? (finPlanResult.value as any)?.data : null;
-  const finPlanJson         = finPlanData?.content_json ?? null;
-  // approved_budget is the locked ceiling on the artifact row (the £131,000 shown in
-  // the Financial Plan tab). Set when the plan is baselined; independent of content_json.
-  const finPlanApprovedBudget = finPlanData?.approved_budget != null
-    ? Number(finPlanData.approved_budget)
-    : null;
+  const spendRows   = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
+  const finPlanData = finPlanResult.status === "fulfilled" ? (finPlanResult.value as any)?.data : null;
+
+  // Mirror the logic in loadFinancialPlanSummary/extractBudgetFromContent:
+  // the budget lives inside content_json OR content (text field parsed as JSON).
+  // Try content_json first, fall back to parsing content as JSON.
+  const finPlanContent = (() => {
+    const cj = finPlanData?.content_json;
+    if (cj && typeof cj === "object" && Object.keys(cj).length > 0) return cj;
+    const ct = finPlanData?.content;
+    if (ct && typeof ct === "string") {
+      try { return JSON.parse(ct); } catch {}
+    }
+    return null;
+  })();
+  const finPlanJson = finPlanContent;
+
+  // Extract approved budget using the same field priority as loadFinancialPlanSummary
+  const finPlanApprovedBudget = (() => {
+    if (!finPlanContent || typeof finPlanContent !== "object") return null;
+    const raw =
+      finPlanContent.total_approved_budget ??
+      finPlanContent.totalApprovedBudget ??
+      finPlanContent.approved_budget ??
+      finPlanContent.approvedBudget ??
+      finPlanContent.total_approved ??
+      finPlanContent.totalApproved ??
+      finPlanContent.approved ??
+      finPlanContent.budget_approved ??
+      finPlanContent.budgetApproved ??
+      null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
 
 
   const spentAmount = (() => {
