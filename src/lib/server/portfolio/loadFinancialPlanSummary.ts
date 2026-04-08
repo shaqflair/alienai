@@ -536,15 +536,20 @@ export async function loadFinancialPlanSummary(input: {
   const liveActualByProject = new Map();
   try {
     if (effectiveProjectIdsForDisplay.length > 0) {
-      const { data: wteData } = await supabase
+      const { data: wteRaw } = await supabase
         .from("weekly_timesheet_entries")
-        .select("project_id, hours, timesheets!inner(user_id, status, organisation_id)")
+        .select("timesheet_id, project_id, hours")
         .in("project_id", effectiveProjectIdsForDisplay)
-        .eq("timesheets.status", "approved")
         .gt("hours", 0);
-
-      if (wteData && wteData.length > 0 && organisationId) {
-        const userIds = [...new Set(wteData.map((r) => r.timesheets?.user_id).filter(Boolean))];
+      const tsIds = [...new Set((wteRaw ?? []).map((r) => String(r.timesheet_id)).filter(Boolean))];
+      const { data: approvedTs } = tsIds.length > 0
+        ? await supabase.from("timesheets").select("id, user_id").in("id", tsIds).eq("status", "approved")
+        : { data: [] };
+      const approvedMap = new Map();
+      for (const t of approvedTs ?? []) approvedMap.set(String(t.id), String(t.user_id));
+      const wteData = (wteRaw ?? []).filter((r) => approvedMap.has(String(r.timesheet_id)));
+      if (wteData.length > 0 && organisationId) {
+        const userIds = [...new Set(wteData.map((r) => approvedMap.get(String(r.timesheet_id))).filter(Boolean))];
         const [{ data: rateData }, { data: profileData }, { data: memberData }] = await Promise.all([
           supabase.from("resource_rates").select("user_id, role_label, rate, rate_type").eq("organisation_id", organisationId).order("effective_from", { ascending: false }),
           supabase.from("profiles").select("user_id, job_title").in("user_id", userIds),
@@ -554,7 +559,7 @@ export async function loadFinancialPlanSummary(input: {
         for (const m of memberData ?? []) { if (m.user_id && m.job_title) jobTitleByUser[String(m.user_id)] = String(m.job_title).trim(); }
         for (const p of profileData ?? []) { if (p.user_id && p.job_title) jobTitleByUser[String(p.user_id)] = String(p.job_title).trim(); }
         // Separate personal rates (user_id set) from role-based rates (user_id null)
-        // Personal rate takes priority. Only use day_rate type — no monthly_cost conversion errors.
+        // Personal rate takes priority. Only use day_rate type ï¿½ no monthly_cost conversion errors.
         const personalRateByUser: Record<string, number> = {};
         const rateByLabel: Record<string, number> = {};
         for (const r of rateData ?? []) {
@@ -565,7 +570,7 @@ export async function loadFinancialPlanSummary(input: {
         }
         for (const row of wteData) {
           const pid  = String(row.project_id ?? "");
-          const uid  = row.timesheets?.user_id ? String(row.timesheets.user_id) : "";
+          const uid  = approvedMap.get(String((row as any).timesheet_id)) ?? "";
           const days = (Number(row.hours) || 0) / 8;
           let dr = uid ? (personalRateByUser[uid] ?? 0) : 0;
           if (!dr && uid) { const jt = jobTitleByUser[uid]; if (jt) dr = rateByLabel[jt.toLowerCase().trim()] ?? 0; }
