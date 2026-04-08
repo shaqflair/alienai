@@ -78,6 +78,17 @@ function toUKDate(iso: string): string {
   } catch { return iso; }
 }
 
+// ── FIX: canonical currency formatter — always uses £ symbol, never "GBP" prefix ──
+function formatBudgetAmount(amount: number | null | undefined): string {
+  if (amount == null || !Number.isFinite(amount)) return "—";
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   return (
     <div style={{
@@ -356,9 +367,27 @@ function TeamSection({ members, projectColour, projectId, isPipeline }: {
   );
 }
 
-function BudgetSection({ budget, colour }: { budget: BudgetSummary; colour: string }) {
+// ── FIX: BudgetSection now accepts approvedBudgetAmount as an explicit prop ───
+// Previously it used budget.budgetAmount which was derived from budgetDays × rate
+// card inside the resource data library (£102,000). It now uses the canonical
+// approved budget from the Financial Plan (project.budget_amount = £131,000).
+// Falls back to budget.budgetAmount only when approvedBudgetAmount is not supplied.
+function BudgetSection({
+  budget,
+  colour,
+  approvedBudgetAmount,
+}: {
+  budget: BudgetSummary;
+  colour: string;
+  approvedBudgetAmount: number | null;
+}) {
   const pct        = budget.utilisationPct ?? 0;
   const overBudget = budget.remainingDays != null && budget.remainingDays < 0;
+
+  // FIX: use the passed-in approved budget amount as the single source of truth.
+  // Fall back to budget.budgetAmount only if approvedBudgetAmount was not provided.
+  const displayBudgetAmount = approvedBudgetAmount ?? budget.budgetAmount ?? null;
+
   return (
     <Card>
       <SectionHeader icon={<IconBudget />} title="Budget" subtitle="Days allocated vs budget" />
@@ -383,10 +412,13 @@ function BudgetSection({ budget, colour }: { budget: BudgetSummary; colour: stri
           <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "2px" }}>Weekly burn rate</div>
           <div style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a", fontFamily: "'DM Mono', monospace" }}>{budget.weeklyBurnRate}d/wk</div>
         </div>
-        {budget.budgetAmount != null && (
+        {displayBudgetAmount != null && (
           <div>
             <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "2px" }}>Budget</div>
-            <div style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a", fontFamily: "'DM Mono', monospace" }}>GBP{budget.budgetAmount.toLocaleString()}</div>
+            {/* FIX: use formatBudgetAmount() which produces £131,000 not GBP102,000 */}
+            <div style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a", fontFamily: "'DM Mono', monospace" }}>
+              {formatBudgetAmount(displayBudgetAmount)}
+            </div>
           </div>
         )}
       </div>
@@ -519,7 +551,6 @@ function RoleRequirementRow({ role, onEdit, onDelete }: { role: RoleRequirement;
 }
 
 function EditRoleForm({ role, projectId, onSaved, onCancel }: { role: RoleRequirement; projectId: string; onSaved: () => void; onCancel: () => void }) {
-  // Parse role string into seniority + title when extended columns aren't populated
   function parseRoleString(roleStr: string): { seniority: string; title: string } {
     const seniorityPrefixes = ["Junior", "Mid", "Senior", "Lead", "Principal", "Director"];
     const trimmed = (roleStr || "").trim();
@@ -531,7 +562,6 @@ function EditRoleForm({ role, projectId, onSaved, onCancel }: { role: RoleRequir
     return { seniority: "Senior", title: trimmed };
   }
 
-  // Prefer explicit fields, fall back to parsing the combined role string
   const roleStr = (role as any).role || role.roleTitle || "";
   const parsed = parseRoleString(roleStr);
   const initialTitle    = role.roleTitle    || parsed.title    || roleStr;
@@ -733,7 +763,7 @@ function RoleRequirementsSection({ roles, projectId, startDate, endDate, orgRole
   );
 }
 
-// ── NEW: prop types for justification data passed from the server page ────────
+// ── Justification prop types ───────────────────────────────────────────────────
 
 export type ResourceJustificationProps = {
   initialJustification: ResourceJustification | null;
@@ -746,20 +776,26 @@ export type ResourceJustificationProps = {
   }>;
   projectTitle: string;
   canEdit: boolean;
+  rateCard?: Record<string, number>;
 };
 
 // ── Main export ───────────────────────────────────────────────────────────────
+// FIX: added approvedBudgetAmount prop — the canonical approved budget from the
+// Financial Plan (project.budget_amount). This is threaded into BudgetSection
+// so it displays £131,000 instead of the resource-data-derived £102,000.
 
 export default function ProjectResourcePanel({
   data,
   periods,
   justificationProps,
   rateCardRoles = [],
+  approvedBudgetAmount = null,
 }: {
   data: ProjectResourceData;
   periods: WeekPeriod[];
   justificationProps?: ResourceJustificationProps;
   rateCardRoles?: string[];
+  approvedBudgetAmount?: number | null;
 }) {
   const { project, teamMembers, allocations, roleRequirements, budgetSummary } = data;
   const isPipeline = String(project.resource_status || "").toLowerCase() === "pipeline";
@@ -784,7 +820,12 @@ export default function ProjectResourcePanel({
             projectId={project.id}
             isPipeline={isPipeline}
           />
-          <BudgetSection budget={budgetSummary} colour={project.colour} />
+          {/* FIX: pass approvedBudgetAmount down so BudgetSection shows the correct figure */}
+          <BudgetSection
+            budget={budgetSummary}
+            colour={project.colour}
+            approvedBudgetAmount={approvedBudgetAmount}
+          />
         </div>
 
         <MiniHeatmap allocations={allocations} members={teamMembers} periods={periods} colour={project.colour} />
@@ -797,7 +838,6 @@ export default function ProjectResourcePanel({
           orgRoles={rateCardRoles.length > 0 ? rateCardRoles : [...new Set(Object.keys(justificationProps?.rateCard ?? {}))].sort()}
         />
 
-        {/* ── Resource Justification Panel ── */}
         {justificationProps && (
           <ResourceJustificationPanel
             projectId={project.id}
@@ -809,7 +849,8 @@ export default function ProjectResourcePanel({
               remainingDays: budgetSummary.remainingDays ?? 0,
               overBudget: (budgetSummary.remainingDays ?? 0) < 0,
               weeklyBurnRate: budgetSummary.weeklyBurnRate,
-              budgetGbp: budgetSummary.budgetAmount ?? null,
+              // FIX: use approvedBudgetAmount here too for consistency
+              budgetGbp: approvedBudgetAmount ?? budgetSummary.budgetAmount ?? null,
               spentGbp: null,
               remainingGbp: null,
               utilisationPct: budgetSummary.utilisationPct ?? 0,
