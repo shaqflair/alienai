@@ -610,9 +610,17 @@ export async function loadFinancialPlanSummary(input: {
       totalForecast,
       currency,
     } = extracted;
-    // Use live timesheet actual if available, fall back to stored value
+    // Live timesheet actual covers people lines only.
+    // Add it to non-people stored actuals (tools, licences, etc) from content_json.
+    const nonPeopleActual = (() => {
+      const cj = content as any;
+      const lines: any[] = Array.isArray(cj?.cost_lines) ? cj.cost_lines : [];
+      return lines
+        .filter((l: any) => l.category !== "people")
+        .reduce((s: number, l: any) => s + num(l.actual, 0), 0);
+    })();
     const totalActual = liveActualByProject.has(pid)
-      ? Math.round(liveActualByProject.get(pid)! * 100) / 100
+      ? Math.round((liveActualByProject.get(pid)! + nonPeopleActual) * 100) / 100
       : extracted.totalActual;
 
     const effectiveBudget = totalApprovedBudget > 0 ? totalApprovedBudget : totalBudgeted;
