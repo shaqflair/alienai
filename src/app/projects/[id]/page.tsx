@@ -359,9 +359,12 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid)
       .is("deleted_at", null)
       .limit(100000),
+    // FIX: also select approved_budget — the locked top-level column on the artifact
+    // that stores the canonical £131,000 figure shown in the Financial Plan tab.
+    // content_json alone does not contain the approved ceiling; approved_budget does.
     supabase
       .from("artifacts")
-      .select("content_json")
+      .select("content_json, approved_budget")
       .eq("project_id", projectUuid)
       .eq("type", "FINANCIAL_PLAN")
       .eq("is_current", true)
@@ -400,8 +403,15 @@ export default async function ProjectPage({
   const justificationData = justificationResult.status === "fulfilled" ? (justificationResult.value as any) : null;
   const rateCardRoles    = rateCardRolesResult.status === "fulfilled" ? (rateCardRolesResult.value as string[] ?? []) : [];
 
-  const spendRows   = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
-  const finPlanJson = finPlanResult.status === "fulfilled" ? (finPlanResult.value as any)?.data?.content_json : null;
+  const spendRows           = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
+  const finPlanData         = finPlanResult.status === "fulfilled" ? (finPlanResult.value as any)?.data : null;
+  const finPlanJson         = finPlanData?.content_json ?? null;
+  // approved_budget is the locked ceiling on the artifact row (the £131,000 shown in
+  // the Financial Plan tab). Set when the plan is baselined; independent of content_json.
+  const finPlanApprovedBudget = finPlanData?.approved_budget != null
+    ? Number(finPlanData.approved_budget)
+    : null;
+
 
   const spentAmount = (() => {
     const dbSpend = (spendRows as any[]).reduce((s, r) => s + Number(r.amount ?? 0), 0);
@@ -421,8 +431,16 @@ export default async function ProjectPage({
   // budget_amount is the approved Financial Plan budget — always use this as the
   // canonical budget figure so Resource Planning and Financial Plan show the same number.
   // budget_days is used only for day-count comparison in resource planning.
-  const budgetAmount = project?.budget_amount != null ? Number(project.budget_amount) : null;
-  const budgetDays   = project?.budget_days   != null ? Number(project.budget_days)   : null;
+  // Priority: 1) artifacts.approved_budget (baselined Financial Plan ceiling)
+  //           2) projects.budget_amount (manually set, may be null)
+  //           3) null (no budget configured)
+  const budgetAmount = (() => {
+    if (finPlanApprovedBudget != null && Number.isFinite(finPlanApprovedBudget) && finPlanApprovedBudget > 0)
+      return finPlanApprovedBudget;
+    if (project?.budget_amount != null) return Number(project.budget_amount);
+    return null;
+  })();
+  const budgetDays = project?.budget_days != null ? Number(project.budget_days) : null;
 
   // Pull allocated days from resource summary so health score can detect overrun.
   // Previously hardcoded to null which caused Budget to always score 100% Green
