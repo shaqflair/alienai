@@ -337,9 +337,13 @@ export default async function ProjectPage({
       .select("id, status")
       .eq("project_id", projectUuid)
       .limit(100),
+    // FIX: added approval_status to the select so artApproved() can correctly
+    // detect approved charter and financial plan artifacts. Previously only
+    // `status` was fetched, which is not where approval state is stored,
+    // causing both to always appear unapproved in the governance score.
     supabase
       .from("artifacts")
-      .select("id, type, status")
+      .select("id, type, status, approval_status")
       .eq("project_id", projectUuid)
       .in("type", [
         "SCHEDULE", "WBS", "FINANCIAL_PLAN", "WEEKLY_REPORT",
@@ -359,10 +363,6 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid)
       .is("deleted_at", null)
       .limit(100000),
-    // FIX: do NOT filter by is_current=true — the artifact with real budget data
-    // may not be flagged is_current. Mirror loadFinancialPlanSummary which orders
-    // by updated_at desc and takes the first result. Select both content_json and
-    // content since the budget may be in either field depending on artifact version.
     supabase
       .from("artifacts")
       .select("id, content_json, content, updated_at")
@@ -408,9 +408,6 @@ export default async function ProjectPage({
   const spendRows   = spendResult.status === "fulfilled" ? spendResult.value.data ?? [] : [];
   const finPlanData = finPlanResult.status === "fulfilled" ? (finPlanResult.value as any)?.data : null;
 
-  // Mirror the logic in loadFinancialPlanSummary/extractBudgetFromContent:
-  // the budget lives inside content_json OR content (text field parsed as JSON).
-  // Try content_json first, fall back to parsing content as JSON.
   const finPlanContent = (() => {
     const cj = finPlanData?.content_json;
     if (cj && typeof cj === "object" && Object.keys(cj).length > 0) return cj;
@@ -422,7 +419,6 @@ export default async function ProjectPage({
   })();
   const finPlanJson = finPlanContent;
 
-  // Extract approved budget using the same field priority as loadFinancialPlanSummary
   const finPlanApprovedBudget = (() => {
     if (!finPlanContent || typeof finPlanContent !== "object") return null;
     const raw =
@@ -440,7 +436,6 @@ export default async function ProjectPage({
     return Number.isFinite(n) && n > 0 ? n : null;
   })();
 
-
   const spentAmount = (() => {
     const dbSpend = (spendRows as any[]).reduce((s, r) => s + Number(r.amount ?? 0), 0);
     if (dbSpend > 0) return dbSpend;
@@ -455,13 +450,6 @@ export default async function ProjectPage({
     return 0;
   })();
 
-  // ── FIX: Single source of truth for budget figures ─────────────────────────
-  // budget_amount is the approved Financial Plan budget — always use this as the
-  // canonical budget figure so Resource Planning and Financial Plan show the same number.
-  // budget_days is used only for day-count comparison in resource planning.
-  // Priority: 1) artifacts.approved_budget (baselined Financial Plan ceiling)
-  //           2) projects.budget_amount (manually set, may be null)
-  //           3) null (no budget configured)
   const budgetAmount = (() => {
     if (finPlanApprovedBudget != null && Number.isFinite(finPlanApprovedBudget) && finPlanApprovedBudget > 0)
       return finPlanApprovedBudget;
@@ -470,9 +458,6 @@ export default async function ProjectPage({
   })();
   const budgetDays = project?.budget_days != null ? Number(project.budget_days) : null;
 
-  // Pull allocated days from resource summary so health score can detect overrun.
-  // Previously hardcoded to null which caused Budget to always score 100% Green
-  // even when resource allocation exceeded the day budget.
   const allocatedDays = resource?.budgetSummary?.allocatedDays != null
     ? Number(resource.budgetSummary.allocatedDays)
     : null;
@@ -481,11 +466,26 @@ export default async function ProjectPage({
   const APPROVED_ART_STATUSES = new Set([
     "approved", "active", "current", "published", "signed_off", "signed off",
   ]);
+
+  // FIX: artApproved() now checks approval_status first (primary field used by
+  // the approval workflow), then falls back to status for any artifacts that use
+  // a different convention. Previously only status was checked, so charter and
+  // financial plan always appeared unapproved in the governance score.
   const artApproved = (types: string[]) =>
     (keyArtifacts as any[]).some((a: any) => {
       if (!types.includes(String(a.type || "").toUpperCase())) return false;
-      const s = String(a.status || "").toLowerCase().replace(/\s+/g, "_");
-      return APPROVED_ART_STATUSES.has(s) || s.includes("approv") || s.includes("publish");
+
+      const approvalStat = String(a.approval_status || "").toLowerCase().replace(/\s+/g, "_");
+      const stat         = String(a.status          || "").toLowerCase().replace(/\s+/g, "_");
+
+      return (
+        APPROVED_ART_STATUSES.has(approvalStat) ||
+        approvalStat.includes("approv")         ||
+        approvalStat.includes("publish")        ||
+        APPROVED_ART_STATUSES.has(stat)         ||
+        stat.includes("approv")                 ||
+        stat.includes("publish")
+      );
     });
 
   const charterApproved            = artApproved(["PROJECT_CHARTER", "CHARTER"]);
@@ -579,15 +579,12 @@ export default async function ProjectPage({
   }
 
   // ── Health ─────────────────────────────────────────────────────────────────
-  // FIX: allocatedDays now passed from resource summary instead of hardcoded null.
-  // This allows the health calculator to detect day-budget overrun and correctly
-  // score Budget as Red/Amber when allocation exceeds budget_days.
   const health: HealthResult = computeHealthFromData({
     milestones:                 milestones as any[],
     raidItems:                  raidItems as any[],
     budgetAmount,
     spentAmount,
-    allocatedDays,              // ← FIX: was hardcoded null; now reads resource summary
+    allocatedDays,
     budgetDays,
     pendingApprovalCount:       pendingApprovals.length,
     openChangeRequests:         (changeReqs as any[]).filter((c) =>
@@ -657,8 +654,6 @@ export default async function ProjectPage({
   const pmJobTitle   = resolvedPmJobTitle || "";
 
   // ── Budget tooltip ─────────────────────────────────────────────────────────
-  // FIX: tooltip now also surfaces day-budget overrun so the UI explains
-  // exactly why Budget health may be Amber/Red even when spend is within budget.
   const budgetTooltip = (() => {
     if (budgetDetail.budgetAmount == null) return "No approved budget set on this project.";
 
@@ -680,7 +675,6 @@ export default async function ProjectPage({
       );
     }
 
-    // Day-budget overrun detail — surfaces the resource planning misalignment
     if (allocatedDays != null && budgetDays != null) {
       const dayVariance = allocatedDays - budgetDays;
       if (dayVariance > 0) {
@@ -1082,12 +1076,6 @@ export default async function ProjectPage({
             Resource planning
             <span style={{ flex: 1, height: 1, background: "var(--border)", display: "block" }}/>
           </div>
-          {/*
-            FIX: Pass approvedBudgetAmount so ProjectResourcePanel displays the same
-            budget figure as the Financial Plan (budget_amount from the projects table)
-            rather than deriving a separate cost from budgetDays × rate card.
-            This resolves the £102,000 vs £131,000 discrepancy seen in the UI.
-          */}
           <ProjectResourcePanel
             data={resource}
             periods={periods}
@@ -1096,10 +1084,6 @@ export default async function ProjectPage({
           />
           {justificationData && (
             <div style={{ marginTop: 16 }}>
-              {/*
-                FIX: Pass approvedBudgetAmount and allocatedDays so ResourceJustificationPanel
-                uses the same authoritative figures as every other part of the page.
-              */}
               <ResourceJustificationPanel
                 projectId={projectUuid}
                 projectTitle={projectTitle}
