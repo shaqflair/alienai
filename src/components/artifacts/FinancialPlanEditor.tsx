@@ -724,10 +724,6 @@ function ResourcesTab({
     onChange(resources.map(r => r.id === id ? { ...r, ...patch } : r)),
   [onChange, resources]);
 
-  // ── approvedDaysByResource ────────────────────────────────────────────────
-  // "__weekly__" entries store £ cost — skip them (used by computeActuals only).
-  // "__days__{userId}" entries store actual days — index by userId for per-person display.
-  // Legacy resource-plan entries — index by resource_id as before.
   const approvedDaysByResource = useMemo(() => {
     const map: Record<string, number> = {};
     for (const e of timesheetEntries) {
@@ -752,8 +748,6 @@ function ResourcesTab({
   const heatmapTotalDays  = people.reduce((s, p) => s + p.total_days, 0);
   const heatmapTotalCost  = people.reduce((s, p) => s + (p.planned_cost ?? 0), 0);
 
-  // Total approved days across all heatmap people — checks both legacy resource ID
-  // and the __days__{userId} entries emitted by the server action for weekly timesheets
   const heatmapApprovedDays = people.reduce((s, p) => {
     const r = manualByPersonId.get(p.person_id);
     const legacyDays = r ? (approvedDaysByResource[r.id] ?? 0) : 0;
@@ -818,13 +812,9 @@ function ResourcesTab({
 
             {!loading && !error && people.map((person, idx) => {
               const manualResource = manualByPersonId.get(person.person_id);
-
-              // Check legacy resource-plan days first, then fall back to
-              // __days__{userId} entries from weekly timesheet server action
               const legacyDays   = manualResource ? (approvedDaysByResource[manualResource.id] ?? 0) : 0;
               const weeklyDays   = approvedDaysByResource[`__days__${person.person_id}`] ?? 0;
               const approvedDays = legacyDays || weeklyDays;
-
               const variance   = approvedDays > 0 ? approvedDays - person.total_days : null;
               const margin     = person.planned_cost != null && person.planned_charge != null ? person.planned_charge - person.planned_cost : null;
               const marginPct  = person.planned_charge != null && person.planned_charge > 0 && margin != null ? Math.round((margin / person.planned_charge) * 100) : null;
@@ -1072,6 +1062,20 @@ export default function FinancialPlanEditor({
   const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
   const [signals, setSignals] = useState<Signal[]>([]);
 
+  // FIX: fetch project change requests so users can link existing CRs directly
+  // to change exposure rows without having to type the ref/title manually.
+  const [projectCRs, setProjectCRs] = useState<Array<{
+    id: string; reference?: string; title: string; ai_cost?: number;
+  }>>([]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    fetch(`/api/change/${encodeURIComponent(projectId)}`, { cache: "no-store" })
+      .then(r => r.json())
+      .then(d => { if (d.ok && Array.isArray(d.items)) setProjectCRs(d.items); })
+      .catch(() => {});
+  }, [projectId]);
+
   useEffect(() => {
     if (!highlightedCrId || activeTab !== "changes") return;
     const t = setTimeout(() => { highlightedRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }, 400);
@@ -1112,13 +1116,10 @@ export default function FinancialPlanEditor({
   const actualTotalsPerLine = useMemo(() => computeActualTotalsPerLine(resources, timesheetEntries, lines), [resources, timesheetEntries, lines]);
   const linesWithActuals    = useMemo(() => applyActualsToCostLines(lines, actualTotalsPerLine), [lines, actualTotalsPerLine]);
 
-  // totalApprovedDays: sum only __days__{userId} entries (actual days).
-  // Skip __weekly__ entries (they store £ cost, not days).
-  // Legacy resource-plan entries also store real days so include those too.
   const totalApprovedDays = useMemo(() => {
     let total = 0;
     for (const e of timesheetEntries) {
-      if (e.resource_id === "__weekly__") continue; // £ cost — skip
+      if (e.resource_id === "__weekly__") continue;
       total += e.approved_days;
     }
     return total;
@@ -1460,7 +1461,47 @@ export default function FinancialPlanEditor({
                 })}
               </tbody>
             </table>
-            {!readOnly && <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}><button type="button" onClick={addCE} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.amber, cursor: "pointer", fontWeight: 500 }}><Plus style={{ width: 14, height: 14 }} /> Add change exposure</button></div>}
+
+            {/* FIX: added "Link from existing CR" dropdown so change exposure rows can be
+                auto-populated from project change requests rather than typed manually.
+                Fetches from /api/change/{projectId} which returns items[] with title,
+                reference, and ai_cost fields. */}
+            {!readOnly && (
+              <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}`, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <button type="button" onClick={addCE}
+                  style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.amber, cursor: "pointer", fontWeight: 500 }}>
+                  <Plus style={{ width: 14, height: 14 }} /> Add change exposure
+                </button>
+                {projectCRs.length > 0 && (
+                  <select
+                    defaultValue=""
+                    onChange={e => {
+                      const cr = projectCRs.find(c => c.id === e.target.value);
+                      if (!cr) return;
+                      handleChange({
+                        ...content,
+                        change_exposure: [...content.change_exposure, {
+                          id: uid(),
+                          change_ref: cr.reference ?? "",
+                          title: cr.title ?? "",
+                          cost_impact: cr.ai_cost ?? "",
+                          status: "pending",
+                          notes: "",
+                        }],
+                      });
+                      e.target.value = "";
+                    }}
+                    style={{ border: `1px solid ${P.border}`, background: P.surface, fontFamily: P.sans, fontSize: 11, padding: "4px 8px", color: P.textMd, cursor: "pointer", outline: "none" }}>
+                    <option value="">+ Link from existing CR...</option>
+                    {projectCRs.map(cr => (
+                      <option key={cr.id} value={cr.id}>
+                        {cr.reference ? `${cr.reference} — ` : ""}{cr.title}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
