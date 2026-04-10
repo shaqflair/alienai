@@ -211,7 +211,7 @@ export function scoreRaid(
   };
 
   // No RAID items = perfect score (nothing to penalise)
-if (!raidItems.length) return { score: 100, detail };
+  if (!raidItems.length) return { score: 100, detail };
 
   detail.total = raidItems.length;
   let score = 100;
@@ -231,13 +231,13 @@ if (!raidItems.length) return { score: 100, detail };
 
     if (typ === "issue") {
       detail.openIssues++;
-      if (sev === "high")   { detail.highSeverityIssues++; score -= 12; }
-      else if (sev === "medium")                           { score -= 7;  }
-      else                                                 { score -= 3;  }
+      if (sev === "high")        { detail.highSeverityIssues++; score -= 12; }
+      else if (sev === "medium")                                { score -= 7;  }
+      else                                                      { score -= 3;  }
     } else if (typ === "risk") {
-      if (sev === "high")   { detail.highRisks++; score -= 8; }
-      else if (sev === "medium")                  { score -= 4; }
-      else                                        { score -= 2; }
+      if (sev === "high")        { detail.highRisks++; score -= 8; }
+      else if (sev === "medium")                       { score -= 4; }
+      else                                             { score -= 2; }
     } else if (typ === "dependency") {
       detail.openDependencies++;
       score -= 4;
@@ -246,9 +246,9 @@ if (!raidItems.length) return { score: 100, detail };
       score -= 3;
     } else {
       // 'other' — treat like low risk
-      if (sev === "high")   score -= 6;
+      if (sev === "high")        score -= 6;
       else if (sev === "medium") score -= 3;
-      else                  score -= 1;
+      else                       score -= 1;
     }
   }
 
@@ -526,8 +526,8 @@ async function fetchPortfolioBudget(
 }
 
 async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
-  const CHARTER_TYPES    = ["PROJECT_CHARTER", "CHARTER"];
-  const FINANCIAL_TYPES  = ["FINANCIAL_PLAN"];
+  const CHARTER_TYPES     = ["PROJECT_CHARTER", "CHARTER"];
+  const FINANCIAL_TYPES   = ["FINANCIAL_PLAN"];
   const STAKEHOLDER_TYPES = ["STAKEHOLDER_REGISTER", "STAKEHOLDERS"];
 
   const [approvalsRes, changeReqsRes, artifactsRes, projectsRes, gatesRes] = await Promise.allSettled([
@@ -544,7 +544,10 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
       .limit(20000),
     supabase
       .from("artifacts")
-      .select("project_id, artifact_type, type, status, is_current")
+      // FIX: added approval_status to the select — the previous version only fetched
+      // `status` which is not where approval state is stored, causing charter and
+      // financial plan to always appear unapproved in the governance score.
+      .select("project_id, artifact_type, type, status, approval_status, is_current")
       .in("project_id", projectIds)
       .eq("is_current", true)
       .limit(50000),
@@ -566,7 +569,7 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
   const projects:   any[] = projectsRes.status   === "fulfilled" ? projectsRes.value.data   ?? [] : [];
   const gates:      any[] = (gatesRes as any).status === "fulfilled" ? (gatesRes as any).value.data ?? [] : [];
 
-  const openStatuses = new Set(["pending", "open", "submitted", "draft"]);
+  const openStatuses     = new Set(["pending", "open", "submitted", "draft"]);
   const approvedStatuses = new Set(["approved", "active", "current", "published", "signed_off", "signed off"]);
 
   const canonType = (a: any) => String(a?.artifact_type || a?.type || "").toUpperCase().trim();
@@ -609,14 +612,27 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
     });
   }
 
-  // Artifacts
+  // Artifacts — check approval_status first, fall back to status
   for (const a of artifacts) {
     const pid  = String(a.project_id);
     const rec  = byProject.get(pid);
     if (!rec) continue;
-    const ct   = canonType(a);
-    const stat = String(a.status || "").toLowerCase().replace(/\s+/g, "_");
-    const isApproved = approvedStatuses.has(stat) || stat.includes("approv") || stat.includes("publish");
+
+    const ct = canonType(a);
+
+    // FIX: approval state lives in `approval_status`, not `status`.
+    // We check approval_status first (primary), then fall back to status for
+    // any artifacts that use a different convention.
+    const approvalStat = String(a.approval_status || "").toLowerCase().replace(/\s+/g, "_");
+    const stat         = String(a.status          || "").toLowerCase().replace(/\s+/g, "_");
+
+    const isApproved =
+      approvedStatuses.has(approvalStat) ||
+      approvalStat.includes("approv")    ||
+      approvalStat.includes("publish")   ||
+      approvedStatuses.has(stat)         ||
+      stat.includes("approv")            ||
+      stat.includes("publish");
 
     if (CHARTER_TYPES.includes(ct)    && isApproved) rec.charterApproved            = true;
     if (FINANCIAL_TYPES.includes(ct)  && isApproved) rec.budgetApproved             = true;
