@@ -1,43 +1,43 @@
-// src/components/executive/ExecutiveCockpitClient.tsx
+﻿// src/components/executive/ExecutiveCockpitClient.tsx
 // Rebuilt: signal-rich cockpit tiles with crystal design system.
 // All tiles degrade gracefully to a count if structured data is not present.
 //
 // Fixes applied:
-//   ✅ FIX-ECC1: URL paths corrected — three endpoints were missing /approvals/ prefix
-//   ✅ FIX-ECC2: SlaRadarBody reads item.breached / item.at_risk (route returns booleans, not sla_state)
-//   ✅ FIX-ECC3: PendingApprovalsBody reads sla_status || sla_state (cache column is sla_status)
-//   ✅ FIX-ECC4: MicroList age derived from timestamps (submitted_at/created_at/computed_at/updated_at/etc.)
-//   ✅ FIX-ECC5: Add Governance Brain as primary/fallback signal source (/api/ai/governance-brain)
-//   ✅ FIX-ECC6: Brain SLA tile prefers approvals overdue_steps / breached_by_type.approvals over total breached_total
-//   ✅ FIX-ECC7: Brain risk fallback uses health.projects[].signals (raid_high/raid_overdue) when available
-//   ✅ FIX-ECC8: Stable footer labels (avoid split(" ").pop() weirdness)
-//   ✅ FIX-ECC9: Align list rendering keys with API payloads (project_name vs project_title, etc.)
-//   ✅ FIX-ECC10: WhoBlockingBody renders task-style rows correctly (title/project_name) when not aggregated
-//   ✅ FIX-ECC11: Tiles clickable → opens a governance drawer with top items + deep links (bestHref resolver)
-//   ✅ FIX-ECC12: Never show UUIDs (user:uuid) — resolve person label to name/email only
-//   ✅ FIX-ECC13: Risk signal "corrupted HTML" hardened — detect HTML responses and show clean error
-//   ✅ FIX-ECC14: Remove "Scope: ORG" labels (tile + drawer)
-//   ✅ FIX-ECC15: Risk Signals endpoint corrected → /api/executive/risk-signals (not /approvals/risk-signals)
-//   ✅ FIX-ECC16: If primary endpoint returns 0 but Brain has data → show Brain fallback (count + items)
-//   ✅ FIX-ECC17: Dashboard tiles visible to all org members — shows all project data
-//   ✅ FIX-ECC18: Drill-down "Open" links locked for non-members (shows lock icon + "No access")
-//   ✅ FIX-ECC19: Pending tile count prefers /pending meta.total (not just items.length)
-//   ✅ FIX-ECC20: Pending tile/body show approver + pending age label from live route
+//   âœ… FIX-ECC1: URL paths corrected â€” three endpoints were missing /approvals/ prefix
+//   âœ… FIX-ECC2: SlaRadarBody reads item.breached / item.at_risk (route returns booleans, not sla_state)
+//   âœ… FIX-ECC3: PendingApprovalsBody reads sla_status || sla_state (cache column is sla_status)
+//   âœ… FIX-ECC4: MicroList age derived from timestamps (submitted_at/created_at/computed_at/updated_at/etc.)
+//   âœ… FIX-ECC5: Add Governance Brain as primary/fallback signal source (/api/ai/governance-brain)
+//   âœ… FIX-ECC6: Brain SLA tile prefers approvals overdue_steps / breached_by_type.approvals over total breached_total
+//   âœ… FIX-ECC7: Brain risk fallback uses health.projects[].signals (raid_high/raid_overdue) when available
+//   âœ… FIX-ECC8: Stable footer labels (avoid split(" ").pop() weirdness)
+//   âœ… FIX-ECC9: Align list rendering keys with API payloads (project_name vs project_title, etc.)
+//   âœ… FIX-ECC10: WhoBlockingBody renders task-style rows correctly (title/project_name) when not aggregated
+//   âœ… FIX-ECC11: Tiles clickable â†’ opens a governance drawer with top items + deep links (bestHref resolver)
+//   âœ… FIX-ECC12: Never show UUIDs (user:uuid) â€” resolve person label to name/email only
+//   âœ… FIX-ECC13: Risk signal "corrupted HTML" hardened â€” detect HTML responses and show clean error
+//   âœ… FIX-ECC14: Remove "Scope: ORG" labels (tile + drawer)
+//   âœ… FIX-ECC15: Risk Signals endpoint corrected â†’ /api/executive/risk-signals (not /approvals/risk-signals)
+//   âœ… FIX-ECC16: If primary endpoint returns 0 but Brain has data â†’ show Brain fallback (count + items)
+//   âœ… FIX-ECC17: Dashboard tiles visible to all org members â€” shows all project data
+//   âœ… FIX-ECC18: Drill-down "Open" links locked for non-members (shows lock icon + "No access")
+//   âœ… FIX-ECC19: Pending tile count prefers /pending meta.total (not just items.length)
+//   âœ… FIX-ECC20: Pending tile/body show approver + pending age label from live route
 //
 // ACCESS CONTROL:
-//   Dashboard tiles visible to all org members — shows all project data
+//   Dashboard tiles visible to all org members â€” shows all project data
 //   Drill-down "Open" links locked for non-members (shows lock icon + "No access")
 //   Pass memberProjectIds (array of project UUIDs user is member of) and isAdmin prop
 //   from the parent server component. Admins bypass all project-level checks.
 //
 // Aliena $100M polish:
-//   ✅ UI-POLISH1: Add Executive AI assistant avatar button in header (Ask ΛliΞnΛ)
+//   âœ… UI-POLISH1: Add Executive AI assistant avatar button in header (Ask Î›liÎžnÎ›)
 //                 Opens governance drawer with curated actions + deep links
 //
 // UI Clarity fixes:
-//   ✅ FIX-UI1: Who's Blocking + Bottlenecks href fixed → /approvals (was 404 /approvals/bottlenecks)
-//   ✅ FIX-UI2: Empty state shown when count === 0 and no child content ("No items to action right now")
-//   ✅ FIX-UI3: "VIEW DETAILS" link hidden when count === 0 (was misleading on empty tiles)
+//   âœ… FIX-UI1: Who's Blocking + Bottlenecks href fixed â†’ /approvals (was 404 /approvals/bottlenecks)
+//   âœ… FIX-UI2: Empty state shown when count === 0 and no child content ("No items to action right now")
+//   âœ… FIX-UI3: "VIEW DETAILS" link hidden when count === 0 (was misleading on empty tiles)
 
 "use client";
 
@@ -173,7 +173,7 @@ function cleanErrorMessage(s: string) {
   if (!raw) return "Request failed";
   const cleaned = stripHtml(raw);
   if (!cleaned || cleaned.length < 3) return "Request failed";
-  return cleaned.length > 140 ? `${cleaned.slice(0, 140)}…` : cleaned;
+  return cleaned.length > 140 ? `${cleaned.slice(0, 140)}â€¦` : cleaned;
 }
 
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
@@ -621,7 +621,7 @@ function Drawer({
                         <div className="text-[13px] font-semibold text-slate-900 truncate">{label}</div>
                         {subParts.filter(Boolean).length > 0 && (
                           <div className="mt-1 text-[11px] text-slate-500 font-medium truncate">
-                            {subParts.filter(Boolean).join(" • ")}
+                            {subParts.filter(Boolean).join(" â€¢ ")}
                           </div>
                         )}
                       </div>
@@ -646,13 +646,13 @@ function Drawer({
                       ) : (
                         <div className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200/60 bg-slate-50/80 px-3 py-2 text-[11px] font-semibold text-slate-400 cursor-not-allowed select-none">
                           <Lock className="h-3.5 w-3.5" />
-                          No access — not a project member
+                          No access â€” not a project member
                         </div>
                       )}
                       <button
                         type="button"
                         onClick={() => {
-                          const txt = `${label}${subParts.filter(Boolean).length ? ` — ${subParts.filter(Boolean).join(" • ")}` : ""}`;
+                          const txt = `${label}${subParts.filter(Boolean).length ? ` â€” ${subParts.filter(Boolean).join(" â€¢ ")}` : ""}`;
                           navigator.clipboard?.writeText(txt);
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-indigo-700 transition-colors"
@@ -1106,7 +1106,7 @@ function PendingApprovalsBody({ items }: { items: any[] }) {
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-semibold text-slate-800 truncate">{title}</div>
                 {subParts.length > 0 && (
-                  <div className="text-[10px] text-slate-400 truncate">{subParts.join(" • ")}</div>
+                  <div className="text-[10px] text-slate-400 truncate">{subParts.join(" â€¢ ")}</div>
                 )}
               </div>
               {age && (
@@ -1167,7 +1167,7 @@ function CockpitHeader({
       </div>
 
       <div className="flex items-center gap-3">
-        <AIAssistantAvatar label="Ask ΛliΞnΛ — executive actions" onClick={onAskAliena} />
+        <AIAssistantAvatar label="Ask Î›liÎžnÎ› â€” executive actions" onClick={onAskAliena} />
 
         {label && (
           <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium">
@@ -1266,7 +1266,7 @@ export default function ExecutiveCockpitClient({
     ];
 
     openDrawer({
-      title: "Ask ΛliΞnΛ",
+      title: "Ask Î›liÎžnÎ›",
       subtitle: "Executive actions, insights and deep links",
       tone: "cyan",
       items: curated,
@@ -1411,7 +1411,7 @@ export default function ExecutiveCockpitClient({
         project_id: p.project_id,
         project_title: p.project_title,
         project_name: p.project_title,
-        stage_key: `Score ${safeNum(p.score)} · ${safeStr(p.rag)}`,
+        stage_key: `Score ${safeNum(p.score)} Â· ${safeStr(p.rag)}`,
         meta: { project_id: p.project_id, project_code: p.project_code, project_human_id: p.project_code },
         kind: "portfolio",
       }))
