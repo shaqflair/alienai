@@ -1450,7 +1450,14 @@ export default function FinancialPlanEditor({
       {activeTab === "changes" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {(() => {
-            const unapplied = content.change_exposure.filter(c => c.status === "approved" && Number(c.cost_impact) !== 0 && !String(c.notes || "").includes("Applied to budget"));
+            // FIX: exclude auto-synced CRs (notes starts with "cr:") from the
+            // "ready to apply" banner — those are system-managed, not manual.
+            const unapplied = content.change_exposure.filter(c =>
+              c.status === "approved" &&
+              Number(c.cost_impact) !== 0 &&
+              !String(c.notes || "").startsWith("cr:") &&
+              !String(c.notes || "").includes("Applied to budget")
+            );
             if (!unapplied.length) return null;
             return (
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 14px", background: P.greenLt, border: "1px solid #A0D0B8", marginBottom: 8 }}>
@@ -1497,14 +1504,37 @@ export default function FinancialPlanEditor({
                         <select value={c.status} onChange={e => updateCE(c.id, { status: e.target.value as ChangeExposure["status"] })} disabled={readOnly} style={{ fontSize: 10, fontFamily: P.mono, fontWeight: 700, padding: "3px 8px", border: "none", cursor: readOnly ? "default" : "pointer", outline: "none", background: c.status === "approved" ? P.greenLt : c.status === "pending" ? P.amberLt : "#F4F4F2", color: c.status === "approved" ? P.green : c.status === "pending" ? P.amber : P.textSm }}>
                           <option value="approved">Approved</option><option value="pending">Pending</option><option value="rejected">Rejected</option>
                         </select>
-                        {c.status === "approved" && c.cost_impact !== "" && Number(c.cost_impact) !== 0 && !readOnly && (
+                        {/* FIX: hide "Apply to budget" when CE was auto-synced from a CR
+                            (notes contains "cr:") — those CRs are tracked by the system and
+                            double-clicking would inflate the approved budget incorrectly.
+                            Also hide if already applied ("Applied to budget" in notes). */}
+                        {c.status === "approved" && c.cost_impact !== "" && Number(c.cost_impact) !== 0 && !readOnly
+                          && !String(c.notes || "").startsWith("cr:")
+                          && !String(c.notes || "").includes("Applied to budget")
+                          && (
                           <button type="button" title="Apply this approved CR cost impact to the Approved Budget" onClick={() => { const current = Number(content.total_approved_budget) || 0; const impact = Number(c.cost_impact) || 0; updateField("total_approved_budget", current + impact); updateCE(c.id, { notes: (c.notes ? c.notes + " | " : "") + "Applied to budget: " + sym + Math.abs(impact).toLocaleString("en-GB") + " on " + new Date().toLocaleDateString("en-GB") }); }}
                             style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, cursor: "pointer", background: P.greenLt, border: "1px solid #A0D0B8", color: P.green }}>
                             ✓ Apply to budget
                           </button>
                         )}
                       </td>
-                      <td style={{ ...cb, minWidth: 160 }}><input type="text" value={c.notes} onChange={e => updateCE(c.id, { notes: e.target.value })} readOnly={readOnly} placeholder="Notes..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.textMd, fontFamily: P.sans, outline: "none" }} /></td>
+                      <td style={{ ...cb, minWidth: 160 }}>
+                        {/* FIX: strip the internal "cr:{uuid}" marker from display —
+                            it's used to prevent duplicate auto-sync but shouldn't be
+                            visible to PMs in the notes field */}
+                        <input type="text"
+                          value={String(c.notes || "").startsWith("cr:") ? "" : c.notes}
+                          onChange={e => {
+                            // Preserve the hidden cr: marker when user edits notes
+                            const marker = String(c.notes || "").startsWith("cr:")
+                              ? String(c.notes).split("|")[0].trim()
+                              : "";
+                            updateCE(c.id, { notes: marker ? `${marker} | ${e.target.value}` : e.target.value });
+                          }}
+                          readOnly={readOnly}
+                          placeholder="Notes..."
+                          style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.textMd, fontFamily: P.sans, outline: "none" }} />
+                      </td>
                       <td style={{ ...cb, padding: "4px 6px" }}>
                         {!readOnly && <button type="button" onClick={() => removeCE(c.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }} onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }} onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0"; }} aria-label="Delete change exposure"><Trash2 style={{ width: 13, height: 13 }} /></button>}
                       </td>
