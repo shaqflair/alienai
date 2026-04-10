@@ -1064,17 +1064,69 @@ export default function FinancialPlanEditor({
 
   // FIX: fetch project change requests so users can link existing CRs directly
   // to change exposure rows without having to type the ref/title manually.
-  const [projectCRs, setProjectCRs] = useState<Array<{
-    id: string; reference?: string; title: string; ai_cost?: number;
-  }>>([]);
+  // Schema: public_id = "CR-001" ref, ai_cost = cost impact, decision_status = approval state.
+  const [projectCRs, setProjectCRs] = useState<any[]>([]);
 
   useEffect(() => {
     if (!projectId) return;
     fetch(`/api/change/${encodeURIComponent(projectId)}`, { cache: "no-store" })
       .then(r => r.json())
-      .then(d => { if (d.ok && Array.isArray(d.items)) setProjectCRs(d.items); })
+      .then(d => {
+        if (d.ok && Array.isArray(d.items)) {
+          // Only keep approved/pending — no point syncing closed/rejected CRs
+          setProjectCRs(d.items.filter((cr: any) => {
+            const s = String(cr.decision_status ?? cr.status ?? "").toLowerCase();
+            return !["closed", "rejected", "cancelled", "implemented"].includes(s);
+          }));
+        }
+      })
       .catch(() => {});
   }, [projectId]);
+
+  // Auto-populate change_exposure from approved/pending CRs on load.
+  // Non-destructive — only adds CRs not already tracked.
+  // Uses public_id for the CR reference (e.g. "CR-001") and decision_status for approval state.
+  const hasSyncedCRsRef = useRef(false);
+
+  useEffect(() => {
+    if (!projectCRs.length || readOnly || hasSyncedCRsRef.current) return;
+    hasSyncedCRsRef.current = true;
+
+    const crRef = (cr: any): string =>
+      String(cr.public_id ?? cr.seq ?? "").trim();
+
+    const crExpStatus = (cr: any): "approved" | "pending" => {
+      const s = String(cr.decision_status ?? cr.status ?? "").toLowerCase();
+      return s === "approved" ? "approved" : "pending";
+    };
+
+    const eligible = projectCRs.filter(cr => {
+      const s = String(cr.decision_status ?? cr.status ?? "").toLowerCase();
+      return ["approved", "pending", "submitted", "open", "review"].includes(s);
+    });
+
+    if (!eligible.length) return;
+
+    const newEntries = eligible
+      .filter(cr => {
+        const ref = crRef(cr);
+        return !content.change_exposure.some(ce =>
+          (ref && ce.change_ref === ref) ||
+          (ce.notes && ce.notes.includes(cr.id))
+        );
+      })
+      .map(cr => ({
+        id: uid(),
+        change_ref: crRef(cr),
+        title: String(cr.title ?? "").trim(),
+        cost_impact: cr.ai_cost ?? "",
+        status: crExpStatus(cr),
+        notes: `cr:${cr.id}`,
+      }));
+
+    if (!newEntries.length) return;
+    handleChange({ ...content, change_exposure: [...content.change_exposure, ...newEntries] });
+  }, [projectCRs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!highlightedCrId || activeTab !== "changes") return;
@@ -1464,8 +1516,8 @@ export default function FinancialPlanEditor({
 
             {/* FIX: added "Link from existing CR" dropdown so change exposure rows can be
                 auto-populated from project change requests rather than typed manually.
-                Fetches from /api/change/{projectId} which returns items[] with title,
-                reference, and ai_cost fields. */}
+                Uses public_id for CR reference, ai_cost for cost impact, decision_status
+                for approval state. Auto-sync runs on load via hasSyncedCRsRef effect. */}
             {!readOnly && (
               <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}`, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                 <button type="button" onClick={addCE}
@@ -1478,26 +1530,37 @@ export default function FinancialPlanEditor({
                     onChange={e => {
                       const cr = projectCRs.find(c => c.id === e.target.value);
                       if (!cr) return;
+                      const ref = String(cr.public_id ?? cr.seq ?? "").trim();
+                      const s = String(cr.decision_status ?? cr.status ?? "").toLowerCase();
                       handleChange({
                         ...content,
                         change_exposure: [...content.change_exposure, {
                           id: uid(),
-                          change_ref: cr.reference ?? "",
-                          title: cr.title ?? "",
+                          change_ref: ref,
+                          title: String(cr.title ?? "").trim(),
                           cost_impact: cr.ai_cost ?? "",
-                          status: "pending",
-                          notes: "",
+                          status: s === "approved" ? "approved" : "pending",
+                          notes: `cr:${cr.id}`,
                         }],
                       });
                       e.target.value = "";
                     }}
                     style={{ border: `1px solid ${P.border}`, background: P.surface, fontFamily: P.sans, fontSize: 11, padding: "4px 8px", color: P.textMd, cursor: "pointer", outline: "none" }}>
                     <option value="">+ Link from existing CR...</option>
-                    {projectCRs.map(cr => (
-                      <option key={cr.id} value={cr.id}>
-                        {cr.reference ? `${cr.reference} — ` : ""}{cr.title}
-                      </option>
-                    ))}
+                    {projectCRs
+                      .filter(cr => {
+                        const s = String(cr.decision_status ?? cr.status ?? "").toLowerCase();
+                        return ["approved", "pending", "submitted", "open", "review"].includes(s);
+                      })
+                      .map(cr => {
+                        const ref = String(cr.public_id ?? cr.seq ?? "").trim();
+                        const isApproved = String(cr.decision_status ?? "").toLowerCase() === "approved";
+                        return (
+                          <option key={cr.id} value={cr.id}>
+                            {ref ? `${ref} — ` : ""}{cr.title}{isApproved ? " ✓" : ""}
+                          </option>
+                        );
+                      })}
                   </select>
                 )}
               </div>
