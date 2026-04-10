@@ -1199,8 +1199,8 @@ export default function HomePage({ data, executiveBriefing }: { data: HomeData; 
 
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <KpiCard label="Portfolio Health" value={phScoreForUi == null ? "..." : `${phScoreForUi}%`} sub={phSubLabel} icon={<Activity className="h-5 w-5" />} colorKey={phScoreForUi == null ? "blue" : phColorKey} trendLabel={phDelta != null && phDelta !== 0 ? `${Math.abs(Math.round(phDelta))}` : undefined} onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))} />
-            <KpiCard label="Open Risks" value={openRisksValue == null ? "..." : `${openRisksValue}`} sub={raidCardSub} icon={<AlertTriangle className="h-5 w-5" />} colorKey="amber" trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity} high` : undefined} onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))} />
-            <KpiCard label="Milestones Due" value={milestonesDueLive == null ? "..." : `${milestonesDueLive}`} sub={milestoneKpiSub} icon={<Clock3 className="h-5 w-5" />} colorKey={milestoneKpiColorKey} onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))} />
+            <KpiCard label="Open Risks" value={openRisksValue == null ? "..." : `${openRisksValue}`} sub={raidCardSub} icon={<AlertTriangle className="h-5 w-5" />} colorKey="amber" trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity} high` : undefined} onClick={() => router.push(appendFiltersToUrl("/portfolio/raid", urlFilters))} />
+                        <KpiCard label="Milestones Due" value={milestonesDueLive == null ? "..." : `${milestonesDueLive}`} sub={milestoneKpiSub} icon={<Clock3 className="h-5 w-5" />} colorKey={milestoneKpiColorKey} onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))} />
             <KpiCard label="Budget Health" value={fpValueLabel} sub={fpSubLabel} icon={<DollarSign className="h-5 w-5" />} colorKey={fpColorKey} trendLabel={fpTrendLabel} onClick={() => router.push("/budget")} />
           </div>
 
