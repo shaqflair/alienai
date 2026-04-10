@@ -20,6 +20,16 @@ async function requireAuth(sb: any) {
 }
 
 async function getOrgIdFromProject(sb: any, projectId: string) {
+  // FIX: accept orgId directly (passed from org-level settings pages)
+  // First try the organisations table — if this ID is itself an org, use it directly.
+  const orgCheck = await sb
+    .from("organisations")
+    .select("id")
+    .eq("id", projectId)
+    .maybeSingle();
+  if (!orgCheck.error && orgCheck.data?.id) return safeStr(orgCheck.data.id).trim();
+
+  // Otherwise resolve org from project
   const first = await sb
     .from("projects")
     .select("organisation_id")
@@ -28,8 +38,7 @@ async function getOrgIdFromProject(sb: any, projectId: string) {
 
   if (!first.error) {
     const orgId = safeStr((first.data as any)?.organisation_id).trim();
-    if (!orgId) throw new Error("Project has no organisation_id");
-    return orgId;
+    if (orgId) return orgId;
   }
 
   // Fallback for alternate column name
@@ -41,7 +50,7 @@ async function getOrgIdFromProject(sb: any, projectId: string) {
 
   if (second.error) throw new Error(second.error.message);
   const orgId = safeStr((second.data as any)?.organization_id).trim();
-  if (!orgId) throw new Error("Project has no organisation_id");
+  if (!orgId) throw new Error("Could not resolve organisation from projectId/orgId provided");
   return orgId;
 }
 
