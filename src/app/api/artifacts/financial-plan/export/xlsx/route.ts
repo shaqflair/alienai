@@ -78,6 +78,20 @@ export async function GET(req: NextRequest) {
     const artifactTitle = safeStr(artifact.title || "Financial Plan");
     const projectId   = safeStr(artifact.project_id);
 
+    /* ── FIX: Derive actuals from monthly_data ──────────────────── */
+    // cost_lines[].actual is computed at runtime from timesheets and NOT persisted
+    // to content_json — so it is always 0 in the export for People lines.
+    // monthly_data DOES store the persisted actual values (written during sync).
+    // Sum monthly_data[lineId][monthKey].actual across all months for the real figure.
+    const actualByLine = (lineId: string): number =>
+      Object.values((monthlyData[lineId] ?? {}) as Record<string, any>)
+        .reduce((s: number, e: any) => s + safeNum(e.actual), 0);
+
+    const totalActualFromMonthly = costLines.reduce(
+      (s: number, l: any) => s + actualByLine(safeStr(l.id)),
+      0,
+    );
+
     /* ── FIX: Fetch heatmap people (real planned days + cost) ───── */
     // The Resources tab in the UI reads from the heatmap API, not content.resources.
     // content.resources often has planned_days = 0 for heatmap-allocated people.
@@ -273,7 +287,7 @@ export async function GET(req: NextRequest) {
     const kpis: [string, number, string?][] = [
       ["Total Approved Budget",          approvedBudget, "FF2A6E47"],
       ["Total Budgeted (cost lines)",    totalBudgeted,  undefined],
-      ["Total Actual Spend (timesheets)", totalActual,   "FF0E7490"],
+      ["Total Actual Spend (timesheets)", totalActualFromMonthly, "FF0E7490"],
       ["Total Forecast",                 totalForecast,  forecastVar > 0 ? "FFB83A2E" : "FF2A6E47"],
       ["Forecast Variance vs Approved",  forecastVar,    forecastVar > 0 ? "FFB83A2E" : "FF2A6E47"],
       ["Approved Change Exposure",       approvedExp,    undefined],
@@ -327,7 +341,8 @@ export async function GET(req: NextRequest) {
 
     costLines.forEach((line: any, i: number) => {
       const bud    = safeNum(line.budgeted);
-      const act    = safeNum(line.actual);
+      // FIX: use monthly_data actuals — cost_lines[].actual is 0 for People (runtime only)
+      const act    = actualByLine(safeStr(line.id)) || safeNum(line.actual);
       const fct    = safeNum(line.forecast);
       const varVal = bud ? fct - bud : 0;
       const varPct = bud ? varVal / bud : 0;
@@ -349,6 +364,8 @@ export async function GET(req: NextRequest) {
       tRow.height = 22;
       tRow.fill   = FILLS.sub;
       const tVar  = approvedBudget ? totalForecast - approvedBudget : 0;
+      // FIX: recalculate totalActual from monthly_data for the total row
+      const totalActualForDisplay = costLines.reduce((s: number, l: any) => s + (actualByLine(safeStr(l.id)) || safeNum(l.actual)), 0);
 
       tRow.getCell(1).value  = "TOTAL";
       tRow.getCell(1).font   = { bold: true, color: { argb: "FFFFFFFF" }, name: "Arial", size: 10 };
@@ -357,7 +374,7 @@ export async function GET(req: NextRequest) {
 
       for (const [col, val, clr] of [
         [3, totalBudgeted, "FFFFFFFF"],
-        [4, totalActual,   "FFFFFFFF"],
+        [4, totalActualForDisplay, "FFFFFFFF"],
         [5, totalForecast, "FFFFFFFF"],
         [6, tVar, tVar > 0 ? "FFFF9999" : "FF99FFcc"],
       ] as [number, number, string][]) {
