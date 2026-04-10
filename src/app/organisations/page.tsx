@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
@@ -44,7 +44,7 @@ export default async function OrganisationsPage() {
         <input
           name="name"
           className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          placeholder="Organisation name…"
+          placeholder="Organisation nameâ€¦"
           required
         />
         <button
@@ -89,7 +89,7 @@ export default async function OrganisationsPage() {
                   Settings
                 </Link>
                 <Link
-                  href={`/organisations/${o.id}/approvals`}
+                  href={`/organisations/${o.id}/settings?tab=approvals`}
                   className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 font-medium hover:bg-gray-50 transition-colors"
                   title="Configure organisation approvers, groups, and rules"
                 >
