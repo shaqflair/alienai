@@ -544,12 +544,15 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
       .limit(20000),
     supabase
       .from("artifacts")
-      // FIX: added approval_status to the select — the previous version only fetched
+      // FIX 1: added approval_status to the select — the previous version only fetched
       // `status` which is not where approval state is stored, causing charter and
       // financial plan to always appear unapproved in the governance score.
+      // FIX 2: removed .eq("is_current", true) — when a charter is approved and then
+      // a new draft revision is created, is_current flips to the draft and the approved
+      // version becomes is_current=false. Querying all versions and checking if ANY
+      // version is approved correctly reflects the governance state.
       .select("project_id, artifact_type, type, status, approval_status, is_current")
       .in("project_id", projectIds)
-      .eq("is_current", true)
       .limit(50000),
     supabase
       .from("projects")
