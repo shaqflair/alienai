@@ -1,63 +1,20 @@
-// src/components/approvals/HolidayCoverPanel.tsx
-"use client";
+﻿"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 
-type Member = {
-  user_id: string;
-  full_name?: string;
-  email?: string;
-  role?: string;
-  label?: string;
-};
-
-type Delegation = {
-  id: string;
-  from_user_id: string;
-  to_user_id: string;
-  starts_at: string;
-  ends_at: string;
-  reason: string | null;
-  is_active: boolean;
-};
-
+type Member = { user_id: string; full_name?: string; email?: string; label?: string };
+type Delegation = { id: string; from_user_id: string; to_user_id: string; starts_at: string; ends_at: string; reason: string | null; is_active: boolean };
 type DelegationStatus = "active" | "upcoming" | "expired";
 
-function clean(x: any) {
-  return String(x ?? "").trim();
+function clean(x: any) { return String(x ?? "").trim(); }
+function toIsoFromDate(d: string, endOfDay = false) {
+  if (!d) return "";
+  try { return new Date(d + (endOfDay ? "T23:59:59.000Z" : "T00:00:00.000Z")).toISOString(); } catch { return ""; }
 }
-
-function toDateInputValue(iso: string): string {
-  // Convert ISO string to YYYY-MM-DD for date input
-  if (!iso) return "";
-  try {
-    return new Date(iso).toISOString().slice(0, 10);
-  } catch {
-    return "";
-  }
+function fmtDate(iso: string) {
+  if (!iso) return "--";
+  try { return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); } catch { return iso; }
 }
-
-function toIsoFromDate(dateStr: string, endOfDay = false): string {
-  if (!dateStr) return "";
-  try {
-    const d = new Date(dateStr + (endOfDay ? "T23:59:59.000Z" : "T00:00:00.000Z"));
-    return d.toISOString();
-  } catch {
-    return "";
-  }
-}
-
-function fmtDate(iso: string): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleDateString("en-GB", {
-      day: "numeric", month: "short", year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
-}
-
 function getDelegationStatus(d: Delegation): DelegationStatus {
   const now = Date.now();
   const start = new Date(d.starts_at).getTime();
@@ -66,512 +23,222 @@ function getDelegationStatus(d: Delegation): DelegationStatus {
   if (now > end) return "expired";
   return "active";
 }
-
 function StatusBadge({ status }: { status: DelegationStatus }) {
   const cfg = {
-    active: {
-      bg: "#f0fdf4", border: "#bbf7d0", color: "#15803d",
-      dot: "#22c55e", label: "Active",
-    },
-    upcoming: {
-      bg: "#fffbeb", border: "#fde68a", color: "#92400e",
-      dot: "#f59e0b", label: "Upcoming",
-    },
-    expired: {
-      bg: "#f4f4f2", border: "#e3e3df", color: "#6b7280",
-      dot: "#9ca3af", label: "Expired",
-    },
+    active:   { bg: "#f0fdf4", border: "#bbf7d0", color: "#15803d", dot: "#22c55e", label: "Active" },
+    upcoming: { bg: "#fffbeb", border: "#fde68a", color: "#92400e", dot: "#f59e0b", label: "Upcoming" },
+    expired:  { bg: "#f4f4f2", border: "#e3e3df", color: "#6b7280", dot: "#9ca3af", label: "Expired" },
   }[status];
-
   return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
-      padding: "2px 8px", borderRadius: 20,
-      background: cfg.bg, border: `1px solid ${cfg.border}`,
-      fontSize: 11, fontWeight: 600, color: cfg.color,
-    }}>
-      <span style={{
-        width: 6, height: 6, borderRadius: "50%",
-        background: cfg.dot, flexShrink: 0,
-      }} />
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 20, background: cfg.bg, border: `1px solid ${cfg.border}`, fontSize: 11, fontWeight: 600, color: cfg.color }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: cfg.dot }} />
       {cfg.label}
     </span>
   );
 }
-
 function pickMembers(json: any): Member[] {
-  const arr =
-    (Array.isArray(json?.items) && json.items) ||
-    (Array.isArray(json?.users) && json.users) ||
-    (Array.isArray(json?.members) && json.members) ||
-    [];
+  const arr = (Array.isArray(json?.items) && json.items) || (Array.isArray(json?.users) && json.users) || (Array.isArray(json?.members) && json.members) || [];
   return (arr as Member[]).filter((m) => clean((m as any)?.user_id));
 }
-
-function memberLabel(m: Member) {
-  return (
-    clean(m.label) ||
-    clean(m.full_name) ||
-    clean(m.email) ||
-    clean(m.user_id) ||
-    "Member"
-  );
-}
-
-function isBadId(x: string) {
-  const v = clean(x).toLowerCase();
-  return !v || v === "null" || v === "undefined";
-}
-
-function authHintFromStatus(status: number) {
-  if (status === 401) return "You are not signed in.";
-  if (status === 403) return "Platform admin permission required.";
-  return "";
-}
+function memberLabel(m: Member) { return clean(m.label) || clean(m.full_name) || clean(m.email) || clean(m.user_id) || "Member"; }
+function isBadId(x: string) { const v = clean(x).toLowerCase(); return !v || v === "null" || v === "undefined"; }
+function authHint(s: number) { return s === 401 ? "Not signed in." : s === 403 ? "Platform admin required." : ""; }
 
 export default function HolidayCoverPanel({
-  projectId,
-  canEdit = false,
+  projectId, orgId, canEdit = false,
 }: {
-  projectId: string;
+  projectId?: string;
+  orgId?: string;
   canEdit?: boolean;
 }) {
+  // Resolve which ID to use and which param name to send
+  const scopeId   = clean(orgId || projectId || "");
+  const scopeParam = orgId ? `orgId=${encodeURIComponent(scopeId)}` : `projectId=${encodeURIComponent(scopeId)}`;
+
   const [members, setMembers] = useState<Member[]>([]);
-  const [items, setItems] = useState<Delegation[]>([]);
-  const [err, setErr] = useState("");
+  const [items, setItems]     = useState<Delegation[]>([]);
+  const [err, setErr]         = useState("");
   const [loading, setLoading] = useState(false);
   const [showExpired, setShowExpired] = useState(false);
-
-  // Form state — using date strings (YYYY-MM-DD) for <input type="date">
-  const [fromUserId, setFromUserId] = useState("");
-  const [toUserId, setToUserId] = useState("");
-  const [startsDate, setStartsDate] = useState("");   // YYYY-MM-DD
-  const [endsDate, setEndsDate] = useState("");        // YYYY-MM-DD
-  const [reason, setReason] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [fromUserId, setFromUserId]   = useState("");
+  const [toUserId, setToUserId]       = useState("");
+  const [startsDate, setStartsDate]   = useState("");
+  const [endsDate, setEndsDate]       = useState("");
+  const [reason, setReason]           = useState("");
+  const [saving, setSaving]           = useState(false);
 
   async function load(includeInactive = showExpired) {
     setErr("");
-    if (isBadId(projectId)) {
-      setMembers([]);
-      setItems([]);
-      setErr("Missing projectId");
-      return;
-    }
-
+    if (isBadId(scopeId)) { setErr("Missing orgId or projectId"); return; }
     setLoading(true);
     try {
-      const mRes = await fetch(
-        `/api/approvals/org-users?projectId=${encodeURIComponent(projectId)}`
-      );
+      const [mRes, dRes] = await Promise.all([
+        fetch(`/api/approvals/org-users?${scopeParam}`),
+        fetch(`/api/approvals/delegations?projectId=${encodeURIComponent(scopeId)}${includeInactive ? "&includeInactive=1" : ""}`),
+      ]);
       const mJson = await mRes.json().catch(() => ({}));
-      if (!mRes.ok || !mJson?.ok) {
-        const hint = authHintFromStatus(mRes.status);
-        setErr((mJson?.error || "Failed to load members") + (hint ? ` (${hint})` : ""));
-        setMembers([]);
-      } else {
-        setMembers(pickMembers(mJson));
-      }
-
-      const dRes = await fetch(
-        `/api/approvals/delegations?projectId=${encodeURIComponent(projectId)}${includeInactive ? "&includeInactive=1" : ""}`
-      );
       const dJson = await dRes.json().catch(() => ({}));
-      if (!dRes.ok || !dJson?.ok) {
-        const hint = authHintFromStatus(dRes.status);
-        setErr((prev) => prev || (dJson?.error || "Failed to load holiday cover") + (hint ? ` (${hint})` : ""));
-        setItems([]);
-      } else {
-        setItems(dJson.items || []);
-      }
+      if (!mRes.ok || !mJson?.ok) setErr((mJson?.error || "Failed to load members") + (authHint(mRes.status) ? ` (${authHint(mRes.status)})` : ""));
+      else setMembers(pickMembers(mJson));
+      if (!dRes.ok || !dJson?.ok) setErr(prev => prev || (dJson?.error || "Failed to load cover") + (authHint(dRes.status) ? ` (${authHint(dRes.status)})` : ""));
+      else setItems(dJson.items || []);
     } catch (e: any) {
-      setErr(String(e?.message || e || "Failed to load"));
-      setMembers([]);
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
+      setErr(String(e?.message || "Failed to load"));
+    } finally { setLoading(false); }
   }
 
+  useEffect(() => { load(); }, [scopeId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
-
-  // Reload when toggling expired view
-  async function toggleExpired() {
-    const next = !showExpired;
-    setShowExpired(next);
-    await load(next);
-  }
+    const ids = new Set(members.map(m => clean(m.user_id)));
+    if (fromUserId && !ids.has(clean(fromUserId))) setFromUserId("");
+    if (toUserId   && !ids.has(clean(toUserId)))   setToUserId("");
+  }, [members.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const label = useMemo(() => {
-    const map = new Map(members.map((m) => [clean(m.user_id), memberLabel(m)]));
+    const map = new Map(members.map(m => [clean(m.user_id), memberLabel(m)]));
     return (uid: string) => map.get(clean(uid)) || clean(uid) || "User";
   }, [members]);
 
-  // Keep selections valid if members refresh
-  useEffect(() => {
-    const ids = new Set(members.map((m) => clean(m.user_id)));
-    if (fromUserId && !ids.has(clean(fromUserId))) setFromUserId("");
-    if (toUserId && !ids.has(clean(toUserId))) setToUserId("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [members.length]);
-
-  // Validation
-  const dateError = useMemo(() => {
-    if (!startsDate || !endsDate) return null;
-    if (new Date(endsDate) <= new Date(startsDate)) {
-      return "End date must be after start date.";
-    }
-    return null;
-  }, [startsDate, endsDate]);
-
-  const samePersonError =
-    fromUserId && toUserId && clean(fromUserId) === clean(toUserId)
-      ? "Delegate from and cover person must be different."
-      : null;
-
-  const saveDisabled =
-    saving ||
-    !canEdit ||
-    !fromUserId ||
-    !toUserId ||
-    !startsDate ||
-    !endsDate ||
-    !!dateError ||
-    !!samePersonError;
+  const dateError    = startsDate && endsDate && new Date(endsDate) <= new Date(startsDate) ? "End date must be after start date." : null;
+  const samePersonErr = fromUserId && toUserId && clean(fromUserId) === clean(toUserId) ? "Must be different people." : null;
+  const saveDisabled  = saving || !canEdit || !fromUserId || !toUserId || !startsDate || !endsDate || !!dateError || !!samePersonErr;
 
   async function save() {
     setErr("");
-
-    if (!canEdit) {
-      setErr("Read-only: platform admin permission required to manage holiday cover.");
-      return;
-    }
-
-    if (!clean(fromUserId) || !clean(toUserId) || !startsDate || !endsDate) return;
-    if (dateError || samePersonError) return;
-
+    if (!canEdit || !fromUserId || !toUserId || !startsDate || !endsDate || dateError || samePersonErr) return;
     setSaving(true);
     try {
       const res = await fetch("/api/approvals/delegations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId,
-          from_user_id: fromUserId,
-          to_user_id: toUserId,
-          starts_at: toIsoFromDate(startsDate, false),
-          ends_at:   toIsoFromDate(endsDate, true),
-          reason: reason.trim() || null,
-        }),
+        body: JSON.stringify({ projectId: scopeId, from_user_id: fromUserId, to_user_id: toUserId, starts_at: toIsoFromDate(startsDate, false), ends_at: toIsoFromDate(endsDate, true), reason: reason.trim() || null }),
       });
-
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) {
-        const hint = authHintFromStatus(res.status);
-        setErr((json?.error || "Failed to save holiday cover") + (hint ? ` (${hint})` : ""));
-        return;
-      }
-
-      // Reset form
-      setFromUserId("");
-      setToUserId("");
-      setStartsDate("");
-      setEndsDate("");
-      setReason("");
+      if (!res.ok || !json?.ok) { setErr((json?.error || "Failed to save") + (authHint(res.status) ? ` (${authHint(res.status)})` : "")); return; }
+      setFromUserId(""); setToUserId(""); setStartsDate(""); setEndsDate(""); setReason("");
       await load();
-    } catch (e: any) {
-      setErr(String(e?.message || e || "Failed to save holiday cover"));
-    } finally {
-      setSaving(false);
-    }
+    } catch (e: any) { setErr(String(e?.message || "Failed to save")); }
+    finally { setSaving(false); }
   }
 
   async function remove(id: string) {
     setErr("");
-
-    if (!canEdit) {
-      setErr("Read-only: platform admin permission required to manage holiday cover.");
-      return;
-    }
-
+    if (!canEdit) return;
     try {
-      const res = await fetch(
-        `/api/approvals/delegations?projectId=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}`,
-        { method: "DELETE" }
-      );
+      const res = await fetch(`/api/approvals/delegations?projectId=${encodeURIComponent(scopeId)}&id=${encodeURIComponent(id)}`, { method: "DELETE" });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) {
-        const hint = authHintFromStatus(res.status);
-        setErr((json?.error || "Failed to remove") + (hint ? ` (${hint})` : ""));
-      } else {
-        await load();
-      }
-    } catch (e: any) {
-      setErr(String(e?.message || e || "Failed to remove"));
-    }
+      if (!res.ok || !json?.ok) setErr(json?.error || "Failed to remove");
+      else await load();
+    } catch (e: any) { setErr(String(e?.message || "Failed to remove")); }
   }
 
-  // Sorted: active first, upcoming second, expired last
-  const sortedItems = useMemo(() => {
+  const sorted = useMemo(() => {
     const order: Record<DelegationStatus, number> = { active: 0, upcoming: 1, expired: 2 };
     return [...items].sort((a, b) => {
-      const sa = getDelegationStatus(a);
-      const sb = getDelegationStatus(b);
-      if (order[sa] !== order[sb]) return order[sa] - order[sb];
-      return new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime();
+      const sa = getDelegationStatus(a), sb = getDelegationStatus(b);
+      return order[sa] !== order[sb] ? order[sa] - order[sb] : new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime();
     });
   }, [items]);
 
-  const activeCount   = items.filter(d => getDelegationStatus(d) === "active").length;
-  const upcomingCount = items.filter(d => getDelegationStatus(d) === "upcoming").length;
-  const expiredCount  = items.filter(d => getDelegationStatus(d) === "expired").length;
-
-  const inputClass = "w-full rounded border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none disabled:opacity-50 disabled:bg-gray-50";
+  const counts = { active: items.filter(d => getDelegationStatus(d) === "active").length, upcoming: items.filter(d => getDelegationStatus(d) === "upcoming").length, expired: items.filter(d => getDelegationStatus(d) === "expired").length };
+  const inp = "width:100%;border-radius:6px;border:1px solid #e2e8f0;padding:6px 10px;font-size:13px;outline:none;";
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-
-      {/* ── Header ── */}
-      <div className="flex items-start justify-between gap-3 p-5 border-b border-gray-100">
+    <section style={{ borderRadius: 12, border: "1px solid #e2e8f0", background: "white", overflow: "hidden" }}>
+      <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
         <div>
-          <div className="text-base font-semibold text-gray-900">Holiday Cover</div>
-          <div className="mt-0.5 text-sm text-gray-500">
-            Delegate approval authority for a date range. Active delegates can approve,
-            request changes, or reject on behalf of the original approver.
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>Holiday Cover</div>
+          <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Delegate approval authority for a date range. Active delegates can approve, request changes or reject on behalf of the original approver.</div>
+          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+            {counts.active   > 0 && <span style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"2px 10px",borderRadius:20,background:"#f0fdf4",border:"1px solid #bbf7d0",fontSize:11,fontWeight:600,color:"#15803d" }}><span style={{width:6,height:6,borderRadius:"50%",background:"#22c55e"}} />{counts.active} active</span>}
+            {counts.upcoming > 0 && <span style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"2px 10px",borderRadius:20,background:"#fffbeb",border:"1px solid #fde68a",fontSize:11,fontWeight:600,color:"#92400e" }}><span style={{width:6,height:6,borderRadius:"50%",background:"#f59e0b"}} />{counts.upcoming} upcoming</span>}
+            {counts.expired  > 0 && <span style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"2px 10px",borderRadius:20,background:"#f4f4f2",border:"1px solid #e3e3df",fontSize:11,fontWeight:600,color:"#6b7280" }}>{counts.expired} expired</span>}
           </div>
-
-          {/* Summary pills */}
-          {items.length > 0 && (
-            <div className="mt-2 flex items-center gap-2 flex-wrap">
-              {activeCount > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 border border-green-200 px-2.5 py-0.5 text-xs font-semibold text-green-700">
-                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                  {activeCount} active
-                </span>
-              )}
-              {upcomingCount > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                  {upcomingCount} upcoming
-                </span>
-              )}
-              {expiredCount > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 border border-gray-200 px-2.5 py-0.5 text-xs font-semibold text-gray-500">
-                  {expiredCount} expired
-                </span>
-              )}
-            </div>
-          )}
-
-          {!canEdit ? (
-            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Read-only — holiday cover can only be managed by a <b>platform admin</b>.
-            </div>
-          ) : (
-            <div className="mt-2 text-xs font-medium text-emerald-700">✓ Admin mode</div>
-          )}
+          {!canEdit && <div style={{ marginTop:8,padding:"4px 10px",borderRadius:8,background:"#fffbeb",border:"1px solid #fde68a",fontSize:11,color:"#92400e" }}>Read-only — platform admin required</div>}
         </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {loading && <span className="text-xs text-gray-400">Loading…</span>}
-          <button
-            onClick={() => load()}
-            className="rounded border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
-            type="button"
-          >
-            Refresh
-          </button>
+        <div style={{ display:"flex",alignItems:"center",gap:8,flexShrink:0 }}>
+          {loading && <span style={{ fontSize:11,color:"#94a3b8" }}>Loading…</span>}
+          <button onClick={() => load()} style={{ border:"1px solid #e2e8f0",background:"white",borderRadius:6,padding:"4px 10px",fontSize:12,color:"#475569",cursor:"pointer" }} type="button">Refresh</button>
         </div>
       </div>
 
-      {/* ── Error ── */}
-      {err && (
-        <div className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm text-red-700">
-          {err}
-        </div>
-      )}
+      {err && <div style={{ padding:"10px 20px",background:"#fef2f2",borderBottom:"1px solid #fecaca",fontSize:12,color:"#b91c1c" }}>{err}</div>}
 
-      {/* ── Add form ── */}
       {canEdit && (
-        <div className="border-b border-gray-100 p-5">
-          <div className="mb-3 text-sm font-semibold text-gray-700">Add holiday cover</div>
-          <div className="grid gap-3 sm:grid-cols-2">
-
-            <label className="grid gap-1">
-              <span className="text-xs font-medium text-gray-600">Delegate from <span className="text-red-400">*</span></span>
-              <select className={inputClass} value={fromUserId} onChange={e => setFromUserId(e.target.value)}>
+        <div style={{ padding:"16px 20px",borderBottom:"1px solid #f1f5f9" }}>
+          <div style={{ fontSize:13,fontWeight:600,color:"#374151",marginBottom:10 }}>Add cover rule</div>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
+            <label style={{ display:"grid",gap:4 }}>
+              <span style={{ fontSize:11,fontWeight:500,color:"#6b7280" }}>Delegate from *</span>
+              <select value={fromUserId} onChange={e => setFromUserId(e.target.value)} style={{ border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 10px",fontSize:13,width:"100%",background:"white" }}>
                 <option value="">Select approver going on leave…</option>
-                {members.map(m => (
-                  <option key={m.user_id} value={m.user_id}>{memberLabel(m)}</option>
-                ))}
+                {members.map(m => <option key={m.user_id} value={m.user_id}>{memberLabel(m)}</option>)}
               </select>
             </label>
-
-            <label className="grid gap-1">
-              <span className="text-xs font-medium text-gray-600">Cover person <span className="text-red-400">*</span></span>
-              <select className={inputClass} value={toUserId} onChange={e => setToUserId(e.target.value)}>
+            <label style={{ display:"grid",gap:4 }}>
+              <span style={{ fontSize:11,fontWeight:500,color:"#6b7280" }}>Cover person *</span>
+              <select value={toUserId} onChange={e => setToUserId(e.target.value)} style={{ border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 10px",fontSize:13,width:"100%",background:"white" }}>
                 <option value="">Select cover approver…</option>
-                {members.map(m => (
-                  <option key={m.user_id} value={m.user_id}>{memberLabel(m)}</option>
-                ))}
+                {members.map(m => <option key={m.user_id} value={m.user_id}>{memberLabel(m)}</option>)}
               </select>
             </label>
-
-            <label className="grid gap-1">
-              <span className="text-xs font-medium text-gray-600">Cover starts <span className="text-red-400">*</span></span>
-              {/* FIX: date picker instead of raw ISO text input */}
-              <input
-                type="date"
-                className={inputClass}
-                value={startsDate}
-                onChange={e => setStartsDate(e.target.value)}
-                max={endsDate || undefined}
-              />
+            <label style={{ display:"grid",gap:4 }}>
+              <span style={{ fontSize:11,fontWeight:500,color:"#6b7280" }}>Starts *</span>
+              <input type="date" value={startsDate} onChange={e => setStartsDate(e.target.value)} max={endsDate||undefined} style={{ border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 10px",fontSize:13,width:"100%" }} />
             </label>
-
-            <label className="grid gap-1">
-              <span className="text-xs font-medium text-gray-600">Cover ends <span className="text-red-400">*</span></span>
-              <input
-                type="date"
-                className={inputClass}
-                value={endsDate}
-                onChange={e => setEndsDate(e.target.value)}
-                min={startsDate || undefined}
-              />
+            <label style={{ display:"grid",gap:4 }}>
+              <span style={{ fontSize:11,fontWeight:500,color:"#6b7280" }}>Ends *</span>
+              <input type="date" value={endsDate} onChange={e => setEndsDate(e.target.value)} min={startsDate||undefined} style={{ border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 10px",fontSize:13,width:"100%" }} />
             </label>
-
-            <label className="grid gap-1 sm:col-span-2">
-              <span className="text-xs font-medium text-gray-600">Reason (optional)</span>
-              <input
-                className={inputClass}
-                placeholder="Annual leave, sick cover, maternity, etc."
-                value={reason}
-                onChange={e => setReason(e.target.value)}
-              />
+            <label style={{ display:"grid",gap:4,gridColumn:"1/-1" }}>
+              <span style={{ fontSize:11,fontWeight:500,color:"#6b7280" }}>Reason (optional)</span>
+              <input value={reason} onChange={e => setReason(e.target.value)} placeholder="Annual leave, sick cover…" style={{ border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 10px",fontSize:13,width:"100%" }} />
             </label>
-
-            {/* Inline validation messages */}
-            {samePersonError && (
-              <div className="sm:col-span-2 text-xs font-medium text-amber-700">
-                ⚠ {samePersonError}
-              </div>
-            )}
-            {dateError && (
-              <div className="sm:col-span-2 text-xs font-medium text-red-600">
-                ⚠ {dateError}
-              </div>
-            )}
-
-            <div className="sm:col-span-2 flex items-center gap-3">
-              <button
-                onClick={save}
-                disabled={saveDisabled}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                type="button"
-              >
+            {(dateError || samePersonErr) && <div style={{ gridColumn:"1/-1",fontSize:11,fontWeight:600,color:"#b91c1c" }}>⚠ {dateError || samePersonErr}</div>}
+            <div style={{ gridColumn:"1/-1" }}>
+              <button onClick={save} disabled={saveDisabled} style={{ border:"1px solid #d1d5db",background:"white",borderRadius:8,padding:"7px 18px",fontSize:13,fontWeight:600,color:"#374151",cursor:saveDisabled?"not-allowed":"pointer",opacity:saveDisabled?0.5:1 }} type="button">
                 {saving ? "Saving…" : "Save holiday cover"}
               </button>
-              <span className="text-xs text-gray-400">
-                The delegate will be notified when approvals are assigned during this period.
-              </span>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Current cover rules ── */}
-      <div className="p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="text-sm font-semibold text-gray-700">
-            Cover rules
-            {items.length > 0 && (
-              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
-                {items.length}
-              </span>
-            )}
-          </div>
-
-          {/* FIX: show/hide expired toggle */}
-          {expiredCount > 0 && (
-            <button
-              type="button"
-              onClick={toggleExpired}
-              className="text-xs font-medium text-blue-600 hover:text-blue-700 underline"
-            >
-              {showExpired ? `Hide expired (${expiredCount})` : `Show expired (${expiredCount})`}
-            </button>
-          )}
+      <div style={{ padding:"16px 20px" }}>
+        <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10 }}>
+          <div style={{ fontSize:13,fontWeight:600,color:"#374151" }}>Cover rules {items.length > 0 && <span style={{ marginLeft:6,background:"#f1f5f9",borderRadius:20,padding:"1px 8px",fontSize:11,color:"#64748b",fontWeight:600 }}>{items.length}</span>}</div>
+          {counts.expired > 0 && <button type="button" onClick={() => { const next = !showExpired; setShowExpired(next); load(next); }} style={{ fontSize:11,fontWeight:600,color:"#0e7490",background:"none",border:"none",cursor:"pointer",textDecoration:"underline" }}>{showExpired ? `Hide expired (${counts.expired})` : `Show expired (${counts.expired})`}</button>}
         </div>
-
-        {!sortedItems.length ? (
-          <div className="rounded-lg border border-dashed border-gray-200 py-8 text-center text-sm text-gray-400">
-            No holiday cover configured.
-          </div>
+        {!sorted.length ? (
+          <div style={{ padding:"28px 0",textAlign:"center",fontSize:13,color:"#94a3b8",border:"1.5px dashed #e2e8f0",borderRadius:10 }}>No holiday cover configured.</div>
         ) : (
-          <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 overflow-hidden">
-            {sortedItems.map(d => {
+          <div style={{ border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden" }}>
+            {sorted.map((d, i) => {
               const status = getDelegationStatus(d);
-              const isExpiredRow = status === "expired";
+              const expired = status === "expired";
               return (
-                <div
-                  key={d.id}
-                  className={[
-                    "flex items-start justify-between gap-4 px-4 py-3",
-                    isExpiredRow ? "bg-gray-50 opacity-70" : "bg-white",
-                  ].join(" ")}
-                >
-                  <div className="min-w-0 flex-1">
-                    {/* Who → Who */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-gray-800">
-                        {label(d.from_user_id)}
-                      </span>
-                      <span className="text-gray-400">→</span>
-                      <span className="text-sm font-semibold text-gray-800">
-                        {label(d.to_user_id)}
-                      </span>
+                <div key={d.id} style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,padding:"12px 16px",background:expired?"#fafaf9":"white",opacity:expired?0.7:1,borderTop:i>0?"1px solid #f1f5f9":"none" }}>
+                  <div style={{ minWidth:0,flex:1 }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
+                      <span style={{ fontSize:13,fontWeight:700,color:"#0f172a" }}>{label(d.from_user_id)}</span>
+                      <span style={{ color:"#94a3b8" }}>→</span>
+                      <span style={{ fontSize:13,fontWeight:700,color:"#0f172a" }}>{label(d.to_user_id)}</span>
                       <StatusBadge status={status} />
                     </div>
-
-                    {/* Date range */}
-                    <div className="mt-1 text-xs text-gray-500">
-                      {fmtDate(d.starts_at)} → {fmtDate(d.ends_at)}
-                      {d.reason && (
-                        <span className="ml-2 italic">· {d.reason}</span>
-                      )}
+                    <div style={{ fontSize:11,color:"#64748b",marginTop:3 }}>
+                      {fmtDate(d.starts_at)} → {fmtDate(d.ends_at)}{d.reason ? ` · ${d.reason}` : ""}
                     </div>
                   </div>
-
-                  {/* Remove — only show for active/upcoming, not expired */}
-                  {canEdit && !isExpiredRow && (
-                    <button
-                      onClick={() => remove(d.id)}
-                      className="shrink-0 rounded border border-red-100 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors"
-                      type="button"
-                    >
-                      Remove
-                    </button>
-                  )}
-
-                  {/* Expired label instead of button */}
-                  {isExpiredRow && (
-                    <span className="shrink-0 text-xs text-gray-400">Ended</span>
+                  {canEdit && !expired && (
+                    <button onClick={() => remove(d.id)} style={{ border:"1px solid #fecaca",background:"#fef2f2",borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:600,color:"#b91c1c",cursor:"pointer",flexShrink:0 }} type="button">Remove</button>
                   )}
                 </div>
               );
             })}
           </div>
         )}
-
-        {/* Info note */}
-        <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-700">
-          <strong>How it works:</strong> When an approval step is assigned to a delegating
-          approver, the cover person can approve, request changes, or reject on their behalf.
-          Both the original approver and delegate receive notifications. All decisions are
-          audit-logged with the delegation reference.
+        <div style={{ marginTop:12,padding:"8px 12px",borderRadius:8,background:"#f0f9ff",border:"1px solid #bae6fd",fontSize:11,color:"#0369a1" }}>
+          <strong>How it works:</strong> When an approval step is assigned to a delegating approver, the cover person can act on their behalf. All decisions are audit-logged with the delegation reference.
         </div>
       </div>
     </section>

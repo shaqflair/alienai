@@ -63,7 +63,7 @@ export default async function ApprovalsSettingsPage() {
             Delegate approval authority to a cover person for a fixed date range.
           </p>
         </div>
-        <HolidayCoverPanel projectId={organisationId} canEdit={isAdmin} />
+        <HolidayCoverPanel orgId={organisationId} canEdit={isAdmin} />
       </section>
     </div>
   );
