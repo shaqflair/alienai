@@ -1,519 +1,246 @@
-﻿// src/app/organisations/[orgId]/settings/page.tsx
-import "server-only";
+﻿"use client";
 
-import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import { createClient } from "@/utils/supabase/server";
+import React, { useEffect, useMemo, useState } from "react";
 
-// approvals admin panel (client component)
-import OrgApprovalsAdminPanel from "@/components/approvals/OrgApprovalsAdminPanel";
-import { isPlatformAdmin } from "@/lib/server/isPlatformAdmin";
-import RateCardTab from "@/components/settings/RateCardTab";
-import {
-  getOrgMembersForPicker,
-  getResourceRates,
-} from "@/app/actions/resource-rates";
+type Member = { user_id: string; full_name?: string; email?: string; label?: string };
+type Delegation = { id: string; from_user_id: string; to_user_id: string; starts_at: string; ends_at: string; reason: string | null; is_active: boolean };
+type DelegationStatus = "active" | "upcoming" | "expired";
 
-type OrgRole = "owner" | "admin" | "member";
-
-function safeParam(x: unknown) {
-  return typeof x === "string" ? x : "";
+function clean(x: any) { return String(x ?? "").trim(); }
+function toIsoFromDate(d: string, endOfDay = false) {
+  if (!d) return "";
+  try { return new Date(d + (endOfDay ? "T23:59:59.000Z" : "T00:00:00.000Z")).toISOString(); } catch { return ""; }
 }
-function safeSearchParam(x: unknown) {
-  return typeof x === "string" ? x : "";
+function fmtDate(iso: string) {
+  if (!iso) return "--";
+  try { return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); } catch { return iso; }
 }
-function isUuid(x: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    (x || "").trim()
+function getDelegationStatus(d: Delegation): DelegationStatus {
+  const now = Date.now();
+  const start = new Date(d.starts_at).getTime();
+  const end = new Date(d.ends_at).getTime();
+  if (now < start) return "upcoming";
+  if (now > end) return "expired";
+  return "active";
+}
+function StatusBadge({ status }: { status: DelegationStatus }) {
+  const cfg = {
+    active:   { bg: "#f0fdf4", border: "#bbf7d0", color: "#15803d", dot: "#22c55e", label: "Active" },
+    upcoming: { bg: "#fffbeb", border: "#fde68a", color: "#92400e", dot: "#f59e0b", label: "Upcoming" },
+    expired:  { bg: "#f4f4f2", border: "#e3e3df", color: "#6b7280", dot: "#9ca3af", label: "Expired" },
+  }[status];
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 20, background: cfg.bg, border: `1px solid ${cfg.border}`, fontSize: 11, fontWeight: 600, color: cfg.color }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: cfg.dot }} />
+      {cfg.label}
+    </span>
   );
 }
-function normRole(x: unknown): OrgRole {
-  const r = String(x || "").toLowerCase();
-  return r === "owner" || r === "admin" || r === "member" ? (r as OrgRole) : "member";
+function pickMembers(json: any): Member[] {
+  const arr = (Array.isArray(json?.items) && json.items) || (Array.isArray(json?.users) && json.users) || (Array.isArray(json?.members) && json.members) || [];
+  return (arr as Member[]).filter((m) => clean((m as any)?.user_id));
 }
+function memberLabel(m: Member) { return clean(m.label) || clean(m.full_name) || clean(m.email) || clean(m.user_id) || "Member"; }
+function isBadId(x: string) { const v = clean(x).toLowerCase(); return !v || v === "null" || v === "undefined"; }
+function authHint(s: number) { return s === 401 ? "Not signed in." : s === 403 ? "Platform admin required." : ""; }
 
-async function requireOrgAdmin(sb: any, organisationId: string, userId: string) {
-  const { data, error } = await sb
-    .from("organisation_members")
-    .select("role, removed_at")
-    .eq("organisation_id", organisationId)
-    .eq("user_id", userId)
-    .is("removed_at", null)
-    .maybeSingle();
-
-  if (error) throw error;
-
-  const role = data?.role ? normRole(data.role) : null;
-  const ok = role === "admin" || role === "owner";
-  return { ok, role };
-}
-
-function tabBtn(active: boolean) {
-  return `px-3 py-1.5 text-sm ${active ? "bg-gray-100 font-semibold" : "bg-white hover:bg-gray-50"}`;
-}
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-async function rpcWithFallback<T = any>(
-  sb: any,
-  fn: string,
-  argsPrimary: Record<string, any>,
-  argsFallback?: Record<string, any>
-): Promise<{ data: T | null; error: any | null; used: "primary" | "fallback" }> {
-  const a = await sb.rpc(fn, argsPrimary);
-  if (!a?.error) return { data: a.data ?? null, error: null, used: "primary" };
-
-  if (!argsFallback) return { data: a.data ?? null, error: a.error, used: "primary" };
-
-  const msg = String(a.error?.message ?? a.error ?? "");
-  const looksLikeSignature =
-    msg.toLowerCase().includes("function") ||
-    msg.toLowerCase().includes("argument") ||
-    msg.toLowerCase().includes("parameter") ||
-    msg.toLowerCase().includes("signature");
-
-  if (!looksLikeSignature) return { data: a.data ?? null, error: a.error, used: "primary" };
-
-  const b = await sb.rpc(fn, argsFallback);
-  if (!b?.error) return { data: b.data ?? null, error: null, used: "fallback" };
-
-  return { data: b.data ?? null, error: b.error, used: "fallback" };
-}
-
-export default async function OrgSettingsPage({
-  params,
-  searchParams,
+export default function HolidayCoverPanel({
+  projectId, orgId, canEdit = false,
 }: {
-  params: Promise<{ orgId?: string }>;
-  searchParams?: Promise<{ tab?: string }>;
+  projectId?: string;
+  orgId?: string;
+  canEdit?: boolean;
 }) {
-  const p = await params;
-  const sp = (await searchParams) ?? {};
+  // Resolve which ID to use and which param name to send
+  const scopeId   = clean(orgId || projectId || "");
+  const scopeParam = orgId ? `orgId=${encodeURIComponent(scopeId)}` : `projectId=${encodeURIComponent(scopeId)}`;
 
-  const organisationId = safeParam(p?.orgId);
-  if (!organisationId || !isUuid(organisationId)) return notFound();
+  const [members, setMembers] = useState<Member[]>([]);
+  const [items, setItems]     = useState<Delegation[]>([]);
+  const [err, setErr]         = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showExpired, setShowExpired] = useState(false);
+  const [fromUserId, setFromUserId]   = useState("");
+  const [toUserId, setToUserId]       = useState("");
+  const [startsDate, setStartsDate]   = useState("");
+  const [endsDate, setEndsDate]       = useState("");
+  const [reason, setReason]           = useState("");
+  const [saving, setSaving]           = useState(false);
 
-  const tabRaw = safeSearchParam(sp?.tab).trim().toLowerCase();
-  const tab: "settings" | "approvals" | "ratecards" =
-    tabRaw === "approvals" ? "approvals" : tabRaw === "ratecards" ? "ratecards" : "settings";
-
-  const sb = await createClient();
-  const { data: auth, error: authErr } = await sb.auth.getUser();
-  if (authErr) throw authErr;
-  if (!auth?.user) redirect("/login");
-
-  const userId = auth.user.id;
-
-  const { data: me, error: meErr } = await sb
-    .from("organisation_members")
-    .select("role, removed_at")
-    .eq("organisation_id", organisationId)
-    .eq("user_id", userId)
-    .is("removed_at", null)
-    .maybeSingle();
-
-  if (meErr) throw meErr;
-  if (!me) return notFound();
-
-  const myRole = normRole(me.role);
-  const isOwner = myRole === "owner";
-
-  const { data: org, error: orgErr } = await sb
-    .from("organisations")
-    .select("id,name,created_at")
-    .eq("id", organisationId)
-    .maybeSingle();
-
-  if (orgErr) throw orgErr;
-  if (!org) return notFound();
-
-  const { ok: isOrgAdmin } = await requireOrgAdmin(sb, organisationId, userId);
-
-  const platformAdmin = await isPlatformAdmin();
-
-  const { count: memberCount, error: countErr } = await sb
-    .from("organisation_members")
-    .select("id", { count: "exact", head: true })
-    .eq("organisation_id", organisationId)
-    .is("removed_at", null);
-
-  if (countErr) {
-    console.warn("[organisation_members.count] blocked:", countErr.message);
+  async function load(includeInactive = showExpired) {
+    setErr("");
+    if (isBadId(scopeId)) { setErr("Missing orgId or projectId"); return; }
+    setLoading(true);
+    try {
+      const [mRes, dRes] = await Promise.all([
+        fetch(`/api/approvals/org-users?${scopeParam}`),
+        fetch(`/api/approvals/delegations?projectId=${encodeURIComponent(scopeId)}${includeInactive ? "&includeInactive=1" : ""}`),
+      ]);
+      const mJson = await mRes.json().catch(() => ({}));
+      const dJson = await dRes.json().catch(() => ({}));
+      if (!mRes.ok || !mJson?.ok) setErr((mJson?.error || "Failed to load members") + (authHint(mRes.status) ? ` (${authHint(mRes.status)})` : ""));
+      else setMembers(pickMembers(mJson));
+      if (!dRes.ok || !dJson?.ok) setErr(prev => prev || (dJson?.error || "Failed to load cover") + (authHint(dRes.status) ? ` (${authHint(dRes.status)})` : ""));
+      else setItems(dJson.items || []);
+    } catch (e: any) {
+      setErr(String(e?.message || "Failed to load"));
+    } finally { setLoading(false); }
   }
 
-  const { data: ownerRow } = await sb
-    .from("organisation_members")
-    .select("user_id, role")
-    .eq("organisation_id", organisationId)
-    .is("removed_at", null)
-    .eq("role", "owner")
-    .maybeSingle();
+  useEffect(() => { load(); }, [scopeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const ids = new Set(members.map(m => clean(m.user_id)));
+    if (fromUserId && !ids.has(clean(fromUserId))) setFromUserId("");
+    if (toUserId   && !ids.has(clean(toUserId)))   setToUserId("");
+  }, [members.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ownerUserId = safeParam(ownerRow?.user_id);
+  const label = useMemo(() => {
+    const map = new Map(members.map(m => [clean(m.user_id), memberLabel(m)]));
+    return (uid: string) => map.get(clean(uid)) || clean(uid) || "User";
+  }, [members]);
 
-  const { data: memberRows } = await sb
-    .from("organisation_members")
-    .select("user_id, role")
-    .eq("organisation_id", organisationId)
-    .is("removed_at", null)
-    .order("created_at", { ascending: true });
+  const dateError    = startsDate && endsDate && new Date(endsDate) <= new Date(startsDate) ? "End date must be after start date." : null;
+  const samePersonErr = fromUserId && toUserId && clean(fromUserId) === clean(toUserId) ? "Must be different people." : null;
+  const saveDisabled  = saving || !canEdit || !fromUserId || !toUserId || !startsDate || !endsDate || !!dateError || !!samePersonErr;
 
-  const memberUserIds = (memberRows ?? []).map((r: any) => safeParam(r.user_id)).filter(Boolean);
-
-  const profilesById = new Map<string, any>();
-  if (memberUserIds.length) {
-    const { data: profs } = await sb
-      .from("profiles")
-      .select("user_id, full_name, email")
-      .in("user_id", memberUserIds);
-
-    (profs ?? []).forEach((pp: any) => profilesById.set(pp.user_id, pp));
+  async function save() {
+    setErr("");
+    if (!canEdit || !fromUserId || !toUserId || !startsDate || !endsDate || dateError || samePersonErr) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/approvals/delegations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: scopeId, from_user_id: fromUserId, to_user_id: toUserId, starts_at: toIsoFromDate(startsDate, false), ends_at: toIsoFromDate(endsDate, true), reason: reason.trim() || null }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) { setErr((json?.error || "Failed to save") + (authHint(res.status) ? ` (${authHint(res.status)})` : "")); return; }
+      setFromUserId(""); setToUserId(""); setStartsDate(""); setEndsDate(""); setReason("");
+      await load();
+    } catch (e: any) { setErr(String(e?.message || "Failed to save")); }
+    finally { setSaving(false); }
   }
 
-  const transferCandidates = (memberRows ?? [])
-    .map((r: any) => {
-      const uid = safeParam(r.user_id);
-      if (!uid) return null;
-      if (uid === ownerUserId) return null;
-      const prof = profilesById.get(uid);
-      return {
-        user_id: uid,
-        role: normRole(r.role),
-        label: String(prof?.full_name || prof?.email || uid),
-        email: prof?.email ?? null,
-      };
-    })
-    .filter(Boolean) as Array<{ user_id: string; role: OrgRole; label: string; email: string | null }>;
-
-  const [ratesResult, membersResult] = tab === "ratecards"
-    ? await Promise.all([
-        getResourceRates(organisationId).then(rates => ({ rates })),
-        getOrgMembersForPicker(organisationId).then(members => ({ members })),
-      ])
-    : [{ rates: [] }, { members: [] }];
-
-  async function renameAction(formData: FormData) {
-    "use server";
-
-    const name = String(formData.get("name") ?? "").trim();
-    if (!name) return;
-
-    const sb = await createClient();
-    const { data: auth, error: authErr } = await sb.auth.getUser();
-    if (authErr) throw authErr;
-    if (!auth?.user) redirect("/login");
-
-    const check = await requireOrgAdmin(sb, organisationId, auth.user.id);
-    if (!check.ok) throw new Error("Admin permission required");
-
-    const { error } = await sb.from("organisations").update({ name }).eq("id", organisationId);
-    if (error) throw error;
-
-    redirect(`/organisations/${organisationId}/settings?tab=settings`);
+  async function remove(id: string) {
+    setErr("");
+    if (!canEdit) return;
+    try {
+      const res = await fetch(`/api/approvals/delegations?projectId=${encodeURIComponent(scopeId)}&id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) setErr(json?.error || "Failed to remove");
+      else await load();
+    } catch (e: any) { setErr(String(e?.message || "Failed to remove")); }
   }
 
-  async function deleteAction(formData: FormData) {
-    "use server";
+  const sorted = useMemo(() => {
+    const order: Record<DelegationStatus, number> = { active: 0, upcoming: 1, expired: 2 };
+    return [...items].sort((a, b) => {
+      const sa = getDelegationStatus(a), sb = getDelegationStatus(b);
+      return order[sa] !== order[sb] ? order[sa] - order[sb] : new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime();
+    });
+  }, [items]);
 
-    const confirm = String(formData.get("confirm") ?? "").trim();
-    if (confirm !== "DELETE") throw new Error('Type "DELETE" to confirm.');
-
-    const sb = await createClient();
-    const { data: auth, error: authErr } = await sb.auth.getUser();
-    if (authErr) throw authErr;
-    if (!auth?.user) redirect("/login");
-
-    const check = await requireOrgAdmin(sb, organisationId, auth.user.id);
-    if (!check.ok) throw new Error("Admin permission required");
-
-    const { error } = await sb.from("organisations").delete().eq("id", organisationId);
-    if (error) throw error;
-
-    redirect("/organisations");
-  }
-
-  async function transferOwnershipAction(formData: FormData) {
-    "use server";
-
-    const newOwnerUserId = String(formData.get("new_owner_user_id") ?? "").trim();
-    if (!newOwnerUserId || !isUuid(newOwnerUserId))
-      throw new Error("Select a valid user to transfer ownership to.");
-
-    const sb = await createClient();
-    const { data: auth, error: authErr } = await sb.auth.getUser();
-    if (authErr) throw authErr;
-    if (!auth?.user) redirect("/login");
-
-    const { data: me, error: meErr } = await sb
-      .from("organisation_members")
-      .select("role, removed_at")
-      .eq("organisation_id", organisationId)
-      .eq("user_id", auth.user.id)
-      .is("removed_at", null)
-      .maybeSingle();
-
-    if (meErr) throw meErr;
-    if (normRole(me?.role) !== "owner")
-      throw new Error("Only the organisation owner can transfer ownership.");
-
-    const res = await rpcWithFallback(
-      sb,
-      "transfer_org_ownership",
-      { p_org_id: organisationId, p_new_owner_user_id: newOwnerUserId },
-      { org_id: organisationId, new_owner_user_id: newOwnerUserId }
-    );
-
-    if (res.error) throw new Error(String(res.error.message ?? res.error));
-
-    redirect(`/organisations/${organisationId}/settings?tab=settings&ownership=transferred`);
-  }
-
-  async function leaveOrganisationAction() {
-    "use server";
-
-    const sb = await createClient();
-    const { data: auth, error: authErr } = await sb.auth.getUser();
-    if (authErr) throw authErr;
-    if (!auth?.user) redirect("/login");
-
-    const { data: me, error: meErr } = await sb
-      .from("organisation_members")
-      .select("role, removed_at")
-      .eq("organisation_id", organisationId)
-      .eq("user_id", auth.user.id)
-      .is("removed_at", null)
-      .maybeSingle();
-
-    if (meErr) throw meErr;
-    if (normRole(me?.role) === "owner")
-      throw new Error("The organisation owner cannot leave. Transfer ownership first.");
-
-    const res = await rpcWithFallback(
-      sb,
-      "leave_organisation",
-      { p_org_id: organisationId },
-      { org_id: organisationId }
-    );
-
-    if (res.error) throw new Error(String(res.error.message ?? res.error));
-
-    redirect(`/organisations?left=1`);
-  }
+  const counts = { active: items.filter(d => getDelegationStatus(d) === "active").length, upcoming: items.filter(d => getDelegationStatus(d) === "upcoming").length, expired: items.filter(d => getDelegationStatus(d) === "expired").length };
+  const inp = "width:100%;border-radius:6px;border:1px solid #e2e8f0;padding:6px 10px;font-size:13px;outline:none;";
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6 text-gray-900">
-      <div className="flex items-start justify-between gap-3">
+    <section style={{ borderRadius: 12, border: "1px solid #e2e8f0", background: "white", overflow: "hidden" }}>
+      <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
         <div>
-          <h1 className="text-xl font-semibold">Organisation settings</h1>
-          <p className="text-sm text-gray-600">
-            Org: <span className="font-medium">{org.name}</span>
-            <span className="ml-2 text-xs text-gray-500">&bull; Your role: {myRole}</span>
-            <span className="ml-2 text-xs text-gray-500">&bull; Members: {memberCount ?? "&mdash;"}</span>
-            <span className="ml-2 text-xs text-gray-500">&bull; Platform admin: {platformAdmin ? "Yes" : "No"}</span>
-          </p>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>Holiday Cover</div>
+          <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Delegate approval authority for a date range. Active delegates can approve, request changes or reject on behalf of the original approver.</div>
+          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+            {counts.active   > 0 && <span style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"2px 10px",borderRadius:20,background:"#f0fdf4",border:"1px solid #bbf7d0",fontSize:11,fontWeight:600,color:"#15803d" }}><span style={{width:6,height:6,borderRadius:"50%",background:"#22c55e"}} />{counts.active} active</span>}
+            {counts.upcoming > 0 && <span style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"2px 10px",borderRadius:20,background:"#fffbeb",border:"1px solid #fde68a",fontSize:11,fontWeight:600,color:"#92400e" }}><span style={{width:6,height:6,borderRadius:"50%",background:"#f59e0b"}} />{counts.upcoming} upcoming</span>}
+            {counts.expired  > 0 && <span style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"2px 10px",borderRadius:20,background:"#f4f4f2",border:"1px solid #e3e3df",fontSize:11,fontWeight:600,color:"#6b7280" }}>{counts.expired} expired</span>}
+          </div>
+          {!canEdit && <div style={{ marginTop:8,padding:"4px 10px",borderRadius:8,background:"#fffbeb",border:"1px solid #fde68a",fontSize:11,color:"#92400e" }}>Read-only — platform admin required</div>}
         </div>
-
-        <div className="flex gap-2">
-          <Link
-            href={`/organisations/${organisationId}/members`}
-            className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
-          >
-            Members
-          </Link>
-          <Link href="/organisations" className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50">
-            Back
-          </Link>
+        <div style={{ display:"flex",alignItems:"center",gap:8,flexShrink:0 }}>
+          {loading && <span style={{ fontSize:11,color:"#94a3b8" }}>Loading…</span>}
+          <button onClick={() => load()} style={{ border:"1px solid #e2e8f0",background:"white",borderRadius:6,padding:"4px 10px",fontSize:12,color:"#475569",cursor:"pointer" }} type="button">Refresh</button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="rounded-xl border bg-white overflow-hidden">
-        <div className="border-b p-2 flex gap-2">
-          <Link
-            href={`/organisations/${organisationId}/settings?tab=settings`}
-            className={tabBtn(tab === "settings")}
-          >
-            General
-          </Link>
-          <Link
-            href={`/organisations/${organisationId}/settings?tab=approvals`}
-            className={tabBtn(tab === "approvals")}
-          >
-            Approvals
-          </Link>
-          <Link
-            href={`/organisations/${organisationId}/settings?tab=ratecards`}
-            className={tabBtn(tab === "ratecards")}
-          >
-            Rate Cards
-            {isOrgAdmin && (
-              <span className="ml-1.5 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">
-                Admin
-              </span>
-            )}
-          </Link>
-        </div>
+      {err && <div style={{ padding:"10px 20px",background:"#fef2f2",borderBottom:"1px solid #fecaca",fontSize:12,color:"#b91c1c" }}>{err}</div>}
 
-        <div className="p-4">
-          {tab === "approvals" ? (
-            <OrgApprovalsAdminPanel
-              organisationId={organisationId}
-              organisationName={String(org.name ?? "")}
-              isAdmin={!!platformAdmin}
-            />
-          ) : tab === "ratecards" ? (
-            <RateCardTab
-              organisationId={organisationId}
-              rates={(ratesResult as any).rates ?? []}
-              members={(membersResult as any).members ?? []}
-            />
-          ) : (
-            <div className="space-y-6">
-              {/* Governance panel */}
-              <div className="rounded-xl border bg-white p-5 space-y-4">
-                <div className="font-medium">Governance</div>
-
-                <div className="text-sm text-gray-700">
-                  <div>
-                    <span className="text-gray-500">Current owner:</span>{" "}
-                    <span className="font-medium">
-                      {ownerUserId
-                        ? String(
-                            profilesById.get(ownerUserId)?.full_name ||
-                            profilesById.get(ownerUserId)?.email ||
-                            ownerUserId
-                          )
-                        : "&mdash;"}
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    Single-owner mode: the owner cannot be removed or leave until ownership is transferred.
-                  </div>
-                </div>
-
-                {isOwner ? (
-                  <div className="rounded-lg border p-4 space-y-3">
-                    <div className="text-sm font-medium">Transfer ownership</div>
-                    <div className="text-xs text-gray-500">
-                      Transfers the <b>owner</b> role to another member. You will become an{" "}
-                      <b>admin</b> (or member depending on your RPC rules).
-                    </div>
-
-                    {transferCandidates.length === 0 ? (
-                      <div className="text-sm text-gray-600">
-                        No eligible members to transfer to. Invite someone first.
-                      </div>
-                    ) : (
-                      <form action={transferOwnershipAction} className="flex flex-wrap items-end gap-2">
-                        <div className="space-y-1">
-                          <div className="text-xs text-gray-500">New owner</div>
-                          <select
-                            name="new_owner_user_id"
-                            className="min-w-[260px] rounded-md border px-3 py-2 text-sm bg-white"
-                            required
-                          >
-                            <option value="">Select member&hellip;</option>
-                            {transferCandidates.map((m) => (
-                              <option key={m.user_id} value={m.user_id}>
-                                {m.label}{m.email ? ` (${m.email})` : ""}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <button className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50" type="submit">
-                          Transfer
-                        </button>
-                      </form>
-                    )}
-                  </div>
-                ) : (
-                  <div className="rounded-lg border bg-gray-50 p-3 text-sm text-gray-700">
-                    Only the <b>owner</b> can transfer ownership.
-                  </div>
-                )}
-
-                {!isOwner ? (
-                  <form action={leaveOrganisationAction}>
-                    <button
-                      className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50"
-                      type="submit"
-                    >
-                      Leave organisation
-                    </button>
-                    <div className="mt-1 text-xs text-gray-500">
-                      This will remove your membership (soft remove if your RPC uses removed_at).
-                    </div>
-                  </form>
-                ) : (
-                  <div className="rounded-lg border bg-gray-50 p-3 text-sm text-gray-700">
-                    The <b>owner</b> cannot leave. Transfer ownership first.
-                  </div>
-                )}
-              </div>
-
-              {/* Rename */}
-              <div className="rounded-xl border bg-white p-5 space-y-3">
-                <div className="font-medium">Rename organisation</div>
-                <div className="text-sm text-gray-600">
-                  Update the organisation name shown in the header dropdown.
-                </div>
-
-                {isOrgAdmin ? (
-                  <form action={renameAction} className="flex flex-wrap gap-2">
-                    <input
-                      name="name"
-                      defaultValue={String(org.name ?? "")}
-                      className="flex-1 min-w-[240px] rounded-md border px-3 py-2 text-sm text-gray-900 bg-white"
-                      placeholder="Organisation name&hellip;"
-                      required
-                    />
-                    <button className="rounded-md bg-black text-white px-4 py-2 text-sm">Save</button>
-                  </form>
-                ) : (
-                  <div className="rounded border bg-gray-50 p-3 text-sm text-gray-700">
-                    Only <b>owners/admins</b> can rename the organisation.
-                  </div>
-                )}
-              </div>
-
-              {/* Danger zone */}
-              <div className="rounded-xl border border-red-200 bg-white p-5 space-y-3">
-                <div className="font-medium text-red-700">Danger zone</div>
-                <div className="text-sm text-gray-700">
-                  Deleting an organisation permanently removes the org and its memberships. Projects may
-                  also be affected if they are linked via{" "}
-                  <code className="text-xs">organisation_id</code>.
-                </div>
-
-                {isOrgAdmin ? (
-                  <form action={deleteAction} className="space-y-3">
-                    <div className="text-sm">
-                      Type <code className="text-xs">DELETE</code> to confirm:
-                    </div>
-                    <input
-                      name="confirm"
-                      className="w-[220px] rounded-md border px-3 py-2 text-sm text-gray-900 bg-white"
-                      placeholder='Type "DELETE"'
-                      required
-                    />
-                    <button className="rounded-md border border-red-300 px-4 py-2 text-sm hover:bg-red-50 text-red-700">
-                      Delete organisation
-                    </button>
-                  </form>
-                ) : (
-                  <div className="rounded border bg-gray-50 p-3 text-sm text-gray-700">
-                    Only <b>owners/admins</b> can delete the organisation.
-                  </div>
-                )}
-              </div>
+      {canEdit && (
+        <div style={{ padding:"16px 20px",borderBottom:"1px solid #f1f5f9" }}>
+          <div style={{ fontSize:13,fontWeight:600,color:"#374151",marginBottom:10 }}>Add cover rule</div>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
+            <label style={{ display:"grid",gap:4 }}>
+              <span style={{ fontSize:11,fontWeight:500,color:"#6b7280" }}>Delegate from *</span>
+              <select value={fromUserId} onChange={e => setFromUserId(e.target.value)} style={{ border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 10px",fontSize:13,width:"100%",background:"white" }}>
+                <option value="">Select approver going on leave…</option>
+                {members.map(m => <option key={m.user_id} value={m.user_id}>{memberLabel(m)}</option>)}
+              </select>
+            </label>
+            <label style={{ display:"grid",gap:4 }}>
+              <span style={{ fontSize:11,fontWeight:500,color:"#6b7280" }}>Cover person *</span>
+              <select value={toUserId} onChange={e => setToUserId(e.target.value)} style={{ border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 10px",fontSize:13,width:"100%",background:"white" }}>
+                <option value="">Select cover approver…</option>
+                {members.map(m => <option key={m.user_id} value={m.user_id}>{memberLabel(m)}</option>)}
+              </select>
+            </label>
+            <label style={{ display:"grid",gap:4 }}>
+              <span style={{ fontSize:11,fontWeight:500,color:"#6b7280" }}>Starts *</span>
+              <input type="date" value={startsDate} onChange={e => setStartsDate(e.target.value)} max={endsDate||undefined} style={{ border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 10px",fontSize:13,width:"100%" }} />
+            </label>
+            <label style={{ display:"grid",gap:4 }}>
+              <span style={{ fontSize:11,fontWeight:500,color:"#6b7280" }}>Ends *</span>
+              <input type="date" value={endsDate} onChange={e => setEndsDate(e.target.value)} min={startsDate||undefined} style={{ border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 10px",fontSize:13,width:"100%" }} />
+            </label>
+            <label style={{ display:"grid",gap:4,gridColumn:"1/-1" }}>
+              <span style={{ fontSize:11,fontWeight:500,color:"#6b7280" }}>Reason (optional)</span>
+              <input value={reason} onChange={e => setReason(e.target.value)} placeholder="Annual leave, sick cover…" style={{ border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 10px",fontSize:13,width:"100%" }} />
+            </label>
+            {(dateError || samePersonErr) && <div style={{ gridColumn:"1/-1",fontSize:11,fontWeight:600,color:"#b91c1c" }}>⚠ {dateError || samePersonErr}</div>}
+            <div style={{ gridColumn:"1/-1" }}>
+              <button onClick={save} disabled={saveDisabled} style={{ border:"1px solid #d1d5db",background:"white",borderRadius:8,padding:"7px 18px",fontSize:13,fontWeight:600,color:"#374151",cursor:saveDisabled?"not-allowed":"pointer",opacity:saveDisabled?0.5:1 }} type="button">
+                {saving ? "Saving…" : "Save holiday cover"}
+              </button>
             </div>
-          )}
+          </div>
+        </div>
+      )}
+
+      <div style={{ padding:"16px 20px" }}>
+        <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10 }}>
+          <div style={{ fontSize:13,fontWeight:600,color:"#374151" }}>Cover rules {items.length > 0 && <span style={{ marginLeft:6,background:"#f1f5f9",borderRadius:20,padding:"1px 8px",fontSize:11,color:"#64748b",fontWeight:600 }}>{items.length}</span>}</div>
+          {counts.expired > 0 && <button type="button" onClick={() => { const next = !showExpired; setShowExpired(next); load(next); }} style={{ fontSize:11,fontWeight:600,color:"#0e7490",background:"none",border:"none",cursor:"pointer",textDecoration:"underline" }}>{showExpired ? `Hide expired (${counts.expired})` : `Show expired (${counts.expired})`}</button>}
+        </div>
+        {!sorted.length ? (
+          <div style={{ padding:"28px 0",textAlign:"center",fontSize:13,color:"#94a3b8",border:"1.5px dashed #e2e8f0",borderRadius:10 }}>No holiday cover configured.</div>
+        ) : (
+          <div style={{ border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden" }}>
+            {sorted.map((d, i) => {
+              const status = getDelegationStatus(d);
+              const expired = status === "expired";
+              return (
+                <div key={d.id} style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,padding:"12px 16px",background:expired?"#fafaf9":"white",opacity:expired?0.7:1,borderTop:i>0?"1px solid #f1f5f9":"none" }}>
+                  <div style={{ minWidth:0,flex:1 }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
+                      <span style={{ fontSize:13,fontWeight:700,color:"#0f172a" }}>{label(d.from_user_id)}</span>
+                      <span style={{ color:"#94a3b8" }}>→</span>
+                      <span style={{ fontSize:13,fontWeight:700,color:"#0f172a" }}>{label(d.to_user_id)}</span>
+                      <StatusBadge status={status} />
+                    </div>
+                    <div style={{ fontSize:11,color:"#64748b",marginTop:3 }}>
+                      {fmtDate(d.starts_at)} → {fmtDate(d.ends_at)}{d.reason ? ` · ${d.reason}` : ""}
+                    </div>
+                  </div>
+                  {canEdit && !expired && (
+                    <button onClick={() => remove(d.id)} style={{ border:"1px solid #fecaca",background:"#fef2f2",borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:600,color:"#b91c1c",cursor:"pointer",flexShrink:0 }} type="button">Remove</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div style={{ marginTop:12,padding:"8px 12px",borderRadius:8,background:"#f0f9ff",border:"1px solid #bae6fd",fontSize:11,color:"#0369a1" }}>
+          <strong>How it works:</strong> When an approval step is assigned to a delegating approver, the cover person can act on their behalf. All decisions are audit-logged with the delegation reference.
         </div>
       </div>
-    </div>
+    </section>
   );
 }
-
