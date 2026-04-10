@@ -1,9 +1,9 @@
-﻿import "server-only";
+import "server-only";
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
-import OrgApprovalsClient from "@/components/approvals/OrgApprovalsClient";
+import OrgApprovalsAdminPanel from "@/components/approvals/OrgApprovalsAdminPanel";
 import HolidayCoverPanel from "@/components/approvals/HolidayCoverPanel";
 
 export const dynamic = "force-dynamic";
@@ -70,21 +70,21 @@ export default async function ApprovalsSettingsPage() {
             background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)",
             fontSize: 11, fontWeight: 600, color: "#92400e",
           }}>
-            Read-only — contact a platform admin to make changes
+            Read-only � contact a platform admin to make changes
           </div>
         )}
       </div>
 
-      {/* ── Approval rules, groups & approvers ─────────────────── */}
+      {/* -- Approval rules, groups & approvers ------------------- */}
       <section style={{ marginBottom: 32 }}>
-        <OrgApprovalsClient
+        <OrgApprovalsAdminPanel
           organisationId={organisationId}
           organisationName={orgName}
           isAdmin={isAdmin}
         />
       </section>
 
-      {/* ── Holiday cover / delegation ──────────────────────────── */}
+      {/* -- Holiday cover / delegation ---------------------------- */}
       <section>
         <div style={{ marginBottom: 12 }}>
           <h2 style={{
@@ -100,7 +100,7 @@ export default async function ApprovalsSettingsPage() {
         </div>
         {/*
           HolidayCoverPanel expects a projectId to scope the delegation lookup.
-          At org-level settings we pass the organisationId — the delegations route
+          At org-level settings we pass the organisationId � the delegations route
           resolves the org from the project, so we use a sentinel approach:
           pass orgId directly and ensure the route handles it.
         */}
