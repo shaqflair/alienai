@@ -21,6 +21,7 @@ import { loadResourceJustificationData, loadOrgRateCardRoles } from "./resource-
 import ResourceJustificationPanel from "@/components/projects/ResourceJustificationPanel";
 import ProjectPremortemCard from "@/components/projects/ProjectPremortemCard";
 import DecisionEngineCard from "@/components/projects/DecisionEngineCard";
+import AutoGovernanceCard from "@/components/projects/AutoGovernanceCard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1111,6 +1112,9 @@ export default async function ProjectPage({
 </div>
 <div style={{ marginBottom: 16 }}>
   <DecisionEngineCard projectId={projectUuid} />
+</div>
+<div style={{ marginBottom: 16 }}>
+  <AutoGovernanceCard projectId={projectUuid} />
 </div>
 {/* ── RAID + activity ────────────────────────────────────────────────── */}      <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14 }}>
         <div className="card" style={{ padding: "24px" }}>
