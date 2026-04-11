@@ -20,6 +20,7 @@ import { loadGate5Status } from "./gate5/gate5-actions";
 import { loadResourceJustificationData, loadOrgRateCardRoles } from "./resource-justification-actions";
 import ResourceJustificationPanel from "@/components/projects/ResourceJustificationPanel";
 import ProjectPremortemCard from "@/components/projects/ProjectPremortemCard";
+import DecisionEngineCard from "@/components/projects/DecisionEngineCard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1108,7 +1109,9 @@ export default async function ProjectPage({
 <div style={{ marginBottom: 16 }}>
   <ProjectPremortemCard projectId={projectUuid} />
 </div>
-
+<div style={{ marginBottom: 16 }}>
+  <DecisionEngineCard projectId={projectUuid} />
+</div>
 {/* ── RAID + activity ────────────────────────────────────────────────── */}      <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14 }}>
         <div className="card" style={{ padding: "24px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
