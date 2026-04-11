@@ -19,6 +19,7 @@ import WinProbabilityEditor from "@/components/projects/WinProbabilityEditor";
 import { loadGate5Status } from "./gate5/gate5-actions";
 import { loadResourceJustificationData, loadOrgRateCardRoles } from "./resource-justification-actions";
 import ResourceJustificationPanel from "@/components/projects/ResourceJustificationPanel";
+import ProjectPremortemCard from "@/components/projects/ProjectPremortemCard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1103,8 +1104,12 @@ export default async function ProjectPage({
         </div>
       )}
 
-      {/* ── RAID + activity ────────────────────────────────────────────────── */}
-      <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14 }}>
+     {/* ── Pre-Mortem AI ─────────────────────────────────────────────────── */}
+<div style={{ marginBottom: 16 }}>
+  <ProjectPremortemCard projectId={projectUuid} />
+</div>
+
+{/* ── RAID + activity ────────────────────────────────────────────────── */}      <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14 }}>
         <div className="card" style={{ padding: "24px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)" }}>RAID log</span>
