@@ -267,7 +267,7 @@ export async function buildPremortemSignals(
     .from("artifacts")
     .select("content_json, approval_status")
     .eq("project_id", projectId)
-    .eq("type", "financial_plan")
+    .eq("type", "FINANCIAL_PLAN")
     .eq("is_current", true)
     .maybeSingle();
 
@@ -283,7 +283,7 @@ export async function buildPremortemSignals(
   const unapprovedChangeValue = changeExp
     .filter((c: any) => c.status === "pending")
     .reduce((s: number, c: any) => s + safeNum(c.cost_impact), 0);
-  const fpApproved = ["approved", "baselined"].includes(safeStr(fpArt?.approval_status).toLowerCase());
+  const fpApproved = fpArt != null && (["approved", "baselined"].includes(safeStr(fpArt?.approval_status).toLowerCase()) || ["approved", "baselined"].includes(safeStr(fpArt?.status).toLowerCase()));
 
   if (variancePct !== null && variancePct > 10) {
     evidence.push({
