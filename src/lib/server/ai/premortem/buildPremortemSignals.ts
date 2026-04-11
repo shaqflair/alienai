@@ -221,7 +221,7 @@ export async function buildPremortemSignals(
              st.includes("approv") || st.includes("publish");
     })
     .map((a: any) => safeStr(a.type)));
-  const charterApproved = approvedSet.has("PROJECT_CHARTER") || approvedSet.has("CHARTER"); const fpApprovedFlag = approvedSet.has("FINANCIAL_PLAN"); const srApprovedFlag = approvedSet.has("STAKEHOLDER_REGISTER") || approvedSet.has("STAKEHOLDERS"); const missingMandatoryCount = [charterApproved, fpApprovedFlag, srApprovedFlag].filter(v => !v).length;
+  const charterApproved = approvedSet.has("PROJECT_CHARTER") || approvedSet.has("CHARTER"); const fpApprovedFlag = approvedSet.has("FINANCIAL_PLAN"); const srExists = (approvedArts ?? []).some((a: any) => ["STAKEHOLDER_REGISTER","STAKEHOLDERS"].includes(safeStr(a.type))); const missingMandatoryCount = [charterApproved, fpApprovedFlag, srExists].filter(v => !v).length;
 
   const { data: recentArtifact } = await supabase
     .from("artifacts")
