@@ -13,7 +13,7 @@ function err(e: string, s = 400) { return NextResponse.json({ ok: false, error: 
 function safeStr(x: any): string { return typeof x === "string" ? x : x == null ? "" : String(x); }
 function safeNum(x: any): number { const n = Number(x); return Number.isFinite(n) ? n : 0; }
 
-async function buildProjectContext(admin: any, projectId: string): Promise<string> {
+async function buildProjectContext(supabase: any, projectId: string): Promise<string> {
   const [
     { data: proj },
     { data: artifacts },
