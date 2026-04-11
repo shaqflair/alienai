@@ -40,6 +40,7 @@ async function buildProjectContext(supabase: any, projectId: string): Promise<st
       proj.finish_date = end.toISOString().slice(0,10);
     }
   }
+  console.log("[project-agent] proj dates:", proj?.start_date, proj?.finish_date);
   const _proj     = proj;
   const artifacts = get(1) ?? [];
   const raid      = get(2) ?? [];
@@ -73,7 +74,7 @@ async function buildProjectContext(supabase: any, projectId: string): Promise<st
 
   return `PROJECT: ${safeStr(_proj?.title)}
 Status: ${safeStr(_proj?.status)} | PM: ${safeStr(_proj?.pm_name)}
-Timeline: ${_proj?.start_date ?? _proj?.planned_start ?? _proj?.kickoff_date ?? "TBC"} to ${_proj?.finish_date ?? _proj?.planned_end ?? _proj?.deadline ?? _proj?.end_date ?? "TBC"}
+Timeline: ${_proj?.start_date ? new Date(_proj.start_date).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "TBC"} to ${_proj?.finish_date ? new Date(_proj.finish_date).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "TBC"}
 
 ARTIFACTS:
 ${artList || "  None"}
