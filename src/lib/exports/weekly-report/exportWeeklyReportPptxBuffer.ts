@@ -1,4 +1,4 @@
-﻿// src/lib/exports/weekly-report/exportWeeklyReportPptxBuffer.ts
+// src/lib/exports/weekly-report/exportWeeklyReportPptxBuffer.ts
 import "server-only";
 
 import PptxGenJS from "pptxgenjs";

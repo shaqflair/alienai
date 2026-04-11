@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { runAgent } from "@/lib/agent/orchestrator";

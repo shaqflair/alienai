@@ -1,4 +1,4 @@
-﻿export function safeStr(x: unknown): string {
+export function safeStr(x: unknown): string {
   if (x === null || x === undefined) return "";
   return typeof x === "string" ? x : String(x);
 }

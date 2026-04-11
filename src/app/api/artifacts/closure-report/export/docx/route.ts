@@ -1,4 +1,4 @@
-﻿// src/app/api/artifacts/closure-report/export/docx/route.ts
+// src/app/api/artifacts/closure-report/export/docx/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";

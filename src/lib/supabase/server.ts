@@ -1,4 +1,4 @@
-﻿import { cookies } from "next/headers";
+import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Database = any; // generated types not yet in repo

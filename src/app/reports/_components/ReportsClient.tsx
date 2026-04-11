@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/reports/_components/ReportsClient.tsx
 
 import { useState, useEffect, useCallback } from "react";

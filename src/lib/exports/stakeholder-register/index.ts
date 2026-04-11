@@ -1,4 +1,4 @@
-﻿/* ============================
+/* ============================
    Stakeholder Register exports (CLIENT-SAFE)
    - Do NOT export server-only renderers/buffer exporters here.
    - Client UI may import this barrel.

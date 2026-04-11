@@ -1,4 +1,4 @@
-﻿// src/app/settings/billing/page.tsx
+// src/app/settings/billing/page.tsx
 import "server-only";
 
 import { redirect } from "next/navigation";

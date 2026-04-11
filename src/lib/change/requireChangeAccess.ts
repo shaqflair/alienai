@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { sb, requireUser, requireProjectRole, canEdit, safeStr } from "@/lib/change/server-helpers";
 

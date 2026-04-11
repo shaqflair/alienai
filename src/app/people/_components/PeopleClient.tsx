@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/people/_components/PeopleClient.tsx
 
 import { useState, useTransition } from "react";

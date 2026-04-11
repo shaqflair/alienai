@@ -1,4 +1,4 @@
-﻿// src/lib/portfolio/filters.ts
+// src/lib/portfolio/filters.ts
 
 export type PortfolioFilters = {
   q?: string; // free-text: name/code/PM/department

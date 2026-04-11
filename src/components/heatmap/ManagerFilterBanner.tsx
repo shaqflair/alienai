@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import type { ManagerFilterResult } from "@/app/heatmap/_lib/manager-filter";
 
 export default function ManagerFilterBanner({

@@ -1,4 +1,4 @@
-﻿// src/app/(app)/change/ChangeClientPage.tsx — RAID Intelligence style
+// src/app/(app)/change/ChangeClientPage.tsx — RAID Intelligence style
 "use client";
 import React, { useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";

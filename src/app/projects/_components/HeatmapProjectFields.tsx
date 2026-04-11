@@ -1,4 +1,4 @@
-﻿// src/app/projects/_components/HeatmapProjectFields.tsx
+// src/app/projects/_components/HeatmapProjectFields.tsx
 "use client";
 
 import { useState, useEffect, useRef } from "react";

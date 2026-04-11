@@ -1,4 +1,4 @@
-﻿type RowObj = { type: "header" | "data"; cells: string[] };
+type RowObj = { type: "header" | "data"; cells: string[] };
 
 export type CharterV2 = {
   version: 2;

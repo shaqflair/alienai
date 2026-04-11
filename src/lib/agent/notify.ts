@@ -1,4 +1,4 @@
-﻿// Sends in-app + email notifications from the agent.
+// Sends in-app + email notifications from the agent.
 // Email uses Resend (or any SMTP provider via RESEND_API_KEY / EMAIL_FROM env vars).
 
 import "server-only";

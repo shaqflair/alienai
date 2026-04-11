@@ -1,4 +1,4 @@
-﻿// FILE: src/app/api/assistant/route.ts
+// FILE: src/app/api/assistant/route.ts
 //
 // Streaming chat API using OpenAI.
 // Requires: OPENAI_API_KEY env var + `pnpm add openai`

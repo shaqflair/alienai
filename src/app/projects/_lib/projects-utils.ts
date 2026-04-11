@@ -1,4 +1,4 @@
-﻿// src/app/projects/_lib/projects-utils.ts
+// src/app/projects/_lib/projects-utils.ts
 import "server-only";
 
 /* =========================

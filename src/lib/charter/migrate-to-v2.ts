@@ -1,4 +1,4 @@
-﻿// src/lib/charter/migrate-to-v2.ts
+// src/lib/charter/migrate-to-v2.ts
 
 import type { CharterV2 } from "@/lib/charter/charter-v2";
 import type { CharterMeta, CharterSection } from "@/components/editors/ProjectCharterSectionEditor";

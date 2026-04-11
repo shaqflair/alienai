@@ -1,4 +1,4 @@
-﻿// src/app/projects/[id]/artifacts/page.tsx
+// src/app/projects/[id]/artifacts/page.tsx
 import "server-only";
 
 import { notFound, redirect } from "next/navigation";

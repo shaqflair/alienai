@@ -1,4 +1,4 @@
-﻿// src/app/api/cron/milestones/score/route.ts
+// src/app/api/cron/milestones/score/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";

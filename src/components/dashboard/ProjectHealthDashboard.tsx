@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 // src/components/dashboard/ProjectHealthDashboard.tsx
 import { useState, useEffect, useMemo, useCallback } from "react";

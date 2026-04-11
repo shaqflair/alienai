@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 // TODO: create ../html/changeRequestHtml and ../xlsx/changeRequestXlsx modules
 

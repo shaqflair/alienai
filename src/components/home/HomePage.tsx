@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useOrgFy } from "@/hooks/useOrgFy";
 
 // src/components/home/HomePage.tsx -- dashboard-summary single-effect version

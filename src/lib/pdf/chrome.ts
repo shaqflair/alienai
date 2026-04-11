@@ -1,4 +1,4 @@
-﻿// src/lib/pdf/chrome.ts
+// src/lib/pdf/chrome.ts
 import PDFDocument from "pdfkit";
 
 export type PdfBrand = {

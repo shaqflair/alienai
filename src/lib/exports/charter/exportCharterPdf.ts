@@ -1,4 +1,4 @@
-﻿// src/lib/exports/charter/exportCharterPdf.ts
+// src/lib/exports/charter/exportCharterPdf.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";

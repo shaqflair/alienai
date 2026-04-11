@@ -1,4 +1,4 @@
-﻿//src\app\projects\[id]\members\invite
+//src\app\projects\[id]\members\invite
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
 import MembersClient, {

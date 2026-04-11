@@ -1,4 +1,4 @@
-﻿// src/app/projects/[id]/artifacts/[artifactId]/_lib/resolveProjectUuidFast.ts
+// src/app/projects/[id]/artifacts/[artifactId]/_lib/resolveProjectUuidFast.ts
 import "server-only";
 
 import {

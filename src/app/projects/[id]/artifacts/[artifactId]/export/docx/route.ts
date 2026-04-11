@@ -1,4 +1,4 @@
-﻿// src/app/projects/[id]/artifacts/[artifactId]/export/docx/route.ts
+// src/app/projects/[id]/artifacts/[artifactId]/export/docx/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";

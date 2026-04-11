@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import type { PortfolioScopeResult } from "@/lib/server/portfolio-scope";
 
 export function buildScopeMeta(

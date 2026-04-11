@@ -1,4 +1,4 @@
-﻿// src/components/change/ChangeAiDrawer.tsx
+// src/components/change/ChangeAiDrawer.tsx
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";

@@ -1,4 +1,4 @@
-﻿// src/app/organisations/[orgId]/settings/page.tsx
+// src/app/organisations/[orgId]/settings/page.tsx
 import "server-only";
 
 import Link from "next/link";

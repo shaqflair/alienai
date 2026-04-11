@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/notifications/_components/NotificationsClient.tsx
 
 import { useState, useMemo } from "react";

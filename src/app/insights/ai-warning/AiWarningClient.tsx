@@ -1,4 +1,4 @@
-﻿//src/insights/AiwarningClient.tsx
+//src/insights/AiwarningClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";

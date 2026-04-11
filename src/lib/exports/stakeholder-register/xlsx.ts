@@ -1,4 +1,4 @@
-﻿// src/lib/exports/stakeholder-register/xlsx.ts
+// src/lib/exports/stakeholder-register/xlsx.ts
 import "server-only";
 
 import { exportStakeholderRegisterXlsxBuffer } from "./exportStakeholderRegisterXlsxBuffer";

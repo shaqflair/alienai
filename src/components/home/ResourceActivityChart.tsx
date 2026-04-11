@@ -1,4 +1,4 @@
-﻿// FILE: src/components/home/ResourceActivityChart.tsx
+// FILE: src/components/home/ResourceActivityChart.tsx
 // Week-on-week resource activity: Capacity · Allocated · Pipeline
 // Accepts real API data; falls back to deterministic demo data while loading.
 "use client";

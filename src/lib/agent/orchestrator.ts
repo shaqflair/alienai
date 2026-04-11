@@ -1,4 +1,4 @@
-﻿// src/lib/agent/orchestrator.ts
+// src/lib/agent/orchestrator.ts
 // The agent loop: plan → tool call → observe → repeat until done.
 // Max 8 iterations to prevent runaway loops.
 // Returns the final answer + any pending draft actions.

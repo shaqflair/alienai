@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/projects/at-risk/route.ts — v2 (schema-aligned)
+// src/app/api/executive/projects/at-risk/route.ts — v2 (schema-aligned)
 // ✅ FIX: remove lifecycle_state / archived_at / cancelled_at (not in your schema)
 // ✅ Uses status + lifecycle_status + closed_at + deleted_at to determine "active"
 // ✅ Keeps scoring logic unchanged

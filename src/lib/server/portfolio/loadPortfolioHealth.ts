@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";

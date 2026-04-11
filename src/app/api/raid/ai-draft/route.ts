@@ -1,4 +1,4 @@
-﻿// src/app/api/raid/ai-draft/route.ts
+// src/app/api/raid/ai-draft/route.ts
 // POST { prompt, projectId } -> filled RAID item fields
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";

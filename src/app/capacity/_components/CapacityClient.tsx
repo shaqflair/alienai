@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/capacity/_components/CapacityClient.tsx
 
 import React, { useState, useTransition } from "react";

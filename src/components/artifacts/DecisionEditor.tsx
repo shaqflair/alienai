@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 // src/components/artifacts/DecisionEditor.tsx
 import { useState, useMemo, useCallback } from "react";

@@ -1,4 +1,4 @@
-﻿// FILE: src/app/(dashboard)/_lib/dashboard-data.ts
+// FILE: src/app/(dashboard)/_lib/dashboard-data.ts
 import "server-only";
 import { createClient } from "@/utils/supabase/server";
 

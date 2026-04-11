@@ -1,4 +1,4 @@
-﻿// FILE: src/app/people/page.tsx
+// FILE: src/app/people/page.tsx
 import "server-only";
 
 import { redirect } from "next/navigation";

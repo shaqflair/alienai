@@ -1,4 +1,4 @@
-﻿// src/app/api/notifications/route.ts
+// src/app/api/notifications/route.ts
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";

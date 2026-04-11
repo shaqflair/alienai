@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/lib/ai/change-ai.ts
  *
  * Shared utilities for Change Request AI features.

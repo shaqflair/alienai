@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/approvals/pending/route.ts
+// src/app/api/executive/approvals/pending/route.ts
 // Reads live from v_pending_artifact_approvals_all instead of stale exec_approval_cache
 import "server-only";
 import { NextResponse } from "next/server";

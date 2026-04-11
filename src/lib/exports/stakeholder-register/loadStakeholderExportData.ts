@@ -1,4 +1,4 @@
-﻿// src/lib/exports/stakeholder-register/loadStakeholderExportData.ts
+// src/lib/exports/stakeholder-register/loadStakeholderExportData.ts
 import "server-only";
 
 import { createClient } from "@/utils/supabase/server";

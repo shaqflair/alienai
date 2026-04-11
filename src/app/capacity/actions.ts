@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 
 // FILE: src/app/capacity/actions.ts
 

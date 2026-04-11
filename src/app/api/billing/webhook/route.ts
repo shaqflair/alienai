@@ -1,4 +1,4 @@
-﻿// src/app/api/billing/webhook/route.ts
+// src/app/api/billing/webhook/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";

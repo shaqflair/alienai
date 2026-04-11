@@ -1,4 +1,4 @@
-﻿// src/components/projects/ProjectDateEditor.tsx
+// src/components/projects/ProjectDateEditor.tsx
 "use client";
 
 import React, { useState } from "react";

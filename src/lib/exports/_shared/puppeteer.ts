@@ -1,4 +1,4 @@
-﻿// src/lib/exports/_shared/puppeteer.ts
+// src/lib/exports/_shared/puppeteer.ts
 import "server-only";
 
 /**

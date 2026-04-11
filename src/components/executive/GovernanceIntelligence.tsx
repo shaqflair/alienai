@@ -1,4 +1,4 @@
-﻿// src/components/executive/GovernanceIntelligence.tsx — v12
+// src/components/executive/GovernanceIntelligence.tsx — v12
 // ✅ FIX v12: Decode literal \uXXXX escape sequences from API responses before rendering
 //             (prevents "Au00B7" / corrupted-unicode display bugs in AI-generated text)
 // ✅ FIX: Hero stats glass card is now collapsible (chevron toggle)

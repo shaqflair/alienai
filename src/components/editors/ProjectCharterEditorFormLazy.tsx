@@ -1,4 +1,4 @@
-﻿// src/components/editors/ProjectCharterEditorFormLazy.tsx
+// src/components/editors/ProjectCharterEditorFormLazy.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";

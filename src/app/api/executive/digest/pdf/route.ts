@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/digest/pdf/route.ts — v2
+// src/app/api/executive/digest/pdf/route.ts — v2
 // ✅ FIX: Normalise digest sections to support BOTH shapes:
 //    - digest.sections.pending_approvals (new)
 //    - digest.sections.sla_breaches (legacy/alt)

@@ -1,4 +1,4 @@
-﻿// src/lib/agent/tools.ts
+// src/lib/agent/tools.ts
 // Tool definitions for the Aliena agent.
 // Each tool maps directly to a Supabase query or existing API.
 // The LLM picks tools based on intent; the executor runs them.

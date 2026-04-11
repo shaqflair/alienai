@@ -1,4 +1,4 @@
-﻿// src/app/actions/financial-plan-timesheets.shared.ts
+// src/app/actions/financial-plan-timesheets.shared.ts
 
 import type { TimesheetEntry } from "@/components/artifacts/computeActuals";
 

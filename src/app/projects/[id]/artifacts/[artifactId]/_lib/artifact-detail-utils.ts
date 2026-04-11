@@ -1,4 +1,4 @@
-﻿// src/app/projects/[id]/artifacts/[artifactId]/_lib/artifact-detail-utils.ts
+// src/app/projects/[id]/artifacts/[artifactId]/_lib/artifact-detail-utils.ts
 import "server-only";
 
 import { PROJECT_CHARTER_TEMPLATE } from "@/components/editors/charter-template";

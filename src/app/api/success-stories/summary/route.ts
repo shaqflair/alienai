@@ -1,4 +1,4 @@
-﻿// src/app/api/success-stories/summary/route.ts
+// src/app/api/success-stories/summary/route.ts
 // ✅ Already org-scoped via resolveActiveOrgId + loadOrgProjects.
 //    Fixed: projectRouteId() now always uses UUID (consistent with projects list fix).
 //    Fixed: removed deleted_at filter — column does not exist in schema.

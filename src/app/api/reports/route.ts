@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { fetchReportData } from "@/app/reports/_lib/reports-data";
 import { getActiveOrgId } from "@/utils/org/active-org";

@@ -1,4 +1,4 @@
-﻿// Forces dynamic rendering on this route — prevents "window is not defined"
+// Forces dynamic rendering on this route — prevents "window is not defined"
 // during static prerender when client components access browser APIs.
 export const dynamic = "force-dynamic";
 

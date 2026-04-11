@@ -1,4 +1,4 @@
-﻿// Drop-in replacement for the "Convert to confirmed" button on the project page
+// Drop-in replacement for the "Convert to confirmed" button on the project page
 "use client";
 
 import React, { useState } from "react";

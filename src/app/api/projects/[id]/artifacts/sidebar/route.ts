@@ -1,4 +1,4 @@
-﻿// FILE: src/app/api/projects/[id]/artifacts/sidebar/route.ts
+// FILE: src/app/api/projects/[id]/artifacts/sidebar/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";

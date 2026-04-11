@@ -1,4 +1,4 @@
-﻿export type OrgRole = "owner" | "admin" | "member";
+export type OrgRole = "owner" | "admin" | "member";
 
 export function normalizeOrgRole(x: unknown): OrgRole {
   const r = String(x || "").toLowerCase();

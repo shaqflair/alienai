@@ -1,4 +1,4 @@
-﻿// FILE: src/app/notifications/_lib/notifications-engine.ts
+// FILE: src/app/notifications/_lib/notifications-engine.ts
 import "server-only";
 import { createClient } from "@/utils/supabase/server";
 

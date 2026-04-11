@@ -1,4 +1,4 @@
-﻿// src/app/api/notifications/generate/route.ts
+// src/app/api/notifications/generate/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";

@@ -1,4 +1,4 @@
-﻿// src/lib/exports/closure-report/index.ts
+// src/lib/exports/closure-report/index.ts
 import "server-only";
 
 export { exportClosureReportDocxBuffer } from "./exportClosureReportDocxBuffer";

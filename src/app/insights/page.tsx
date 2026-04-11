@@ -1,4 +1,4 @@
-﻿// src/app/insights/page.tsx
+// src/app/insights/page.tsx
 import "server-only";
 
 import { Suspense } from "react";

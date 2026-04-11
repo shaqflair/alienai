@@ -1,4 +1,4 @@
-﻿// src/components/artifacts/ResourcePlanSyncBar.tsx
+// src/components/artifacts/ResourcePlanSyncBar.tsx
 // Shows the sync status between the project resource plan and the financial plan.
 // Non-admins see read-only status. Admins can override individual months.
 "use client";

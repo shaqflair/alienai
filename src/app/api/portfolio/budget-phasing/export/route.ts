@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/budget-phasing/export/route.ts
+// src/app/api/portfolio/budget-phasing/export/route.ts
 // GET ?fyStart=4&fyYear=2026&fyMonths=12&scope=active|all&projectIds=id1,id2
 //
 // Exports the SAME data as the screen — cost categories as rows, months as columns.

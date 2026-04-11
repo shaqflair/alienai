@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";

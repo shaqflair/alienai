@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/pm-performance/route.ts
+// src/app/api/executive/pm-performance/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/timesheet/_components/TimesheetClient.tsx
 
 import { useState, useTransition } from "react";

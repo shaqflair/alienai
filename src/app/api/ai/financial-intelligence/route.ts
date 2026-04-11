@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/app/api/ai/financial-intelligence/route.ts
  *
  * POST /api/ai/financial-intelligence

@@ -1,4 +1,4 @@
-﻿// src/app/api/success-stories/route.ts
+// src/app/api/success-stories/route.ts
 // ✅ Already org-scoped via resolveActiveOrgId + loadOrgProjects.
 //    Fixed: projectRef() now always uses UUID (consistent with projects list fix).
 import "server-only";

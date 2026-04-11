@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";

@@ -1,4 +1,4 @@
-﻿//src\lib\financial-intelligence.ts
+//src\lib\financial-intelligence.ts
 import type { FinancialPlanContent, CostLine, ChangeExposure } from "@/components/artifacts/FinancialPlanEditor";
 import type { MonthlyData, FYConfig } from "@/components/artifacts/FinancialPlanMonthlyView";
 

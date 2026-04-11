@@ -1,4 +1,4 @@
-﻿// src/app/scenarios/scenarios-migration.ts
+// src/app/scenarios/scenarios-migration.ts
 // Keep migration SQL outside of "use server" modules so Next doesn't treat it as an exported value.
 
 export const SCENARIOS_MIGRATION = `

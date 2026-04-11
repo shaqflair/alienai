@@ -1,4 +1,4 @@
-﻿// src/app/api/ai/briefing/route.ts — REBUILT v6
+// src/app/api/ai/briefing/route.ts — REBUILT v6
 // Adds: Changes, Finance (raid_financials), Resource/Timesheet signals
 // All existing signals preserved. New signals use confirmed column names from schema.
 // Scope update:

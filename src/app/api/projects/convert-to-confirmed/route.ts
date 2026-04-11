@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";

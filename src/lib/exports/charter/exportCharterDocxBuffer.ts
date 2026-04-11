@@ -1,4 +1,4 @@
-﻿// src/lib/exports/charter/exportCharterDocxBuffer.ts
+// src/lib/exports/charter/exportCharterDocxBuffer.ts
 import "server-only";
 
 import {

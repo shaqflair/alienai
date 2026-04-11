@@ -1,4 +1,4 @@
-﻿// src/app/organisations/invite/[token]/page.tsx
+// src/app/organisations/invite/[token]/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";

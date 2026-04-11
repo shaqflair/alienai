@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/approvals/_lib.ts
+// src/app/api/executive/approvals/_lib.ts
 // Shared helpers for all executive API routes.
 //
 // SIGNATURE COMPATIBILITY:

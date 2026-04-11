@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 // FILE: src/app/allocations/actions.ts
 
 import { redirect } from "next/navigation";

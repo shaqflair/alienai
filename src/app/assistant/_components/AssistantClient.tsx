@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/assistant/_components/AssistantClient.tsx
 
 import { useState, useRef, useEffect, useTransition } from "react";

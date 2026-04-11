@@ -1,4 +1,4 @@
-﻿// src/app/api/ai/events/route.ts — REBUILT v7 + AI health logging
+// src/app/api/ai/events/route.ts — REBUILT v7 + AI health logging
 // ✅ Write-focused AI/events endpoint
 // ✅ All responses remain no-store
 // ✅ Project-detail branches remain org-member/project-access controlled

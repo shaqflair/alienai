@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 // FILE: src/app/timesheet/actions.ts
 
 import { redirect } from "next/navigation";

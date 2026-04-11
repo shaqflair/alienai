@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import React from "react";
 import Link from "next/link";
 import { loadGate5Status } from "@/app/projects/[id]/gate5/gate5-actions";

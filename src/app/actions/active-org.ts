@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 // src/app/actions/active-org.ts
 
 import { cookies } from "next/headers";

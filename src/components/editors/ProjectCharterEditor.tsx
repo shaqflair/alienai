@@ -1,4 +1,4 @@
-﻿// src/components/editors/ProjectCharterEditor.tsx
+// src/components/editors/ProjectCharterEditor.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef } from "react";

@@ -1,4 +1,4 @@
-﻿import ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import type { RenderWbsXlsxArgs } from "./types";
 import {
   formatDateUK,

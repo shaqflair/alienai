@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import { Composition } from "remotion";
 import { registerRoot } from "remotion";
 import { AlienaPromo90 } from "./Video/AlienaPromoVideo";

@@ -1,4 +1,4 @@
-﻿// src/lib/exports/stakeholder-register/types.ts
+// src/lib/exports/stakeholder-register/types.ts
 import "server-only";
 
 export type StakeholderRegisterRow = {

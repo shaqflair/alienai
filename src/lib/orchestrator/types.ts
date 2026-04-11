@@ -1,4 +1,4 @@
-﻿// src/lib/orchestrator/types.ts
+// src/lib/orchestrator/types.ts
 export type OrchestratorContext = {
   projectId?: string;
   artifactId?: string;

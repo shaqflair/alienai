@@ -1,4 +1,4 @@
-﻿// src/lib/exports/charter/exportCharterPdfBuffer.ts
+// src/lib/exports/charter/exportCharterPdfBuffer.ts
 import "server-only";
 
 import { htmlToPdfBuffer } from "../_shared/puppeteer";

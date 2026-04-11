@@ -1,4 +1,4 @@
-﻿// src/app/api/ai/decision-intelligence/route.ts
+// src/app/api/ai/decision-intelligence/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import {

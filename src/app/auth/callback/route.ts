@@ -1,4 +1,4 @@
-﻿// src/app/auth/callback/route.ts
+// src/app/auth/callback/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";

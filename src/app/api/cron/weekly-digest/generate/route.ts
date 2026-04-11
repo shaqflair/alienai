@@ -1,4 +1,4 @@
-﻿// Weekly governance digest — emails every PM their project summary
+// Weekly governance digest — emails every PM their project summary
 // Schedule: Mondays 07:30 UTC (see vercel.json)
 import "server-only";
 import { NextResponse } from "next/server";

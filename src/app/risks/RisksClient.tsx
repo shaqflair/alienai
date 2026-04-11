@@ -1,4 +1,4 @@
-﻿// src/app/risks/RisksClient.tsx
+// src/app/risks/RisksClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";

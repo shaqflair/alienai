@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/components/nav/Sidebar.tsx
 
 import React, { useMemo, useState, useEffect, useRef } from "react";

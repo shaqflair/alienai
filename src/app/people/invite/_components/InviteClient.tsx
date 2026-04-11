@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/people/invite/_components/InviteClient.tsx
 
 import { useState, useTransition, useRef } from "react";

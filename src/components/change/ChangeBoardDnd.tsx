@@ -1,4 +1,4 @@
-﻿// src/components/change/ChangeBoardDnd.tsx
+// src/components/change/ChangeBoardDnd.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";

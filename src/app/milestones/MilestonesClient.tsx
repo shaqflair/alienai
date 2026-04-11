@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 // src/app/milestones/MilestonesClient.tsx — Intelligence Dossier aesthetic
 // ✅ Upgraded: stronger empty states, schedule-intelligence language, better register context

@@ -1,4 +1,4 @@
-﻿// src/components/change/ChangeCard.tsx
+// src/components/change/ChangeCard.tsx
 "use client";
 import React, { useMemo, useState } from "react";
 import Link from "next/link";

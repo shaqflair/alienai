@@ -1,4 +1,4 @@
-﻿// src/app/api/wireai/generate/route.ts
+// src/app/api/wireai/generate/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";

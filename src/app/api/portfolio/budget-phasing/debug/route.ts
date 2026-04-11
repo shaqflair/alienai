@@ -1,4 +1,4 @@
-﻿// TEMPORARY DEBUG ROUTE
+// TEMPORARY DEBUG ROUTE
 // src/app/api/portfolio/budget-phasing/debug/route.ts
 // Visit /api/portfolio/budget-phasing/debug to see what's in the DB
 

@@ -1,4 +1,4 @@
-﻿// FILE: src/app/assistant/_lib/build-context.ts
+// FILE: src/app/assistant/_lib/build-context.ts
 import "server-only";
 import { createClient } from "@/utils/supabase/server";
 

@@ -1,4 +1,4 @@
-﻿// src/app/projects/[id]/artifacts/[artifactId]/_lib/loadArtifactDetail.ts
+// src/app/projects/[id]/artifacts/[artifactId]/_lib/loadArtifactDetail.ts
 import "server-only";
 
 import { notFound, redirect } from "next/navigation";

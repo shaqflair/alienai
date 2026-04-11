@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useTransition, useRef } from "react";
 import type { RateCardEntry } from "./rate-card-actions";

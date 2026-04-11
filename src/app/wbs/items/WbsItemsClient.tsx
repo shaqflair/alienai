@@ -1,4 +1,4 @@
-﻿// src/app/wbs/items/WbsItemsClient.tsx — RAID Intelligence style
+// src/app/wbs/items/WbsItemsClient.tsx — RAID Intelligence style
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";

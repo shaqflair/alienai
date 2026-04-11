@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";

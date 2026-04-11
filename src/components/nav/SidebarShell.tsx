@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/components/nav/SidebarShell.tsx
 import React from "react";
 import { usePathname } from "next/navigation";

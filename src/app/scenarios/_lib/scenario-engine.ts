@@ -1,4 +1,4 @@
-﻿// FILE: src/app/scenarios/_lib/scenario-engine.ts
+// FILE: src/app/scenarios/_lib/scenario-engine.ts
 //
 // Types match EXACTLY what page.tsx passes in:
 //   LiveAllocation  -> weekStart + daysAllocated (one row per week)

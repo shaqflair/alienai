@@ -1,4 +1,4 @@
-﻿// src/app/settings/security/page.tsx
+// src/app/settings/security/page.tsx
 "use client";
 
 import { useEffect, useState, useCallback } from "react";

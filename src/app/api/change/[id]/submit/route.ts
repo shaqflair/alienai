@@ -1,4 +1,4 @@
-﻿// src/app/api/change/[id]/submit/route.ts
+// src/app/api/change/[id]/submit/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";

@@ -1,4 +1,4 @@
-﻿// src/app/api/artifacts/financial-plan/resource-plan-sync/route.ts
+// src/app/api/artifacts/financial-plan/resource-plan-sync/route.ts
 // GET  ?artifactId=xxx&projectId=xxx  → returns grouped allocation preview
 // POST ?artifactId=xxx&projectId=xxx  → writes the forecast into the financial plan artifact
 

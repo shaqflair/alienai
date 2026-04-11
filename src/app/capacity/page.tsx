@@ -1,4 +1,4 @@
-﻿// FILE: src/app/capacity/page.tsx
+// FILE: src/app/capacity/page.tsx
 import "server-only";
 
 import { redirect } from "next/navigation";

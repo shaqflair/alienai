@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/raid-list/route.ts — REBUILT v5 + pipeline fix
+// src/app/api/portfolio/raid-list/route.ts — REBUILT v5 + pipeline fix
 import "server-only";
 
 import { NextResponse } from "next/server";

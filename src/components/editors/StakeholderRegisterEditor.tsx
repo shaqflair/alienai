@@ -1,4 +1,4 @@
-﻿// src/components/editors/StakeholderRegisterEditor.tsx
+// src/components/editors/StakeholderRegisterEditor.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState, useTransition, useCallback } from "react";

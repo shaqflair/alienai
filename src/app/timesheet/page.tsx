@@ -1,4 +1,4 @@
-﻿// FILE: src/app/timesheet/page.tsx
+// FILE: src/app/timesheet/page.tsx
 import "server-only";
 
 import { redirect }        from "next/navigation";

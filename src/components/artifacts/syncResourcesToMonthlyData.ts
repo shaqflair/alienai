@@ -1,4 +1,4 @@
-﻿// syncResourcesToMonthlyData.ts
+// syncResourcesToMonthlyData.ts
 // Syncs resource plan → monthly forecast/budget.
 // When timesheetEntries are provided, also writes the `actual` field
 // (approved_days × rate_card_rate) per month per cost line.

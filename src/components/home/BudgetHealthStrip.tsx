@@ -1,4 +1,4 @@
-﻿//src/components/home/BudgetHealthStrip.tsx
+//src/components/home/BudgetHealthStrip.tsx
 "use client";
 
 import { useMemo } from "react";

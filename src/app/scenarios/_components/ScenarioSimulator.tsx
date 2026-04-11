@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/scenarios/_components/ScenarioSimulator.tsx
 import ScenarioAIPanel from "./ScenarioAIPanel";
 

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/allocations/_components/AllocateForm.tsx
 
 import { useState, useEffect, useTransition, useCallback } from "react";

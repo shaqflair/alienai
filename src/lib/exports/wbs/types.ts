@@ -1,4 +1,4 @@
-﻿export type WbsItemRow = Record<string, unknown>;
+export type WbsItemRow = Record<string, unknown>;
 export type WbsNode = {
   id: string;
   parentId: string | null;

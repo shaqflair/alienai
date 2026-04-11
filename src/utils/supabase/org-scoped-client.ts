@@ -1,4 +1,4 @@
-﻿import { createClient } from "@/utils/supabase/server";
+import { createClient } from "@/utils/supabase/server";
 import { requireOrgId } from "@/utils/org/active-org";
 
 const ORG_SCOPED_TABLES = new Set([

@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/budget-phasing/route.ts
+// src/app/api/portfolio/budget-phasing/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 

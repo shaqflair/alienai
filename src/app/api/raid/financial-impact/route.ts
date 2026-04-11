@@ -1,4 +1,4 @@
-﻿// src/app/api/raid/financial-impact/route.ts
+// src/app/api/raid/financial-impact/route.ts
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";

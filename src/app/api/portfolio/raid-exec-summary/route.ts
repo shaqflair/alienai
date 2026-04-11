@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v11
+// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v11
 // Fixes / Adds:
 //   ✅ RES-F1: ORG-WIDE project scope via shared resolvePortfolioScope(supabase, userId)
 //   ✅ RES-F2: clampDays supports "all" → 60 (HomePage sends days=all)

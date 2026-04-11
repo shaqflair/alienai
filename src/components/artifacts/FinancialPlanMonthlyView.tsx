@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useCallback, useMemo } from "react";
 import { TrendingUp, TrendingDown, Lock, Settings2 } from "lucide-react";

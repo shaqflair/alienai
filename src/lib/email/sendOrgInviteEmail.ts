@@ -1,4 +1,4 @@
-﻿// FILE: src/lib/email/sendOrgInviteEmail.ts
+// FILE: src/lib/email/sendOrgInviteEmail.ts
 //
 // Sends a branded Aliena org invite email via Resend.
 // Reuses the existing sendEmail() utility from src/lib/email/send.ts

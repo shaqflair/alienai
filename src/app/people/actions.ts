@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 // FILE: src/app/people/actions.ts
 
 import { revalidatePath } from "next/cache";

@@ -1,4 +1,4 @@
-﻿// src/lib/exports/charter/renderProjectCharterHtml.ts
+// src/lib/exports/charter/renderProjectCharterHtml.ts
 import "server-only";
 
 import type { CharterExportMeta } from "./charterShared";

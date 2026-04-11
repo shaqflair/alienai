@@ -1,4 +1,4 @@
-﻿// src/lib/approvals/resolve-delegation-recipients.ts
+// src/lib/approvals/resolve-delegation-recipients.ts
 //
 // Drop this helper into your notification functions to ensure delegates
 // receive approval notifications during the approver's absence.

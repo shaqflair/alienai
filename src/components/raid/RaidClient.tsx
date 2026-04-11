@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // src/components/raid/RaidClient.tsx
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";

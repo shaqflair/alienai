@@ -1,4 +1,4 @@
-﻿// src/hooks/useOrgFy.ts
+// src/hooks/useOrgFy.ts
 // Fetches org FY start month once and caches it for the session.
 // Returns { fyStartMonth, fyYear, fyLabel, loading }
 

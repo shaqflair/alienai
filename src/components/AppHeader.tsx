@@ -1,4 +1,4 @@
-﻿// src/components/AppHeader.tsx
+// src/components/AppHeader.tsx
 import "server-only";
 
 import React from "react";

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState, useTransition, useMemo } from "react";
 import type { OrgPerson } from "../page";
 

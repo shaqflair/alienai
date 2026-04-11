@@ -1,4 +1,4 @@
-﻿// src/components/org/JobTitleCombobox.tsx
+// src/components/org/JobTitleCombobox.tsx
 // Uses native <datalist> for the dropdown — no custom JS state, works everywhere.
 // Suggestions come from the rate card role_label values so both stay in sync.
 "use client";

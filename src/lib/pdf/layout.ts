@@ -1,4 +1,4 @@
-﻿// src/lib/pdf/layout.ts
+// src/lib/pdf/layout.ts
 import PDFDocument from "pdfkit";
 import type { PdfBounds } from "./chrome";
 

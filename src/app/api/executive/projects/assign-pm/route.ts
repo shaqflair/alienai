@@ -1,4 +1,4 @@
-﻿// Assigns a PM to a project — writes project_manager_id
+// Assigns a PM to a project — writes project_manager_id
 
 import "server-only";
 import { NextResponse } from "next/server";

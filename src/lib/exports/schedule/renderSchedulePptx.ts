@@ -1,4 +1,4 @@
-﻿// src/lib/exports/schedule/renderSchedulePptx.ts
+// src/lib/exports/schedule/renderSchedulePptx.ts
 import PptxGenJS from "pptxgenjs";
 
 import type { TimeWindow } from "./types";

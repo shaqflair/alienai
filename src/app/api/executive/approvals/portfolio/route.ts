@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/approvals/portfolio/route.ts
+// src/app/api/executive/approvals/portfolio/route.ts
 // Always org-scoped. Uses v_pending_artifact_approvals_all (the canonical view).
 import "server-only";
 import { NextResponse } from "next/server";

@@ -1,4 +1,4 @@
-﻿// src/components/governance/GovernanceHubClient.tsx
+// src/components/governance/GovernanceHubClient.tsx
 // Enterprise upgrade:
 // ✅ Ask Aliena supports KB context injection via ?ask=help&article=<slug>
 // ✅ "Ask about this" uses scope:"kb" + articleSlug

@@ -1,4 +1,4 @@
-﻿// src/app/landing/page.tsx
+// src/app/landing/page.tsx
 import type { Metadata } from "next";
 import LandingPageClient from "@/components/landing/LandingPageClient";
 

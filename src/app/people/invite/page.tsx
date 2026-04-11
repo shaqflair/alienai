@@ -1,4 +1,4 @@
-﻿// FILE: src/app/people/invite/page.tsx
+// FILE: src/app/people/invite/page.tsx
 import "server-only";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";

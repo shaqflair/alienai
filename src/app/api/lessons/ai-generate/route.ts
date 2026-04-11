@@ -1,4 +1,4 @@
-﻿// src/app/api/lessons/ai-generate/route.ts
+// src/app/api/lessons/ai-generate/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";

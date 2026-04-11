@@ -1,4 +1,4 @@
-﻿// Auto-generated stub for @/lib/date/utils
+// Auto-generated stub for @/lib/date/utils
 export function formatDate(date: Date | string | null | undefined, fmt?: string): string {
   if (!date) return "";
   const d = typeof date === "string" ? new Date(date) : date;

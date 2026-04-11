@@ -1,4 +1,4 @@
-﻿import type { ArtifactDiffV1, DiffOp, SectionDiff } from "@/types/artifact-diff";
+import type { ArtifactDiffV1, DiffOp, SectionDiff } from "@/types/artifact-diff";
 import { normalizeCharterV2, type CharterV2 } from "./normalizeCharterV2";
 
 function stableJson(x: unknown): string {

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 // src/components/artifacts/DecisionIntelligencePanel.tsx
 import { useState, useCallback } from "react";

@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 // ✅ you already have renderClosureReportSections in ./render.ts
 import { renderClosureReportSections } from "./render";

@@ -1,4 +1,4 @@
-﻿// src/lib/change/resolveDedicatedChangeArtifact.ts
+// src/lib/change/resolveDedicatedChangeArtifact.ts
 import "server-only";
 
 function safeStr(x: unknown): string {

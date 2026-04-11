@@ -1,4 +1,4 @@
-﻿// src/components/ai/AiSuggestionCard.tsx
+// src/components/ai/AiSuggestionCard.tsx
 "use client";
 
 import React, { useMemo, useState } from "react";

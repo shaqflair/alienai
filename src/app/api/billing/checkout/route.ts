@@ -1,4 +1,4 @@
-﻿// src/app/api/billing/checkout/route.ts
+// src/app/api/billing/checkout/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";

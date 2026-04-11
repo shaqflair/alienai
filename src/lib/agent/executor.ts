@@ -1,4 +1,4 @@
-﻿// src/lib/agent/executor.ts
+// src/lib/agent/executor.ts
 // Runs each tool call against Supabase and existing Aliena API routes.
 // Returns a structured result the agent can reason over.
 

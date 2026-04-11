@@ -1,4 +1,4 @@
-﻿// Serves GET /api/approvals?limit=N
+// Serves GET /api/approvals?limit=N
 // Used by HomePage to load live pending approvals for the inline Approve/Reject panel.
 //
 // Response shape:

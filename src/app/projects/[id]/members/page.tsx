@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";

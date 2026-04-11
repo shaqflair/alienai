@@ -1,4 +1,4 @@
-﻿// src/app/changes/ChangesClient.tsx — RAID Intelligence style
+// src/app/changes/ChangesClient.tsx — RAID Intelligence style
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";

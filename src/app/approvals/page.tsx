@@ -1,4 +1,4 @@
-﻿// src/app/approvals/page.tsx — Redesigned Control Centre v4
+// src/app/approvals/page.tsx — Redesigned Control Centre v4
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";

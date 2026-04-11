@@ -1,4 +1,4 @@
-﻿import type { MonthlyData, MonthlyEntry, FYConfig } from "@/components/artifacts/FinancialPlanMonthlyView";
+import type { MonthlyData, MonthlyEntry, FYConfig } from "@/components/artifacts/FinancialPlanMonthlyView";
 import type { CostLine } from "@/components/artifacts/FinancialPlanEditor";
 
 export type ResourceAllocation = {

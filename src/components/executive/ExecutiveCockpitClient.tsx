@@ -1,4 +1,4 @@
-﻿// src/components/executive/ExecutiveCockpitClient.tsx
+// src/components/executive/ExecutiveCockpitClient.tsx
 // Rebuilt: signal-rich cockpit tiles with crystal design system.
 // All tiles degrade gracefully to a count if structured data is not present.
 //

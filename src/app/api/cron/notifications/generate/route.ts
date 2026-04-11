@@ -1,4 +1,4 @@
-﻿// src/app/api/cron/exec-intel/generate/route.ts — REBUILT v3
+// src/app/api/cron/exec-intel/generate/route.ts — REBUILT v3
 // Completely rewritten to use v_pending_artifact_approvals_all view.
 // Previous version joined 5 tables manually and referenced non-existent columns
 // (approver_user_id, approver_group_id, decided_at) causing silent empty results.

@@ -1,2 +1,2 @@
-﻿import { GET } from "../approvals/bottlenecks/route";
+import { GET } from "../approvals/bottlenecks/route";
 export { GET };

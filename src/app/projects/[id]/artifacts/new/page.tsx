@@ -1,4 +1,4 @@
-﻿// src/app/projects/[id]/artifacts/new/page.tsx  — FIXED v2
+// src/app/projects/[id]/artifacts/new/page.tsx  — FIXED v2
 // Fixes:
 //   ✅ Server error on /artifacts/new — was crashing due to role gate being too strict
 //   ✅ Added FINANCIAL_PLAN to normalizeArtifactTypeParam

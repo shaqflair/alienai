@@ -1,4 +1,4 @@
-﻿// src/lib/exports/stakeholder-register/exportStakeholderRegisterPdfBuffer.ts
+// src/lib/exports/stakeholder-register/exportStakeholderRegisterPdfBuffer.ts
 import "server-only";
 
 import { loadStakeholderExportData } from "./loadStakeholderExportData";

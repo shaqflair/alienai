@@ -1,4 +1,4 @@
-﻿// src/app/api/artifacts/[id]/timeline/route.ts
+// src/app/api/artifacts/[id]/timeline/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";

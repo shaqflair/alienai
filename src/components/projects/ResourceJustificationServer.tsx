@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import React from "react";
 import { loadResourceJustificationData } from "@/app/projects/[id]/resource-justification-actions";
 import ResourceJustificationPanel from "@/components/projects/ResourceJustificationPanel";

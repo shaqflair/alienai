@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 import { filterActiveProjectIds } from "@/lib/server/project-scope";

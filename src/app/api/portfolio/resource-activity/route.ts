@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/resource-activity/route.ts
+// src/app/api/portfolio/resource-activity/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";

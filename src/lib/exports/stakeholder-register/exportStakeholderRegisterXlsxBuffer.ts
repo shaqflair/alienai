@@ -1,4 +1,4 @@
-﻿// src/lib/exports/stakeholder-register/exportStakeholderRegisterXlsxBuffer.ts
+// src/lib/exports/stakeholder-register/exportStakeholderRegisterXlsxBuffer.ts
 import "server-only";
 
 import { createClient } from "@/utils/supabase/server";

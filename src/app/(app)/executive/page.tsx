@@ -1,4 +1,4 @@
-﻿// src/app/(app)/executive/page.tsx
+// src/app/(app)/executive/page.tsx
 import "server-only";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";

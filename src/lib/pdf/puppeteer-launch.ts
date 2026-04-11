@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 type PuppeteerCore = typeof import("puppeteer-core");
 

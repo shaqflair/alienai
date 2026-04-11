@@ -1,4 +1,4 @@
-﻿// src/lib/exports/lessons/exportLessonsPdf.ts
+// src/lib/exports/lessons/exportLessonsPdf.ts
 import "server-only";
 
 import puppeteer from "puppeteer";

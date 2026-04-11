@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/financial-plan-summary/route.ts
+// src/app/api/portfolio/financial-plan-summary/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";

@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import type { StakeholderRegisterMeta, StakeholderRegisterRow } from "./types";
 import { escapeHtml } from "./stakeholderShared";

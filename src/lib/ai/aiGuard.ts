@@ -1,4 +1,4 @@
-﻿// src/lib/ai/aiGuard.ts
+// src/lib/ai/aiGuard.ts
 import "server-only";
 
 import { createServiceClient } from "@/lib/supabase/service";

@@ -1,4 +1,4 @@
-﻿// src/lib/server/gates/checkGate1.ts
+// src/lib/server/gates/checkGate1.ts
 import "server-only";
 import { createClient } from "@/utils/supabase/server";
 
