@@ -224,8 +224,8 @@ function buildUserPrompt(data: {
   return `Generate a daily briefing for the project manager of "${projectName}".
 Today is ${today}.
 
-PROJECT HEALTH
-- Health Score: ${data.project?.health_score ?? "unknown"}%
+- Health Score: ${data.project?.health_score != null ? data.project.health_score + "%" : "Not set"}
+- RAG Status: ${safeStr(data.project?.rag_status ?? "").toUpperCase() || "Not set — Pre-Mortem AI used for risk assessment"}
 - RAG Status: ${safeStr(data.project?.rag_status ?? "unknown").toUpperCase()}
 - Timeline: ${safeStr(data.project?.start_date || "TBC")} -> ${safeStr(data.project?.finish_date || "TBC")}
 
@@ -371,17 +371,17 @@ function buildDailyBriefingFallback(data: {
 async function generateBriefingContent(
   projectId: string,
   supabase: any
-): Promise<{ content: BriefingSection; model: string; snapshot: any }> {
-  const [project, raidItems, milestones, artifactActivity, weeklyReport] = await Promise.all([
+  const [project, raidItems, milestones, artifactActivity, weeklyReport, approvedArtifacts] = await Promise.all([
+    fetchProjectMeta(supabase, projectId),
     fetchProjectMeta(supabase, projectId),
     fetchOpenRaidItems(supabase, projectId),
     fetchUpcomingMilestones(supabase, projectId),
     fetchRecentArtifactActivity(supabase, projectId),
     fetchLatestWeeklyReport(supabase, projectId),
+    supabase.from("artifacts").select("type, approval_status, status").eq("project_id", projectId).eq("is_current", true).then(({ data }: any) => (data ?? []).filter((a: any) => ["approved","baselined"].includes(String(a.approval_status ?? a.status ?? "").toLowerCase()))),
   ]);
-
   const generatedAt = new Date().toISOString();
-  const inputData   = { project, raidItems, milestones, artifactActivity, weeklyReport, generatedAt };
+  const inputData   = { project, raidItems, milestones, artifactActivity, weeklyReport, approvedArtifacts, generatedAt };
 
   let content: BriefingSection;
   let model: string;
