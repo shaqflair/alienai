@@ -5,12 +5,8 @@ import OpenAI from "openai";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 
-// -- Constants ----------------------------------------------------------------
-
 const BRIEFING_TTL_HOURS = 24;
 const BRIEFING_MODEL     = "gpt-4o";
-
-// -- Types --------------------------------------------------------------------
 
 export type BriefingSection = {
   summary:             string;
@@ -29,8 +25,6 @@ export type ProjectBriefing = {
   is_stale:     boolean;
 };
 
-// -- Helpers ------------------------------------------------------------------
-
 function safeStr(x: unknown): string {
   if (typeof x === "string") return x;
   if (x == null) return "";
@@ -48,16 +42,16 @@ function getOpenAIClient(): OpenAI {
   return new OpenAI({ apiKey });
 }
 
-// -- Prompt schema ------------------------------------------------------------
-
-const BRIEFING_SYSTEM = `You are a senior PMO advisor generating concise daily briefings for
-project managers. Be specific, not generic. Reference actual risks, milestones, and artifacts
-by name. No filler phrases like "continue to monitor" or "ensure alignment".
+const BRIEFING_SYSTEM = `You are a senior PMO advisor generating concise daily briefings for project managers. Be specific, not generic. Reference actual risks, milestones, and artifacts by name. No filler phrases like "continue to monitor" or "ensure alignment".
 Always respond with valid JSON only -- no prose, no markdown fences.
 STRICT RULES:
-- NEVER flag null or missing health_score, RAG status, or timeline as a needs_attention item. If these fields are null, simply omit them from the analysis.
-- NEVER suggest approving an artifact that is already listed as APPROVED or BASELINED in the governance activity.
-- NEVER invent issues that are not evidenced by the data provided.`;
+- NEVER flag null or missing health_score or RAG status as a needs_attention item. If these fields are null, simply omit them.
+- NEVER suggest approving or completing any artifact listed under APPROVED ARTIFACTS. Those are done.
+- NEVER invent issues that are not evidenced by the data provided.
+- Draft artifacts (Schedule, WBS, Stakeholder Register, Weekly Report) are NORMAL WORKING DOCUMENTS. Only flag them if not updated in 30+ days.
+- If start_date and finish_date are provided, the timeline IS defined. State the dates explicitly. Never say TBC or undefined if dates are present.
+- A Pre-Mortem score of 0-25 means LOW RISK. Do not frame this negatively.
+- PROJECT_CHARTER listed as APPROVED is fully signed off. Never put it in needs_attention.`;
 
 const BRIEFING_SCHEMA = `{
   "summary": "string -- 1-2 sentence plain English overview of where the project stands today",
@@ -70,8 +64,6 @@ const BRIEFING_SCHEMA = `{
     "string -- concrete action for today"
   ]
 }`;
-
-// -- Data fetchers ------------------------------------------------------------
 
 async function fetchProjectMeta(supabase: any, projectId: string) {
   const [{ data: proj }, { data: snap }, { data: fp }] = await Promise.all([
@@ -87,23 +79,24 @@ async function fetchProjectMeta(supabase: any, projectId: string) {
       .eq("project_id", projectId).eq("type", "FINANCIAL_PLAN").eq("is_current", true).maybeSingle(),
   ]);
 
-  const base = proj ?? {};
-  // Enrich health from Pre-Mortem if not on project record
+  const base = proj ? { ...proj } : {};
+
   if (snap && !base.health_score) {
     base.health_score = 100 - snap.failure_risk_score;
     base.rag_status   = snap.failure_risk_band === "Critical" ? "RED"
                       : snap.failure_risk_band === "High"     ? "AMBER" : "GREEN";
   }
-  // Enrich timeline from Financial Plan if not on project record
+
   if (fp?.content_json && (!base.finish_date || base.finish_date === "TBC")) {
     const fy = fp.content_json?.fy_config;
     if (fy?.fy_start_year && fy?.num_months) {
-      const start = `${fy.fy_start_year}-${String(fy.fy_start_month ?? 1).padStart(2,"0")}-01`;
       const endDate = new Date(fy.fy_start_year, (fy.fy_start_month ?? 1) - 1 + Number(fy.num_months), 1);
-      base.finish_date = endDate.toISOString().slice(0,10);
-      if (!base.start_date) base.start_date = start;
+      base.finish_date = endDate.toISOString().slice(0, 10);
+      if (!base.start_date)
+        base.start_date = `${fy.fy_start_year}-${String(fy.fy_start_month ?? 1).padStart(2, "0")}-01`;
     }
   }
+
   return base;
 }
 
@@ -112,7 +105,7 @@ async function fetchOpenRaidItems(supabase: any, projectId: string) {
     .from("raid_items")
     .select("id, type, title, description, status, priority, owner, due_date")
     .eq("project_id", projectId)
-    .in("status", ["open", "active", "in_progress", "identified"])
+    .in("status", ["open", "active", "in_progress", "identified", "Open", "In Progress"])
     .order("priority", { ascending: false })
     .limit(20);
 
@@ -207,25 +200,39 @@ async function fetchLatestWeeklyReport(supabase: any, projectId: string) {
   return data ?? null;
 }
 
-// -- Prompt builder -----------------------------------------------------------
+type PromptData = {
+  project:           any;
+  raidItems:         any[];
+  milestones:        any[];
+  artifactActivity:  any[];
+  weeklyReport:      any | null;
+  approvedArtifacts: any[];
+  generatedAt:       string;
+};
 
-function buildUserPrompt(data: {
-  project:          any;
-  raidItems:        any[];
-  milestones:       any[];
-  artifactActivity: any[];
-  weeklyReport:     any | null;
-  approvedArtifacts?: any[];
-  generatedAt:      string;
-}): string {
+function buildUserPrompt(data: PromptData): string {
   const projectName = safeStr(data.project?.title ?? data.project?.name ?? "this project");
   const today = new Date(data.generatedAt).toLocaleDateString("en-GB", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
 
+  const fmtDate = (d: string | null | undefined) => {
+    if (!d) return null;
+    try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); }
+    catch { return d; }
+  };
+
+  const startFmt  = fmtDate(data.project?.start_date);
+  const finishFmt = fmtDate(data.project?.finish_date);
+  const timelineStr = startFmt && finishFmt
+    ? `${startFmt} to ${finishFmt} (DEFINED � do not say TBC)`
+    : startFmt ? `Starts ${startFmt} � end date TBC`
+    : finishFmt ? `Ends ${finishFmt} � start date TBC`
+    : "Not yet set in project records";
+
   const raidSummary = data.raidItems.length
     ? data.raidItems.slice(0, 10).map((r: any) =>
-        `- [${safeStr(r.type ?? r.category ?? "RISK").toUpperCase()}] ${safeStr(r.title)}: ` +
+        `- [${safeStr(r.type ?? "RISK").toUpperCase()}] ${safeStr(r.title)}: ` +
         `${safeStr(r.description ?? "").slice(0, 120)} ` +
         `(priority: ${r.priority ?? "unknown"}, owner: ${r.owner ?? "unassigned"})`
       ).join("\n")
@@ -245,6 +252,10 @@ function buildUserPrompt(data: {
       ).join("\n")
     : "No recent governance activity.";
 
+  const approvedList = data.approvedArtifacts.length
+    ? data.approvedArtifacts.map((a: any) => `- ${a.type}: APPROVED`).join("\n")
+    : "- None";
+
   const weeklySummary = data.weeklyReport
     ? (typeof data.weeklyReport.content_json === "object"
         ? JSON.stringify(data.weeklyReport.content_json).slice(0, 600)
@@ -254,10 +265,13 @@ function buildUserPrompt(data: {
   return `Generate a daily briefing for the project manager of "${projectName}".
 Today is ${today}.
 
-- Health Score: ${data.project?.health_score != null ? data.project.health_score + "%" : "Not set"}
-- RAG Status: ${safeStr(data.project?.rag_status ?? "").toUpperCase() || "Not set — Pre-Mortem AI used for risk assessment"}
-- RAG Status: ${safeStr(data.project?.rag_status ?? "unknown").toUpperCase()}
-- Timeline: ${safeStr(data.project?.start_date || "TBC")} -> ${safeStr(data.project?.finish_date || "TBC")}
+PROJECT STATUS
+- Health Score: ${data.project?.health_score != null ? data.project.health_score + "%" : "Computed by Pre-Mortem AI"}
+- RAG Status: ${safeStr(data.project?.rag_status ?? "").toUpperCase() || "Computed by Pre-Mortem AI"}
+- Timeline: ${timelineStr}
+
+APPROVED ARTIFACTS (FULLY SIGNED OFF � never flag these as needing action):
+${approvedList}
 
 OPEN RAID ITEMS
 ${raidSummary}
@@ -267,9 +281,6 @@ ${milestoneSummary}
 
 RECENT GOVERNANCE ACTIVITY (last 7 days)
 ${activitySummary}
-
-APPROVED ARTIFACTS (these are FULLY APPROVED — do NOT flag them as needing approval):
-${(data.approvedArtifacts?.length ?? 0) > 0 ? data.approvedArtifacts!.map((a: any) => `- ${a.type}: APPROVED`).join("\n") : "- None"}
 
 LATEST WEEKLY REPORT (excerpt)
 ${weeklySummary}
@@ -283,22 +294,10 @@ Rules:
 - needs_attention: 2-4 items ordered by urgency, each with priority "high" or "medium"
 - recommended_actions: exactly 3 concrete things to do today
 - No filler phrases like "continue to monitor" or "ensure alignment"
-- CRITICAL: Any artifact listed under APPROVED ARTIFACTS is fully signed off. NEVER put it in needs_attention. NEVER suggest it needs approval, completion, or review.
-- CRITICAL: Draft artifacts (Schedule, WBS, Stakeholder Register, Weekly Report) are normal working documents. Only flag them if not updated in 30+ days.
-- CRITICAL: If the project has start_date and finish_date values, state them explicitly. Never say timeline is TBC or undefined.
-- Return ONLY the JSON object\;
+- Return ONLY the JSON object`;
 }
 
-// -- LLM call -----------------------------------------------------------------
-
-async function buildDailyBriefingLLM(data: {
-  project:          any;
-  raidItems:        any[];
-  milestones:       any[];
-  artifactActivity: any[];
-  weeklyReport:     any | null;
-  generatedAt:      string;
-}): Promise<{ content: BriefingSection; model: string }> {
+async function buildDailyBriefingLLM(data: PromptData): Promise<{ content: BriefingSection; model: string }> {
   const client     = getOpenAIClient();
   const userPrompt = buildUserPrompt(data);
 
@@ -317,64 +316,42 @@ async function buildDailyBriefingLLM(data: {
   return { content, model: response.model };
 }
 
-// -- Rule-based fallback ------------------------------------------------------
-
-function buildDailyBriefingFallback(data: {
-  project:          any;
-  raidItems:        any[];
-  milestones:       any[];
-  artifactActivity: any[];
-}): { content: BriefingSection; model: string } {
+function buildDailyBriefingFallback(data: PromptData): { content: BriefingSection; model: string } {
   const health    = data.project?.health_score ?? null;
   const rag       = safeStr(data.project?.rag_status ?? "").toUpperCase() || "UNKNOWN";
-  const highRaids = data.raidItems.filter((r: any) =>
-    safeStr(r.priority).toLowerCase() === "high"
-  );
-  const overdue = data.milestones.filter((m: any) => {
+  const highRaids = data.raidItems.filter((r: any) => safeStr(r.priority).toLowerCase() === "high");
+  const overdue   = data.milestones.filter((m: any) => {
     const due = new Date(safeStr(m.due_date));
     return !isNaN(due.getTime()) && due < new Date() && safeStr(m.status).toLowerCase() !== "complete";
+  });
+  const soonMs = data.milestones.filter((m: any) => {
+    const due = new Date(safeStr(m.due_date));
+    const in7  = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    return !isNaN(due.getTime()) && due >= new Date() && due <= in7;
   });
 
   const on_track: string[] = [];
   if (data.raidItems.length === 0)                         on_track.push("No open RAID items requiring immediate action");
   if (overdue.length === 0)                                on_track.push("No overdue milestones in the next 14 days");
   if (rag === "GREEN" || (health != null && health >= 80)) on_track.push(`Health score tracking at ${health != null ? `${health}%` : rag}`);
-  if (data.artifactActivity.length > 0)                   on_track.push("Recent governance activity is recorded");
-  if (on_track.length === 0)                              on_track.push("Project is active in the system");
+  if (data.artifactActivity.length > 0)                   on_track.push("Recent governance activity recorded");
+  if (on_track.length === 0)                               on_track.push("Project is active in the system");
 
   const needs_attention: { item: string; priority: "high" | "medium" }[] = [];
-  if (highRaids.length > 0) {
-    needs_attention.push({
-      item:     `${highRaids.length} high-priority RAID item${highRaids.length > 1 ? "s" : ""} open: ${safeStr(highRaids[0]?.title)}`,
-      priority: "high",
-    });
-  }
-  if (overdue.length > 0) {
-    needs_attention.push({
-      item:     `${overdue.length} overdue milestone${overdue.length > 1 ? "s" : ""}: ${safeStr(overdue[0]?.title)} was due ${safeStr(overdue[0]?.due_date)}`,
-      priority: "high",
-    });
-  }
-  const soonMs = data.milestones.filter((m: any) => {
-    const due         = new Date(safeStr(m.due_date));
-    const inSevenDays = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    return !isNaN(due.getTime()) && due >= new Date() && due <= inSevenDays;
-  });
-  if (soonMs.length > 0) {
-    needs_attention.push({
-      item:     `Milestone due within 7 days: ${safeStr(soonMs[0]?.title)} on ${safeStr(soonMs[0]?.due_date)}`,
-      priority: "medium",
-    });
-  }
-  if (needs_attention.length === 0) {
-    needs_attention.push({ item: "Review project data is up to date for accurate briefing", priority: "medium" });
-  }
+  if (highRaids.length > 0)
+    needs_attention.push({ item: `${highRaids.length} high-priority RAID item${highRaids.length > 1 ? "s" : ""} open: ${safeStr(highRaids[0]?.title)}`, priority: "high" });
+  if (overdue.length > 0)
+    needs_attention.push({ item: `${overdue.length} overdue milestone${overdue.length > 1 ? "s" : ""}: ${safeStr(overdue[0]?.title)} was due ${safeStr(overdue[0]?.due_date)}`, priority: "high" });
+  if (soonMs.length > 0)
+    needs_attention.push({ item: `Milestone due within 7 days: ${safeStr(soonMs[0]?.title)} on ${safeStr(soonMs[0]?.due_date)}`, priority: "medium" });
+  if (needs_attention.length === 0)
+    needs_attention.push({ item: "Review RAID register and confirm all items have assigned owners", priority: "medium" });
 
   const biggest_risk = highRaids.length > 0
-    ? `${safeStr(highRaids[0]?.title)}: ${safeStr(highRaids[0]?.description ?? "").slice(0, 120) || "High priority -- assign mitigation owner"}`
+    ? `${safeStr(highRaids[0]?.title)}: ${safeStr(highRaids[0]?.description ?? "").slice(0, 120) || "High priority � assign mitigation owner"}`
     : data.raidItems.length > 0
-    ? `${data.raidItems.length} open RAID item${data.raidItems.length > 1 ? "s" : ""} -- review and triage urgently`
-    : "No specific risks identified -- ensure RAID register is kept up to date";
+    ? `${data.raidItems.length} open RAID item${data.raidItems.length > 1 ? "s" : ""} � review and triage urgently`
+    : "No specific risks identified � ensure RAID register is kept up to date";
 
   const recommended_actions = [
     highRaids.length > 0
@@ -385,7 +362,9 @@ function buildDailyBriefingFallback(data: {
       : soonMs.length > 0
       ? `Confirm delivery readiness for: ${safeStr(soonMs[0]?.title)} (due ${safeStr(soonMs[0]?.due_date)})`
       : "Review schedule and confirm next milestone is on track",
-    "Check pending artifact approvals and governance actions",
+    data.raidItems.length > 0
+      ? "Update RAID item statuses and ensure all risks have mitigation owners"
+      : "Confirm project data is current and governance documents are up to date",
   ];
 
   const projectName = safeStr(data.project?.title ?? data.project?.name ?? "Project");
@@ -402,8 +381,6 @@ function buildDailyBriefingFallback(data: {
   };
 }
 
-// -- Core generation ----------------------------------------------------------
-
 async function generateBriefingContent(
   projectId: string,
   supabase: any
@@ -414,10 +391,19 @@ async function generateBriefingContent(
     fetchUpcomingMilestones(supabase, projectId),
     fetchRecentArtifactActivity(supabase, projectId),
     fetchLatestWeeklyReport(supabase, projectId),
-    supabase.from("artifacts").select("type, approval_status, status").eq("project_id", projectId).eq("is_current", true).then(({ data }: any) => (data ?? []).filter((a: any) => ["approved","baselined"].includes(String(a.approval_status ?? a.status ?? "").toLowerCase()))),
+    supabase.from("artifacts")
+      .select("type, approval_status, status")
+      .eq("project_id", projectId)
+      .eq("is_current", true)
+      .then(({ data }: any) =>
+        (data ?? []).filter((a: any) =>
+          ["approved", "baselined"].includes(String(a.approval_status ?? a.status ?? "").toLowerCase())
+        )
+      ),
   ]);
+
   const generatedAt = new Date().toISOString();
-  const inputData   = { project, raidItems, milestones, artifactActivity, weeklyReport, approvedArtifacts, generatedAt };
+  const inputData: PromptData = { project, raidItems, milestones, artifactActivity, weeklyReport, approvedArtifacts, generatedAt };
 
   let content: BriefingSection;
   let model: string;
@@ -425,7 +411,7 @@ async function generateBriefingContent(
   try {
     ({ content, model } = await buildDailyBriefingLLM(inputData));
   } catch (err) {
-    console.error("[briefing-actions] gpt-4o briefing failed, using fallback:", err);
+    console.error("[briefing-actions] gpt-4o failed, using fallback:", err);
     ({ content, model } = buildDailyBriefingFallback(inputData));
   }
 
@@ -444,13 +430,10 @@ async function generateBriefingContent(
   };
 }
 
-// -- Public server actions ----------------------------------------------------
-
 export async function getOrGenerateBriefing(
   projectId: string
 ): Promise<{ briefing: ProjectBriefing | null; error?: string }> {
   if (!projectId) return { briefing: null, error: "projectId is required." };
-
   try {
     const supabase = await createClient();
     const { data: auth } = await supabase.auth.getUser();
@@ -462,9 +445,8 @@ export async function getOrGenerateBriefing(
       .eq("project_id", projectId)
       .maybeSingle();
 
-    if (existing && !isStale(existing.generated_at)) {
+    if (existing && !isStale(existing.generated_at))
       return { briefing: { ...existing, is_stale: false } as ProjectBriefing };
-    }
 
     const { content, model, snapshot } = await generateBriefingContent(projectId, supabase);
     const now = new Date().toISOString();
@@ -479,7 +461,6 @@ export async function getOrGenerateBriefing(
       .maybeSingle();
 
     if (upsertErr) throw upsertErr;
-
     return {
       briefing: {
         ...(upserted ?? { id: "", project_id: projectId, content, generated_at: now, generated_by: "auto" }),
@@ -496,7 +477,6 @@ export async function regenerateBriefing(
   projectId: string
 ): Promise<{ briefing: ProjectBriefing | null; error?: string }> {
   if (!projectId) return { briefing: null, error: "projectId is required." };
-
   try {
     const supabase = await createClient();
     const { data: auth } = await supabase.auth.getUser();
@@ -511,9 +491,8 @@ export async function regenerateBriefing(
       .maybeSingle();
 
     const role = safeStr((mem as any)?.role).toLowerCase();
-    if (role !== "owner" && role !== "editor") {
+    if (role !== "owner" && role !== "editor")
       return { briefing: null, error: "Only owners and editors can regenerate the briefing." };
-    }
 
     const { content, model, snapshot } = await generateBriefingContent(projectId, supabase);
     const now = new Date().toISOString();
@@ -528,7 +507,6 @@ export async function regenerateBriefing(
       .maybeSingle();
 
     if (upsertErr) throw upsertErr;
-
     return {
       briefing: {
         ...(upserted ?? { id: "", project_id: projectId, content, generated_at: now, generated_by: "manual" }),
@@ -545,7 +523,6 @@ export async function getCachedBriefing(
   projectId: string
 ): Promise<{ briefing: ProjectBriefing | null }> {
   if (!projectId) return { briefing: null };
-
   try {
     const supabase = await createClient();
     const { data } = await supabase
