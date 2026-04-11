@@ -2,7 +2,9 @@
 // src/components/portfolio/OrgMemoryCard.tsx
 import React, { useCallback, useEffect, useState } from "react";
 import { Brain, RefreshCw, ChevronDown, ChevronUp, TrendingUp } from "lucide-react";
-import type { OrgPattern } from "@/lib/server/ai/memory/buildOrgMemory";
+// Types inlined to avoid server-only import
+type PatternEvidence = { project_id: string; project_title: string; value: string | number; context: string; };
+type OrgPattern = { id?: string; pattern_type: string; title: string; description: string; evidence: PatternEvidence[]; frequency: number; avg_impact: string; applicable_when: string; recommendation: string; confidence: number; source_project_ids: string[]; };
 
 const T = {
   bg:      "#f9f7f4", surface: "#ffffff", hr: "#e7e5e4",

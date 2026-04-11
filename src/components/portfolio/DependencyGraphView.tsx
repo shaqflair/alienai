@@ -3,7 +3,11 @@
 // Interactive dependency graph with impact chain visualization
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, RefreshCw, AlertTriangle, ChevronRight, X, Link } from "lucide-react";
-import type { DependencyGraphResult, DependencyNode, ImpactChain } from "@/lib/server/ai/dependencies/computeDependencyGraph";
+// Types inlined from computeDependencyGraph to avoid importing server-only module
+type DependencyNode = { project_id: string; project_title: string; project_code: string | null; status: string; risk_score: number; risk_band: string; is_at_risk: boolean; is_delayed: boolean; delay_days: number; finish_date: string | null; };
+type DependencyEdge = { id: string; from_project_id: string; to_project_id: string; from_label: string | null; to_label: string | null; dependency_type: string; strength: string; status: string; risk_propagation: boolean; impact_description: string | null; lag_days: number; };
+type ImpactChain = { trigger_project_id: string; trigger_project: string; affected_projects: string[]; chain_description: string; max_delay_days: number; severity: "critical" | "high" | "medium" | "low"; };
+type DependencyGraphResult = { nodes: DependencyNode[]; edges: DependencyEdge[]; impact_chains: ImpactChain[]; at_risk_count: number; critical_path: string[]; generated_at: string; };
 
 const T = {
   bg:      "#f9f7f4", surface: "#ffffff", hr: "#e7e5e4",
