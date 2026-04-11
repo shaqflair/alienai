@@ -21,11 +21,26 @@ async function buildProjectContext(supabase: any, projectId: string): Promise<st
     supabase.from("ai_premortem_snapshots").select("failure_risk_score, failure_risk_band, schedule_score, governance_score, budget_score, stability_score, top_drivers, narrative").eq("project_id", projectId).order("generated_at", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("change_requests").select("title, status").eq("project_id", projectId).in("status", ["pending","under_review","submitted"]).limit(5),
     supabase.from("approval_requests").select("step_label, status, created_at").eq("project_id", projectId).eq("status", "pending").limit(5),
+    supabase.from("artifacts").select("content_json").eq("project_id", projectId).eq("type", "FINANCIAL_PLAN").eq("is_current", true).maybeSingle(),
   ]);
 
   const get = (i: number) => results[i].status === "fulfilled" ? (results[i] as any).value?.data : null;
 
-  const proj      = get(0);
+  let proj        = get(0) ? { ...get(0) } : null;
+  const fp        = get(7);
+
+  // Enrich dates from Financial Plan if not on project record
+  if (proj && fp?.content_json?.fy_config) {
+    const fy = fp.content_json.fy_config;
+    if (!proj.start_date && fy.fy_start_year) {
+      proj.start_date = `${fy.fy_start_year}-${String(fy.fy_start_month ?? 1).padStart(2,"0")}-01`;
+    }
+    if (!proj.finish_date && fy.fy_start_year && fy.num_months) {
+      const end = new Date(fy.fy_start_year, (fy.fy_start_month ?? 1) - 1 + Number(fy.num_months), 1);
+      proj.finish_date = end.toISOString().slice(0,10);
+    }
+  }
+  const _proj     = proj;
   const artifacts = get(1) ?? [];
   const raid      = get(2) ?? [];
   const mstones   = get(3) ?? [];
@@ -56,9 +71,9 @@ async function buildProjectContext(supabase: any, projectId: string): Promise<st
   Narrative: ${(snap.narrative as any)?.executive ?? "none"}`
     : "No Pre-Mortem scan yet.";
 
-  return `PROJECT: ${safeStr(proj?.title)}
-Status: ${safeStr(proj?.status)} | PM: ${safeStr(proj?.pm_name)}
-Timeline: ${proj?.start_date ?? "TBC"} to ${proj?.finish_date ?? "TBC"}
+  return `PROJECT: ${safeStr(_proj?.title)}
+Status: ${safeStr(_proj?.status)} | PM: ${safeStr(_proj?.pm_name)}
+Timeline: ${_proj?.start_date ?? "TBC"} to ${_proj?.finish_date ?? "TBC"}
 
 ARTIFACTS:
 ${artList || "  None"}
