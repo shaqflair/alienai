@@ -650,7 +650,7 @@ export default function InsightsClient() {
   const [mounted, setMounted] = useState(false);
   const [windowDays, setWindowDays] = useState<WindowDays>(30);
   const [scope, setScope] = useState<"all" | "window" | "overdue">("all");
-  const [activeTab, setActiveTab] = useState<"overview" | "raid" | "ai" | "finance" | "premortem">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "raid" | "ai" | "finance" | "premortem" | "dependencies" | "memory">("overview");
 
   const [execData, setExecData] = useState<ExecSummary | null>(null);
   const [execLoading, setExecLoading] = useState(true);
@@ -728,7 +728,9 @@ export default function InsightsClient() {
     { k: "raid",      l: "RAID Register" },
     { k: "finance",   l: "Finance Exposure" },
     { k: "ai",        l: "AI Signals" },
-    { k: "premortem", l: "Pre-Mortem AI" },
+    { k: "premortem",     l: "Pre-Mortem AI" },
+    { k: "dependencies",  l: "Dependency Graph" },
+    { k: "memory",        l: "Org Memory" },
   ];
 
   const SCOPES: { v: typeof scope; l: string }[] = [{ v: "all", l: "All" }, { v: "window", l: "In Window" }, { v: "overdue", l: "Overdue" }];
@@ -1198,6 +1200,20 @@ export default function InsightsClient() {
               </div>
             );
           })()}
+
+          {/* Dependencies tab */}
+          {activeTab === "dependencies" && (
+            <div style={{ animation: "fadeUp 0.4s 0.1s ease both" }}>
+              <DependencyGraphView />
+            </div>
+          )}
+
+          {/* Org Memory tab */}
+          {activeTab === "memory" && (
+            <div style={{ animation: "fadeUp 0.4s 0.1s ease both" }}>
+              <OrgMemoryCard />
+            </div>
+          )}
 
           {/* Footer */}
           <div style={{ marginTop: 40, paddingTop: 20, borderTop: `1px solid ${T.hr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
