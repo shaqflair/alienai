@@ -371,8 +371,8 @@ function buildDailyBriefingFallback(data: {
 async function generateBriefingContent(
   projectId: string,
   supabase: any
+): Promise<{ content: BriefingSection; model: string; snapshot: any }> {
   const [project, raidItems, milestones, artifactActivity, weeklyReport, approvedArtifacts] = await Promise.all([
-    fetchProjectMeta(supabase, projectId),
     fetchProjectMeta(supabase, projectId),
     fetchOpenRaidItems(supabase, projectId),
     fetchUpcomingMilestones(supabase, projectId),
