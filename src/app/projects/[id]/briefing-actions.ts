@@ -215,6 +215,7 @@ function buildUserPrompt(data: {
   milestones:       any[];
   artifactActivity: any[];
   weeklyReport:     any | null;
+  approvedArtifacts?: any[];
   generatedAt:      string;
 }): string {
   const projectName = safeStr(data.project?.title ?? data.project?.name ?? "this project");
@@ -266,6 +267,9 @@ ${milestoneSummary}
 
 RECENT GOVERNANCE ACTIVITY (last 7 days)
 ${activitySummary}
+
+APPROVED ARTIFACTS (these are FULLY APPROVED — do NOT flag them as needing approval):
+${(data.approvedArtifacts?.length ?? 0) > 0 ? data.approvedArtifacts!.map((a: any) => `- ${a.type}: APPROVED`).join("\n") : "- None"}
 
 LATEST WEEKLY REPORT (excerpt)
 ${weeklySummary}
