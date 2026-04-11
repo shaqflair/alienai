@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
     const client = new Anthropic();
 
     const response = await client.messages.create({
-      model:      "claude-3-5-sonnet-20241022",
+      model:      "gpt-4o",
       max_tokens: 600,
       system: `You are a senior PMO advisor and project delivery expert with full access to this project's data. Answer the user's questions about this project concisely and specifically. Reference actual data — names, dates, scores, and statuses. Never say "I don't have access" — you have full context below.
 
