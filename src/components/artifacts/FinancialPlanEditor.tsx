@@ -22,6 +22,7 @@ import {
 import ResourcePlanSyncBar from "./ResourcePlanSyncBar";
 import HeatmapResourcesPanel from "./HeatmapResourcesPanel";
 import BillingCockpit, { type Invoice } from "./BillingCockpit";
+import TimesheetReconciliation from "@/components/financial/TimesheetReconciliation";
 
 const P = {
   bg:       "#F7F7F5",
@@ -159,7 +160,8 @@ type FinancialPlanTab =
   | "monthly"
   | "changes"
   | "narrative"
-  | "billing";
+  | "billing"
+  | "reconciliation";
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
@@ -1259,6 +1261,7 @@ export default function FinancialPlanEditor({
     { id: "monthly" as const, label: "Monthly Phasing", badge: criticalCount > 0 ? { count: criticalCount, color: P.red } : warningCount > 0 ? { count: warningCount, color: P.amber } : undefined },
     { id: "changes" as const, label: `Change Exposure${content.change_exposure.length > 0 ? ` (${content.change_exposure.length})` : ""}` },
     { id: "billing" as const, label: `Billing${invoices.length > 0 ? ` (${invoices.length})` : ""}` },
+    { id: "reconciliation" as const, label: "Timesheet Reconciliation" },
     { id: "narrative" as const, label: "Narrative & Assumptions" },
   ], [heatmapPeopleCount, criticalCount, warningCount, content.change_exposure.length, invoices.length]);
 
@@ -1597,6 +1600,10 @@ export default function FinancialPlanEditor({
             )}
           </div>
         </div>
+      )}
+
+      {activeTab === "reconciliation" && (
+        <TimesheetReconciliation projectId={projectId} />
       )}
 
       {activeTab === "narrative" && (
