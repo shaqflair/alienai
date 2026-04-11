@@ -11,6 +11,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import BoardroomMode from "@/components/portfolio/BoardroomMode";
+import DependencyGraphView from "@/components/portfolio/DependencyGraphView";
+import OrgMemoryCard from "@/components/portfolio/OrgMemoryCard";
 
 const FONT_URL =
   "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@300;400;500;600&family=Source+Serif+4:opsz,wght@8..60,300;400;600&display=swap";
