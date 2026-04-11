@@ -75,6 +75,7 @@ async function buildProjectContext(supabase: any, projectId: string): Promise<st
   return `PROJECT: ${safeStr(_proj?.title)}
 Status: ${safeStr(_proj?.status)} | PM: ${safeStr(_proj?.pm_name)}
 Timeline: ${_proj?.start_date ? new Date(_proj.start_date).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "TBC"} to ${_proj?.finish_date ? new Date(_proj.finish_date).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "TBC"}
+Description: ${safeStr(_proj?.description)}
 
 ARTIFACTS:
 ${artList || "  None"}
