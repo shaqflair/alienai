@@ -129,6 +129,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
     const allUserIds = new Set<string>([
       ...Object.keys(approvedDaysByUserMonth),
       ...resources.map((r: any) => safeStr(r.user_id)).filter(Boolean),
+      ...heatmapPeople.map((p: any) => safeStr(p.person_id)).filter(Boolean),
     ]);
 
     if (allUserIds.size) {
@@ -176,7 +177,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
 
     const nameMap: Map<string, string> = (globalThis as any).__nameMap ?? new Map();
 
-    // ── 4. Heatmap planned days ───────────────────────────────────────────
+    // ── 4. Heatmap planned days (fetch BEFORE building allUserIds) ────────
     let heatmapPeople: any[] = [];
     if (fpRow?.id) {
       try {
