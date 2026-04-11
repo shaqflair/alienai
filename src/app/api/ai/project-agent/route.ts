@@ -1,7 +1,7 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient }      from "@/utils/supabase/server";
-import { createAdminClient } from "@/utils/supabase/admin";
+
 import OpenAI from "openai";
 
 export const runtime     = "nodejs";
@@ -96,8 +96,7 @@ export async function POST(req: NextRequest) {
     if (!projectId) return err("projectId required", 400);
     if (!messages.length) return err("messages required", 400);
 
-    const admin   = createAdminClient();
-    const context = await buildProjectContext(admin, projectId);
+    const context = await buildProjectContext(supabase, projectId);
 
     const client = new Anthropic();
 
