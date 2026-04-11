@@ -101,6 +101,7 @@ export async function buildPremortemSignals(
     .eq("project_id", projectId);
 
   const ms = milestones ?? [];
+  function raidTypeIs(r: any, t: string) { return safeStr(r.type).toLowerCase().trim() === t.toLowerCase(); }
   const activeMilestones = ms.filter(m =>
     !["completed", "done", "cancelled", "closed"].includes(safeStr(m.status).toLowerCase())
   );
@@ -154,7 +155,9 @@ export async function buildPremortemSignals(
     .eq("project_id", projectId)
     .gte("created_at", new Date(now.getTime() - 60 * 86400000).toISOString())
     .lt("created_at", minus30);
-  const risingIssueTrend = recentRaid30.length > 0 && recentRaid30.length > (prevRaidCount ?? 0);
+  const issueItems = raid.filter(r => raidTypeIs(r, "issue"));
+  const recentIssues30 = recentRaid30.filter(r => raidTypeIs(r, "issue"));
+  const risingIssueTrend = issueItems.length > 0 && recentIssues30.length > 0 && recentIssues30.length > (prevRaidCount ?? 0);
 
   if (highSeverity.length > 0) {
     highSeverity.slice(0, 2).forEach(r => {
@@ -167,7 +170,7 @@ export async function buildPremortemSignals(
   }
 
   const stability: PremortemSignals["stability"] = {
-    unresolvedIssueCount: raid.filter(r => safeStr(r.type).toLowerCase() === "issue").length,
+    unresolvedIssueCount: raid.filter(r => raidTypeIs(r, "issue")).length,
     overdueRaidCount:     overdueRaid.length,
     risingIssueTrend,
     lowRecentActivity:    false, // set below
@@ -218,7 +221,7 @@ export async function buildPremortemSignals(
              st.includes("approv") || st.includes("publish");
     })
     .map((a: any) => safeStr(a.type)));
-  const missingMandatoryCount = mandatoryTypes.filter(t => !approvedSet.has(t)).length;
+  const charterApproved = approvedSet.has("PROJECT_CHARTER") || approvedSet.has("CHARTER"); const fpApprovedFlag = approvedSet.has("FINANCIAL_PLAN"); const srApprovedFlag = approvedSet.has("STAKEHOLDER_REGISTER") || approvedSet.has("STAKEHOLDERS"); const missingMandatoryCount = [charterApproved, fpApprovedFlag, srApprovedFlag].filter(v => !v).length;
 
   const { data: recentArtifact } = await supabase
     .from("artifacts")
