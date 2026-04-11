@@ -53,7 +53,11 @@ function getOpenAIClient(): OpenAI {
 const BRIEFING_SYSTEM = `You are a senior PMO advisor generating concise daily briefings for
 project managers. Be specific, not generic. Reference actual risks, milestones, and artifacts
 by name. No filler phrases like "continue to monitor" or "ensure alignment".
-Always respond with valid JSON only -- no prose, no markdown fences.`;
+Always respond with valid JSON only -- no prose, no markdown fences.
+STRICT RULES:
+- NEVER flag null or missing health_score, RAG status, or timeline as a needs_attention item. If these fields are null, simply omit them from the analysis.
+- NEVER suggest approving an artifact that is already listed as APPROVED or BASELINED in the governance activity.
+- NEVER invent issues that are not evidenced by the data provided.`;
 
 const BRIEFING_SCHEMA = `{
   "summary": "string -- 1-2 sentence plain English overview of where the project stands today",
