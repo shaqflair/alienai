@@ -1,13 +1,11 @@
 // src/app/api/projects/[id]/timesheet-reconciliation/route.ts
-// Returns per-person, per-month planned vs actual vs forecast data
-// for the timesheet reconciliation view on the financial plan
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 
-export const runtime  = "nodejs";
-export const dynamic  = "force-dynamic";
+export const runtime   = "nodejs";
+export const dynamic   = "force-dynamic";
 export const revalidate = 0;
 
 function jsonOk(data: any, status = 200) {
@@ -20,42 +18,12 @@ function safeStr(x: any): string {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 function safeNum(x: any): number {
-  const n = Number(x); return Number.isFinite(n) ? n : 0;
+  const n = Number(x);
+  return Number.isFinite(n) ? n : 0;
 }
-
-export type ReconciliationPerson = {
-  user_id: string;
-  name: string;
-  email: string | null;
-  role: string | null;
-  rate_per_day: number;
-  months: Record<string, {          // key: "YYYY-MM"
-    planned_days: number;
-    approved_days: number;
-    forecast_days: number;
-    planned_cost: number;
-    actual_cost: number;
-    forecast_cost: number;
-    variance_cost: number;          // actual − planned (negative = under)
-    variance_pct: number | null;
-    flag: "over" | "under" | "ok";
-  }>;
-  totals: {
-    planned_days: number;
-    approved_days: number;
-    forecast_days: number;
-    planned_cost: number;
-    actual_cost: number;
-    forecast_cost: number;
-    variance_cost: number;
-    variance_pct: number | null;
-    flag: "over" | "under" | "ok";
-  };
-};
-
-function flagVariance(actualCost: number, forecastCost: number): "over" | "under" | "ok" {
-  if (forecastCost === 0) return "ok";
-  const pct = (actualCost - forecastCost) / forecastCost;
+function flagVariance(actual: number, planned: number): "over" | "under" | "ok" {
+  if (planned === 0) return "ok";
+  const pct = (actual - planned) / planned;
   if (pct >  0.1) return "over";
   if (pct < -0.1) return "under";
   return "ok";
@@ -74,7 +42,6 @@ export async function GET(
     const projectId = safeStr(params?.id).trim();
     if (!projectId) return jsonErr("Missing project id", 400);
 
-    // Check membership
     const { data: mem } = await supabase
       .from("project_members")
       .select("role")
@@ -87,22 +54,21 @@ export async function GET(
 
     const admin = createAdminClient();
 
-    // ── 1. Financial plan (planned days + rate per person + forecast) ──
-    const { data: fpArt } = await admin
+    // ── 1. Financial plan content ─────────────────────────────────────────
+    const { data: fpRow } = await admin
       .from("artifacts")
-      .select("content_json")
+      .select("id, content_json")
       .eq("project_id", projectId)
-      .eq("type", "financial_plan")
+      .eq("type", "FINANCIAL_PLAN")
       .eq("is_current", true)
       .maybeSingle();
 
-    const content     = (fpArt?.content_json as any) ?? {};
-    const resources   = Array.isArray(content.resources)    ? content.resources    : [];
+    const content     = (fpRow?.content_json as any) ?? {};
+    const resources   = Array.isArray(content.resources) ? content.resources : [];
     const monthlyData = (content.monthly_data ?? {}) as Record<string, any>;
-    const costLines   = Array.isArray(content.cost_lines)   ? content.cost_lines   : [];
     const fyConfig    = (content.fy_config ?? {}) as any;
 
-    // Build month keys from FY config
+    // Build month keys
     const monthKeys: string[] = [];
     if (fyConfig?.fy_start_month && fyConfig?.fy_start_year) {
       let mo = Number(fyConfig.fy_start_month);
@@ -110,11 +76,9 @@ export async function GET(
       const num = Number(fyConfig.num_months) || 12;
       for (let i = 0; i < num; i++) {
         monthKeys.push(`${yr}-${String(mo).padStart(2, "0")}`);
-        mo++;
-        if (mo > 12) { mo = 1; yr++; }
+        mo++; if (mo > 12) { mo = 1; yr++; }
       }
     } else {
-      // Fallback: current FY
       const now = new Date();
       for (let i = 0; i < 12; i++) {
         const d = new Date(now.getFullYear(), now.getMonth() - 6 + i, 1);
@@ -122,92 +86,93 @@ export async function GET(
       }
     }
 
-    // Map resource user_id → rate
-    const resourceByUserId = new Map<string, { rate: number; role: string | null }>();
-    for (const r of resources) {
-      const uid  = safeStr(r.person_id || r.user_id).trim();
-      const rate = safeNum(r.day_rate || r.cost_per_day || r.rate || 0);
-      if (uid) resourceByUserId.set(uid, { rate, role: safeStr(r.role || r.job_title) || null });
-    }
-
-    // Monthly planned days per person from monthly_data
-    // monthly_data structure: { [costLineId]: { [YYYY-MM]: { budget, actual, forecast } } }
-    // We also try to get person-level data if stored
-    const peopleCostLine = costLines.find((l: any) =>
-      safeStr(l.category).toLowerCase().includes("people")
-    );
-
-    // ── 2. Approved timesheets ──────────────────────────────────────────
-    const { data: timesheets } = await admin
-      .from("timesheets")
-      .select("id, user_id, week_start_date, status")
-      .eq("project_id", projectId)
-      .eq("status", "approved");
-
-    const approvedTsIds = (timesheets ?? []).map((ts: any) => safeStr(ts.id));
-    const tsUserById    = new Map<string, string>();
-    const tsWeekById    = new Map<string, string>();
-    for (const ts of (timesheets ?? [])) {
-      tsUserById.set(safeStr(ts.id), safeStr(ts.user_id));
-      tsWeekById.set(safeStr(ts.id), safeStr(ts.week_start_date));
-    }
-
-    // Get weekly entries for approved timesheets
-    type ApprovedDaysByUserMonth = Map<string, Map<string, number>>; // user_id → month → days
-
-    const approvedDaysByUserMonth: ApprovedDaysByUserMonth = new Map();
-
-    if (approvedTsIds.length) {
-      const { data: wEntries } = await admin
-        .from("weekly_timesheet_entries")
-        .select("timesheet_id, hours, project_id")
-        .in("timesheet_id", approvedTsIds);
-
-      for (const e of (wEntries ?? [])) {
-        const tsId  = safeStr(e.timesheet_id);
-        const uid   = tsUserById.get(tsId);
-        const week  = tsWeekById.get(tsId);
-        if (!uid || !week) continue;
-
-        const monthKey = week.slice(0, 7); // YYYY-MM
-        const days     = safeNum(e.hours) / 8;
-
-        if (!approvedDaysByUserMonth.has(uid)) approvedDaysByUserMonth.set(uid, new Map());
-        const userMap = approvedDaysByUserMonth.get(uid)!;
-        userMap.set(monthKey, (userMap.get(monthKey) ?? 0) + days);
-      }
-
-      // Also check timesheet_entries table
-      const { data: tsEntries } = await admin
-        .from("timesheet_entries")
-        .select("user_id, week_date, approved_days, hours, rate")
-        .eq("project_id", projectId);
-
-      for (const e of (tsEntries ?? [])) {
-        const uid      = safeStr(e.user_id).trim();
-        const weekDate = safeStr(e.week_date || e.week_start_date).trim();
-        if (!uid || !weekDate) continue;
-        const monthKey = weekDate.slice(0, 7);
-        const days     = safeNum(e.approved_days) || safeNum(e.hours) / 8;
-
-        if (!approvedDaysByUserMonth.has(uid)) approvedDaysByUserMonth.set(uid, new Map());
-        const userMap = approvedDaysByUserMonth.get(uid)!;
-        userMap.set(monthKey, (userMap.get(monthKey) ?? 0) + days);
+    // ── 2. Heatmap planned days ───────────────────────────────────────────
+    let heatmapPeople: any[] = [];
+    if (fpRow?.id) {
+      try {
+        const heatmapUrl = new URL(`/api/artifacts/financial-plan/resource-plan-sync`, req.url);
+        heatmapUrl.searchParams.set("projectId", projectId);
+        heatmapUrl.searchParams.set("artifactId", fpRow.id);
+        const hr = await fetch(heatmapUrl.toString(), {
+          headers: { cookie: req.headers.get("cookie") || "" },
+          cache: "no-store",
+        });
+        const hj = await hr.json().catch(() => ({ ok: false }));
+        if (hj.ok && Array.isArray(hj.people)) heatmapPeople = hj.people;
+      } catch (e: any) {
+        console.warn("[reconciliation] heatmap fetch failed:", e?.message);
       }
     }
 
-    // ── 3. Build person list ────────────────────────────────────────────
-    // Union of: resources[] + people who have timesheet entries
-    const allUserIds = new Set<string>([
-      ...resourceByUserId.keys(),
-      ...approvedDaysByUserMonth.keys(),
-    ]);
+    // ── 3. Approved hours per user per month ─────────────────────────────
+    // timesheets: id, user_id, status (NO project_id)
+    // timesheet_entries: timesheet_id, project_id, hours, work_date
+    const approvedHoursByUserMonth: Record<string, Record<string, number>> = {};
+
+    const { data: tsEntries } = await admin
+      .from("timesheet_entries")
+      .select("timesheet_id, hours, work_date")
+      .eq("project_id", projectId);
+
+    if (tsEntries?.length) {
+      const tsIds = [...new Set(tsEntries.map((e: any) => safeStr(e.timesheet_id)))].filter(Boolean);
+
+      const { data: approvedTs } = await admin
+        .from("timesheets")
+        .select("id, user_id, week_start_date")
+        .in("id", tsIds)
+        .in("status", ["approved", "Approved"]);
+
+      const tsMap = new Map<string, { user_id: string; week_start_date: string }>();
+      for (const ts of (approvedTs ?? [])) {
+        tsMap.set(safeStr(ts.id), { user_id: safeStr(ts.user_id), week_start_date: safeStr(ts.week_start_date) });
+      }
+
+      for (const entry of tsEntries) {
+        const ts = tsMap.get(safeStr(entry.timesheet_id));
+        if (!ts) continue;
+        const uid      = ts.user_id;
+        const workDate = safeStr(entry.work_date || ts.week_start_date);
+        const monthKey = workDate.slice(0, 7);
+        const hours    = safeNum(entry.hours);
+        if (!uid || !monthKey || hours <= 0) continue;
+        if (!approvedHoursByUserMonth[uid]) approvedHoursByUserMonth[uid] = {};
+        approvedHoursByUserMonth[uid][monthKey] = (approvedHoursByUserMonth[uid][monthKey] ?? 0) + hours;
+      }
+    }
+
+    // Also try weekly_resource_allocations
+    try {
+      const { data: weeklyAllocs } = await admin
+        .from("weekly_resource_allocations")
+        .select("person_id, user_id, approved_days, week_start_date, cost_per_day")
+        .eq("project_id", projectId)
+        .in("status", ["approved", "Approved"]);
+
+      for (const alloc of (weeklyAllocs ?? [])) {
+        const uid      = safeStr(alloc.person_id || alloc.user_id);
+        const monthKey = safeStr(alloc.week_start_date).slice(0, 7);
+        const days     = safeNum(alloc.approved_days);
+        if (!uid || !monthKey || days <= 0) continue;
+        if (!approvedHoursByUserMonth[uid]) approvedHoursByUserMonth[uid] = {};
+        approvedHoursByUserMonth[uid][monthKey] = (approvedHoursByUserMonth[uid][monthKey] ?? 0) + (days * 8);
+      }
+    } catch { /* table may not exist */ }
+
+    // ── 4. Build person list ──────────────────────────────────────────────
+    const allUserIds = new Set<string>();
+    heatmapPeople.forEach(p => { if (p.person_id) allUserIds.add(p.person_id); });
+    resources.forEach((r: any) => { if (r.user_id) allUserIds.add(r.user_id); });
+    Object.keys(approvedHoursByUserMonth).forEach(uid => allUserIds.add(uid));
 
     if (!allUserIds.size) {
-      return jsonOk({ project_id: projectId, months: monthKeys, people: [], generated_at: new Date().toISOString() });
+      return jsonOk({
+        project_id: projectId, months: monthKeys, people: [],
+        generated_at: new Date().toISOString(),
+        note: "No resource or timesheet data found.",
+      });
     }
 
-    // Load profiles
     const { data: profiles } = await admin
       .from("profiles")
       .select("user_id, full_name, email")
@@ -221,61 +186,58 @@ export async function GET(
       });
     }
 
-    // ── 4. Assemble per-person reconciliation ───────────────────────────
-    const people: ReconciliationPerson[] = [];
+    // ── 5. Per-person reconciliation ──────────────────────────────────────
+    const people: any[] = [];
 
     for (const uid of allUserIds) {
-      const profile  = profileMap.get(uid) ?? { name: uid, email: null };
-      const resource = resourceByUserId.get(uid);
-      const rate     = resource?.rate ?? 0;
+      const profile       = profileMap.get(uid) ?? { name: uid, email: null };
+      const heatmapPerson = heatmapPeople.find(p => p.person_id === uid);
+      const resourceEntry = resources.find((r: any) => r.user_id === uid);
 
-      // Get monthly planned data from monthly_data (people cost line)
-      // Falls back to evenly distributing planned total
-      const plannedByMonth = new Map<string, number>();
-      if (peopleCostLine?.id) {
-        const lineData = monthlyData[peopleCostLine.id] ?? {};
-        for (const mk of monthKeys) {
-          const entry = lineData[mk] ?? {};
-          // If resource has specific planned days stored, use those; else divide by headcount
-          const headcount = Math.max(1, allUserIds.size);
-          const planned   = safeNum(entry.budget ?? entry.budgeted ?? 0) / (rate || 1) / headcount;
-          if (planned > 0) plannedByMonth.set(mk, planned);
-        }
-      }
+      const rate             = safeNum(heatmapPerson?.cost_day_rate) || safeNum(resourceEntry?.day_rate) || 0;
+      const totalPlannedDays = safeNum(heatmapPerson?.total_days) || safeNum(resourceEntry?.planned_days) || 0;
+      const role             = safeStr(heatmapPerson?.job_title || heatmapPerson?.role_title || resourceEntry?.role || "");
+      const userHours        = approvedHoursByUserMonth[uid] ?? {};
 
-      const userApproved = approvedDaysByUserMonth.get(uid) ?? new Map<string, number>();
-
-      const months: ReconciliationPerson["months"] = {};
-      let totPlanned  = 0, totApproved = 0, totForecast = 0;
-      let totPlanCost = 0, totActCost  = 0, totFctCost  = 0;
+      const months: Record<string, any> = {};
+      let totPlannedDays = 0, totApprovedDays = 0, totPlanCost = 0, totActCost = 0;
 
       for (const mk of monthKeys) {
-        const plannedDays  = plannedByMonth.get(mk)  ?? 0;
-        const approvedDays = userApproved.get(mk)    ?? 0;
-        // Forecast = approved days if past, else planned days
-        const monthDate    = new Date(mk + "-01");
-        const isPast       = monthDate < new Date();
-        const forecastDays = isPast ? approvedDays : plannedDays;
+        // Try to get planned days from monthly_data for the linked cost line
+        let plannedDays = 0;
+        const costLine = resources.find((r: any) => r.user_id === uid && r.cost_line_id);
+        if (costLine?.cost_line_id && monthlyData[costLine.cost_line_id]?.[mk] && rate > 0) {
+          const entry = monthlyData[costLine.cost_line_id][mk];
+          plannedDays = safeNum(entry.budget ?? entry.budgeted) / rate;
+        } else if (totalPlannedDays > 0 && monthKeys.length > 0) {
+          plannedDays = totalPlannedDays / monthKeys.length;
+        }
 
-        const plannedCost  = plannedDays  * rate;
-        const actualCost   = approvedDays * rate;
-        const forecastCost = forecastDays * rate;
-        const varianceCost = actualCost   - plannedCost;
-        const variancePct  = plannedCost > 0 ? (varianceCost / plannedCost) * 100 : null;
+        const approvedDays  = (userHours[mk] ?? 0) / 8;
+        const now           = new Date();
+        const isPast        = new Date(mk + "-01") < now;
+        const forecastDays  = isPast ? approvedDays : plannedDays;
+        const plannedCost   = plannedDays  * rate;
+        const actualCost    = approvedDays * rate;
+        const forecastCost  = forecastDays * rate;
+        const varianceCost  = actualCost - plannedCost;
+        const variancePct   = plannedCost > 0 ? (varianceCost / plannedCost) * 100 : null;
 
-        totPlanned  += plannedDays;  totApproved += approvedDays; totForecast += forecastDays;
-        totPlanCost += plannedCost;  totActCost  += actualCost;   totFctCost  += forecastCost;
+        totPlannedDays  += plannedDays;
+        totApprovedDays += approvedDays;
+        totPlanCost     += plannedCost;
+        totActCost      += actualCost;
 
         months[mk] = {
-          planned_days:   Math.round(plannedDays  * 10) / 10,
-          approved_days:  Math.round(approvedDays * 10) / 10,
-          forecast_days:  Math.round(forecastDays * 10) / 10,
-          planned_cost:   Math.round(plannedCost),
-          actual_cost:    Math.round(actualCost),
-          forecast_cost:  Math.round(forecastCost),
-          variance_cost:  Math.round(varianceCost),
-          variance_pct:   variancePct !== null ? Math.round(variancePct * 10) / 10 : null,
-          flag:           flagVariance(actualCost, plannedCost),
+          planned_days:  Math.round(plannedDays  * 10) / 10,
+          approved_days: Math.round(approvedDays * 10) / 10,
+          forecast_days: Math.round(forecastDays * 10) / 10,
+          planned_cost:  Math.round(plannedCost),
+          actual_cost:   Math.round(actualCost),
+          forecast_cost: Math.round(forecastCost),
+          variance_cost: Math.round(varianceCost),
+          variance_pct:  variancePct !== null ? Math.round(variancePct * 10) / 10 : null,
+          flag:          flagVariance(actualCost, plannedCost),
         };
       }
 
@@ -286,37 +248,30 @@ export async function GET(
         user_id:      uid,
         name:         profile.name,
         email:        profile.email,
-        role:         resource?.role ?? null,
+        role,
         rate_per_day: rate,
         months,
         totals: {
-          planned_days:   Math.round(totPlanned  * 10) / 10,
-          approved_days:  Math.round(totApproved * 10) / 10,
-          forecast_days:  Math.round(totForecast * 10) / 10,
-          planned_cost:   Math.round(totPlanCost),
-          actual_cost:    Math.round(totActCost),
-          forecast_cost:  Math.round(totFctCost),
-          variance_cost:  Math.round(totVariance),
-          variance_pct:   totVariancePct !== null ? Math.round(totVariancePct * 10) / 10 : null,
-          flag:           flagVariance(totActCost, totFctCost),
+          planned_days:  Math.round(totPlannedDays  * 10) / 10,
+          approved_days: Math.round(totApprovedDays * 10) / 10,
+          forecast_days: Math.round(totApprovedDays * 10) / 10,
+          planned_cost:  Math.round(totPlanCost),
+          actual_cost:   Math.round(totActCost),
+          forecast_cost: Math.round(totActCost),
+          variance_cost: Math.round(totVariance),
+          variance_pct:  totVariancePct !== null ? Math.round(totVariancePct * 10) / 10 : null,
+          flag:          flagVariance(totActCost, totPlanCost),
         },
       });
     }
 
-    // Sort: most variance first (over > under > ok), then by name
     people.sort((a, b) => {
-      const flagOrder = (f: string) => f === "over" ? 0 : f === "under" ? 1 : 2;
-      if (flagOrder(a.totals.flag) !== flagOrder(b.totals.flag))
-        return flagOrder(a.totals.flag) - flagOrder(b.totals.flag);
+      const order = (f: string) => f === "over" ? 0 : f === "under" ? 1 : 2;
+      if (order(a.totals.flag) !== order(b.totals.flag)) return order(a.totals.flag) - order(b.totals.flag);
       return a.name.localeCompare(b.name);
     });
 
-    return jsonOk({
-      project_id:    projectId,
-      months:        monthKeys,
-      people,
-      generated_at:  new Date().toISOString(),
-    });
+    return jsonOk({ project_id: projectId, months: monthKeys, people, generated_at: new Date().toISOString() });
 
   } catch (e: any) {
     console.error("[timesheet-reconciliation]", e);
