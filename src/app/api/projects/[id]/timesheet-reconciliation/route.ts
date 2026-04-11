@@ -121,7 +121,7 @@ export async function GET(
         .from("timesheets")
         .select("id, user_id, week_start_date")
         .in("id", tsIds)
-        .eq("status", "approved");
+        .in("status", ["approved", "Approved"]);
 
       const tsMap = new Map<string, { user_id: string; week_start_date: string }>();
       for (const ts of (approvedTs ?? [])) {
@@ -134,7 +134,7 @@ export async function GET(
         const uid      = ts.user_id;
         const workDate = safeStr(entry.work_date || ts.week_start_date);
         const monthKey = workDate.slice(0, 7);
-        const hours    = safeNum(Number(entry.hours));
+        const hours    = safeNum(entry.hours);
         if (!uid || !monthKey || hours <= 0) continue;
         if (!approvedHoursByUserMonth[uid]) approvedHoursByUserMonth[uid] = {};
         approvedHoursByUserMonth[uid][monthKey] = (approvedHoursByUserMonth[uid][monthKey] ?? 0) + hours;
@@ -147,7 +147,7 @@ export async function GET(
         .from("weekly_resource_allocations")
         .select("person_id, user_id, approved_days, week_start_date, cost_per_day")
         .eq("project_id", projectId)
-        .eq("status", "approved");
+        .in("status", ["approved", "Approved"]);
 
       for (const alloc of (weeklyAllocs ?? [])) {
         const uid      = safeStr(alloc.person_id || alloc.user_id);
@@ -161,8 +161,9 @@ export async function GET(
 
     // ── 4. Build person list ──────────────────────────────────────────────
     const allUserIds = new Set<string>();
-    heatmapPeople.forEach(p => { if (p.person_id) allUserIds.add(p.person_id); });
-    resources.forEach((r: any) => { if (r.user_id) allUserIds.add(r.user_id); });
+    heatmapPeople.forEach(p => { if (p.person_id) allUserIds.add(safeStr(p.person_id)); });
+    resources.forEach((r: any) => { if (r.user_id) allUserIds.add(safeStr(r.user_id)); });
+    // Always include anyone who has approved timesheet hours — even if not in heatmap
     Object.keys(approvedHoursByUserMonth).forEach(uid => allUserIds.add(uid));
 
     if (!allUserIds.size) {
