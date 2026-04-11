@@ -70,12 +70,37 @@ const BRIEFING_SCHEMA = `{
 // -- Data fetchers ------------------------------------------------------------
 
 async function fetchProjectMeta(supabase: any, projectId: string) {
-  const { data } = await supabase
-    .from("projects")
-    .select("id, title, name, start_date, finish_date, status, health_score, rag_status")
-    .eq("id", projectId)
-    .maybeSingle();
-  return data ?? {};
+  const [{ data: proj }, { data: snap }, { data: fp }] = await Promise.all([
+    supabase.from("projects")
+      .select("id, title, name, start_date, finish_date, status, health_score, rag_status, pm_name")
+      .eq("id", projectId).maybeSingle(),
+    supabase.from("ai_premortem_snapshots")
+      .select("failure_risk_score, failure_risk_band, schedule_score, governance_score, budget_score, stability_score")
+      .eq("project_id", projectId)
+      .order("generated_at", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("artifacts")
+      .select("content_json")
+      .eq("project_id", projectId).eq("type", "FINANCIAL_PLAN").eq("is_current", true).maybeSingle(),
+  ]);
+
+  const base = proj ?? {};
+  // Enrich health from Pre-Mortem if not on project record
+  if (snap && !base.health_score) {
+    base.health_score = 100 - snap.failure_risk_score;
+    base.rag_status   = snap.failure_risk_band === "Critical" ? "RED"
+                      : snap.failure_risk_band === "High"     ? "AMBER" : "GREEN";
+  }
+  // Enrich timeline from Financial Plan if not on project record
+  if (fp?.content_json && (!base.finish_date || base.finish_date === "TBC")) {
+    const fy = fp.content_json?.fy_config;
+    if (fy?.fy_start_year && fy?.num_months) {
+      const start = `${fy.fy_start_year}-${String(fy.fy_start_month ?? 1).padStart(2,"0")}-01`;
+      const endDate = new Date(fy.fy_start_year, (fy.fy_start_month ?? 1) - 1 + Number(fy.num_months), 1);
+      base.finish_date = endDate.toISOString().slice(0,10);
+      if (!base.start_date) base.start_date = start;
+    }
+  }
+  return base;
 }
 
 async function fetchOpenRaidItems(supabase: any, projectId: string) {
