@@ -1,6 +1,6 @@
 "use client";
 
-// src/app/insights/InsightsClient.tsx — Executive Intelligence Dossier v5
+// src/app/insights/InsightsClient.tsx — Executive Intelligence Dossier v6
 // Data sources:
 //   /api/portfolio/raid-exec-summary  — RAID portfolio executive brief
 //   /api/portfolio/raid-list          — full RAID item list + financials
