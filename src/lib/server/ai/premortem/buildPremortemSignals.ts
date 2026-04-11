@@ -148,13 +148,13 @@ export async function buildPremortemSignals(
     ["high", "critical", "very_high"].includes(safeStr(r.severity).toLowerCase())
   );
   const recentRaid30 = raid.filter(r => safeStr(r.created_at) > minus30);
-  const prevRaid = await supabase
+  const { count: prevRaidCount } = await supabase
     .from("raid_items")
     .select("id", { count: "exact", head: true })
     .eq("project_id", projectId)
     .gte("created_at", new Date(now.getTime() - 60 * 86400000).toISOString())
     .lt("created_at", minus30);
-  const risingIssueTrend = recentRaid30.length > safeNum(prevRaid.count);
+  const risingIssueTrend = recentRaid30.length > 0 && recentRaid30.length > (prevRaidCount ?? 0);
 
   if (highSeverity.length > 0) {
     highSeverity.slice(0, 2).forEach(r => {
@@ -204,7 +204,7 @@ export async function buildPremortemSignals(
 
   const stuckChanges = (stuckCRs ?? []).filter(cr => daysBetween(safeStr(cr.created_at)) > 5);
 
-  const mandatoryTypes = ["project_charter", "financial_plan", "stakeholder_register"];
+  const mandatoryTypes = ["PROJECT_CHARTER", "CHARTER", "FINANCIAL_PLAN", "STAKEHOLDER_REGISTER", "STAKEHOLDERS"];
   const { data: approvedArts } = await supabase
     .from("artifacts")
     .select("type, approval_status")
@@ -212,7 +212,11 @@ export async function buildPremortemSignals(
     .in("type", mandatoryTypes);
 
   const approvedSet = new Set((approvedArts ?? [])
-    .filter((a: any) => ["approved", "baselined"].includes(safeStr(a.approval_status).toLowerCase()))
+    .filter((a: any) => {
+      const st = safeStr(a.approval_status || a.status).toLowerCase().replace(/\s+/g, "_");
+      return st === "approved" || st === "baselined" || st === "active" || st === "current" ||
+             st.includes("approv") || st.includes("publish");
+    })
     .map((a: any) => safeStr(a.type)));
   const missingMandatoryCount = mandatoryTypes.filter(t => !approvedSet.has(t)).length;
 
