@@ -1,15 +1,16 @@
 "use client";
 
-// src/app/insights/InsightsClient.tsx — Executive Intelligence Dossier v4
+// src/app/insights/InsightsClient.tsx — Executive Intelligence Dossier v5
 // Data sources:
 //   /api/portfolio/raid-exec-summary  — RAID portfolio executive brief
 //   /api/portfolio/raid-list          — full RAID item list + financials
 //   /api/portfolio/health             — portfolio health score + drivers
 //   /api/ai/briefing                  — AI insights feed
-//   /api/portfolio/intelligence       — Pre-Mortem AI + Decision Engine + Truth Layer
+//   /api/portfolio/intelligence       — Pre-Mortem AI + Decision Engine + Truth Layer + Boardroom Mode
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import BoardroomMode from "@/components/portfolio/BoardroomMode";
 
 const FONT_URL =
   "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@300;400;500;600&family=Source+Serif+4:opsz,wght@8..60,300;400;600&display=swap";
@@ -661,6 +662,7 @@ export default function InsightsClient() {
   const [finSort, setFinSort] = useState<"total" | "cost" | "revenue" | "penalties">("total");
   const [pmData,    setPmData]    = useState<PortfolioIntelligenceData | null>(null);
   const [pmLoading, setPmLoading] = useState(false);
+  const [boardroomOpen, setBoardroomOpen] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -708,14 +710,13 @@ export default function InsightsClient() {
   }, [activeTab, windowDays]);
 
   useEffect(() => {
-    if (activeTab !== "premortem") return;
     let c = false; setPmLoading(true);
     (async () => {
       const j = await fetchJson<any>("/api/portfolio/intelligence");
       if (!c) { setPmData(j?.ok ? j : null); setPmLoading(false); }
     })();
     return () => { c = true; };
-  }, [activeTab]);
+  }, []);
 
   const kpis = execData?.kpis;
   const sections = execData?.sections ?? [];
@@ -790,7 +791,15 @@ export default function InsightsClient() {
             <div style={{ display: "flex", gap: 3 }}>{SCOPES.map((s) => <Pill key={s.v} label={s.l} active={scope === s.v} onClick={() => setScope(s.v)} />)}</div>
             <div style={{ width: 1, height: 20, background: T.hr }} />
             <div style={{ display: "flex", gap: 3 }}>{WINDOWS.map((w) => <Pill key={w} label={`${w}D`} active={windowDays === w} onClick={() => setWindowDays(w)} />)}</div>
-            <div style={{ marginLeft: "auto" }}><DownloadBar days={windowDays} scope={scope} /></div>
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                onClick={() => setBoardroomOpen(true)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 16px", fontFamily: T.mono, fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", background: T.ink, color: "#fff", border: "none", borderRadius: 2, cursor: "pointer" }}
+              >
+                ◆ Boardroom
+              </button>
+              <DownloadBar days={windowDays} scope={scope} />
+            </div>
           </div>
 
           {/* KPI strip */}
@@ -1197,6 +1206,9 @@ export default function InsightsClient() {
           </div>
         </div>
       </div>
+      {boardroomOpen && pmData && (
+        <BoardroomMode data={pmData} onClose={() => setBoardroomOpen(false)} />
+      )}
     </>
   );
 }
