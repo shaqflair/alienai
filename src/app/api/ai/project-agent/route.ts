@@ -14,7 +14,7 @@ function safeStr(x: any): string { return typeof x === "string" ? x : x == null 
 
 async function buildProjectContext(supabase: any, projectId: string): Promise<string> {
   const results = await Promise.allSettled([
-    supabase.from("projects").select("title, status, start_date, finish_date, pm_name, pm_user_id, description").eq("id", projectId).maybeSingle(),
+    supabase.from("projects").select("title, status, start_date, finish_date, pm_name, pm_user_id").eq("id", projectId).maybeSingle(),
     supabase.from("artifacts").select("type, approval_status, status, updated_at").eq("project_id", projectId).eq("is_current", true).limit(20),
     supabase.from("raid_items").select("type, title, priority, status, owner_label, due_date").eq("project_id", projectId).in("status", ["Open","In Progress"]).order("priority").limit(15),
     supabase.from("milestones").select("title, due_date, status").eq("project_id", projectId).order("due_date").limit(8),

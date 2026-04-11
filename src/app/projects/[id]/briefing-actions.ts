@@ -68,7 +68,7 @@ const BRIEFING_SCHEMA = `{
 async function fetchProjectMeta(supabase: any, projectId: string) {
   const [{ data: proj }, { data: snap }, { data: fp }] = await Promise.all([
     supabase.from("projects")
-      .select("id, title, name, start_date, finish_date, status, health_score, rag_status, pm_name")
+      .select("id, title, start_date, finish_date, status, pm_name, pm_user_id")
       .eq("id", projectId).maybeSingle(),
     supabase.from("ai_premortem_snapshots")
       .select("failure_risk_score, failure_risk_band, schedule_score, governance_score, budget_score, stability_score")
