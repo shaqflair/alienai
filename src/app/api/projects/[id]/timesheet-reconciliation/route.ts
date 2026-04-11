@@ -7,11 +7,11 @@ export const runtime   = "nodejs";
 export const dynamic   = "force-dynamic";
 export const revalidate = 0;
 
-function jsonOk(data: any)          { return NextResponse.json({ ok: true,  ...data }); }
-function jsonErr(e: string, s = 400){ return NextResponse.json({ ok: false, error: e }, { status: s }); }
-function safeStr(x: any): string    { return typeof x === "string" ? x : x == null ? "" : String(x); }
-function safeNum(x: any): number    { const n = Number(x); return Number.isFinite(n) ? n : 0; }
-function getFlag(actual: number, planned: number): "over"|"under"|"ok" {
+function jsonOk(data: any)           { return NextResponse.json({ ok: true,  ...data }); }
+function jsonErr(e: string, s = 400) { return NextResponse.json({ ok: false, error: e }, { status: s }); }
+function safeStr(x: any): string     { return typeof x === "string" ? x : x == null ? "" : String(x); }
+function safeNum(x: any): number     { const n = Number(x); return Number.isFinite(n) ? n : 0; }
+function getFlag(actual: number, planned: number): "over" | "under" | "ok" {
   if (planned === 0 && actual === 0) return "ok";
   if (planned === 0) return "over";
   const pct = (actual - planned) / planned;
@@ -24,7 +24,7 @@ const HOURS_PER_DAY = 8;
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string }> }) {
   try {
-    const supabase  = await createClient();
+    const supabase = await createClient();
     const { data: { user }, error: authErr } = await supabase.auth.getUser();
     if (authErr || !user) return jsonErr("Unauthorized", 401);
 
@@ -32,11 +32,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
     const projectId = safeStr(params?.id).trim();
     if (!projectId) return jsonErr("Missing project id", 400);
 
-    // Check membership
+    // Auth check
     const { data: mem } = await supabase.from("project_members").select("role")
       .eq("project_id", projectId).eq("user_id", user.id).eq("is_active", true).maybeSingle();
     if (!mem) {
-      // Allow org member too
       const { data: proj } = await supabase.from("projects").select("organisation_id").eq("id", projectId).maybeSingle();
       if (proj?.organisation_id) {
         const { data: orgMem } = await supabase.from("organisation_members").select("role")
@@ -45,17 +44,16 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
       } else return jsonErr("Forbidden", 403);
     }
 
-    // ── 1. Financial plan ─────────────────────────────────────────────────
+    // 1. Financial plan
     const { data: fpRow } = await supabase
       .from("artifacts").select("id, content_json")
       .eq("project_id", projectId).eq("type", "FINANCIAL_PLAN").eq("is_current", true).maybeSingle();
 
-    const content     = (fpRow?.content_json as any) ?? {};
-    const resources   = Array.isArray(content.resources)   ? content.resources   : [];
-    const monthlyData = (content.monthly_data ?? {}) as Record<string, any>;
-    const fyConfig    = (content.fy_config    ?? {}) as any;
+    const fpContent   = (fpRow?.content_json as any) ?? {};
+    const resources   = Array.isArray(fpContent.resources)   ? fpContent.resources   : [];
+    const monthlyData = (fpContent.monthly_data ?? {}) as Record<string, any>;
+    const fyConfig    = (fpContent.fy_config    ?? {}) as any;
 
-    // Build month keys from FY config
     const monthKeys: string[] = [];
     if (fyConfig?.fy_start_month && fyConfig?.fy_start_year) {
       let mo = Number(fyConfig.fy_start_month), yr = Number(fyConfig.fy_start_year);
@@ -72,10 +70,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
       }
     }
 
-    // ── 2. Approved hours per user per month (mirrors getApprovedTimesheetEntries) ──
-    // Uses weekly_timesheet_entries → timesheets join (same as financial plan actuals)
+    // 2. Approved hours per user per month (weekly_timesheet_entries -> timesheets)
     const approvedDaysByUserMonth: Record<string, Record<string, number>> = {};
-    const totalApprovedDaysByUser: Record<string, number> = {};
 
     const { data: weeklyRaw } = await supabase
       .from("weekly_timesheet_entries")
@@ -85,12 +81,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
 
     if (weeklyRaw?.length) {
       const tsIds = [...new Set(weeklyRaw.map((r: any) => safeStr(r.timesheet_id)))].filter(Boolean);
-
       const { data: approvedTs } = await supabase
         .from("timesheets").select("id, user_id")
         .in("id", tsIds).eq("status", "approved");
 
-      const approvedMap = new Map<string, string>(); // tsId → userId
+      const approvedMap = new Map<string, string>();
       for (const t of (approvedTs ?? [])) approvedMap.set(safeStr(t.id), safeStr(t.user_id));
 
       for (const row of weeklyRaw) {
@@ -101,15 +96,39 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
         if (!mk || days <= 0) continue;
         if (!approvedDaysByUserMonth[userId]) approvedDaysByUserMonth[userId] = {};
         approvedDaysByUserMonth[userId][mk] = (approvedDaysByUserMonth[userId][mk] ?? 0) + days;
-        totalApprovedDaysByUser[userId] = (totalApprovedDaysByUser[userId] ?? 0) + days;
       }
     }
 
-    // ── 3. Get org details for rate card ─────────────────────────────────
-    const { data: projRow } = await supabase.from("projects").select("organisation_id").eq("id", projectId).maybeSingle();
+    // 3. Heatmap - MUST be fetched before allUserIds is built
+    let heatmapPeople: any[] = [];
+    if (fpRow?.id) {
+      try {
+        const url = new URL(`/api/artifacts/financial-plan/resource-plan-sync`, req.url);
+        url.searchParams.set("projectId", projectId);
+        url.searchParams.set("artifactId", fpRow.id);
+        const hr = await fetch(url.toString(), {
+          headers: { cookie: req.headers.get("cookie") || "" },
+          cache: "no-store",
+        });
+        const hj = await hr.json().catch(() => ({ ok: false }));
+        if (hj.ok && Array.isArray(hj.people)) heatmapPeople = hj.people;
+      } catch (e: any) {
+        console.warn("[reconciliation] heatmap failed:", e?.message);
+      }
+    }
+
+    // 4. Build full user ID set - heatmapPeople must exist first
+    const allUserIds = new Set<string>([
+      ...Object.keys(approvedDaysByUserMonth),
+      ...resources.map((r: any) => safeStr(r.user_id)).filter(Boolean),
+      ...heatmapPeople.map((p: any) => safeStr(p.person_id)).filter(Boolean),
+    ]);
+
+    // 5. Rate card + profiles
+    const { data: projRow } = await supabase.from("projects")
+      .select("organisation_id").eq("id", projectId).maybeSingle();
     const orgId = safeStr(projRow?.organisation_id) || null;
 
-    // Rate card
     const personalRateByUser = new Map<string, number>();
     const rateByLabel        = new Map<string, number>();
     if (orgId) {
@@ -124,20 +143,19 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
       }
     }
 
-    // Job titles
     const jobTitleByUser = new Map<string, string>();
-    const allUserIds = new Set<string>([
-      ...Object.keys(approvedDaysByUserMonth),
-      ...resources.map((r: any) => safeStr(r.user_id)).filter(Boolean),
-      ...heatmapPeople.map((p: any) => safeStr(p.person_id)).filter(Boolean),
-    ]);
+    const nameMap        = new Map<string, string>();
 
     if (allUserIds.size) {
       const uids = [...allUserIds];
-      const { data: profiles } = await supabase.from("profiles").select("user_id, full_name, email, job_title").in("user_id", uids);
-      const profileMap = new Map<string, any>();
-      for (const p of (profiles ?? [])) profileMap.set(safeStr(p.user_id), p);
-
+      const { data: profiles } = await supabase.from("profiles")
+        .select("user_id, full_name, email, job_title").in("user_id", uids);
+      for (const p of (profiles ?? [])) {
+        const uid   = safeStr(p.user_id);
+        const title = safeStr(p.job_title || "").trim();
+        if (title) jobTitleByUser.set(uid, title);
+        nameMap.set(uid, safeStr(p.full_name).trim() || safeStr(p.email).trim() || uid);
+      }
       if (orgId) {
         const { data: members } = await supabase.from("organisation_members")
           .select("user_id, job_title, role").eq("organisation_id", orgId).in("user_id", uids);
@@ -147,24 +165,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
           if (title && !jobTitleByUser.has(uid)) jobTitleByUser.set(uid, title);
         }
       }
-
-      for (const [uid, p] of profileMap.entries()) {
-        const title = safeStr(p?.job_title || "").trim();
-        if (title) jobTitleByUser.set(uid, title);
-      }
-
-      // Build name map
-      const nameMap = new Map<string, string>();
-      for (const [uid, p] of profileMap.entries()) {
-        nameMap.set(uid, safeStr(p?.full_name).trim() || safeStr(p?.email).trim() || uid);
-      }
-      (globalThis as any).__nameMap = nameMap;
     }
 
     function getDayRate(userId: string): number {
       const personal = personalRateByUser.get(userId);
       if (personal) return personal;
-      // Try resource entry from financial plan
       const res = resources.find((r: any) => r.user_id === userId);
       if (res?.day_rate) return safeNum(res.day_rate);
       const jobTitle = jobTitleByUser.get(userId);
@@ -175,22 +180,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
       return 0;
     }
 
-    const nameMap: Map<string, string> = (globalThis as any).__nameMap ?? new Map();
-
-    // ── 4. Heatmap planned days (fetch BEFORE building allUserIds) ────────
-    let heatmapPeople: any[] = [];
-    if (fpRow?.id) {
-      try {
-        const url = new URL(`/api/artifacts/financial-plan/resource-plan-sync`, req.url);
-        url.searchParams.set("projectId", projectId);
-        url.searchParams.set("artifactId", fpRow.id);
-        const hr  = await fetch(url.toString(), { headers: { cookie: req.headers.get("cookie") || "" }, cache: "no-store" });
-        const hj  = await hr.json().catch(() => ({ ok: false }));
-        if (hj.ok && Array.isArray(hj.people)) heatmapPeople = hj.people;
-      } catch (e: any) { console.warn("[reconciliation] heatmap failed:", e?.message); }
-    }
-
-    // ── 5. Build people list ──────────────────────────────────────────────
+    // 6. Per-person reconciliation
     const people: any[] = [];
 
     for (const uid of allUserIds) {
@@ -206,23 +196,23 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
       let totPlanned = 0, totApproved = 0, totPlanCost = 0, totActCost = 0;
 
       for (const mk of monthKeys) {
-        // Planned days from monthly_data cost line
         let plannedDays = 0;
         const costLine = resources.find((r: any) => r.user_id === uid && r.cost_line_id);
         if (costLine?.cost_line_id && monthlyData[costLine.cost_line_id]?.[mk] && rate > 0) {
-          plannedDays = safeNum(monthlyData[costLine.cost_line_id][mk].budget ?? monthlyData[costLine.cost_line_id][mk].budgeted) / rate;
+          const entry = monthlyData[costLine.cost_line_id][mk];
+          plannedDays = safeNum(entry.budget ?? entry.budgeted) / rate;
         } else if (totalPlanned > 0 && monthKeys.length > 0) {
           plannedDays = totalPlanned / monthKeys.length;
         }
 
-        const approvedDays  = userMonths[mk] ?? 0;
-        const isPast        = new Date(mk + "-01") < new Date();
-        const forecastDays  = isPast ? approvedDays : plannedDays;
-        const plannedCost   = plannedDays  * rate;
-        const actualCost    = approvedDays * rate;
-        const forecastCost  = forecastDays * rate;
-        const varianceCost  = actualCost - plannedCost;
-        const variancePct   = plannedCost > 0 ? (varianceCost / plannedCost) * 100 : null;
+        const approvedDays = userMonths[mk] ?? 0;
+        const isPast       = new Date(mk + "-01") < new Date();
+        const forecastDays = isPast ? approvedDays : plannedDays;
+        const plannedCost  = plannedDays  * rate;
+        const actualCost   = approvedDays * rate;
+        const forecastCost = forecastDays * rate;
+        const varianceCost = actualCost - plannedCost;
+        const variancePct  = plannedCost > 0 ? (varianceCost / plannedCost) * 100 : null;
 
         totPlanned  += plannedDays;
         totApproved += approvedDays;
@@ -242,7 +232,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
         };
       }
 
-      const totVariance    = totActCost  - totPlanCost;
+      const totVariance    = totActCost - totPlanCost;
       const totVariancePct = totPlanCost > 0 ? (totVariance / totPlanCost) * 100 : null;
 
       people.push({
@@ -267,7 +257,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
       return a.name.localeCompare(b.name);
     });
 
-    return jsonOk({ project_id: projectId, months: monthKeys, people, generated_at: new Date().toISOString() });
+    return jsonOk({
+      project_id:   projectId,
+      months:       monthKeys,
+      people,
+      generated_at: new Date().toISOString(),
+    });
 
   } catch (e: any) {
     console.error("[timesheet-reconciliation]", e);
