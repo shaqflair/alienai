@@ -1,10 +1,11 @@
+// src/lib/server/portfolio/loadPortfolioIntelligence.ts
 import "server-only";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export type ProjectRiskRow = {
-  project_id:           string;
+  project_id:          string;
   project_title:       string;
   project_code:        string | null;
   pm_name:             string | null;
@@ -32,28 +33,28 @@ export type ProjectRiskRow = {
 };
 
 export type PortfolioIntelligencePayload = {
-  ok:                   true;
-  organisationId:       string;
-  generatedAt:          string;
-  totalProjects:        number;
-  scoredProjects:       number;
-  unscoredProjects:     number;
+  ok:                  true;
+  organisationId:      string;
+  generatedAt:         string;
+  totalProjects:       number;
+  scoredProjects:      number;
+  unscoredProjects:    number;
   // Portfolio risk summary
-  avgFailureRisk:       number;
-  portfolioRiskBand:    string;
-  criticalCount:        number;
-  highCount:            number;
-  moderateCount:        number;
-  lowCount:             number;
+  avgFailureRisk:      number;
+  portfolioRiskBand:   string;
+  criticalCount:       number;
+  highCount:           number;
+  moderateCount:       number;
+  lowCount:            number;
   // Truth layer summary
-  falseGreenCount:      number;
-  materialGapCount:     number;
+  falseGreenCount:     number;
+  materialGapCount:    number;
   reportingTrustScore: number; // 0-100
   // Worsening trend
-  worseningCount:       number;
-  improvingCount:       number;
+  worseningCount:      number;
+  improvingCount:      number;
   // Projects ranked by risk
-  projects:             ProjectRiskRow[];
+  projects:            ProjectRiskRow[];
   // Portfolio-level top decisions (cross-project)
   topDecisions: Array<{
     project_id:    string;
@@ -109,10 +110,12 @@ export async function loadPortfolioIntelligence(): Promise<PortfolioIntelligence
 
     const admin = createAdminClient();
 
+    // Resolve org scope
     const scope = await resolvePortfolioScope(supabase, user.id);
     const orgId = safeStr(scope?.organisationId).trim();
     if (!orgId) return { ok: false, error: "No active organisation" };
 
+    // Get all active projects in org
     const { data: projects } = await admin
       .from("projects")
       .select("id, title, project_code, status, resource_status, pm_name, pm_user_id")
@@ -140,6 +143,7 @@ export async function loadPortfolioIntelligence(): Promise<PortfolioIntelligence
 
     const projectIds = activeProjects.map((p: any) => safeStr(p.id));
 
+    // Get latest snapshot per project
     const { data: snapshots } = await admin
       .from("ai_premortem_snapshots")
       .select("project_id, generated_at, failure_risk_score, failure_risk_band, confidence_score, direction, hidden_risk, schedule_score, governance_score, budget_score, stability_score, top_drivers, recommended_actions, narrative, signal_detail")
@@ -147,11 +151,13 @@ export async function loadPortfolioIntelligence(): Promise<PortfolioIntelligence
       .in("project_id", projectIds)
       .order("generated_at", { ascending: false });
 
+    // Deduplicate — keep latest per project
     const snapshotMap = new Map<string, any>();
     for (const s of (snapshots ?? [])) {
       if (!snapshotMap.has(s.project_id)) snapshotMap.set(s.project_id, s);
     }
 
+    // PM names
     const pmUserIds = [...new Set(activeProjects.map((p: any) => safeStr(p.pm_user_id)).filter(Boolean))];
     const pmNameMap = new Map<string, string>();
     if (pmUserIds.length) {
@@ -216,24 +222,26 @@ export async function loadPortfolioIntelligence(): Promise<PortfolioIntelligence
         is_false_green:      isFalseGreen,
       });
 
+      // Collect top decisions from recommended_actions
       const actions = Array.isArray(snap.recommended_actions) ? snap.recommended_actions : [];
       for (const a of actions.slice(0, 2)) {
         if (!a?.action) continue;
         topDecisions.push({
-          project_id:          pid,
-          project_title:       safeStr(proj.title),
-          action:              safeStr(a.action),
-          rationale:           safeStr(a.rationale),
-          pillar:              safeStr(a.pillar ?? ""),
-          priority:            safeStr(a.priority ?? "now"),
-          score_impact:        safeNum(a.score ?? score),
-          risk_reduction_pct: Math.round((safeNum(a.score ?? 10) / Math.max(score, 1)) * 100),
-          effort:              safeStr(a.ownerHint ? "immediate" : "short_term"),
-          owner_hint:          safeStr(a.ownerHint ?? "PM"),
+          project_id:         pid,
+          project_title:      safeStr(proj.title),
+          action:             safeStr(a.action),
+          rationale:          safeStr(a.rationale),
+          pillar:             safeStr(a.pillar ?? ""),
+          priority:           safeStr(a.priority ?? "now"),
+          score_impact:       safeNum(a.score ?? 0),
+          risk_reduction_pct: score > 0 ? Math.min(99, Math.round((safeNum(a.score ?? 0) / score) * 100)) : 0,
+          effort:             safeStr(a.ownerHint ? "immediate" : "short_term"),
+          owner_hint:         safeStr(pmNameMap.get(safeStr(proj.pm_user_id)) || safeStr(proj.pm_name) || a.ownerHint || "PM"),
         });
       }
     }
 
+    // Sort by risk descending
     rows.sort((a, b) => b.failure_risk_score - a.failure_risk_score);
     topDecisions.sort((a, b) => b.score_impact - a.score_impact);
 
@@ -246,23 +254,23 @@ export async function loadPortfolioIntelligence(): Promise<PortfolioIntelligence
     return {
       ok: true,
       organisationId:      orgId,
-      generatedAt:          now.toISOString(),
-      totalProjects:        activeProjects.length,
-      scoredProjects:       scored.length,
-      unscoredProjects:     rows.filter(r => !r.has_snapshot).length,
-      avgFailureRisk:       avgRisk,
-      portfolioRiskBand:    riskBand(avgRisk),
-      criticalCount:        rows.filter(r => r.failure_risk_band === "Critical").length,
-      highCount:            rows.filter(r => r.failure_risk_band === "High").length,
-      moderateCount:        rows.filter(r => r.failure_risk_band === "Moderate").length,
-      lowCount:             rows.filter(r => r.failure_risk_band === "Low").length,
-      falseGreenCount:      falseGreens,
-      materialGapCount:     materialGaps,
+      generatedAt:         now.toISOString(),
+      totalProjects:       activeProjects.length,
+      scoredProjects:      scored.length,
+      unscoredProjects:    rows.filter(r => !r.has_snapshot).length,
+      avgFailureRisk:      avgRisk,
+      portfolioRiskBand:   riskBand(avgRisk),
+      criticalCount:       rows.filter(r => r.failure_risk_band === "Critical").length,
+      highCount:           rows.filter(r => r.failure_risk_band === "High").length,
+      moderateCount:       rows.filter(r => r.failure_risk_band === "Moderate").length,
+      lowCount:            rows.filter(r => r.failure_risk_band === "Low").length,
+      falseGreenCount:     falseGreens,
+      materialGapCount:    materialGaps,
       reportingTrustScore: trustScore,
-      worseningCount:       rows.filter(r => r.direction === "worsening").length,
-      improvingCount:       rows.filter(r => r.direction === "improving").length,
-      projects:             rows,
-      topDecisions:         topDecisions.slice(0, 10),
+      worseningCount:      rows.filter(r => r.direction === "worsening").length,
+      improvingCount:      rows.filter(r => r.direction === "improving").length,
+      projects:            rows,
+      topDecisions:        topDecisions.slice(0, 10),
     };
 
   } catch (e: any) {
