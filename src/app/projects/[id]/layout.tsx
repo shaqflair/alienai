@@ -222,6 +222,7 @@ export default async function ProjectLayout({
     { id: "members",   label: "Members",        href: `/projects/${projectUuid}/members` },
     { id: "changes",   label: "Change Board",   href: `/projects/${projectUuid}/change` },
     { id: "raid",      label: "Risks",          href: `/projects/${projectUuid}/raid` },
+    { id: "dependencies", label: "Dependencies", href: `/projects/${projectUuid}/dependencies` },
     { id: "lessons",   label: "Lessons",        href: `/projects/${projectUuid}/lessons` },
     { id: "weekly",    label: "Weekly Report",  href: artifactHref("WEEKLY_REPORT") },
   ];
