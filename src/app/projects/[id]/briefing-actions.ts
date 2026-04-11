@@ -283,7 +283,10 @@ Rules:
 - needs_attention: 2-4 items ordered by urgency, each with priority "high" or "medium"
 - recommended_actions: exactly 3 concrete things to do today
 - No filler phrases like "continue to monitor" or "ensure alignment"
-- Return ONLY the JSON object`;
+- CRITICAL: Any artifact listed under APPROVED ARTIFACTS is fully signed off. NEVER put it in needs_attention. NEVER suggest it needs approval, completion, or review.
+- CRITICAL: Draft artifacts (Schedule, WBS, Stakeholder Register, Weekly Report) are normal working documents. Only flag them if not updated in 30+ days.
+- CRITICAL: If the project has start_date and finish_date values, state them explicitly. Never say timeline is TBC or undefined.
+- Return ONLY the JSON object\;
 }
 
 // -- LLM call -----------------------------------------------------------------
