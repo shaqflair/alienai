@@ -14,7 +14,7 @@ function safeStr(x: any): string { return typeof x === "string" ? x : x == null 
 
 async function buildProjectContext(supabase: any, projectId: string): Promise<string> {
   const results = await Promise.allSettled([
-    supabase.from("projects").select("title, status, start_date, finish_date, pm_name, description").eq("id", projectId).maybeSingle(),
+    supabase.from("projects").select("title, status, start_date, finish_date, planned_start, planned_end, kickoff_date, deadline, end_date, pm_name, pm_user_id, description").eq("id", projectId).maybeSingle(),
     supabase.from("artifacts").select("type, approval_status, status, updated_at").eq("project_id", projectId).eq("is_current", true).limit(20),
     supabase.from("raid_items").select("type, title, priority, status, owner_label, due_date").eq("project_id", projectId).in("status", ["Open","In Progress"]).order("priority").limit(15),
     supabase.from("milestones").select("title, due_date, status").eq("project_id", projectId).order("due_date").limit(8),
@@ -73,7 +73,7 @@ async function buildProjectContext(supabase: any, projectId: string): Promise<st
 
   return `PROJECT: ${safeStr(_proj?.title)}
 Status: ${safeStr(_proj?.status)} | PM: ${safeStr(_proj?.pm_name)}
-Timeline: ${_proj?.start_date ?? "TBC"} to ${_proj?.finish_date ?? "TBC"}
+Timeline: ${_proj?.start_date ?? _proj?.planned_start ?? _proj?.kickoff_date ?? "TBC"} to ${_proj?.finish_date ?? _proj?.planned_end ?? _proj?.deadline ?? _proj?.end_date ?? "TBC"}
 
 ARTIFACTS:
 ${artList || "  None"}
