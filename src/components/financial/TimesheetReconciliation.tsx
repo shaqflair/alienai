@@ -39,9 +39,10 @@ type Person = {
 
 type ReconcData = { ok: boolean; project_id: string; months: string[]; people: Person[]; generated_at: string; note?: string };
 
-function fmt(n: number, sym = "£") { return n ? `${sym}${Math.abs(n).toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "—"; }
-function fmtD(n: number) { return n ? `${n.toFixed(1)}d` : "—"; }
-function shortMo(mk: string) { try { return new Date(mk + "-01").toLocaleDateString("en-GB", { month: "short", year: "2-digit" }); } catch { return mk; } }
+function fmt(n: number, sym = "£"): string { if (!n && n !== 0) return "—"; return `${sym}${Math.abs(n).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`; }
+function fmtD(n: number): string { if (!n && n !== 0) return "—"; return `${n.toFixed(1)}d`; }
+function shortMo(mk: string): string { try { return new Date(mk + "-01").toLocaleDateString("en-GB", { month: "short", year: "2-digit" }); } catch { return mk; } }
+function flagOk(f: string): boolean { return f === "ok"; }
 
 export default function TimesheetReconciliation({ projectId }: { projectId: string }) {
   const [data,    setData]    = useState<ReconcData | null>(null);
