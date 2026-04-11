@@ -121,7 +121,7 @@ export async function GET(
         .from("timesheets")
         .select("id, user_id, week_start_date")
         .in("id", tsIds)
-        .in("status", ["approved", "Approved"]);
+        .eq("status", "approved");
 
       const tsMap = new Map<string, { user_id: string; week_start_date: string }>();
       for (const ts of (approvedTs ?? [])) {
@@ -134,7 +134,7 @@ export async function GET(
         const uid      = ts.user_id;
         const workDate = safeStr(entry.work_date || ts.week_start_date);
         const monthKey = workDate.slice(0, 7);
-        const hours    = safeNum(entry.hours);
+        const hours    = safeNum(Number(entry.hours));
         if (!uid || !monthKey || hours <= 0) continue;
         if (!approvedHoursByUserMonth[uid]) approvedHoursByUserMonth[uid] = {};
         approvedHoursByUserMonth[uid][monthKey] = (approvedHoursByUserMonth[uid][monthKey] ?? 0) + hours;
@@ -147,7 +147,7 @@ export async function GET(
         .from("weekly_resource_allocations")
         .select("person_id, user_id, approved_days, week_start_date, cost_per_day")
         .eq("project_id", projectId)
-        .in("status", ["approved", "Approved"]);
+        .eq("status", "approved");
 
       for (const alloc of (weeklyAllocs ?? [])) {
         const uid      = safeStr(alloc.person_id || alloc.user_id);
