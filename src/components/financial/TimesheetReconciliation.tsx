@@ -1,4 +1,5 @@
 "use client";
+import React from "react";
 // src/components/financial/TimesheetReconciliation.tsx
 import { useEffect, useState, useCallback } from "react";
 import { Lock, RefreshCw } from "lucide-react";
@@ -39,10 +40,9 @@ type Person = {
 
 type ReconcData = { ok: boolean; project_id: string; months: string[]; people: Person[]; generated_at: string; note?: string };
 
-function formatCost(n: number, sym = "£"): string { if (!n && n !== 0) return "—"; return `${sym}${Math.abs(n).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`; }
-function fmtD(n: number): string { if (!n && n !== 0) return "—"; return `${n.toFixed(1)}d`; }
-function shortMo(mk: string): string { try { return new Date(mk + "-01").toLocaleDateString("en-GB", { month: "short", year: "2-digit" }); } catch { return mk; } }
-function flagOk(f: string): boolean { return f === "ok"; }
+function fmt(n: number, sym = "£") { return n ? `${sym}${Math.abs(n).toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "—"; }
+function fmtD(n: number) { return n ? `${n.toFixed(1)}d` : "—"; }
+function shortMo(mk: string) { try { return new Date(mk + "-01").toLocaleDateString("en-GB", { month: "short", year: "2-digit" }); } catch { return mk; } }
 
 export default function TimesheetReconciliation({ projectId }: { projectId: string }) {
   const [data,    setData]    = useState<ReconcData | null>(null);
@@ -129,10 +129,12 @@ export default function TimesheetReconciliation({ projectId }: { projectId: stri
             <tr>
               <th style={{ ...thB, textAlign: "left", position: "sticky", left: 0, zIndex: 2 }} />
               <th style={thN} /><th style={thV} /><th style={thB} /><th style={thB} />
-              {months.map(mk => (<>
-                <th key={`${mk}-lp`} style={{ ...thN, fontSize: 7, borderLeft: `1px solid ${P.border}` }}>Plan</th>
-                <th key={`${mk}-la`} style={{ ...thV, fontSize: 7 }}>Actual</th>
-              </>))}
+              {months.map(mk => (
+                <React.Fragment key={mk}>
+                <th style={{ ...thN, fontSize: 7, borderLeft: `1px solid ${P.border}` }}>Plan</th>
+                <th style={{ ...thV, fontSize: 7 }}>Actual</th>
+                </React.Fragment>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -161,7 +163,7 @@ export default function TimesheetReconciliation({ projectId }: { projectId: stri
                     {/* Plan */}
                     <td style={{ padding: "10px 10px", textAlign: "right", background: P.navyLt }}>
                       <span style={{ fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: P.navy }}>
-                        {mode === "cost" ? formatCost(person.totals.planned_cost) : fmtD(person.totals.planned_days)}
+                        {mode === "cost" ? fmt(person.totals.planned_cost) : fmtD(person.totals.planned_days)}
                       </span>
                     </td>
 
@@ -170,7 +172,7 @@ export default function TimesheetReconciliation({ projectId }: { projectId: stri
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
                         <Lock size={8} color={P.violet} />
                         <span style={{ fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: hasActuals ? P.violet : P.textSm }}>
-                          {mode === "cost" ? formatCost(person.totals.actual_cost) : fmtD(person.totals.approved_days)}
+                          {mode === "cost" ? fmt(person.totals.actual_cost) : fmtD(person.totals.approved_days)}
                         </span>
                       </div>
                       {!hasActuals && <div style={{ fontSize: 8, fontFamily: P.mono, color: P.textSm, textAlign: "right" }}>awaiting timesheets</div>}
@@ -179,7 +181,7 @@ export default function TimesheetReconciliation({ projectId }: { projectId: stri
                     {/* Forecast */}
                     <td style={{ padding: "10px 10px", textAlign: "right", background: rowBg }}>
                       <span style={{ fontFamily: P.mono, fontSize: 11, color: P.text }}>
-                        {mode === "cost" ? formatCost(person.totals.forecast_cost) : fmtD(person.totals.approved_days)}
+                        {mode === "cost" ? fmt(person.totals.forecast_cost) : fmtD(person.totals.approved_days)}
                       </span>
                     </td>
 
@@ -188,7 +190,7 @@ export default function TimesheetReconciliation({ projectId }: { projectId: stri
                       {hasActuals
                         ? <div style={{ fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: flagColor }}>
                             {mode === "cost"
-                              ? `${person.totals.variance_cost > 0 ? "+" : ""}${formatCost(person.totals.variance_cost)}`
+                              ? `${person.totals.variance_cost > 0 ? "+" : ""}${fmt(person.totals.variance_cost)}`
                               : `${(person.totals.approved_days - person.totals.planned_days) > 0 ? "+" : ""}${fmtD(person.totals.approved_days - person.totals.planned_days)}`}
                           </div>
                         : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>—</span>}
@@ -199,10 +201,11 @@ export default function TimesheetReconciliation({ projectId }: { projectId: stri
                       const m        = person.months[mk];
                       const hasMonth = m && (m.actual_cost > 0 || m.approved_days > 0);
                       const isPast   = new Date(mk + "-01") < new Date();
-                      return (<>
-                        <td key={`${mk}-p`} style={{ padding: "8px 8px", textAlign: "right", background: P.navyLt, borderLeft: `1px solid ${P.border}` }}>
+                      return (
+                        <React.Fragment key={mk}>
+                        <td style={{ padding: "8px 8px", textAlign: "right", background: P.navyLt, borderLeft: `1px solid ${P.border}` }}>
                           <span style={{ fontFamily: P.mono, fontSize: 10, color: (m?.planned_cost || m?.planned_days) ? P.navy : P.textSm }}>
-                            {mode === "cost" ? (m?.planned_cost ? formatCost(m.planned_cost) : "—") : (m?.planned_days ? fmtD(m.planned_days) : "—")}
+                            {mode === "cost" ? (m?.planned_cost ? fmt(m.planned_cost) : "—") : (m?.planned_days ? fmtD(m.planned_days) : "—")}
                           </span>
                         </td>
                         <td key={`${mk}-a`} style={{ padding: "8px 8px", textAlign: "right", background: hasMonth ? P.violetLt : (isPast ? "#F4F4F2" : rowBg) }}>
@@ -210,12 +213,13 @@ export default function TimesheetReconciliation({ projectId }: { projectId: stri
                             ? <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 3 }}>
                                 <Lock size={7} color={P.violet} />
                                 <span style={{ fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: P.violet }}>
-                                  {mode === "cost" ? formatCost(m.actual_cost) : fmtD(m.approved_days)}
+                                  {mode === "cost" ? fmt(m.actual_cost) : fmtD(m.approved_days)}
                                 </span>
                               </div>
                             : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
                         </td>
-                      </>);
+                      </React.Fragment>
+                      );
                     })}
                   </tr>
                 );
@@ -229,28 +233,30 @@ export default function TimesheetReconciliation({ projectId }: { projectId: stri
                   Total · {filtered.length} person{filtered.length !== 1 ? "s" : ""}
                 </td>
                 <td style={{ padding: "8px 10px", textAlign: "right", background: P.navyLt, fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: P.navy }}>
-                  {mode === "cost" ? formatCost(filtered.reduce((s, p) => s + p.totals.planned_cost,  0)) : fmtD(filtered.reduce((s, p) => s + p.totals.planned_days, 0))}
+                  {mode === "cost" ? fmt(filtered.reduce((s, p) => s + p.totals.planned_cost,  0)) : fmtD(filtered.reduce((s, p) => s + p.totals.planned_days, 0))}
                 </td>
                 <td style={{ padding: "8px 10px", textAlign: "right", background: P.violetLt }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
                     <Lock size={9} color={P.violet} />
                     <span style={{ fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: P.violet }}>
-                      {mode === "cost" ? formatCost(filtered.reduce((s, p) => s + p.totals.actual_cost, 0)) : fmtD(filtered.reduce((s, p) => s + p.totals.approved_days, 0))}
+                      {mode === "cost" ? fmt(filtered.reduce((s, p) => s + p.totals.actual_cost, 0)) : fmtD(filtered.reduce((s, p) => s + p.totals.approved_days, 0))}
                     </span>
                   </div>
                 </td>
                 <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: P.text }}>
-                  {mode === "cost" ? formatCost(filtered.reduce((s, p) => s + p.totals.forecast_cost, 0)) : fmtD(filtered.reduce((s, p) => s + p.totals.approved_days, 0))}
+                  {mode === "cost" ? fmt(filtered.reduce((s, p) => s + p.totals.forecast_cost, 0)) : fmtD(filtered.reduce((s, p) => s + p.totals.approved_days, 0))}
                 </td>
                 <td />
-                {months.map(mk => (<>
-                  <td key={`${mk}-fp`} style={{ padding: "8px 8px", textAlign: "right", background: P.navyLt, fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: P.navy, borderLeft: `1px solid ${P.border}` }}>
-                    {mode === "cost" ? formatCost(filtered.reduce((s, p) => s + (p.months[mk]?.planned_cost ?? 0), 0)) : fmtD(filtered.reduce((s, p) => s + (p.months[mk]?.planned_days ?? 0), 0))}
+                {months.map(mk => (
+                  <React.Fragment key={mk}>
+                  <td style={{ padding: "8px 8px", textAlign: "right", background: P.navyLt, fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: P.navy, borderLeft: `1px solid ${P.border}` }}>
+                    {mode === "cost" ? fmt(filtered.reduce((s, p) => s + (p.months[mk]?.planned_cost ?? 0), 0)) : fmtD(filtered.reduce((s, p) => s + (p.months[mk]?.planned_days ?? 0), 0))}
                   </td>
                   <td key={`${mk}-fa`} style={{ padding: "8px 8px", textAlign: "right", background: P.violetLt, fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: P.violet }}>
-                    {mode === "cost" ? formatCost(filtered.reduce((s, p) => s + (p.months[mk]?.actual_cost ?? 0), 0)) : fmtD(filtered.reduce((s, p) => s + (p.months[mk]?.approved_days ?? 0), 0))}
+                    {mode === "cost" ? fmt(filtered.reduce((s, p) => s + (p.months[mk]?.actual_cost ?? 0), 0)) : fmtD(filtered.reduce((s, p) => s + (p.months[mk]?.approved_days ?? 0), 0))}
                   </td>
-                </>))}
+                  </React.Fragment>
+                ))}
               </tr>
             </tfoot>
           )}
