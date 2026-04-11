@@ -2,7 +2,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient }      from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 
 export const runtime     = "nodejs";
 export const dynamic     = "force-dynamic";
