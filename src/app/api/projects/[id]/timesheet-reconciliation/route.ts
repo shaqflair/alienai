@@ -11,7 +11,7 @@ function jsonOk(data: any)          { return NextResponse.json({ ok: true,  ...d
 function jsonErr(e: string, s = 400){ return NextResponse.json({ ok: false, error: e }, { status: s }); }
 function safeStr(x: any): string    { return typeof x === "string" ? x : x == null ? "" : String(x); }
 function safeNum(x: any): number    { const n = Number(x); return Number.isFinite(n) ? n : 0; }
-function flagVariance(actual: number, planned: number): "over"|"under"|"ok" {
+function getFlag(actual: number, planned: number): "over"|"under"|"ok" {
   if (planned === 0 && actual === 0) return "ok";
   if (planned === 0) return "over";
   const pct = (actual - planned) / planned;
@@ -238,7 +238,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
           forecast_cost: Math.round(forecastCost),
           variance_cost: Math.round(varianceCost),
           variance_pct:  variancePct !== null ? Math.round(variancePct * 10) / 10 : null,
-          flag:          flagVariance(actualCost, plannedCost),
+          flag:          getFlag(actualCost, plannedCost),
         };
       }
 
@@ -256,7 +256,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
           forecast_cost: Math.round(totActCost),
           variance_cost: Math.round(totVariance),
           variance_pct:  totVariancePct !== null ? Math.round(totVariancePct * 10) / 10 : null,
-          flag:          flagVariance(totActCost, totPlanCost),
+          flag:          getFlag(totActCost, totPlanCost),
         },
       });
     }
