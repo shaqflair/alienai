@@ -1086,9 +1086,11 @@ export default async function ProjectsPage({
                     ? activeCt
                     : f === "Pipeline"
                       ? pipelineCt
-                      : f === "Closed"
-                        ? closedCt
-                        : projects.length}
+                      : f === "On Hold"
+                        ? onHoldCt
+                        : f === "Closed"
+                          ? closedCt
+                          : projects.length}
                 </span>
               </Link>
             ))}
