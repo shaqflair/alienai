@@ -1155,8 +1155,8 @@ export default function InsightsClient() {
                                   <div style={{ marginTop: 4 }}><Mono size={10} color={T.ink4}>Owner: {d.owner_hint}</Mono></div>
                                 </div>
                                 <div style={{ flexShrink: 0, textAlign: "right" }}>
-                                  <div style={{ fontFamily: T.serif, fontSize: 28, fontWeight: 700, color: RAG.G.fg, lineHeight: 1 }}>-{d.risk_reduction_pct}%</div>
-                                  <Mono size={9} color={T.ink5} upper>risk reduction</Mono>
+                                  {d.risk_reduction_pct > 0 && <div style={{ fontFamily: T.serif, fontSize: 28, fontWeight: 700, color: RAG.G.fg, lineHeight: 1 }}>-{d.risk_reduction_pct}%</div>}
+                                  {d.risk_reduction_pct > 0 && <Mono size={9} color={T.ink5} upper>risk reduction</Mono>}
                                 </div>
                               </div>
                             ))}
