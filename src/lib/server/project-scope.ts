@@ -171,7 +171,7 @@ export async function filterActiveProjectIds(
   if (!ids.length) return [];
 
   const wide =
-  "id, status, resource_status";
+  "id, status, resource_status, on_hold";
   const minimal = "id";
 
   let rows: any[] = [];
@@ -226,6 +226,7 @@ export async function filterActiveProjectIds(
     if (!p) return false;
 
     if (norm(p.resource_status) === "pipeline") return false;
+      if (p.on_hold === true) return false;
 
     const deletedAt = p.deleted_at ?? p.removed_at ?? null;
     const archivedAt = p.archived_at ?? null;
