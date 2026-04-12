@@ -199,14 +199,14 @@ const ALIENA_LOGO_URL =
 
 function AlienaWordmarkTop() {
   return (
-    <span className="inline-flex items-baseline leading-none">
-      <span>ΛL</span>
-      <span className="text-sky-600">I</span>
+    <span className="inline-flex items-baseline leading-none" style={{ fontWeight: 800, letterSpacing: "0.1em", fontSize: 13 }}>
+      <span style={{ color: "#3B8BD4" }}>Λ</span>
+      <span>L</span>
+      <span style={{ color: "#3B8BD4" }}>I</span>
       <span>ΞNΛ</span>
     </span>
   );
 }
-
 /* =============================================================================
    NAV ITEM COMPONENT
 ============================================================================= */
