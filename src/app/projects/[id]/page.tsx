@@ -22,6 +22,7 @@ import ResourceJustificationPanel from "@/components/projects/ResourceJustificat
 import ProjectPremortemCard from "@/components/projects/ProjectPremortemCard";
 import DecisionEngineCard from "@/components/projects/DecisionEngineCard";
 import AutoGovernanceCard from "@/components/projects/AutoGovernanceCard";
+import ProjectHoldPanel from "@/components/projects/ProjectHoldPanel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -881,6 +882,7 @@ export default async function ProjectPage({
         );
       })()}
 
+      <ProjectHoldPanel projectId={projectUuid} canEdit={canEdit} />
       {/* ── Stat cards ─────────────────────────────────────────────────────── */}
       <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 16 }}>
 
