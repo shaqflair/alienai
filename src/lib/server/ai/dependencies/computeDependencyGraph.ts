@@ -65,7 +65,9 @@ export async function computeDependencyGraph(
     .select("id, title, project_code, status, start_date, finish_date")
     .eq("organisation_id", orgId)
     .is("deleted_at", null)
-    .not("status", "in", '("closed","archived","pipeline","proposed","pre-pipeline")');
+    .not("status", "in", '("closed","archived","pipeline","proposed","pre-pipeline")')
+    .neq("resource_status", "pipeline")
+    .or("on_hold.is.null,on_hold.eq.false");
 
   const projectMap = new Map<string, any>();
   for (const p of (projects ?? [])) projectMap.set(p.id, p);
