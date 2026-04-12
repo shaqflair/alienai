@@ -322,7 +322,7 @@ export default async function ProjectsPage({
       pm_name: resolvedPmName,
       health: ragMap.get(projectId)?.health ?? null,
       rag: ragMap.get(projectId)?.rag ?? null,
-      on_hold: (p as any).on_hold ?? false,
+      on_hold: (p as any).on_hold === true,
       isMember: isOrgAdmin || memberProjectIds.has(projectId),
     };
   });
@@ -338,8 +338,9 @@ export default async function ProjectsPage({
     .filter((p) => {
       const st = (p.status ?? "active").toLowerCase();
       const pipeline = (p.resource_status ?? "").toLowerCase() === "pipeline";
-      if (filter === "Active") return st !== "closed" && !pipeline;
+      if (filter === "Active") return st !== "closed" && !pipeline && p.on_hold !== true;
       if (filter === "Pipeline") return pipeline;
+      if (filter === "On Hold") return p.on_hold === true;
       if (filter === "Closed") return st === "closed";
       return true;
     })
@@ -369,10 +370,11 @@ export default async function ProjectsPage({
   const isPipeline = (p: Project) =>
     (p.resource_status ?? "").toLowerCase() === "pipeline";
   const isActive = (p: Project) =>
-    (p.status ?? "active").toLowerCase() !== "closed" && !isPipeline(p);
+    (p.status ?? "active").toLowerCase() !== "closed" && !isPipeline(p) && p.on_hold !== true;
 
   const activeCt = projects.filter(isActive).length;
   const pipelineCt = projects.filter(isPipeline).length;
+  const onHoldCt = projects.filter((p) => p.on_hold === true).length;
   const closedCt = projects.filter(
     (p) => (p.status ?? "").toLowerCase() === "closed",
   ).length;
