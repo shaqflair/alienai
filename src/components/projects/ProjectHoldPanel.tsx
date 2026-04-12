@@ -1,49 +1,43 @@
-﻿"use client";
+"use client";
 // src/components/projects/ProjectHoldPanel.tsx
-// Shows hold status, week counter, action plan, and hold/lift controls
 import React, { useCallback, useEffect, useState } from "react";
-import { PauseCircle, PlayCircle, AlertTriangle, Clock, X, ChevronDown, ChevronUp } from "lucide-react";
 
 type HoldHistory = {
   id: string; reason: string; action_plan: string | null;
   started_at: string; lifted_at: string | null; hold_weeks: number | null;
 };
 
-type HoldData = {
-  project: {
-    on_hold: boolean; hold_started_at: string | null;
-    hold_reason: string | null; hold_action_plan: string | null;
-    total_hold_weeks: number;
-  } | null;
-  history: HoldHistory[];
-  current_hold_weeks: number;
-};
-
 type CR = { id: string; title: string; status: string };
 
-function safeWeeks(started: string | null): number {
+function weeksFrom(started: string | null): number {
   if (!started) return 0;
   return Math.floor((Date.now() - new Date(started).getTime()) / (7 * 24 * 3600000));
 }
 
+function fmtDate(d: string) {
+  return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// ── Inline modal (avoids fixed positioning issues) ────────────────────────────
 function HoldModal({ projectId, crs, onDone, onClose }: {
   projectId: string; crs: CR[]; onDone: () => void; onClose: () => void;
 }) {
   const [crId,       setCrId]       = useState(crs[0]?.id ?? "");
-  const [reason,      setReason]      = useState("");
+  const [reason,     setReason]     = useState("");
   const [actionPlan, setActionPlan] = useState("");
-  const [saving,      setSaving]      = useState(false);
-  const [error,       setError]       = useState<string | null>(null);
-
-  const INP: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 13, fontFamily: "inherit", color: "var(--color-text-primary)", background: "var(--color-background-primary)", border: "1px solid var(--color-border-secondary)", borderRadius: 6, outline: "none" };
-  const LBL: React.CSSProperties = { display: "block", marginBottom: 5, fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)" };
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
 
   async function submit() {
-    if (!reason.trim()) { setError("Reason is required"); return; }
+    if (!reason.trim())     { setError("Reason is required"); return; }
     if (!actionPlan.trim()) { setError("Action plan is required"); return; }
     setSaving(true); setError(null);
     try {
-      const res  = await fetch(`/api/projects/${projectId}/hold`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "hold", cr_id: crId || null, reason: reason.trim(), action_plan: actionPlan.trim() }) });
+      const res  = await fetch(`/api/projects/${projectId}/hold`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "hold", cr_id: crId || null, reason: reason.trim(), action_plan: actionPlan.trim() }),
+      });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
       onDone();
@@ -51,46 +45,107 @@ function HoldModal({ projectId, crs, onDone, onClose }: {
     finally { setSaving(false); }
   }
 
+  const INP: React.CSSProperties = {
+    width: "100%", boxSizing: "border-box", padding: "10px 14px",
+    fontSize: 14, fontFamily: "inherit", color: "#111827",
+    background: "#fff", border: "1.5px solid #d1d5db",
+    borderRadius: 8, outline: "none", lineHeight: 1.5,
+  };
+
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
-         onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: "var(--color-background-primary)", width: "100%", maxWidth: 500, borderRadius: 12, border: "1px solid var(--color-border-secondary)", boxShadow: "0 24px 80px rgba(0,0,0,0.2)", overflow: "hidden" }}>
-        <div style={{ padding: "18px 22px 14px", borderBottom: "1px solid var(--color-border-tertiary)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <PauseCircle size={18} color="#d97706" />
-            <span style={{ fontSize: 16, fontWeight: 500, color: "var(--color-text-primary)" }}>Put project on hold</span>
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9999,
+      background: "rgba(0,0,0,0.6)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 20,
+    }}
+    onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{
+        background: "#ffffff", width: "100%", maxWidth: 560,
+        borderRadius: 16, boxShadow: "0 25px 60px rgba(0,0,0,0.35)",
+        overflow: "hidden", maxHeight: "90vh", display: "flex", flexDirection: "column",
+      }}>
+        {/* Header */}
+        <div style={{ padding: "22px 28px 18px", background: "#fffbeb", borderBottom: "2px solid #fcd34d", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: "#d97706", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontSize: 20 }}>⏸</span>
+            </div>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#92400e" }}>Put project on hold</div>
+              <div style={{ fontSize: 13, color: "#b45309", marginTop: 2 }}>This will pause active delivery tracking</div>
+            </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-tertiary)" }}><X size={16} /></button>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: "#9ca3af", lineHeight: 1, padding: "0 4px" }}>×</button>
         </div>
-        <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ padding: "10px 14px", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
-            A Change Request is required to put a project on hold. The action plan documents exactly what must happen to lift the hold.
-          </div>
-          {crs.length > 0 && (
-            <div><label style={LBL}>Linked change request</label>
+
+        {/* Body */}
+        <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 18, overflowY: "auto", flex: 1 }}>
+
+          {crs.length > 0 ? (
+            <div>
+              <label style={{ display: "block", marginBottom: 8, fontSize: 13, fontWeight: 600, color: "#374151" }}>
+                Linked change request <span style={{ color: "#6b7280", fontWeight: 400 }}>(recommended)</span>
+              </label>
               <select value={crId} onChange={e => setCrId(e.target.value)} style={INP}>
-                <option value="">— None selected —</option>
-                {crs.map(c => <option key={c.id} value={c.id}>{c.title} ({c.status})</option>)}
+                <option value="">— No CR linked —</option>
+                {crs.map(c => <option key={c.id} value={c.id}>{c.title} · {c.status}</option>)}
               </select>
             </div>
-          )}
-          {crs.length === 0 && (
-            <div style={{ padding: "8px 12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, fontSize: 12, color: "#991b1b" }}>
-              No open change requests found. Raise a CR on the Change Board first, then put the project on hold.
+          ) : (
+            <div style={{ padding: "12px 16px", background: "#fef9c3", border: "1.5px solid #fde047", borderRadius: 10, fontSize: 13, color: "#713f12", display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <span style={{ fontSize: 18, flexShrink: 0 }}>💡</span>
+              <div>No open change requests found. You can still place the project on hold — add the reason and action plan below. Raise a CR on the Change Board to formally track this.</div>
             </div>
           )}
-          <div><label style={LBL}>Reason for hold *</label>
-            <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Describe why this project is being paused…" rows={3} style={{ ...INP, resize: "vertical" }} />
+
+          <div>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 13, fontWeight: 600, color: "#374151" }}>
+              Reason for hold <span style={{ color: "#ef4444" }}>*</span>
+            </label>
+            <textarea
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="Why is this project being paused? (e.g. waiting for budget approval, key resource unavailable, external dependency blocked)"
+              rows={3}
+              style={{ ...INP, resize: "vertical" }}
+            />
           </div>
-          <div><label style={LBL}>Action plan to lift hold *</label>
-            <textarea value={actionPlan} onChange={e => setActionPlan(e.target.value)} placeholder="What specifically needs to happen before this project can resume?" rows={4} style={{ ...INP, resize: "vertical" }} />
+
+          <div>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 13, fontWeight: 600, color: "#374151" }}>
+              Action plan to lift hold <span style={{ color: "#ef4444" }}>*</span>
+            </label>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>Be specific — what needs to happen, by whom, and by when?</div>
+            <textarea
+              value={actionPlan}
+              onChange={e => setActionPlan(e.target.value)}
+              placeholder="e.g. Finance team to approve revised budget by 30 April. Once approved, PM to raise lift-hold CR and resume sprint planning."
+              rows={4}
+              style={{ ...INP, resize: "vertical" }}
+            />
           </div>
-          {error && <div style={{ fontSize: 12, color: "#991b1b", padding: "8px 12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6 }}>{error}</div>}
+
+          {error && (
+            <div style={{ padding: "12px 16px", background: "#fef2f2", border: "1.5px solid #fca5a5", borderRadius: 8, fontSize: 13, color: "#991b1b", fontWeight: 500 }}>
+              {error}
+            </div>
+          )}
         </div>
-        <div style={{ padding: "12px 22px 18px", borderTop: "1px solid var(--color-border-tertiary)", display: "flex", justifyContent: "flex-end", gap: 10 }}>
-          <button onClick={onClose} style={{ padding: "7px 18px", fontSize: 12, fontWeight: 500, background: "transparent", color: "var(--color-text-secondary)", border: "1px solid var(--color-border-secondary)", borderRadius: 8, cursor: "pointer" }}>Cancel</button>
-          <button onClick={submit} disabled={saving || crs.length === 0} style={{ padding: "7px 18px", fontSize: 12, fontWeight: 500, background: saving || crs.length === 0 ? "#9ca3af" : "#d97706", color: "#fff", border: "none", borderRadius: 8, cursor: saving || crs.length === 0 ? "default" : "pointer" }}>
-            {saving ? "Placing on hold…" : "Confirm — place on hold"}
+
+        {/* Footer */}
+        <div style={{ padding: "16px 28px 24px", borderTop: "1px solid #f3f4f6", display: "flex", justifyContent: "flex-end", gap: 12, background: "#fafafa" }}>
+          <button onClick={onClose} style={{ padding: "10px 22px", fontSize: 14, fontWeight: 500, background: "#fff", color: "#374151", border: "1.5px solid #d1d5db", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>
+            Cancel
+          </button>
+          <button onClick={submit} disabled={saving} style={{
+            padding: "10px 24px", fontSize: 14, fontWeight: 700,
+            background: saving ? "#9ca3af" : "#d97706",
+            color: "#fff", border: "none", borderRadius: 10,
+            cursor: saving ? "default" : "pointer", fontFamily: "inherit",
+            boxShadow: saving ? "none" : "0 2px 8px rgba(217,119,6,0.4)",
+          }}>
+            {saving ? "Placing on hold…" : "⏸ Confirm — place on hold"}
           </button>
         </div>
       </div>
@@ -98,40 +153,64 @@ function HoldModal({ projectId, crs, onDone, onClose }: {
   );
 }
 
-export default function ProjectHoldPanel({ projectId, canEdit = false }: { projectId: string; canEdit?: boolean }) {
-  const [data,      setData]      = useState<HoldData | null>(null);
-  const [loading,   setLoading]   = useState(true);
-  const [crs,       setCrs]       = useState<CR[]>([]);
-  const [showModal, setShowModal] = useState(false);
-  const [lifting,   setLifting]   = useState(false);
+// ── Main component ────────────────────────────────────────────────────────────
+export default function ProjectHoldPanel({
+  projectId,
+  canEdit = false,
+}: {
+  projectId: string;
+  canEdit?: boolean;
+}) {
+  const [onHold,      setOnHold]      = useState(false);
+  const [holdData,    setHoldData]    = useState<any>(null);
+  const [history,     setHistory]     = useState<HoldHistory[]>([]);
+  const [totalWeeks,  setTotalWeeks]  = useState(0);
+  const [liveWeeks,   setLiveWeeks]   = useState(0);
+  const [crs,         setCrs]         = useState<CR[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [showModal,   setShowModal]   = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [liveWeeks, setLiveWeeks]    = useState(0);
+  const [lifting,     setLifting]     = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     const [holdRes, crRes] = await Promise.allSettled([
       fetch(`/api/projects/${projectId}/hold`).then(r => r.json()),
-      fetch(`/api/projects/${projectId}/change-requests?status=open,submitted,pending`).then(r => r.json()).catch(() => ({ items: [] })),
+      fetch(`/api/projects/${projectId}/change-requests`).then(r => r.json()).catch(() => ({ ok: false })),
     ]);
-    if (holdRes.status === "fulfilled" && holdRes.value?.ok) setData(holdRes.value);
-    if (crRes.status === "fulfilled") setCrs((crRes.value as any)?.items ?? (crRes.value as any)?.data ?? []);
+    if (holdRes.status === "fulfilled" && holdRes.value?.ok) {
+      const d = holdRes.value;
+      setOnHold(d.project?.on_hold ?? false);
+      setHoldData(d.project);
+      setHistory(d.history ?? []);
+      setTotalWeeks(d.project?.total_hold_weeks ?? 0);
+      setLiveWeeks(weeksFrom(d.project?.hold_started_at));
+    }
+    if (crRes.status === "fulfilled" && crRes.value?.ok) {
+      const items = crRes.value.items ?? crRes.value.data ?? [];
+      setCrs(items.filter((c: any) => ["open","submitted","pending","under_review"].includes(String(c.status).toLowerCase())));
+    }
     setLoading(false);
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
 
+  // Tick live counter every minute
   useEffect(() => {
-    if (!data?.project?.on_hold || !data.project.hold_started_at) return;
-    const update = () => setLiveWeeks(safeWeeks(data.project!.hold_started_at));
-    update();
-    const id = setInterval(update, 60000);
+    if (!onHold || !holdData?.hold_started_at) return;
+    const id = setInterval(() => setLiveWeeks(weeksFrom(holdData.hold_started_at)), 60000);
     return () => clearInterval(id);
-  }, [data]);
+  }, [onHold, holdData]);
 
   async function liftHold() {
+    if (!confirm("Lift the hold and resume this project?")) return;
     setLifting(true);
     try {
-      const res  = await fetch(`/api/projects/${projectId}/hold`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "lift" }) });
+      const res  = await fetch(`/api/projects/${projectId}/hold`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "lift" }),
+      });
       const json = await res.json();
       if (json.ok) { await load(); window.location.reload(); }
     } finally { setLifting(false); }
@@ -139,85 +218,117 @@ export default function ProjectHoldPanel({ projectId, canEdit = false }: { proje
 
   if (loading) return null;
 
-  const proj    = data?.project;
-  const onHold  = proj?.on_hold ?? false;
-  const history = data?.history ?? [];
-
-  if (!onHold && !canEdit && history.length === 0) return null;
-
   return (
     <>
+      {/* ── On-hold banner ── */}
       {onHold && (
-        <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderLeft: "4px solid #d97706", borderRadius: 10, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            <PauseCircle size={20} color="#d97706" />
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#92400e" }}>Project on hold</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-                <Clock size={11} color="#d97706" />
-                <span style={{ fontSize: 12, color: "#b45309", fontWeight: 600 }}>
-                  {liveWeeks === 0 ? "Less than 1 week" : `${liveWeeks} week${liveWeeks !== 1 ? "s" : ""}`}
-                </span>
+        <div style={{
+          background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
+          border: "2px solid #f59e0b",
+          borderLeft: "6px solid #d97706",
+          borderRadius: 12,
+          padding: "20px 24px",
+          marginBottom: 16,
+        }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 12, background: "#d97706", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 24 }}>
+                ⏸
+              </div>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#92400e", marginBottom: 4 }}>
+                  Project on hold
+                  <span style={{ marginLeft: 12, fontSize: 13, fontWeight: 700, padding: "3px 10px", background: liveWeeks >= 4 ? "#fef2f2" : "#fef3c7", border: `1px solid ${liveWeeks >= 4 ? "#fca5a5" : "#fcd34d"}`, color: liveWeeks >= 4 ? "#991b1b" : "#92400e", borderRadius: 20 }}>
+                    ⏱ {liveWeeks === 0 ? "< 1 week" : `${liveWeeks} week${liveWeeks !== 1 ? "s" : ""}`}
+                    {liveWeeks >= 4 && " · ESCALATE"}
+                  </span>
+                </div>
+                {holdData?.hold_reason && (
+                  <div style={{ fontSize: 14, color: "#78350f", marginBottom: 10 }}>
+                    <strong>Reason:</strong> {holdData.hold_reason}
+                  </div>
+                )}
+                {holdData?.hold_action_plan && (
+                  <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 8, padding: "12px 16px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#b45309", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                      ✅ Action plan to lift hold
+                    </div>
+                    <div style={{ fontSize: 14, color: "#78350f", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                      {holdData.hold_action_plan}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-
-          <div style={{ flex: 1, minWidth: 200 }}>
-            {proj?.hold_reason && (
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: "#b45309", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Reason</div>
-                <div style={{ fontSize: 13, color: "#78350f" }}>{proj.hold_reason}</div>
-              </div>
+            {canEdit && (
+              <button
+                onClick={liftHold}
+                disabled={lifting}
+                style={{
+                  flexShrink: 0, display: "flex", alignItems: "center", gap: 8,
+                  padding: "10px 20px", fontSize: 14, fontWeight: 700,
+                  background: lifting ? "#9ca3af" : "#16a34a",
+                  color: "#fff", border: "none", borderRadius: 10,
+                  cursor: lifting ? "default" : "pointer", fontFamily: "inherit",
+                  boxShadow: lifting ? "none" : "0 2px 8px rgba(22,163,74,0.35)",
+                }}
+              >
+                ▶ {lifting ? "Lifting…" : "Lift hold"}
+              </button>
             )}
-            {proj?.hold_action_plan && (
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 600, color: "#b45309", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Action plan to lift hold</div>
-                <div style={{ fontSize: 13, color: "#78350f", whiteSpace: "pre-wrap" }}>{proj.hold_action_plan}</div>
-              </div>
-            )}
           </div>
-
-          {canEdit && (
-            <button onClick={liftHold} disabled={lifting} style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", fontSize: 12, fontWeight: 600, background: "#d97706", color: "#fff", border: "none", borderRadius: 8, cursor: lifting ? "default" : "pointer", opacity: lifting ? 0.6 : 1, fontFamily: "inherit" }}>
-              <PlayCircle size={14} /> {lifting ? "Lifting…" : "Lift hold"}
-            </button>
-          )}
         </div>
       )}
 
-      {!onHold && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          {canEdit && (
-            <button onClick={() => setShowModal(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", fontSize: 12, fontWeight: 500, background: "transparent", color: "#d97706", border: "1px solid #fcd34d", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
-              <PauseCircle size={13} /> Put on hold
-            </button>
-          )}
+      {/* ── Hold / history controls (when NOT on hold) ── */}
+      {!onHold && canEdit && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+          <button
+            onClick={() => setShowModal(true)}
+            style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "8px 18px", fontSize: 13, fontWeight: 600,
+              background: "#fff", color: "#d97706",
+              border: "1.5px solid #fcd34d", borderRadius: 10,
+              cursor: "pointer", fontFamily: "inherit",
+              transition: "all 0.15s",
+            }}
+          >
+            ⏸ Put on hold
+          </button>
           {history.length > 0 && (
-            <button onClick={() => setShowHistory(v => !v)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", fontSize: 11, fontWeight: 500, background: "transparent", color: "var(--color-text-tertiary)", border: "1px solid var(--color-border-tertiary)", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
-              Hold history ({history.length})
+            <button
+              onClick={() => setShowHistory(v => !v)}
+              style={{ fontSize: 12, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: "4px 8px" }}
+            >
+              {showHistory ? "▲" : "▼"} Hold history ({history.length}) · Total: {totalWeeks}w
             </button>
           )}
         </div>
       )}
 
+      {/* ── Hold history ── */}
       {showHistory && history.length > 0 && (
-        <div style={{ border: "1px solid var(--color-border-tertiary)", borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
+        <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
           {history.map((h, i) => (
-            <div key={h.id} style={{ padding: "12px 16px", borderBottom: i < history.length - 1 ? "1px solid var(--color-border-tertiary)" : "none", display: "flex", gap: 16, alignItems: "flex-start" }}>
-              <div style={{ flexShrink: 0, width: 60, textAlign: "right" }}>
-                {h.hold_weeks != null ? <span style={{ fontSize: 18, fontWeight: 600 }}>{h.hold_weeks}w</span> : <span style={{ fontSize: 11 }}>ongoing</span>}
+            <div key={h.id} style={{ padding: "14px 20px", borderBottom: i < history.length - 1 ? "1px solid #f3f4f6" : "none", display: "flex", gap: 16, alignItems: "flex-start", background: i % 2 === 0 ? "#fff" : "#fafafa" }}>
+              <div style={{ flexShrink: 0, width: 52, textAlign: "center" }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#374151" }}>{h.hold_weeks ?? "—"}w</div>
+                <div style={{ fontSize: 10, color: "#9ca3af" }}>held</div>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 4 }}>
-                  {new Date(h.started_at).toLocaleDateString("en-GB")}
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+                  {fmtDate(h.started_at)}{h.lifted_at ? ` → ${fmtDate(h.lifted_at)}` : " → ongoing"}
                 </div>
-                <div style={{ fontSize: 13 }}>{h.reason}</div>
+                <div style={{ fontSize: 13, color: "#111827", marginBottom: h.action_plan ? 4 : 0 }}>{h.reason}</div>
+                {h.action_plan && <div style={{ fontSize: 12, color: "#6b7280", fontStyle: "italic" }}>{h.action_plan}</div>}
               </div>
             </div>
           ))}
         </div>
       )}
 
+      {/* ── Modal ── */}
       {showModal && (
         <HoldModal
           projectId={projectId}
