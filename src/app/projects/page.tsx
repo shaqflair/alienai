@@ -194,7 +194,7 @@ export default async function ProjectsPage({
   const { data: pData, error: pErr } = await supabase
     .from("projects")
     .select(
-      "id, title, project_code, colour, status, resource_status, start_date, finish_date, created_at, organisation_id, deleted_at, project_manager_id, pm_user_id, pm_name",
+      "id, title, project_code, colour, status, resource_status, start_date, finish_date, created_at, organisation_id, deleted_at, project_manager_id, pm_user_id, pm_name, on_hold",
     )
     .eq("organisation_id", activeOrgId)
     .is("deleted_at", null)
@@ -322,6 +322,7 @@ export default async function ProjectsPage({
       pm_name: resolvedPmName,
       health: ragMap.get(projectId)?.health ?? null,
       rag: ragMap.get(projectId)?.rag ?? null,
+      on_hold: (p as any).on_hold ?? false,
       isMember: isOrgAdmin || memberProjectIds.has(projectId),
     };
   });
@@ -1071,7 +1072,7 @@ export default async function ProjectsPage({
 
         <div className="toolbar">
           <div className="filter-tabs">
-            {(["Active", "Pipeline", "Closed", "All"] as const).map((f) => (
+            {(["Active", "Pipeline", "On Hold", "Closed", "All"] as const).map((f) => (
               <Link
                 key={f}
                 href={tabHref({ filter: f })}
@@ -1278,6 +1279,7 @@ export default async function ProjectsPage({
                   )}
 
                   {p.project_code && <span className="row-code">{p.project_code}</span>}
+                  {p.on_hold && <span style={{ fontFamily: "var(--mono)", fontSize: "9px", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", padding: "2px 8px", borderRadius: "999px", background: "#fffbeb", color: "#b45309", border: "1px solid #fcd34d" }}>⏸ On hold</span>}
 
                   {!isMember && (
                     <span className="lock-badge">
