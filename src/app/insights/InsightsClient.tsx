@@ -65,7 +65,7 @@ type HealthApi = {
   portfolio_health: number;
   projectCount: number;
   days: number;
-  parts: { schedule: number; raid: number; flow: number; approvals: number; activity: number };
+  parts: { schedule: number; raid: number; budget: number; resource: number; governance: number; flow: number; approvals: number; activity: number };
   drivers?: any[];
 };
 
@@ -446,7 +446,7 @@ export function RaiseItemModal({ projects, onClose, onSuccess, lockedProjectId, 
 function HealthMeter({ score, parts }: { score: number; parts?: HealthApi["parts"] }) {
   const rag = healthRag(score);
   const color = RAG[rag].fg;
-  const partLabels = parts ? [{ k: "Schedule", v: parts.schedule }, { k: "RAID", v: parts.raid }, { k: "Flow", v: parts.flow }, { k: "Approvals", v: parts.approvals }, { k: "Activity", v: parts.activity }] : [];
+  const partLabels = parts ? [{ k: "Schedule", v: parts.schedule }, { k: "RAID", v: parts.raid }, { k: "Budget", v: parts.budget }, { k: "Resource", v: parts.resource ?? parts.flow }, { k: "Governance", v: parts.governance ?? parts.approvals }] : [];
   return (
     <div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 16 }}>

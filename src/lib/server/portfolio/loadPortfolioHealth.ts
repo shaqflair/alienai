@@ -23,6 +23,7 @@ export type PortfolioHealthPayload = {
     schedule: number | null;
     raid: number | null;
     budget: number | null;
+    resource: number | null;
     governance: number | null;
     flow: number | null;
     approvals: number | null;
@@ -343,6 +344,7 @@ export async function loadPortfolioHealth(input: {
       schedule: null,
       raid: null,
       budget: null,
+      resource: null,
       governance: null,
       flow: null,
       approvals: null,
@@ -491,6 +493,7 @@ export async function loadPortfolioHealth(input: {
       schedule: health.parts.schedule,
       raid: health.parts.raid,
       budget: health.parts.budget,
+      resource: health.parts.resource,
       governance: health.parts.governance,
       flow: health.parts.budget,
       approvals: health.parts.governance,
