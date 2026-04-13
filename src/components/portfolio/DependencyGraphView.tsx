@@ -205,7 +205,7 @@ export default function DependencyGraphView() {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {data.critical_path.map((proj, i) => (
               <React.Fragment key={proj}>
-                <div style={{ padding: "8px 16px", background: "#f5f3f0", borderRadius: 6 }}>{proj}</div>
+                <div style={{ padding: "8px 16px", background: "#f5f3f0", borderRadius: 6, whiteSpace: "nowrap", fontSize: 13, fontWeight: 500 }}>{proj}</div>
                 {i < data.critical_path.length - 1 && <ChevronRight size={14} />}
               </React.Fragment>
             ))}
