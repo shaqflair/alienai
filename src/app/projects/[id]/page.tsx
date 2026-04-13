@@ -982,7 +982,7 @@ export default async function ProjectPage({
                 empty: "No milestones — add schedule milestones to track.",
               },
               {
-                label: "RAID Risk", value: raidHealth, weight: 30,
+                label: "RAID Risk", value: raidHealth, weight: 25,
                 tooltip: raidHealth != null
                   ? `${raidDetail.total} open items. Issues: ${raidDetail.openIssues} (${raidDetail.highSeverityIssues} high). ` +
                     `Risks: ${raidDetail.highRisks} high. ` +
@@ -992,12 +992,17 @@ export default async function ProjectPage({
                 empty: "No open RAID items — log risks and issues to track.",
               },
               {
-                label: "Budget", value: budgetHealth, weight: 20,
+                label: "Budget", value: budgetHealth, weight: 15,
                 tooltip: budgetTooltip,
                 empty: "Set an approved budget and log spend to track.",
               },
               {
-                label: "Governance", value: governanceHealth, weight: 15,
+                label: "Resource", value: resourceHealth, weight: 15,
+                tooltip: resourceHealth != null ? `${Math.round((health.detail as any)?.resource?.allocationPct ?? 0)}% of day budget allocated.` : "No day budget set — add resource days to track allocation.",
+                empty: "Set a day budget and allocate resources to track.",
+              },
+              {
+                label: "Governance", value: governanceHealth, weight: 10,
                 tooltip: governanceTooltip,
                 empty: "",
               },
