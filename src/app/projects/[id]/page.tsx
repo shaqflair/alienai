@@ -606,6 +606,7 @@ export default async function ProjectPage({
   const scheduleHealth   = health.parts.schedule;
   const raidHealth       = health.parts.raid;
   const budgetHealth     = health.parts.budget;
+  const resourceHealth   = health.parts.resource;
   const governanceHealth = health.parts.governance;
   const scheduleDetail   = health.detail.schedule;
   const raidDetail       = health.detail.raid;
