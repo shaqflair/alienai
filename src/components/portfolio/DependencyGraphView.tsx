@@ -203,12 +203,16 @@ export default function DependencyGraphView() {
       ) : activeTab === "critical" && data ? (
         <div style={{ background: T.surface, border: `1px solid ${T.hr}`, borderRadius: 8, padding: "24px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {data.critical_path.map((proj, i) => (
-              <React.Fragment key={proj}>
-                <div style={{ padding: "8px 16px", background: "#f5f3f0", borderRadius: 6, whiteSpace: "nowrap", fontSize: 13, fontWeight: 500 }}>{proj}</div>
-                {i < data.critical_path.length - 1 && <ChevronRight size={14} />}
-              </React.Fragment>
-            ))}
+            {data.critical_path.map((projId, i) => {
+                const node = data.nodes.find(n => n.project_id === projId);
+                const label = node?.project_title ?? node?.project_code ?? projId;
+                return (
+                  <React.Fragment key={projId}>
+                    <div style={{ padding: "8px 16px", background: "#f5f3f0", borderRadius: 6, whiteSpace: "nowrap", fontSize: 13, fontWeight: 500, color: "#1c1917" }}>{label}</div>
+                    {i < data.critical_path.length - 1 && <ChevronRight size={14} color="#78716c" />}
+                  </React.Fragment>
+                );
+              })}
           </div>
         </div>
       ) : null}
