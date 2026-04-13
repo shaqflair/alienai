@@ -14,6 +14,7 @@ export type HealthParts = {
   schedule:   number | null;
   raid:       number | null;
   budget:     number | null;
+  resource:   number | null;
   governance: number | null;
 };
 
@@ -24,6 +25,7 @@ export type HealthResult = {
     schedule:   ScheduleDetail;
     raid:       RaidDetail;
     budget:     BudgetDetail;
+    resource:   ResourceDetail;
     governance: GovernanceDetail;
   };
 };
@@ -58,6 +60,13 @@ export type BudgetDetail = {
   budgetDays:      number | null;
   overAllocated:   boolean;
 };
+export type ResourceDetail = {
+  allocatedDays:  number | null;
+  budgetDays:     number | null;
+  overAllocated:  boolean;
+  allocationPct:  number | null;
+};
+
 
 export type GovernanceDetail = {
   charterApproved:              boolean;
@@ -74,9 +83,10 @@ export type GovernanceDetail = {
 
 export const HEALTH_WEIGHTS = {
   schedule:   35,
-  raid:       30,
-  budget:     20,
-  governance: 15,
+  raid:       25,
+  budget:     15,
+  governance: 10,
+  resource:   15,
 } as const;
 
 /* ─── utils ─── */
@@ -293,15 +303,38 @@ export function scoreBudget(
   else if (pct <= 120) score = 60  - ((pct - 100) / 20) * 40;  // 60→20
   else                 score = 10;
 
-  // Overallocation penalty on top of spend
-  if (allocatedDays != null && budgetDays != null && budgetDays > 0) {
-    const allocPct = (allocatedDays / budgetDays) * 100;
-    detail.overAllocated = allocPct > 110;
-    if      (allocPct > 130) score = Math.min(score, 30);
-    else if (allocPct > 120) score = Math.min(score, 45);
-    else if (allocPct > 110) score = Math.min(score, 60);
-  }
 
+
+
+
+
+
+
+
+
+  return { score: clamp(score), detail };
+}
+
+/* --- RESOURCE scorer (days allocation vs day budget) --- */
+
+export function scoreResource(
+  allocatedDays: number | null,
+  budgetDays:    number | null,
+): { score: number | null; detail: ResourceDetail } {
+  const detail: ResourceDetail = {
+    allocatedDays, budgetDays, overAllocated: false, allocationPct: null,
+  };
+  if (allocatedDays == null || budgetDays == null || budgetDays <= 0)
+    return { score: null, detail };
+  const pct = (allocatedDays / budgetDays) * 100;
+  detail.allocationPct = Math.round(pct * 10) / 10;
+  detail.overAllocated = pct > 110;
+  let score: number;
+  if      (pct <= 90)  score = 100;
+  else if (pct <= 100) score = 100 - ((pct - 90)  / 10) * 10;
+  else if (pct <= 110) score = 90  - ((pct - 100) / 10) * 30;
+  else if (pct <= 125) score = 60  - ((pct - 110) / 15) * 30;
+  else                 score = 15;
   return { score: clamp(score), detail };
 }
 
@@ -360,6 +393,7 @@ export function computeWeightedScore(parts: HealthParts): number | null {
     { val: parts.raid,       w: HEALTH_WEIGHTS.raid        },
     { val: parts.budget,     w: HEALTH_WEIGHTS.budget      },
     { val: parts.governance, w: HEALTH_WEIGHTS.governance  },
+    { val: parts.resource,   w: HEALTH_WEIGHTS.resource    },
   ].filter((d) => d.val != null) as { val: number; w: number }[];
 
   if (!dims.length) return null;
@@ -400,6 +434,9 @@ export function computeHealthFromData(opts: {
   const { score: budgetScore, detail: budgetDetail } =
     scoreBudget(opts.budgetAmount, opts.spentAmount, opts.allocatedDays ?? null, opts.budgetDays ?? null);
 
+
+  const { score: resourceScore, detail: resourceDetail } =
+    scoreResource(opts.allocatedDays ?? null, opts.budgetDays ?? null);
   const { score: govScore, detail: govDetail } =
     scoreGovernance({
       charterApproved:            opts.charterApproved            ?? false,
@@ -416,6 +453,7 @@ export function computeHealthFromData(opts: {
     schedule:   scheduleScore,
     raid:       raidScore,
     budget:     budgetScore,
+    resource:   resourceScore,
     governance: govScore,
   };
 
@@ -426,6 +464,7 @@ export function computeHealthFromData(opts: {
       schedule:   scheduleDetail,
       raid:       raidDetail,
       budget:     budgetDetail,
+      resource:   resourceDetail,
       governance: govDetail,
     },
   };
@@ -679,7 +718,7 @@ export async function computePortfolioHealth(
   if (!activeIds.length) {
     return {
       score: null,
-      parts: { schedule: null, raid: null, budget: null, governance: null },
+      parts: { schedule: null, raid: null, budget: null, resource: null, governance: null },
       projectCount: 0,
       perProject: {},
     };
@@ -738,7 +777,7 @@ export async function computePortfolioHealth(
   if (!scoredProjects.length) {
     return {
       score: null,
-      parts: { schedule: null, raid: null, budget: null, governance: null },
+      parts: { schedule: null, raid: null, budget: null, resource: null, governance: null },
       projectCount: activeIds.length,
       perProject,
     };
@@ -761,6 +800,7 @@ export async function computePortfolioHealth(
       schedule: avgPart("schedule"),
       raid: avgPart("raid"),
       budget: avgPart("budget"),
+      resource: avgPart("resource"),
       governance: avgPart("governance"),
     },
     projectCount: activeIds.length,
