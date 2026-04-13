@@ -700,12 +700,12 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
 }
 
 async function fetchPortfolioAllocations(supabase: any, projectIds: string[]): Promise<Map<string, number>> {
-  const { data, error } = await supabase
+  const adminClient = createServiceClient();
+  const { data } = await adminClient
     .from("allocations")
-    .select("project_id, days_allocated, total_days")
+    .select("project_id, days_allocated")
     .in("project_id", projectIds)
     .limit(50000);
-  const result = new Map<string, number>();
   for (const r of (Array.isArray(data) ? data : [])) {
     const pid = String(r.project_id);
     const days = Number(r.days_allocated ?? r.total_days ?? 0);
