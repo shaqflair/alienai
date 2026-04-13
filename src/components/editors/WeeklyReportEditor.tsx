@@ -353,6 +353,7 @@ export default function WeeklyReportEditor({
   const [busySave, setBusySave] = useState(false);
   const [busyPdf, setBusyPdf]   = useState(false);
   const [busyPpt, setBusyPpt]   = useState(false);
+  const [busyNew, setBusyNew]   = useState(false);
   const [busyWord, setBusyWord] = useState(false);
   const [busySync, setBusySync] = useState(false);
   const [err, setErr]           = useState<string | null>(null);
@@ -497,6 +498,19 @@ export default function WeeklyReportEditor({
     catch (e: any) { setErr(e?.message ?? "Word export failed"); }
     finally { setBusyWord(false); }
   }
+
+  async function startNewWeek() {
+    if (!confirm("Save this week and start next week? The current report will be archived.")) return;
+    setErr(null); setBusyNew(true);
+    try {
+      const res = await fetch("/api/artifacts/weekly-report/new-week", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ artifactId, projectId, contentJson: model }) });
+      const json = await res.json().catch(() => ({}));
+      if (!json.ok) throw new Error(json.error ?? "Failed to start new week");
+      window.location.href = `/projects/${projectId}/artifacts/${json.newArtifactId}`;
+    } catch (e: any) { setErr(e?.message ?? "Failed to start new week"); }
+    finally { setBusyNew(false); }
+  }
+
 
   async function openHistory() {
     setHistoryErr(null); setShowHistory(true); setHistoryLoading(true);
@@ -651,6 +665,8 @@ export default function WeeklyReportEditor({
             style={{ background: "#ede9fe", border: "1px solid #c4b5fd", color: "#6d28d9" }} />
           <Btn label={busySave ? "Saving…" : "Save"} onClick={save} busy={busySave} disabled={readOnly || !dirty}
             style={{ background: "#0d1117", border: "1px solid #0d1117", color: "#fff" }} />
+          {!readOnly && <Btn label={busyNew ? "Starting…" : "▶ Next week"} onClick={startNewWeek} busy={busyNew}
+            style={{ background: "#0f766e", border: "1px solid #0f766e", color: "#fff" }} />}
         </div>
       </header>
 
