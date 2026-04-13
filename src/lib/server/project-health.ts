@@ -699,6 +699,21 @@ async function fetchPortfolioGovernance(supabase: any, projectIds: string[]) {
   return byProject;
 }
 
+async function fetchPortfolioAllocations(supabase: any, projectIds: string[]): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from("allocations")
+    .select("project_id, days_allocated, total_days")
+    .in("project_id", projectIds)
+    .limit(50000);
+  const result = new Map<string, number>();
+  for (const r of (Array.isArray(data) ? data : [])) {
+    const pid = String(r.project_id);
+    const days = Number(r.days_allocated ?? r.total_days ?? 0);
+    result.set(pid, (result.get(pid) ?? 0) + (Number.isFinite(days) ? days : 0));
+  }
+  return result;
+}
+
 /* ─── portfolio scorer ─── */
 
 export async function computePortfolioHealth(
@@ -726,11 +741,12 @@ export async function computePortfolioHealth(
 
   const today = ymd(new Date());
 
-  const [milestonesRes, raidRes, budgetMap, govMap] = await Promise.all([
+  const [milestonesRes, raidRes, budgetMap, govMap, allocMap] = await Promise.all([
     fetchPortfolioMilestones(supabase, activeIds),
     fetchPortfolioRaid(supabase, activeIds),
     fetchPortfolioBudget(supabase, activeIds),
     fetchPortfolioGovernance(supabase, activeIds),
+    fetchPortfolioAllocations(supabase, activeIds),
   ]);
 
   const milestonesByProject = new Map<string, any[]>();
@@ -760,6 +776,7 @@ export async function computePortfolioHealth(
       budgetAmount: budget.budgetAmount,
       spentAmount: budget.spentAmount,
       budgetDays: gov?.budgetDays ?? null,
+      allocatedDays: allocMap.get(pid) ?? null,
       pendingApprovalCount: gov?.pendingApprovals ?? 0,
       openChangeRequests: gov?.openCRs ?? 0,
       charterApproved: gov?.charterApproved ?? false,
