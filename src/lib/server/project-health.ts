@@ -706,9 +706,10 @@ async function fetchPortfolioAllocations(supabase: any, projectIds: string[]): P
     .select("project_id, days_allocated")
     .in("project_id", projectIds)
     .limit(50000);
+  const result = new Map<string, number>();
   for (const r of (Array.isArray(data) ? data : [])) {
     const pid = String(r.project_id);
-    const days = Number(r.days_allocated ?? r.total_days ?? 0);
+    const days = Number(r.days_allocated ?? 0);
     result.set(pid, (result.get(pid) ?? 0) + (Number.isFinite(days) ? days : 0));
   }
   return result;
