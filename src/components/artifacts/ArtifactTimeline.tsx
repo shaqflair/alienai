@@ -162,7 +162,7 @@ export default function ArtifactTimeline(props: {
     if (Array.isArray(props.rows) && props.rows.length > 0) return;
     if (!artifactId) return;
     if (!UUID_RE.test(artifactId)) {
-      setErr('No timeline available — artifact not yet saved.');
+      setErr('No timeline available ï¿½ artifact not yet saved.');
       return;
     }
 
