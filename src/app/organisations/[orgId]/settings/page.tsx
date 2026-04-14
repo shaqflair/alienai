@@ -11,6 +11,7 @@ import { isPlatformAdmin } from "@/lib/server/isPlatformAdmin";
 import RateCardTab from "@/components/settings/RateCardTab";
 import { updateOrgCurrency } from "./currency-action";
 import { SUPPORTED_CURRENCIES } from "@/lib/server/getOrgCurrency";
+import ApplyCurrencyButton from "./ApplyCurrencyButton";
 import {
   getOrgMembersForPicker,
   getResourceRates,
@@ -392,6 +393,15 @@ export default async function OrgSettingsPage({
                     Save
                   </button>
                 </form>
+                <div className="pt-2 border-t border-gray-100">
+                  <p className="text-xs text-gray-500 mb-2">
+                    Existing financial plans keep their own currency unless you apply the org default below.
+                  </p>
+                  <ApplyCurrencyButton
+                    organisationId={organisationId}
+                    currency={String((org as any).default_currency || "GBP")}
+                  />
+                </div>
               </div>
 
               {/* Governance */}
