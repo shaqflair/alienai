@@ -576,7 +576,7 @@ function PanelsCard({
             targetArtifactType={aiTargetType}
             title={aiTitle || "AI Suggestions"}
             limit={20}
-            hideWhenEmpty={mode !== "closure"}
+            hideWhenEmpty={false}
             showTestButton={devHost}
           />
         </div>
