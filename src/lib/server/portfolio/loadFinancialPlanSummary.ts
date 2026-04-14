@@ -1,9 +1,7 @@
 import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import "server-only";
 
-import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import { createClient } from "@/utils/supabase/server";
-import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export type PortfolioFinancialPlanFilters = {

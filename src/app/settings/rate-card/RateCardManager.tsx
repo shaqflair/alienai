@@ -265,7 +265,7 @@ function RateRow({
 // ── Main component ──
 export default function RateCardManager({
   orgId, orgName, initialEntries, isAdmin, defaultCurrency = "GBP",
-}): {
+}: {
   orgId: string;
   orgName: string;
   initialEntries: RateCardEntry[];

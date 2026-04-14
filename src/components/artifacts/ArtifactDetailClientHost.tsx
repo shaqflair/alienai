@@ -127,7 +127,8 @@ export type ArtifactDetailClientHostProps = {
   isApprover?: boolean;
   requestChangesWithCommentsAction?: ((formData: FormData) => Promise<void>) | null;
   defaultCurrency?: string;
-});
+};
+
 
 function cx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");

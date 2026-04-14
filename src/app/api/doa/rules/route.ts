@@ -1,5 +1,5 @@
 // src/app/api/doa/rules/route.ts
-import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
+
 import "server-only";
 
 import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
@@ -27,8 +27,7 @@ function safeNum(x: unknown): number | null {
 }
 
 async function getSupabase() {
-  // ✅ Lazy import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
-import to avoid build-time request-storage/cookies issues
+  // Lazy import to avoid build-time request-storage/cookies issues
   const mod = await import("@/utils/supabase/server");
   return mod.createClient();
 }
