@@ -139,6 +139,8 @@ type TimelineModel = {
   days: DayGroup[];
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default function ArtifactTimeline(props: {
   rows?: AnyRow[];
   artifactId?: string;
@@ -154,9 +156,15 @@ export default function ArtifactTimeline(props: {
   // âœ… ONE collapse toggle for the whole card
   const [open, setOpen] = useState(false);
 
+
+
   useEffect(() => {
     if (Array.isArray(props.rows) && props.rows.length > 0) return;
     if (!artifactId) return;
+    if (!UUID_RE.test(artifactId)) {
+      setErr('No timeline available — artifact not yet saved.');
+      return;
+    }
 
     let cancelled = false;
 
@@ -431,3 +439,6 @@ export default function ArtifactTimeline(props: {
     </section>
   );
 }
+
+
+
