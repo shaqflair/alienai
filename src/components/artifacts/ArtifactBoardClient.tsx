@@ -840,21 +840,21 @@ function AiPanel({ open, onClose, projectUuid, projectCode, projectName, project
   useEffect(() => { function onKey(e: KeyboardEvent) { if (e.key === "Escape" && open) onClose(); } window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [open, onClose]);
 
   function extractDueSoon(data: any): any[] {
-    const a = data?.ai ?? data ?? {};
-    const cand = a?.dueSoon ?? a?.due_soon ?? a?.items ?? a?.events ?? a?.ai?.dueSoon ?? a?.ai?.due_soon ?? [];
+    const a = data?.dueDigest?.ai ?? data?.ai ?? data ?? {};
+    const cand = a?.dueSoon ?? a?.due_soon ?? a?.items ?? a?.events ?? [];
     return Array.isArray(cand) ? cand : [];
   }
   function extractCounts(data: any): any {
-    return data?.counts ?? data?.ai?.counts ?? data?.stats ?? data?.ai?.stats ?? null;
+    return data?.dueDigest?.ai?.counts ?? data?.counts ?? data?.ai?.counts ?? null;
   }
 
   async function runCheck() {
     if (scope === "project" && !canProject) { setError("Invalid project UUID"); return; }
     setLoading(true); setError("");
     try {
-      const body: any = { windowDays: 14, eventType: "artifact_due" };
-      if (scope === "project") body.project_id = projectUuid;
-      const res = await fetch("/api/ai/events", { method: "POST", credentials: "include", headers: { accept: "application/json", "content-type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
+      const qs = new URLSearchParams({ days: "14", dueWindowDays: "14" });
+      if (scope === "project" && projectUuid) qs.set("projectId", projectUuid);
+      const res = await fetch(`/api/portfolio/dashboard?${qs.toString()}`, { method: "GET", credentials: "include", headers: { accept: "application/json" }, cache: "no-store" });
       const text = await res.text();
       let data: any = null;
       try { data = text ? JSON.parse(text) : null; } catch { data = null; }
@@ -1268,3 +1268,5 @@ export default function ArtifactBoardClient(props: {
     </>
   );
 }
+
+
