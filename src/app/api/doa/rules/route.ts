@@ -1,6 +1,8 @@
 // src/app/api/doa/rules/route.ts
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import "server-only";
 
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -25,7 +27,8 @@ function safeNum(x: unknown): number | null {
 }
 
 async function getSupabase() {
-  // ✅ Lazy import to avoid build-time request-storage/cookies issues
+  // ✅ Lazy import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
+import to avoid build-time request-storage/cookies issues
   const mod = await import("@/utils/supabase/server");
   return mod.createClient();
 }
@@ -109,7 +112,9 @@ export async function POST(req: Request) {
 
     const minAmount = safeNum((body as any)?.minAmount);
     const maxAmount = (body as any)?.maxAmount === "" ? null : safeNum((body as any)?.maxAmount);
-    const currency = safeStr((body as any)?.currency).trim() || "GBP";
+    const orgForCurrency = await supabase.from("projects").select("organisation_id").eq("id", projectId).maybeSingle();
+    const orgCurrency = await getOrgCurrency(String((orgForCurrency.data as any)?.organisation_id ?? ""));
+    const currency = safeStr((body as any)?.currency).trim() || orgCurrency;
 
     if (minAmount == null) return jsonErr("minAmount must be a number", 400);
     if (minAmount < 0) return jsonErr("minAmount must be >= 0", 400);
@@ -211,7 +216,9 @@ export async function PATCH(req: Request) {
 
     const minAmount = safeNum((body as any)?.minAmount);
     const maxAmount = (body as any)?.maxAmount === "" ? null : safeNum((body as any)?.maxAmount);
-    const currency = safeStr((body as any)?.currency).trim() || "GBP";
+    const orgForCurrency = await supabase.from("projects").select("organisation_id").eq("id", projectId).maybeSingle();
+    const orgCurrency = await getOrgCurrency(String((orgForCurrency.data as any)?.organisation_id ?? ""));
+    const currency = safeStr((body as any)?.currency).trim() || orgCurrency;
 
     if (minAmount == null) return jsonErr("minAmount must be a number", 400);
     if (minAmount < 0) return jsonErr("minAmount must be >= 0", 400);

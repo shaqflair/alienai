@@ -1,6 +1,9 @@
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import "server-only";
 
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import { createClient } from "@/utils/supabase/server";
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export type PortfolioFinancialPlanFilters = {
@@ -719,7 +722,7 @@ export async function loadFinancialPlanSummary(input: {
       : ragFromVariancePct(portfolioVariancePct);
 
   const firstPlanProject = withPlan[0];
-  const portfolioCurrency = firstPlanProject?.currency ?? "GBP";
+  const portfolioCurrency = firstPlanProject?.currency ?? await getOrgCurrency(organisationId ?? "");
 
   const portfolio = {
     totalBudget: effectivePortBudget,

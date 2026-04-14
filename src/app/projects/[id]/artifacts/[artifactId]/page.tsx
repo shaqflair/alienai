@@ -8,6 +8,7 @@ import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
 import { ClientDateTime } from "@/components/date/ClientDateTime";
 import ArtifactDetailClientHost from "@/components/artifacts/ArtifactDetailClientHost";
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import {
   updateArtifact,
   createArtifactRevision,
@@ -229,6 +230,7 @@ export default async function ArtifactDetailPage({
   if (!projectParam || !artifactParam) notFound();
 
   const activeOrgId = await getActiveOrgId().catch(() => null);
+  const defaultCurrency = await getOrgCurrency(activeOrgId ?? "");
   const vm = await loadArtifactDetail(Promise.resolve({ id: projectParam, artifactId: artifactParam }));
 
   const {
@@ -1219,6 +1221,7 @@ export default async function ArtifactDetailPage({
             projectId={projectUuid!}
             artifactId={artifactId}
             organisationId={activeOrgId ?? undefined}
+            defaultCurrency={defaultCurrency}
             isAdmin={isOrgAdmin}
             mode={mode}
             isEditable={effectiveIsEditable}
@@ -1295,6 +1298,7 @@ export default async function ArtifactDetailPage({
           projectId={projectUuid!}
           artifactId={artifactId}
           organisationId={activeOrgId ?? undefined}
+            defaultCurrency={defaultCurrency}
           isAdmin={isOrgAdmin}
           mode={mode}
           isEditable={effectiveIsEditable}

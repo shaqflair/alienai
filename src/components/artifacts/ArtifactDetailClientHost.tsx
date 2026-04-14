@@ -126,8 +126,8 @@ export type ArtifactDetailClientHostProps = {
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
   isApprover?: boolean;
   requestChangesWithCommentsAction?: ((formData: FormData) => Promise<void>) | null;
-  initialTimesheetEntries?: TimesheetEntry[];
-};
+  defaultCurrency?: string;
+});
 
 function cx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -291,7 +291,7 @@ function FinancialPlanEditorHost({
   clientDraftRev,
   onDraftRevChange,
   updateArtifactJsonAction,
-  initialTimesheetEntries,
+  defaultCurrency,
 }: {
   projectId: string;
   artifactId: string;
@@ -304,8 +304,8 @@ function FinancialPlanEditorHost({
   clientDraftRev: number;
   onDraftRevChange?: (next: number) => void;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
-  initialTimesheetEntries?: TimesheetEntry[];
-}) {
+  defaultCurrency?: string;
+})) {
   const [content, setContent] = useState<FinancialPlanContent>(() => {
     if (
       initialJson &&
@@ -314,7 +314,7 @@ function FinancialPlanEditorHost({
     ) {
       return initialJson as FinancialPlanContent;
     }
-    return emptyFinancialPlan();
+    return emptyFinancialPlan((defaultCurrency as any) ?? "GBP");
   });
 
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -728,6 +728,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     isApprover = false,
     requestChangesWithCommentsAction = null,
     initialTimesheetEntries,
+    defaultCurrency = "GBP",
   } = props;
 
   const [openAI, setOpenAI] = useState(false);
@@ -943,6 +944,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               onDraftRevChange={collaboration.setDraftRev}
               updateArtifactJsonAction={updateArtifactJsonAction}
               initialTimesheetEntries={initialTimesheetEntries}
+              defaultCurrency={defaultCurrency}
             />
           </div>
         </DocumentShell>
