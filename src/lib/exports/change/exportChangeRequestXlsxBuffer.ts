@@ -1,3 +1,4 @@
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import "server-only";
 
 import ExcelJS from "exceljs";
@@ -49,12 +50,12 @@ function formatUkDateTime(date = new Date()) {
   )}:${pad(date.getMinutes())}`;
 }
 
-function formatGBP(n: any) {
+function formatMoney(n: any, currency = "GBP") {
   const v = Number(n);
   if (!Number.isFinite(v)) return "£0";
   return v.toLocaleString("en-GB", {
     style: "currency",
-    currency: "GBP",
+    currency,
     maximumFractionDigits: 0,
   });
 }
@@ -215,7 +216,7 @@ function addDetailsSheet(wb: ExcelJS.Workbook, cr: any, attachments: string[]) {
     ["Owner", safeStr(cr?.owner_label)],
     ["Submitted", safeStr(cr?.submitted_at ? toDateGB(cr.submitted_at) : cr?.created_at ? toDateGB(cr.created_at) : "")],
     ["Needed By", safeStr(cr?.needed_by || cr?.required_by || cr?.due_date ? toDateGB(cr.needed_by || cr.required_by || cr.due_date) : "")],
-    ["Cost Impact", formatGBP(cost)],
+    ["Cost Impact", formatMoney(cost, orgCurrency)],
     ["Schedule Impact (days)", String(days)],
     ["Risk Impact", risk || "—"],
     ["Benefits", safeStr(cr?.benefits || cr?.benefit_summary || "")],
@@ -282,7 +283,8 @@ export async function exportChangeRequestXlsxBuffer(changeId: string) {
   if (pErr) throw new Error(pErr.message);
 
   const projectName = safeStr(project?.title) || "Project";
-  const projectCode = safeStr(project?.project_code) || projectId.slice(0, 8);
+  const orgCurrency = await getOrgCurrency(String(project?.organisation_id ?? ""));
+    const projectCode = safeStr(project?.project_code) || projectId.slice(0, 8);
   const clientName = safeStr(project?.client_name) || "";
 
   const attachments = await listAttachmentNames(supabase, id);

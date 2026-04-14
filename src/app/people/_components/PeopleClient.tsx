@@ -267,6 +267,7 @@ function PersonModal({
   onClose,
   jobTitleSuggestions = [],
   departmentSuggestions = [],
+  defaultCurrency = "GBP",
 }: {
   person:                PersonRow | null;
   rateCards:             RateCard[];
@@ -274,6 +275,7 @@ function PersonModal({
   onClose:               () => void;
   jobTitleSuggestions?:  string[];
   departmentSuggestions?: string[];
+  defaultCurrency?: string;
 }) {
   const isNew = !person;
 
@@ -591,7 +593,7 @@ function RateCardPanel({
   const [adding,   setAdding]   = useState(false);
   const [label,    setLabel]    = useState("");
   const [rate,     setRate]     = useState("");
-  const [currency, setCurrency] = useState("GBP");
+  const [currency, setCurrency] = useState(defaultCurrency ?? "GBP");
   const [notes,    setNotes]    = useState("");
   const [error,    setError]    = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -930,6 +932,7 @@ export default function PeopleClient({
   isAdmin,
   jobTitleSuggestions = [],
   departmentSuggestions = [],
+  defaultCurrency = "GBP",
 }: {
   people:                 PersonRow[];
   rateCards:              RateCard[];
@@ -937,6 +940,7 @@ export default function PeopleClient({
   isAdmin:                boolean;
   jobTitleSuggestions?:   string[];
   departmentSuggestions?: string[];
+  defaultCurrency?: string;
 }) {
   const [editPerson,    setEditPerson]    = useState<PersonRow | null | "new">(null);
   const [showRateCards, setShowRateCards] = useState(false);

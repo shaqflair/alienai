@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
 import PeopleClient from "./_components/PeopleClient";
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import type { PersonRow, RateCard } from "./_components/PeopleClient";
 
 function safeStr(x: unknown) {
@@ -21,6 +22,7 @@ export default async function PeoplePage() {
   const orgId = await getActiveOrgId().catch(() => null);
   const organisationId = orgId ? String(orgId) : null;
   if (!organisationId) redirect("/projects?err=missing_org");
+  const defaultCurrency = await getOrgCurrency(organisationId);
 
   // -- Check caller role ------------------------------------------------------
   const { data: myMem } = await supabase
@@ -155,6 +157,7 @@ const isAdmin = role === "admin" || role === "owner";
       rateCards={rateCards}
       organisationId={organisationId!}
       isAdmin={isAdmin}
+      defaultCurrency={defaultCurrency}
       jobTitleSuggestions={existingJobTitles}
       departmentSuggestions={existingDepartments}
     />

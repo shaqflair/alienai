@@ -58,14 +58,14 @@ function boolHuman(x: any) {
   return s;
 }
 
-function formatMoneyGBP(x: any): string {
+function formatMoneyGBP(x: any, currency = "GBP"): string {
   if (x == null || x === "" || x === "—") return "—";
   const n = typeof x === "number" ? x : Number(String(x).replace(/[^0-9.\-]/g, ""));
   if (Number.isNaN(n)) return safeStr(x) || "—";
   try {
     return new Intl.NumberFormat("en-GB", {
       style: "currency",
-      currency: "GBP",
+      currency,
       maximumFractionDigits: 0,
     }).format(n);
   } catch {
@@ -225,8 +225,8 @@ export function renderClosureReportSections(model: any) {
       "Financial Closeout",
       kvTable([
         { k: "Budget Lines", v: String(budgetRows.length) },
-        { k: "Annual Benefit", v: formatMoneyGBP(model?.roi?.annual_benefit ?? model?.roi?.annualBenefit) },
-        { k: "NPV", v: formatMoneyGBP(model?.roi?.npv) },
+        { k: "Annual Benefit", v: formatMoneyGBP(model?.roi?.annual_benefit ?? model?.roi?.annualBenefit, (model as any)?.currency ?? "GBP") },
+        { k: "NPV", v: formatMoneyGBP(model?.roi?.npv, (model as any)?.currency ?? "GBP") },
       ])
     ) +
     section(

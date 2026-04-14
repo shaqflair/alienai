@@ -1,3 +1,4 @@
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -51,12 +52,12 @@ function toDateGB(x: any) {
   return d.toLocaleString("en-GB");
 }
 
-function formatGBP(n: any) {
+function formatMoney(n: any, currency = "GBP") {
   const v = Number(n);
-  if (!Number.isFinite(v)) return "£0";
+  if (!Number.isFinite(v)) return "ï¿½0";
   return v.toLocaleString("en-GB", {
     style: "currency",
-    currency: "GBP",
+    currency,
     maximumFractionDigits: 0,
   });
 }
@@ -241,8 +242,8 @@ function addOverviewSheet(
     ["Document", "Change Request"],
     ["Generated", meta.generated],
     ["Project", meta.projectName],
-    ["Project Code", meta.projectCode || "—"],
-    ["Client", meta.clientName || "—"],
+    ["Project Code", meta.projectCode || "ï¿½"],
+    ["Client", meta.clientName || "ï¿½"],
     ["Filter", `change_id = ${meta.changeId}`],
   ];
 
@@ -328,7 +329,9 @@ async function handle(req: NextRequest, routeId: string) {
     await requireAuthAndMembership(supabase, projectId);
 
     let projectName = "Project";
-    let projectCode = projectId.slice(0, 8);
+    const { data: projOrg } = await supabase.from("projects").select("organisation_id").eq("id", projectId).maybeSingle();
+    const orgCurrency = await getOrgCurrency(String((projOrg as any)?.organisation_id ?? ""));
+        let projectCode = projectId.slice(0, 8);
     let clientName = "";
     let brandHex = "#111827";
 
@@ -374,7 +377,7 @@ async function handle(req: NextRequest, routeId: string) {
       due_date: safeStr((cr as any).due_date ? toDateGB((cr as any).due_date) : ""),
       updated_at: safeStr((cr as any).updated_at ? toDateGB((cr as any).updated_at) : ""),
       created_at: safeStr((cr as any).created_at ? toDateGB((cr as any).created_at) : ""),
-      cost_impact: formatGBP(cost),
+      cost_impact: formatMoney(cost, orgCurrency),
       schedule_impact_days: String(days),
       risk_summary: risk,
       description: safeStr((cr as any).description),
