@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 // src/components/projects/ProjectDependenciesTab.tsx
 // Project-level dependency view: what this project needs + what needs this project
 import React, { useCallback, useEffect, useState } from "react";
