@@ -269,7 +269,6 @@ export default async function ArtifactDetailPage({
     weeklyMode,
     collaboration,
   } = vm as any;
-  let initialTimesheetEntries: TimesheetEntry[] = [];
 
   const projectRefForPaths = normParam(projectHumanId) || projectParam || normParam(projectUuid);
   const projectCodeLabel = normParam(projectHumanId) || normParam(projectParam) || normParam(projectUuid) || "—";
@@ -569,18 +568,17 @@ export default async function ArtifactDetailPage({
   }
 
   // Fetch approved timesheet entries server-side for financial plan
-
-  if (isFinancialPlan && projectUuid) {
+  const initialTimesheetEntries: TimesheetEntry[] = await (async () => {
+    if (!isFinancialPlan || !projectUuid) return [];
     try {
       const contentJson = typedInitialJson ?? (artifact as any).content_json ?? null;
       const resourceIds: string[] = Array.isArray(contentJson?.resources)
         ? contentJson.resources.map((r: any) => String(r.id)).filter(Boolean)
         : [];
-      console.log("[page] resourceIds for timesheet lookup:", resourceIds);
       const tsResult = await getApprovedTimesheetEntries(String(projectUuid), resourceIds);
-      if (tsResult.ok) initialTimesheetEntries = tsResult.entries;
-    } catch { /* non-fatal */ }
-  }
+      return tsResult.ok ? tsResult.entries : [];
+    } catch { return []; }
+  })();
 
   const jsonSaveAction = isFinancialPlan ? updateArtifactJsonSilent : updateArtifactJsonArgs;
 
