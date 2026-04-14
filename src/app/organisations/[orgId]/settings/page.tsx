@@ -9,6 +9,8 @@ import OrgApprovalsAdminPanel from "@/components/approvals/OrgApprovalsAdminPane
 import HolidayCoverPanel from "@/components/approvals/HolidayCoverPanel";
 import { isPlatformAdmin } from "@/lib/server/isPlatformAdmin";
 import RateCardTab from "@/components/settings/RateCardTab";
+import { updateOrgCurrency } from "./currency-action";
+import { SUPPORTED_CURRENCIES } from "@/lib/server/getOrgCurrency";
 import {
   getOrgMembersForPicker,
   getResourceRates,
@@ -125,7 +127,7 @@ export default async function OrgSettingsPage({
 
   const { data: org, error: orgErr } = await sb
     .from("organisations")
-    .select("id,name,created_at")
+    .select("id,name,created_at,default_currency")
     .eq("id", organisationId)
     .maybeSingle();
 
@@ -365,6 +367,32 @@ export default async function OrgSettingsPage({
           {/* ── General / Settings tab ── */}
           {tab === "settings" && (
             <div className="space-y-6">
+              {/* Default Currency */}
+              <div className="rounded-xl border bg-white p-5 space-y-4">
+                <div className="font-medium">Default currency</div>
+                <p className="text-sm text-gray-500">
+                  Sets the currency used across the tool — financial plans, budgets, rate cards, and reports.
+                </p>
+                <form action={updateOrgCurrency} className="flex flex-wrap items-end gap-3">
+                  <input type="hidden" name="organisation_id" value={organisationId} />
+                  <div className="space-y-1">
+                    <div className="text-xs text-gray-500">Currency</div>
+                    <select
+                      name="default_currency"
+                      defaultValue={String((org as any).default_currency || "GBP")}
+                      className="rounded-md border px-3 py-2 text-sm bg-white min-w-[220px]"
+                    >
+                      {SUPPORTED_CURRENCIES.map((c) => (
+                        <option key={c.code} value={c.code}>{c.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button type="submit" className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50">
+                    Save
+                  </button>
+                </form>
+              </div>
+
               {/* Governance */}
               <div className="rounded-xl border bg-white p-5 space-y-4">
                 <div className="font-medium">Governance</div>
