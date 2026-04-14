@@ -98,12 +98,12 @@ function projectCodeVariants(raw: string): string[] {
 }
 
 function displayProjectCode(project_code: any) {
-  const s = safeStr(project_code);
-  if (!s) return null;
+  const s = safeStr(project_code).trim();
+  if (!s || s === "NaN" || s === "null" || s === "undefined") return null;
   if (/^P-\d+$/i.test(s)) return s.toUpperCase();
   const digits = extractDigits(s);
-  if (digits) return `P-${digits.padStart(5, "0")}`;
-  return s;
+  if (digits && digits !== "NaN") return `P-${digits.padStart(5, "0")}`;
+  return (s === "NaN" || s === "null") ? null : s;
 }
 
 function shapeErr(err: any) {

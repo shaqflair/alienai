@@ -852,10 +852,9 @@ function AiPanel({ open, onClose, projectUuid, projectCode, projectName, project
     if (scope === "project" && !canProject) { setError("Invalid project UUID"); return; }
     setLoading(true); setError("");
     try {
-      const qs = new URLSearchParams();
-      qs.set("windowDays", "14"); qs.set("eventType", "artifact_due");
-      if (scope === "project") qs.set("project_id", projectUuid);
-      const res = await fetch(`/api/ai/events?${qs.toString()}`, { method: "GET", credentials: "include", headers: { accept: "application/json" }, cache: "no-store" });
+      const body: any = { windowDays: 14, eventType: "artifact_due" };
+      if (scope === "project") body.project_id = projectUuid;
+      const res = await fetch("/api/ai/events", { method: "POST", credentials: "include", headers: { accept: "application/json", "content-type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
       const text = await res.text();
       let data: any = null;
       try { data = text ? JSON.parse(text) : null; } catch { data = null; }
