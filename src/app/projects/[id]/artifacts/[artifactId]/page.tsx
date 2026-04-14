@@ -553,14 +553,15 @@ export default async function ArtifactDetailPage({
     } catch (e: any) {
       errMsg = String(e?.message ?? "Make current failed");
     }
-
     if (errMsg) {
       redirect(`${artifactPath}?action_error=${encodeURIComponent(errMsg)}`);
     }
-
     revalidatePath(artifactsPath);
     revalidatePath(artifactPath);
     redirect(artifactPath);
+
+
+
   }
 
 
