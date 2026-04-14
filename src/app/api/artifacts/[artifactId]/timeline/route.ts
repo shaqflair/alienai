@@ -78,7 +78,7 @@ function debugEnabled(req: Request, url: URL) {
  */
 export async function GET(
   req: NextRequest,
-  ctx: { params: Promise<{ id?: string }> }
+  ctx: { params: Promise<{ artifactId?: string }> }
 ) {
   try {
     const supabase = await createClient();
@@ -91,7 +91,7 @@ export async function GET(
       });
     if (!auth?.user) return jsonErr("Unauthorized", 401);
 
-    const { id } = await ctx.params;
+    const { artifactId: id } = await ctx.params;
     const artifactId = safeStr(id).trim();
     if (!artifactId || !looksLikeUuid(artifactId))
       return jsonErr("Invalid artifactId", 400);
