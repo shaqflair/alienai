@@ -1331,6 +1331,7 @@ export default async function ArtifactDetailPage({
           updateArtifactJsonAction={jsonSaveAction}
           isApprover={isApproverViewingSubmitted}
           requestChangesWithCommentsAction={requestChangesWithCommentsAction}
+          initialTimesheetEntries={initialTimesheetEntries}
         />
       </div>
 
