@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 import { fetchProjectResourceData, projectWeekPeriods } from "./_lib/resource-data";
 import ProjectResourcePanel from "./_components/ProjectResourcePanel";
 import AssignPmButton from "./_components/AssignPmButton";
@@ -230,6 +231,7 @@ export default async function ProjectPage({
       const { data: proj } = await supabase
         .from("projects").select("organisation_id").eq("id", rawId).maybeSingle();
       if (proj?.organisation_id) activeOrgId = String(proj.organisation_id);
+      const defaultCurrency = await getOrgCurrency(activeOrgId ?? "").catch(() => "GBP");
     }
     if (!activeOrgId) notFound();
   }
