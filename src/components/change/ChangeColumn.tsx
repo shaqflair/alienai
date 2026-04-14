@@ -93,6 +93,7 @@ export default function ChangeColumn({
   projectId:   string;
   projectCode?: string;
   isApprover:  boolean;
+  defaultCurrency?: string;
 }) {
   // ── FIX: removed usePathname + useSearchParams — they caused full column
   // re-renders on every URL change (e.g. when panel param changed).
@@ -299,6 +300,7 @@ export default function ChangeColumn({
                     onMove={onMove}
                     projectId={projectId}
                     isApprover={isApprover}
+                    currency={defaultCurrency}
                     compact={collapsed}
                     returnTo={getCurrentUrl()}
                   />

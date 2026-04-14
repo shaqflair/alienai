@@ -74,7 +74,7 @@ function EntryForm({
   const [roleTitle, setRoleTitle] = useState(entry?.role_title ?? "");
   const [seniority, setSeniority] = useState(entry?.seniority_level ?? "Senior");
   const [dayRate, setDayRate]     = useState(entry?.day_rate?.toString() ?? "");
-  const [currency, setCurrency]   = useState(entry?.currency ?? "GBP");
+  const [currency, setCurrency]   = useState(entry?.currency ?? defaultCurrency ?? "GBP");
   const [notes, setNotes]          = useState(entry?.notes ?? "");
   const [error, setError]          = useState<string | null>(null);
   const [isPending, start]         = useTransition();
@@ -264,12 +264,13 @@ function RateRow({
 
 // ── Main component ──
 export default function RateCardManager({
-  orgId, orgName, initialEntries, isAdmin,
-}: {
+  orgId, orgName, initialEntries, isAdmin, defaultCurrency = "GBP",
+}): {
   orgId: string;
   orgName: string;
   initialEntries: RateCardEntry[];
   isAdmin: boolean;
+  defaultCurrency?: string;
 }) {
   const [entries, setEntries]       = useState<RateCardEntry[]>(initialEntries);
   const [editingId, setEditingId]   = useState<string | null>(null);

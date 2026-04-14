@@ -1116,6 +1116,7 @@ function SortableCard({
   onSubmit,
   onDeleted,
   showSubmit,
+  defaultCurrency = "GBP",
 }: {
   lane: DeliveryLane;
   item: ChangeItem;
@@ -1127,6 +1128,7 @@ function SortableCard({
   onSubmit: (it: ChangeItem) => void;
   onDeleted: (id: string) => void;
   showSubmit: boolean;
+  defaultCurrency?: string;
 }) {
   const sortableId = `card:${item.id}`;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -1489,6 +1491,21 @@ export default function ChangeBoardDnd({
   }, []);
 
   const [items, setItems] = useState<ChangeItem[]>([]);
+  const [defaultCurrency, setDefaultCurrency] = useState("GBP");
+
+  useEffect(() => {
+    if (!projectUuid) return;
+    fetch(`/api/project-display-id?id=${encodeURIComponent(projectUuid)}`)
+      .then(r => r.json())
+      .then(d => {
+        const orgId = d?.organisation_id ?? d?.organisationId ?? "";
+        if (!orgId) return;
+        return fetch(`/api/org-currency?organisationId=${encodeURIComponent(orgId)}`);
+      })
+      .then(r => r?.json())
+      .then(d => { if (d?.currency) setDefaultCurrency(d.currency); })
+      .catch(() => {});
+  }, [projectUuid]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [savingIds, setSavingIds] = useState<Record<string, true>>({});
@@ -1871,8 +1888,9 @@ export default function ChangeBoardDnd({
                           onAttachments={openAttachments}
                           onSubmit={submitForApproval}
                           onDeleted={handleCardDeleted}
+                          defaultCurrency={defaultCurrency}
                           showSubmit={
-                            safeStr(item.delivery_status).trim() === "analysis" &&
+                          safeStr(item.delivery_status).trim() === "analysis" &&
                             !isLocked(item) &&
                             !isDecided(item)
                           }

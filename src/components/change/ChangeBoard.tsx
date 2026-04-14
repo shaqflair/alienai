@@ -147,7 +147,7 @@ function fmtWhen(iso?: string | null) {
  * ✅ Wrapper component
  * Next requires useSearchParams() to be under Suspense.
  */
-export default function ChangeBoard(props: { artifactId?: string; projectId?: string; projectCode?: string }) {
+export default function ChangeBoard(props: { artifactId?: string; projectId?: string; projectCode?: string; defaultCurrency?: string }) {
   return (
     <Suspense
       fallback={
@@ -175,7 +175,7 @@ export default function ChangeBoard(props: { artifactId?: string; projectId?: st
 /**
  * ✅ Inner component (safe to use useSearchParams here)
  */
-function ChangeBoardInner(props: { artifactId?: string; projectId?: string; projectCode?: string }) {
+function ChangeBoardInner(props: { artifactId?: string; projectId?: string; projectCode?: string; defaultCurrency?: string }) {
   const router = useRouter();
   const params = useParams() as Record<string, string | string[] | undefined>;
   const sp = useSearchParams();
@@ -815,6 +815,7 @@ function ChangeBoardInner(props: { artifactId?: string; projectId?: string; proj
                       projectId={projectId}
                       projectCode={projectCode || undefined}
                       isApprover={isApprover}
+                      defaultCurrency={props.defaultCurrency ?? "GBP"}
                     />
                   </div>
                 </div>

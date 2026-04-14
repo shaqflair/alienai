@@ -7,10 +7,10 @@ import { CHANGE_COLUMNS } from "@/lib/change/columns";
 
 function safeStr(x: unknown) { return typeof x === "string" ? x : ""; }
 function safeNum(x: any, fallback = 0) { const n = Number(x); return Number.isFinite(n) ? n : fallback; }
-function moneyGBP(n: number) {
+function moneyFmt(n: number, currency = "GBP") {
   const v = safeNum(n, 0);
-  try { return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(v); }
-  catch { return `£${v}`; }
+  try { return new Intl.NumberFormat("en-GB", { style: "currency", currency, maximumFractionDigits: 0 }).format(v); }
+  catch { return `${currency} ${v}`; }
 }
 function laneIndex(lane: ChangeStatus) { return CHANGE_COLUMNS.findIndex((c) => c.key === lane); }
 
@@ -193,6 +193,7 @@ export default function ChangeCard({
   onMove: (id: string, toLane: ChangeStatus) => void;
   onDeleted?: (id: string) => void;
   isApprover?: boolean;
+  currency?: string;
 }) {
   // Inject styles once
   React.useEffect(() => { injectStyles(); }, []);
@@ -359,7 +360,7 @@ export default function ChangeCard({
                     <svg className="kc-impact-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
                     </svg>
-                    {aiCost ? moneyGBP(aiCost) : "—"}
+                    {aiCost ? moneyFmt(aiCost, currency) : "—"}
                   </div>
                 </div>
               </div>

@@ -4,6 +4,7 @@ import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
 import { loadRateCard } from "./rate-card-actions";
 import RateCardManager from "./RateCardManager";
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,7 @@ export default async function RateCardPage() {
     .select("name")
     .eq("id", orgId)
     .maybeSingle();
+  const defaultCurrency = await getOrgCurrency(orgId);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px", fontFamily: "'DM Sans', -apple-system, sans-serif" }}>
@@ -44,6 +46,7 @@ export default async function RateCardPage() {
         orgName={String((org as any)?.name || "Your Organisation")}
         initialEntries={entries}
         isAdmin={isAdmin}
+        defaultCurrency={defaultCurrency}
       />
     </div>
   );
