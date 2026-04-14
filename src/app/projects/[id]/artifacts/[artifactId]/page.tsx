@@ -83,13 +83,7 @@ function getArtifactReadOnlyBanner(args: {
   const approvalReadOnly =
     !!args.approvalEnabled &&
     collaboration?.canEditByStatus === false &&
-    [
-      "submitted",
-      "submitted_for_approval",
-      "pending_approval",
-      "in_review",
-      "awaiting_approval",
-    ].includes(status) &&
+    ["submitted", "submitted_for_approval", "pending_approval", "in_review", "awaiting_approval"].includes(status) &&
     status !== "approved" &&
     status !== "rejected";
 
@@ -230,11 +224,16 @@ export default async function ArtifactDetailPage({
   if (!projectParam || !artifactParam) notFound();
 
   const activeOrgId = await getActiveOrgId().catch(() => null);
-  const defaultCurrency = await getOrgCurrency(activeOrgId ?? "");
+  const defaultCurrency = await getOrgCurrency(activeOrgId ?? "").catch(() => "GBP");
+
+  // Critical fix:
+  // Keep this declared in the main function scope before any conditional render/return.
+  // This prevents the server bundle from ever referencing an undeclared identifier.
+  let initialTimesheetEntries: TimesheetEntry[] = [];
+
   const vm = await loadArtifactDetail(Promise.resolve({ id: projectParam, artifactId: artifactParam }));
 
   const {
-
     projectUuid,
     projectHumanId,
     projectTitle,
@@ -567,24 +566,30 @@ export default async function ArtifactDetailPage({
     redirect(artifactPath);
   }
 
+  // Fetch approved timesheet entries server-side for financial plan
+  if (isFinancialPlan && projectUuid) {
+    try {
+      const contentJson = typedInitialJson ?? (artifact as any)?.content_json ?? null;
+      const resourceIds: string[] = Array.isArray(contentJson?.resources)
+        ? contentJson.resources.map((r: any) => String(r?.id ?? "")).filter(Boolean)
+        : [];
 
-
-
-
-
-
-
-
-
-
-
-
+      const tsResult = await getApprovedTimesheetEntries(String(projectUuid), resourceIds);
+      if (tsResult?.ok && Array.isArray(tsResult.entries)) {
+        initialTimesheetEntries = tsResult.entries as TimesheetEntry[];
+      } else {
+        initialTimesheetEntries = [];
+      }
+    } catch {
+      initialTimesheetEntries = [];
+    }
+  }
 
   const jsonSaveAction = isFinancialPlan ? updateArtifactJsonSilent : updateArtifactJsonArgs;
 
   const sc = statusConfig(status);
-  const artifactTitle = safeStr((artifact as any).title || displayType((artifact as any).type) || "Artifact");
-  const artifactType = displayType((artifact as any).type);
+  const artifactTitle = safeStr((artifact as any)?.title || displayType((artifact as any)?.type) || "Artifact");
+  const artifactType = displayType((artifact as any)?.type);
 
   const ArtifactReadOnlyBanner = () => {
     if (!banner.tone) return null;
@@ -951,7 +956,7 @@ export default async function ArtifactDetailPage({
               <span className="af-meta-sep">•</span>
               <span className="af-meta-item">
                 Updated:
-                <ClientDateTime value={(artifact as any).updated_at ?? (artifact as any).created_at} />
+                <ClientDateTime value={(artifact as any)?.updated_at ?? (artifact as any)?.created_at} />
               </span>
 
               {mode === "schedule" && (projectStartDate || projectFinishDate) && (
@@ -1228,8 +1233,8 @@ export default async function ArtifactDetailPage({
             lockLayout={effectiveLockLayout}
             charterInitial={charterInitial}
             typedInitialJson={typedInitialJson}
-            rawContentJson={(artifact as any).content_json ?? null}
-            rawContentText={String((artifact as any).content ?? "")}
+            rawContentJson={(artifact as any)?.content_json ?? null}
+            rawContentText={String((artifact as any)?.content ?? "")}
             projectTitle={projectTitleForSeed || safeStr(projectTitle).trim()}
             projectManagerName={projectManagerName}
             projectStartDate={projectStartDate}
@@ -1249,7 +1254,7 @@ export default async function ArtifactDetailPage({
             updateArtifactJsonAction={jsonSaveAction}
             isApprover={isApproverViewingSubmitted}
             requestChangesWithCommentsAction={requestChangesWithCommentsAction}
-            initialTimesheetEntries={[]}
+            initialTimesheetEntries={initialTimesheetEntries}
           />
         </div>
 
@@ -1298,15 +1303,15 @@ export default async function ArtifactDetailPage({
           projectId={projectUuid!}
           artifactId={artifactId}
           organisationId={activeOrgId ?? undefined}
-            defaultCurrency={defaultCurrency}
+          defaultCurrency={defaultCurrency}
           isAdmin={isOrgAdmin}
           mode={mode}
           isEditable={effectiveIsEditable}
           lockLayout={effectiveLockLayout}
           charterInitial={charterInitial}
           typedInitialJson={typedInitialJson}
-          rawContentJson={(artifact as any).content_json ?? null}
-          rawContentText={String((artifact as any).content ?? "")}
+          rawContentJson={(artifact as any)?.content_json ?? null}
+          rawContentText={String((artifact as any)?.content ?? "")}
           projectTitle={projectTitleForSeed || safeStr(projectTitle).trim()}
           projectManagerName={projectManagerName}
           projectStartDate={projectStartDate}
@@ -1331,7 +1336,7 @@ export default async function ArtifactDetailPage({
           updateArtifactJsonAction={jsonSaveAction}
           isApprover={isApproverViewingSubmitted}
           requestChangesWithCommentsAction={requestChangesWithCommentsAction}
-          initialTimesheetEntries={[]}
+          initialTimesheetEntries={initialTimesheetEntries}
         />
       </div>
 
@@ -1373,7 +1378,7 @@ export default async function ArtifactDetailPage({
               <span style={{ fontSize: 13, fontWeight: 500, color: "#0d1117" }}>Title</span>
               <input
                 name="title"
-                defaultValue={String((artifact as any).title ?? "")}
+                defaultValue={String((artifact as any)?.title ?? "")}
                 style={{
                   border: "1px solid #e8ecf0",
                   borderRadius: 8,
@@ -1390,7 +1395,7 @@ export default async function ArtifactDetailPage({
               <textarea
                 name="content"
                 rows={14}
-                defaultValue={String((artifact as any).content ?? "")}
+                defaultValue={String((artifact as any)?.content ?? "")}
                 style={{
                   border: "1px solid #e8ecf0",
                   borderRadius: 8,
