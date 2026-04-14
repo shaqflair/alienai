@@ -560,8 +560,10 @@ export default async function ArtifactDetailPage({
       redirect(`${artifactPath}?action_error=${encodeURIComponent(errMsg)}`);
     }
 
-    revalidatePath(artifactsPath);
     revalidatePath(artifactPath);
+
+    revalidatePath(artifactsPath);
+
 
   }
 
