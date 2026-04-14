@@ -234,6 +234,7 @@ export default async function ArtifactDetailPage({
   const vm = await loadArtifactDetail(Promise.resolve({ id: projectParam, artifactId: artifactParam }));
 
   const {
+  let initialTimesheetEntries: TimesheetEntry[] = [];
     projectUuid,
     projectHumanId,
     projectTitle,
@@ -567,7 +568,7 @@ export default async function ArtifactDetailPage({
   }
 
   // Fetch approved timesheet entries server-side for financial plan
-  let initialTimesheetEntries: TimesheetEntry[] = [];
+
   if (isFinancialPlan && projectUuid) {
     try {
       const contentJson = typedInitialJson ?? (artifact as any).content_json ?? null;
