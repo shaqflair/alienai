@@ -234,7 +234,7 @@ export default async function ArtifactDetailPage({
   const vm = await loadArtifactDetail(Promise.resolve({ id: projectParam, artifactId: artifactParam }));
 
   const {
-  let initialTimesheetEntries: TimesheetEntry[] = [];
+
     projectUuid,
     projectHumanId,
     projectTitle,
@@ -269,6 +269,7 @@ export default async function ArtifactDetailPage({
     weeklyMode,
     collaboration,
   } = vm as any;
+  let initialTimesheetEntries: TimesheetEntry[] = [];
 
   const projectRefForPaths = normParam(projectHumanId) || projectParam || normParam(projectUuid);
   const projectCodeLabel = normParam(projectHumanId) || normParam(projectParam) || normParam(projectUuid) || "—";
