@@ -235,12 +235,12 @@ function BulkAddPanel({ organisationId, today, existingRoles, onDone, onCancel }
   const [rows, setRows] = useState(() =>
     DEFAULT_ROLES.map(r => ({
       ...r, selected: !existingSet.has(r.roleLabel.toLowerCase()),
-      currency: "GBP", rateType: "day_rate" as const, effectiveFrom: today, notes: "",
+      currency: defaultCurrency ?? "GBP", rateType: "day_rate" as const, effectiveFrom: today, notes: "",
     }))
   );
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [currency, setCurrency] = useState("GBP");
+  const [currency, setCurrency] = useState(defaultCurrency ?? "GBP");
 
   const selected = rows.filter(r => r.selected);
 
@@ -356,11 +356,12 @@ function BulkAddPanel({ organisationId, today, existingRoles, onDone, onCancel }
 
 export interface RateCardTabProps {
   organisationId: string;
+  defaultCurrency?: string;
   rates: ResourceRate[];
   members: OrgMemberForPicker[];
 }
 
-export default function RateCardTab({ organisationId, rates: initialRates, members }: RateCardTabProps) {
+export default function RateCardTab({ organisationId, rates: initialRates, members, defaultCurrency = "GBP" }: RateCardTabProps) {
   const today = new Date().toISOString().slice(0, 10);
 
   const [rates, setRates]         = useState<ResourceRate[]>(initialRates);

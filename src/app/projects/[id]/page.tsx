@@ -1092,11 +1092,13 @@ export default async function ProjectPage({
             periods={periods}
             rateCardRoles={rateCardRoles}
             approvedBudgetAmount={budgetAmount}
+            defaultCurrency={defaultCurrency}
           />
           {justificationData && (
             <div style={{ marginTop: 16 }}>
               <ResourceJustificationPanel
                 projectId={projectUuid}
+                defaultCurrency={defaultCurrency}
                 projectTitle={projectTitle}
                 initialJustification={justificationData.justification ?? null}
                 budgetSummary={justificationData.budgetSummary ?? null}

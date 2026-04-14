@@ -197,9 +197,11 @@ function RoleBudgetRow({ role, rateOverrides, onRateChange, canEdit, dbRateCard 
 /* ── Main component ── */
 export default function ResourceJustificationPanel({
   projectId, projectTitle, initialJustification, budgetSummary,
+  defaultCurrency = "GBP",
   openCRs, roleRequirements, allocatedDays, budgetDays, weeklyBurnRate, canEdit, rateCard = {},
 }: {
   projectId: string;
+  defaultCurrency?: string;
   projectTitle: string;
   initialJustification: ResourceJustification | null;
   budgetSummary: ResourceBudgetSummary | null;
@@ -262,7 +264,7 @@ export default function ResourceJustificationPanel({
     fd.set("contingency_notes", contingency);
     fd.set("requested_budget_uplift", uplift || String(fundingSource !== "existing_budget" ? totalUnfilledCost : 0));
     fd.set("linked_cr_ids", Array.from(selectedCRs).join(","));
-    fd.set("currency", "GBP");
+    fd.set("currency", defaultCurrency ?? "GBP");
     fd.set("notify_emails", notifyEmails.filter(e => e.trim()).join(","));
     return fd;
   }
@@ -293,7 +295,7 @@ export default function ResourceJustificationPanel({
       if (result.ok) {
         setJustification(prev =>
           prev ? { ...prev, status: "sent", sent_at: new Date().toISOString() } :
-          { id: recordId, project_id: projectId, justification_text: justText, contingency_notes: contingency, requested_budget_uplift: uplift ? Number(uplift) : null, currency: "GBP", linked_cr_ids: Array.from(selectedCRs), status: "sent", sent_at: new Date().toISOString(), sent_by: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+          { id: recordId, project_id: projectId, justification_text: justText, contingency_notes: contingency, requested_budget_uplift: uplift ? Number(uplift) : null, currency: defaultCurrency ?? "GBP", linked_cr_ids: Array.from(selectedCRs), status: "sent", sent_at: new Date().toISOString(), sent_by: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
         );
         const notified = (result as any).notifiedCount ?? 0;
         const emailed  = (result as any).emailsSent ?? 0;

@@ -359,6 +359,7 @@ export default async function OrgSettingsPage({
           {tab === "ratecards" && (
             <RateCardTab
               organisationId={organisationId}
+              defaultCurrency={String((org as any).default_currency || "GBP")}
               rates={(ratesResult as any).rates ?? []}
               members={(membersResult as any).members ?? []}
             />

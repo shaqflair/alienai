@@ -2,6 +2,7 @@ import "server-only";
 import React from "react";
 import { loadResourceJustificationData } from "@/app/projects/[id]/resource-justification-actions";
 import ResourceJustificationPanel from "@/components/projects/ResourceJustificationPanel";
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 
 export default async function ResourceJustificationServer({
   projectId,
@@ -12,7 +13,8 @@ export default async function ResourceJustificationServer({
   projectTitle: string;
   canEdit: boolean;
 }) {
-  let data;
+  const orgCurrency = await getOrgCurrency("").catch(() => "GBP");
+    let data;
   try {
     data = await loadResourceJustificationData(projectId);
   } catch {
@@ -33,6 +35,7 @@ export default async function ResourceJustificationServer({
       budgetDays={0}
       weeklyBurnRate={0}
       canEdit={canEdit}
+      defaultCurrency={orgCurrency}
     />
   );
 }

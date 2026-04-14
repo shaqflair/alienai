@@ -785,6 +785,7 @@ export type ResourceJustificationProps = {
 // so it displays £131,000 instead of the resource-data-derived £102,000.
 
 export default function ProjectResourcePanel({
+  defaultCurrency = "GBP",
   data,
   periods,
   justificationProps,
@@ -794,6 +795,7 @@ export default function ProjectResourcePanel({
   data: ProjectResourceData;
   periods: WeekPeriod[];
   justificationProps?: ResourceJustificationProps;
+  defaultCurrency?: string;
   rateCardRoles?: string[];
   approvedBudgetAmount?: number | null;
 }) {
@@ -841,6 +843,7 @@ export default function ProjectResourcePanel({
         {justificationProps && (
           <ResourceJustificationPanel
             projectId={project.id}
+            defaultCurrency={defaultCurrency}
             projectTitle={justificationProps.projectTitle}
             initialJustification={justificationProps.initialJustification}
             budgetSummary={{

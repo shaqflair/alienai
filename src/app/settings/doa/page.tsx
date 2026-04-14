@@ -2,6 +2,8 @@
 import "server-only";
 
 import DoaRulesClient from "@/components/doa/DoaRulesClient";
+import { createClient } from "@/utils/supabase/server";
+import { getOrgCurrency } from "@/lib/server/getOrgCurrency";
 
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : "";
@@ -14,6 +16,14 @@ export default async function DoaSettingsPage({
 }) {
   const sp = await searchParams;
   const projectId = safeStr(sp?.projectId).trim();
+  let defaultCurrency = "GBP";
+  if (projectId) {
+    try {
+      const sb = await createClient();
+      const { data: proj } = await sb.from("projects").select("organisation_id").eq("id", projectId).maybeSingle();
+      defaultCurrency = await getOrgCurrency(String((proj as any)?.organisation_id ?? ""));
+    } catch {}
+  }
 
   // If you prefer projectId from route (/projects/[id]/settings/doa), tell me and I’ll swap it.
   return (
@@ -38,7 +48,7 @@ export default async function DoaSettingsPage({
           Missing <b>projectId</b>. Open this page as: <code>?projectId=&lt;uuid&gt;</code>
         </div>
       ) : (
-        <DoaRulesClient projectId={projectId} />
+        <DoaRulesClient projectId={projectId} defaultCurrency={defaultCurrency} />
       )}
     </main>
   );

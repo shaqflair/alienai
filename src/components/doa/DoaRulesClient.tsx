@@ -30,7 +30,7 @@ function band(rule: DoaRule) {
   return `${min} → ${max}`;
 }
 
-export default function DoaRulesClient({ projectId }: { projectId: string }) {
+export default function DoaRulesClient({ projectId, defaultCurrency = "GBP" }: { projectId: string; defaultCurrency?: string }) {
   const [rules, setRules] = useState<DoaRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>("");
@@ -213,6 +213,7 @@ export default function DoaRulesClient({ projectId }: { projectId: string }) {
 
       <AddDoaRuleModal
         projectId={projectId}
+        defaultCurrency={defaultCurrency}
         open={open}
         editRule={editRule}
         onClose={() => setOpen(false)}

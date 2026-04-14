@@ -30,12 +30,14 @@ function safeNum(x: any): number | null {
 
 export default function AddDoaRuleModal({
   projectId,
+  defaultCurrency = "GBP",
   open,
   onClose,
   onSaved,
   editRule,
 }: {
   projectId: string;
+  defaultCurrency?: string;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -45,7 +47,7 @@ export default function AddDoaRuleModal({
 
   const [minAmount, setMinAmount] = useState<string>("");
   const [maxAmount, setMaxAmount] = useState<string>(""); // empty = infinity
-  const [currency, setCurrency] = useState<string>("GBP");
+  const [currency, setCurrency] = useState<string>(defaultCurrency ?? "GBP");
   const [approver, setApprover] = useState<Member | null>(null);
 
   const [err, setErr] = useState<string>("");
@@ -59,7 +61,7 @@ export default function AddDoaRuleModal({
     if (editRule?.id) {
       setMinAmount(String(editRule.min_amount ?? 0));
       setMaxAmount(editRule.max_amount == null ? "" : String(editRule.max_amount));
-      setCurrency(String(editRule.currency ?? "GBP"));
+      setCurrency(String(editRule.currency ?? defaultCurrency ?? "GBP"));
 
       setApprover({
         userId: String(editRule.approver_user_id ?? ""),
@@ -70,7 +72,7 @@ export default function AddDoaRuleModal({
     } else {
       setMinAmount("");
       setMaxAmount("");
-      setCurrency("GBP");
+      setCurrency(defaultCurrency ?? "GBP");
       setApprover(null);
     }
   }, [open, editRule]);
