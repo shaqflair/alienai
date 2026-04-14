@@ -24,8 +24,6 @@ import {
   renameArtifactTitle,
 } from "./approval-actions";
 import { displayType } from "./_lib/artifact-detail-utils";
-import { getApprovedTimesheetEntries } from "@/app/actions/financial-plan-timesheets";
-import type { TimesheetEntry } from "@/components/artifacts/computeActuals";
 import { loadArtifactDetail } from "./_lib/loadArtifactDetail";
 import FinancialPlanAuditTrail from "@/components/artifacts/FinancialPlanAuditTrail";
 
@@ -229,7 +227,6 @@ export default async function ArtifactDetailPage({
   // Critical fix:
   // Keep this declared in the main function scope before any conditional render/return.
   // This prevents the server bundle from ever referencing an undeclared identifier.
-  let initialTimesheetEntries: TimesheetEntry[] = [];
 
   const vm = await loadArtifactDetail(Promise.resolve({ id: projectParam, artifactId: artifactParam }));
 
@@ -566,23 +563,23 @@ export default async function ArtifactDetailPage({
     redirect(artifactPath);
   }
 
-  // Fetch approved timesheet entries server-side for financial plan
-  if (isFinancialPlan && projectUuid) {
-    try {
-      const contentJson = typedInitialJson ?? (artifact as any)?.content_json ?? null;
-      const resourceIds: string[] = Array.isArray(contentJson?.resources)
-        ? contentJson.resources.map((r: any) => String(r?.id ?? "")).filter(Boolean)
-        : [];
 
-      const tsResult = await getApprovedTimesheetEntries(String(projectUuid), resourceIds);
-      if (tsResult?.ok && Array.isArray(tsResult.entries)) {
-        initialTimesheetEntries = tsResult.entries as TimesheetEntry[];
-      } else {
-        initialTimesheetEntries = [];
-      }
-    } catch {
-      initialTimesheetEntries = [];
-    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   }
 
   const jsonSaveAction = isFinancialPlan ? updateArtifactJsonSilent : updateArtifactJsonArgs;
@@ -1254,7 +1251,6 @@ export default async function ArtifactDetailPage({
             updateArtifactJsonAction={jsonSaveAction}
             isApprover={isApproverViewingSubmitted}
             requestChangesWithCommentsAction={requestChangesWithCommentsAction}
-            initialTimesheetEntries={initialTimesheetEntries}
           />
         </div>
 
@@ -1336,7 +1332,6 @@ export default async function ArtifactDetailPage({
           updateArtifactJsonAction={jsonSaveAction}
           isApprover={isApproverViewingSubmitted}
           requestChangesWithCommentsAction={requestChangesWithCommentsAction}
-          initialTimesheetEntries={initialTimesheetEntries}
         />
       </div>
 
