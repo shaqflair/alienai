@@ -229,7 +229,6 @@ export default async function ArtifactDetailPage({
   // Critical fix:
   // Keep this declared in the main function scope before any conditional render/return.
   // This prevents the server bundle from ever referencing an undeclared identifier.
-  let initialTimesheetEntries: TimesheetEntry[] = [];
 
   const vm = await loadArtifactDetail(Promise.resolve({ id: projectParam, artifactId: artifactParam }));
 
@@ -575,14 +574,8 @@ export default async function ArtifactDetailPage({
         : [];
 
       const tsResult = await getApprovedTimesheetEntries(String(projectUuid), resourceIds);
-      if (tsResult?.ok && Array.isArray(tsResult.entries)) {
-        initialTimesheetEntries = tsResult.entries as TimesheetEntry[];
-      } else {
-        initialTimesheetEntries = [];
-      }
-    } catch {
-      initialTimesheetEntries = [];
-    }
+      if (tsResult?.ok && Array.isArray(tsResult.entries)) {      } else {      }
+    } catch {    }
   }
 
   const jsonSaveAction = isFinancialPlan ? updateArtifactJsonSilent : updateArtifactJsonArgs;
@@ -1254,7 +1247,7 @@ export default async function ArtifactDetailPage({
             updateArtifactJsonAction={jsonSaveAction}
             isApprover={isApproverViewingSubmitted}
             requestChangesWithCommentsAction={requestChangesWithCommentsAction}
-            initialTimesheetEntries={initialTimesheetEntries}
+            initialTimesheetEntries={[]}
           />
         </div>
 
@@ -1336,7 +1329,7 @@ export default async function ArtifactDetailPage({
           updateArtifactJsonAction={jsonSaveAction}
           isApprover={isApproverViewingSubmitted}
           requestChangesWithCommentsAction={requestChangesWithCommentsAction}
-          initialTimesheetEntries={initialTimesheetEntries}
+          initialTimesheetEntries={[]}
         />
       </div>
 
