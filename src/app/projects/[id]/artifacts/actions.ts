@@ -1138,3 +1138,4 @@ export async function setArtifactCurrentAction(args: {
     return { ok: false, error: e?.message ?? "Failed to set current" };
   }
 }
+
