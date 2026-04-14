@@ -231,13 +231,15 @@ export default async function ProjectPage({
       const { data: proj } = await supabase
         .from("projects").select("organisation_id").eq("id", rawId).maybeSingle();
       if (proj?.organisation_id) activeOrgId = String(proj.organisation_id);
-      const defaultCurrency = await getOrgCurrency(activeOrgId ?? "").catch(() => "GBP");
     }
     if (!activeOrgId) notFound();
   }
-
+  const defaultCurrency = await getOrgCurrency(activeOrgId ?? "").catch(() => "GBP");
   if (!rawId) notFound();
   if (RESERVED.has(rawId.toLowerCase())) redirect("/projects");
+
+
+
 
   const resolved = await resolveProjectUuidFast(supabase, rawId, activeOrgId);
   if (!resolved?.projectUuid) notFound();
