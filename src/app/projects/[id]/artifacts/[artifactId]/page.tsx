@@ -562,7 +562,7 @@ export default async function ArtifactDetailPage({
 
     revalidatePath(artifactsPath);
     revalidatePath(artifactPath);
-    redirect(artifactPath);
+
   }
 
 
