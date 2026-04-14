@@ -18,24 +18,29 @@ export async function applyOrgCurrencyToAllPlans(
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) return { ok: false, updated: 0, error: "Unauthorized" };
 
-  // Get all current financial plan artifacts for this org
+  // Step 1 - get all project IDs for this org
+  const { data: projects, error: projErr } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("organisation_id", organisationId);
+
+  if (projErr) return { ok: false, updated: 0, error: projErr.message };
+  if (!projects?.length) return { ok: true, updated: 0 };
+
+  const projectIds = projects.map((p: any) => p.id);
+
+  // Step 2 - get all current financial plan artifacts for these projects
   const { data: artifacts, error: fetchErr } = await supabase
     .from("artifacts")
     .select("id, content_json")
     .eq("is_current", true)
     .eq("artifact_type", "financial_plan")
-    .in(
-      "project_id",
-      supabase
-        .from("projects")
-        .select("id")
-        .eq("organisation_id", organisationId)
-    );
+    .in("project_id", projectIds);
 
   if (fetchErr) return { ok: false, updated: 0, error: fetchErr.message };
   if (!artifacts?.length) return { ok: true, updated: 0 };
 
-  // Update each artifact content_json.currency
+  // Step 3 - update each artifact content_json.currency
   let updated = 0;
   for (const art of artifacts) {
     const existing = (art.content_json as any) ?? {};
