@@ -275,17 +275,6 @@ export default async function ArtifactDetailPage({
 
   const isWeeklyReport = mode === "weekly_report" || !!weeklyMode;
   const isFinancialPlan = mode === "financial_plan" || !!financialPlanMode;
-  const initialTimesheetEntries: TimesheetEntry[] = await (async () => {
-    if (!isFinancialPlan || !projectUuid) return [];
-    try {
-      const contentJson = typedInitialJson ?? (artifact as any).content_json ?? null;
-      const resourceIds: string[] = Array.isArray(contentJson?.resources)
-        ? contentJson.resources.map((r: any) => String(r.id)).filter(Boolean)
-        : [];
-      const tsResult = await getApprovedTimesheetEntries(String(projectUuid), resourceIds);
-      return tsResult.ok ? tsResult.entries : [];
-    } catch { return []; }
-  })();
 
   const roleLower = String(myRole || "").toLowerCase();
   const canEditByRole = roleLower === "owner" || roleLower === "editor";
@@ -1260,7 +1249,7 @@ export default async function ArtifactDetailPage({
             updateArtifactJsonAction={jsonSaveAction}
             isApprover={isApproverViewingSubmitted}
             requestChangesWithCommentsAction={requestChangesWithCommentsAction}
-            initialTimesheetEntries={initialTimesheetEntries}
+            initialTimesheetEntries={[]}
           />
         </div>
 
@@ -1342,7 +1331,7 @@ export default async function ArtifactDetailPage({
           updateArtifactJsonAction={jsonSaveAction}
           isApprover={isApproverViewingSubmitted}
           requestChangesWithCommentsAction={requestChangesWithCommentsAction}
-          initialTimesheetEntries={initialTimesheetEntries}
+          initialTimesheetEntries={[]}
         />
       </div>
 
