@@ -1001,7 +1001,7 @@ export default function ArtifactBoardClient(props: {
   const projectHumanId = safeStr(props.projectHumanId).trim();
   const projectUuid    = safeStr(props.projectUuid || props.projectId).trim();
   const projectName    = safeStr(props.projectName).trim();
-  const projectCode    = useMemo(() => { const c = safeStr(props.projectCode).trim(); return looksLikeUuid(c) ? "" : c; }, [props.projectCode]);
+  const projectCode = useMemo(() => { const c = safeStr(props.projectCode).trim(); if (!c || c === "NaN" || c.includes("NaN") || looksLikeUuid(c)) return ""; return c; }, [props.projectCode]);
 
   const baseRows = useMemo(() => {
     const incoming = Array.isArray(props.rows) ? props.rows : [];
@@ -1268,5 +1268,6 @@ export default function ArtifactBoardClient(props: {
     </>
   );
 }
+
 
 
