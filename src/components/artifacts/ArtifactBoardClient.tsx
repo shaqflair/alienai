@@ -899,7 +899,7 @@ function AiPanel({ open, onClose, projectUuid, projectCode, projectName, project
             <div className="h-6 w-6 rounded-md flex items-center justify-center" style={{ background: "var(--ui-accentSoft)" }}><Sparkles className="h-3.5 w-3.5" style={{ color: "var(--ui-accent)" }} /></div>
             <div>
               <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ui-text)" }}>AI Assistant</span>
-              <span className="artifact-mono" style={{ fontSize: 10, color: "var(--ui-faint)", marginLeft: 8 }}>{scope === "org" ? "Portfolio" : projectCode || projectHumanId || projectName || "â€”"}</span>
+              <span className="artifact-mono" style={{ fontSize: 10, color: "var(--ui-faint)", marginLeft: 8 }}>{scope === "org" ? "Portfolio" : projectCode || projectName || "—"}</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1268,6 +1268,7 @@ export default function ArtifactBoardClient(props: {
     </>
   );
 }
+
 
 
 
