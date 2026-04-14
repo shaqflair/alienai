@@ -306,7 +306,7 @@ function FinancialPlanEditorHost({
   onDraftRevChange?: (next: number) => void;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
   defaultCurrency?: string;
-})) {
+}) {
   const [content, setContent] = useState<FinancialPlanContent>(() => {
     if (
       initialJson &&
